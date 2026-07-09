@@ -141,13 +141,11 @@ fn is_executable_file(path: &Path) -> bool {
         metadata.permissions().mode() & EXECUTABLE_BITS != 0
     }
 
-    #[cfg(not(unix))]
-    fn is_executable(_metadata: &std::fs::Metadata) -> bool {
-        true
-    }
-
     match std::fs::metadata(path) {
-        Ok(metadata) if metadata.is_file() => is_executable(&metadata),
+        #[cfg(unix)]
+        Ok(metadata) => metadata.is_file() && is_executable(&metadata),
+        #[cfg(not(unix))]
+        Ok(metadata) => metadata.is_file(),
         _ => false,
     }
 }
