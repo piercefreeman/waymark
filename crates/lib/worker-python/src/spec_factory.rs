@@ -1,9 +1,4 @@
-//! Resolved, ready-to-launch Python worker configuration.
-//!
-//! [`Config`] is declarative — what the caller *asks for*. [`SpecFactory`]
-//! is the *materialized* result of resolving that against the environment
-//! (executable lookup, working directory, `PYTHONPATH`). All fallible and
-//! blocking work happens once, here, in [`resolve`].
+//! Resolve ['Config'] into a ['SpecFactory'].
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -11,12 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::Config;
 
 /// A fully resolved worker configuration, ready to mint a [`crate::Spec`]
-/// without any further I/O once the late-bound bridge address is known.
-///
-/// The environment (`PYTHONPATH`, current working directory, and the
-/// `<crate>/python` package-root probe) is snapshotted once at [`resolve`]
-/// time and frozen here; it is *not* re-read when `prepare_spawn_params` runs
-/// on a later worker recycle.
+/// without any further I/O.
 #[derive(Clone, Debug)]
 pub struct SpecFactory {
     pub(crate) program: PathBuf,
@@ -38,38 +28,20 @@ pub enum ResolveError {
     Join(#[source] tokio::task::JoinError),
 }
 
-/// Resolve a declarative [`Config`] into a [`SpecFactory`].
-///
-/// Runs all filesystem probing on a blocking thread (via
-/// [`tokio::task::spawn_blocking`]) so the async runtime is never blocked,
-/// and returns errors instead of panicking.
-///
-/// # Errors
-///
-/// Returns [`ResolveError::CurrentDir`] if the current working directory cannot
-/// be read, or [`ResolveError::Join`] if the blocking resolution task panics or
-/// is cancelled.
+/// Resolve a declarative [`Config`] into a [`SpecFactory`] without blocking the runtime.
 pub async fn resolve(config: Config) -> Result<SpecFactory, ResolveError> {
-    // A panic inside `resolve_blocking` is surfaced as `ResolveError::Join` (via
-    // `JoinError`) rather than resumed: config resolution holds no partial
-    // state to corrupt, so a clean error is preferable to aborting.
-    // (Contrast worker-process, which `resume_unwind`s associated-task panics.)
     tokio::task::spawn_blocking(move || resolve_blocking(config))
         .await
         .map_err(ResolveError::Join)?
 }
 
-/// The blocking half of [`resolve`]. Must only be called from a blocking
-/// context (e.g. inside `spawn_blocking`).
+/// Perform blocking work to resolve a config.
 fn resolve_blocking(config: Config) -> Result<SpecFactory, ResolveError> {
     let (program, args) = match config.script_path {
         Some(path) => (path, config.script_args),
         None => default_runner(),
     };
 
-    // The python package ships next to this crate at `<crate>/python`. When
-    // present we run from there and add it (plus its `src`/`proto`
-    // subdirs) to PYTHONPATH; otherwise we fall back to the current dir.
     let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python");
     let package_root_is_dir = package_root.is_dir();
 
@@ -104,10 +76,6 @@ fn resolve_blocking(config: Config) -> Result<SpecFactory, ResolveError> {
         _ => joined_python_path,
     };
 
-    // Logged once, here, at resolution time (not per spawn): records the
-    // effective PYTHONPATH and whether we ran from the bundled package root
-    // or fell back to the cwd — the usual culprits when a worker can't
-    // import its user modules.
     tracing::info!(
         working_dir = %working_dir.display(),
         python_path = %python_path,
@@ -125,10 +93,6 @@ fn resolve_blocking(config: Config) -> Result<SpecFactory, ResolveError> {
 }
 
 /// Find the default Python runner.
-/// Prefers `waymark-worker` if in PATH, otherwise uses `uv run`.
-///
-/// Performs blocking filesystem lookups; only call from a blocking context
-/// (invoked from `resolve` inside `spawn_blocking`).
 fn default_runner() -> (PathBuf, Vec<String>) {
     if let Some(path) = find_executable("waymark-worker") {
         return (path, Vec::new());
@@ -144,11 +108,7 @@ fn default_runner() -> (PathBuf, Vec<String>) {
     )
 }
 
-/// Search PATH for an executable file.
-///
-/// Follows symlinks (so a symlinked binary on PATH is found) and, on unix,
-/// requires the execute bit to be set so we don't return a non-executable
-/// file that merely shares the name.
+/// Search PATH for an executable file, following symlinks.
 fn find_executable(bin: impl AsRef<Path>) -> Option<PathBuf> {
     let bin = bin.as_ref();
     let path_var = std::env::var_os("PATH")?;
@@ -171,7 +131,6 @@ fn find_executable(bin: impl AsRef<Path>) -> Option<PathBuf> {
 /// Return true if `path` resolves (following symlinks) to a regular file that
 /// is executable.
 fn is_executable_file(path: &Path) -> bool {
-    // `std::fs::metadata` follows symlinks (unlike `symlink_metadata`).
     match std::fs::metadata(path) {
         Ok(metadata) if metadata.is_file() => is_executable(&metadata),
         _ => false,
@@ -179,14 +138,10 @@ fn is_executable_file(path: &Path) -> bool {
 }
 
 /// Return whether `metadata` grants execute permission to anyone (owner/group/other).
-///
-/// `std` has no `is_executable`, so on unix we test the mode bits directly; on
-/// other platforms executability is governed by file extension/ACLs rather than
-/// a permission bit, so any regular file is treated as runnable.
 #[cfg(unix)]
 fn is_executable(metadata: &std::fs::Metadata) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    // Execute bits for owner, group, and other (`--x--x--x`).
+    // owner, group, and other (`--x--x--x`).
     const EXECUTABLE_BITS: u32 = 0o111;
     metadata.permissions().mode() & EXECUTABLE_BITS != 0
 }
@@ -196,8 +151,7 @@ fn is_executable(_metadata: &std::fs::Metadata) -> bool {
     true
 }
 
-/// Assemble the launch [`tokio::process::Command`] for a worker from a
-/// resolved [`SpecFactory`] and the late-bound bridge address.
+/// Assemble the launch command.
 pub(crate) fn build_command(
     factory: &SpecFactory,
     bridge_server_addr: SocketAddr,
@@ -243,8 +197,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn is_executable_file_accepts_real_executable_via_symlink() {
-        // /bin/sh is an executable file and is a symlink on many systems,
-        // which exercises the symlink-following path.
         assert!(is_executable_file(Path::new("/bin/sh")));
     }
 
@@ -259,8 +211,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn is_executable_file_rejects_non_executable_file() {
-        // A regular file without any exec bit (0o111) must not be treated as
-        // executable. The crate's own Cargo.toml is such a file.
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
         assert!(!is_executable_file(&manifest));
     }
