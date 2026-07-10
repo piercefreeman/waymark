@@ -126,6 +126,7 @@ mod tests {
             attempt_number: 1,
             dispatch_token: Uuid::new_v4(),
             result: UncheckedExecutionResult(json!({"ok": true})),
+            metadata: Vec::new(),
         }
     }
 

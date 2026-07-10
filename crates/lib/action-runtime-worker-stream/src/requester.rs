@@ -70,6 +70,10 @@ fn build_dispatch(
         max_retries: Some(max_retries),
         attempt_number: None,
         dispatch_token: None,
+        // TODO: encode the rich `ActionCallCorrelation` into these metadata
+        // bytes instead of packing it into `action_id` above; the completion
+        // side would then decode the bytes rather than parsing `action_id`.
+        metadata: Vec::new(),
     };
 
     Ok(proto::WorkflowStreamResponse {

@@ -168,6 +168,7 @@ class ActionDispatch(google.protobuf.message.Message):
     MAX_RETRIES_FIELD_NUMBER: builtins.int
     ATTEMPT_NUMBER_FIELD_NUMBER: builtins.int
     DISPATCH_TOKEN_FIELD_NUMBER: builtins.int
+    METADATA_FIELD_NUMBER: builtins.int
     action_id: builtins.str
     """Unique action identifier"""
     instance_id: builtins.str
@@ -186,6 +187,8 @@ class ActionDispatch(google.protobuf.message.Message):
     attempt_number: builtins.int
     dispatch_token: builtins.str
     """UUID for result correlation"""
+    metadata: builtins.bytes
+    """Opaque server correlation metadata; workers echo it untouched"""
     @property
     def kwargs(self) -> Global___WorkflowArguments:
         """Keyword arguments for the action"""
@@ -203,6 +206,7 @@ class ActionDispatch(google.protobuf.message.Message):
         max_retries: builtins.int | None = ...,
         attempt_number: builtins.int | None = ...,
         dispatch_token: builtins.str | None = ...,
+        metadata: builtins.bytes = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -252,6 +256,8 @@ class ActionDispatch(google.protobuf.message.Message):
             b"kwargs",
             "max_retries",
             b"max_retries",
+            "metadata",
+            b"metadata",
             "module_name",
             b"module_name",
             "sequence",
@@ -293,6 +299,7 @@ class ActionResult(google.protobuf.message.Message):
     DISPATCH_TOKEN_FIELD_NUMBER: builtins.int
     ERROR_TYPE_FIELD_NUMBER: builtins.int
     ERROR_MESSAGE_FIELD_NUMBER: builtins.int
+    METADATA_FIELD_NUMBER: builtins.int
     action_id: builtins.str
     success: builtins.bool
     worker_start_ns: builtins.int
@@ -304,6 +311,8 @@ class ActionResult(google.protobuf.message.Message):
     """Exception type if success=false"""
     error_message: builtins.str
     """Exception message if success=false"""
+    metadata: builtins.bytes
+    """Opaque server correlation metadata echoed from the dispatch"""
     @property
     def payload(self) -> Global___WorkflowArguments:
         """Result or error details"""
@@ -319,6 +328,7 @@ class ActionResult(google.protobuf.message.Message):
         dispatch_token: builtins.str | None = ...,
         error_type: builtins.str | None = ...,
         error_message: builtins.str | None = ...,
+        metadata: builtins.bytes = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -356,6 +366,8 @@ class ActionResult(google.protobuf.message.Message):
             b"error_message",
             "error_type",
             b"error_type",
+            "metadata",
+            b"metadata",
             "payload",
             b"payload",
             "success",

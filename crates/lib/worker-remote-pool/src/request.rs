@@ -31,6 +31,7 @@ pub fn to_dispatch_payload(
         timeout_seconds,
         attempt_number,
         dispatch_token,
+        metadata,
     } = request;
 
     let Some(module_name) = module_name else {
@@ -43,6 +44,7 @@ pub fn to_dispatch_payload(
                 "RemoteWorkerPoolError",
                 "missing module name for action request",
             ))),
+            metadata,
         });
     };
 
@@ -57,6 +59,7 @@ pub fn to_dispatch_payload(
         max_retries: 0,
         attempt_number,
         dispatch_token,
+        metadata,
     };
 
     Ok(dispatch)
