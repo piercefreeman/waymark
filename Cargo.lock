@@ -4360,6 +4360,7 @@ name = "waymark-action-runtime-worker-stream"
 version = "0.1.0"
 dependencies = [
  "nonempty-collections",
+ "thiserror",
  "tokio",
  "tonic 0.11.0",
  "tracing",
@@ -4367,10 +4368,9 @@ dependencies = [
  "waymark-action-runtime-convert",
  "waymark-action-runtime-core",
  "waymark-action-runtime-metadata",
+ "waymark-action-runtime-metadata-codec",
  "waymark-convert-core",
  "waymark-proto",
- "waymark-vm-runtime-effect",
- "waymark-vm-runtime-promise-core",
  "waymark-vm-value",
 ]
 
@@ -5435,6 +5435,7 @@ dependencies = [
  "tonic 0.11.0",
  "tracing",
  "waymark-action-reconciler",
+ "waymark-action-runtime-metadata",
  "waymark-action-runtime-worker-stream",
  "waymark-convert-core",
  "waymark-extcall-reconciler",

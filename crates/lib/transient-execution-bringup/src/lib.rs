@@ -11,8 +11,8 @@
 use prost::Message as _;
 use tokio::sync::mpsc;
 use tonic::Status;
+use waymark_action_runtime_metadata::ActionCallCorrelation;
 use waymark_convert_core::TryConvert as _;
-use waymark_ids::InstanceId;
 use waymark_proto::messages as proto;
 use waymark_vm_driver_core::SnapshotPersister;
 use waymark_workflow_completion_core::Outcome;
@@ -104,21 +104,18 @@ pub struct ExecuteChannels {
 /// When `skip_sleep` is true, every sleep in the workflow resolves
 /// immediately instead of waiting for its deadline.
 pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> ExecuteChannels {
-    let vm_id = InstanceId::new_uuid_v4();
     let codec = waymark_vm_codec_rmp::RmpCodec;
 
     let (out_tx, out_rx) = mpsc::channel::<Result<proto::WorkflowStreamResponse, Status>>(32);
     let (action_result_tx, action_result_rx) = mpsc::channel::<proto::ActionResult>(32);
     let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();
 
-    let requester = waymark_action_runtime_worker_stream::WorkerStreamActionRequester {
-        tx: out_tx.clone(),
-        instance_id: vm_id.to_string(),
-    };
-    let provider =
-        waymark_action_runtime_worker_stream::WorkerStreamActionCallCompletionsProvider {
-            rx: action_result_rx,
-        };
+    let requester = waymark_action_runtime_worker_stream::WorkerStreamActionRequester::<
+        ActionCallCorrelation,
+    >::new(out_tx.clone());
+    let provider = waymark_action_runtime_worker_stream::WorkerStreamActionCallCompletionsProvider::<
+        ActionCallCorrelation,
+    >::new(action_result_rx);
 
     let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(skip_sleep);
