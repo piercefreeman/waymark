@@ -59,6 +59,8 @@ fn completion_from_result(
     result: &proto::ActionResult,
 ) -> Option<ActionCallCompletion<waymark_vm_value::ReadyValue, ActionCallCorrelation>> {
     let outcome = waymark_action_runtime_convert::Converter::convert(result);
+    // TODO: recover the rich `ActionCallCorrelation` by decoding
+    // `result.metadata` bytes instead of parsing it back out of `action_id`.
     let Some((effect_number, promise_state_id)) = parse_action_id(&result.action_id) else {
         tracing::warn!(
             ?result,

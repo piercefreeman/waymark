@@ -61,6 +61,7 @@ fn drops_unknown_execution_id() {
         attempt_number: 1,
         dispatch_token,
         result: UncheckedExecutionResult(serde_json::json!(null)),
+        metadata: Vec::new(),
     }]));
 
     assert_eq!(
@@ -98,6 +99,7 @@ fn drops_mismatched_executor_id() {
         attempt_number: 1,
         dispatch_token,
         result: UncheckedExecutionResult(serde_json::json!(null)),
+        metadata: Vec::new(),
     }]));
 
     assert!(
@@ -134,6 +136,7 @@ fn drops_stale_dispatch_token() {
         attempt_number: 1,
         dispatch_token: stale_token,
         result: UncheckedExecutionResult(serde_json::json!(null)),
+        metadata: Vec::new(),
     }]));
 
     assert!(
@@ -170,6 +173,7 @@ fn drops_stale_attempt_number() {
         attempt_number: 1,
         dispatch_token,
         result: UncheckedExecutionResult(serde_json::json!(null)),
+        metadata: Vec::new(),
     }]));
 
     assert!(
@@ -206,6 +210,7 @@ fn valid_decrements_inflight_and_routes_to_shard() {
         attempt_number: 1,
         dispatch_token,
         result: UncheckedExecutionResult(serde_json::json!(null)),
+        metadata: Vec::new(),
     }]));
 
     assert!(
@@ -256,6 +261,7 @@ fn blocked_instance_defers_completion_until_unblock() {
         attempt_number: 1,
         dispatch_token,
         result: UncheckedExecutionResult(serde_json::json!(null)),
+        metadata: Vec::new(),
     }]));
 
     assert!(
@@ -301,6 +307,7 @@ fn accepted_completion_for_unknown_shard_is_dropped_after_accounting() {
         attempt_number: 1,
         dispatch_token,
         result: UncheckedExecutionResult(serde_json::json!(null)),
+        metadata: Vec::new(),
     }]));
 
     assert!(

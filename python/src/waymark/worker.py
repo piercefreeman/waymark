@@ -148,6 +148,9 @@ async def _handle_dispatch(
     response.payload.CopyFrom(response_payload)
     if dispatch.dispatch_token:
         response.dispatch_token = dispatch.dispatch_token
+    # Echo the opaque server correlation metadata untouched.
+    if dispatch.metadata:
+        response.metadata = dispatch.metadata
     response_envelope = pb2.Envelope(
         delivery_id=envelope.delivery_id,
         partition_id=envelope.partition_id,

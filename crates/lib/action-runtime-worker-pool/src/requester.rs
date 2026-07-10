@@ -50,8 +50,13 @@ where
 
         let dispatch_token = uuid::Uuid::new_v4();
 
-        // Store the correlation so the completions provider can route
-        // the result back to the correct VM promise.
+        // Store the metadata so the completions provider can route the result
+        // back to the correct VM promise.
+        //
+        // TODO: encode the rich `request.metadata: Metadata` into bytes and
+        // carry it on the dispatch (`ActionRequest.metadata`, empty below) so
+        // the completion can recover it by decoding the echoed bytes, instead
+        // of routing through this in-memory correlation map.
         {
             let waymark_action_runtime_metadata::ActionCallCorrelation {
                 effect_number,
@@ -70,6 +75,8 @@ where
             timeout_seconds: request.action_ref.timeout_seconds,
             attempt_number: 1,
             dispatch_token,
+            // TODO: carry the encoded `request.metadata` bytes here instead of empty.
+            metadata: Vec::new(),
         };
 
         self.pool

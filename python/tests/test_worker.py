@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 
-from waymark import worker
+from waymark import worker, workflow_runtime
 from waymark.grpc_config import GRPC_CHANNEL_OPTIONS
 from waymark.proto import messages_pb2 as pb2
 
@@ -36,6 +36,70 @@ def test_send_ack_helper() -> None:
         ack = pb2.Ack()
         ack.ParseFromString(sent.payload)
         assert ack.acked_delivery_id == 7
+
+    asyncio.run(scenario())
+
+
+def test_handle_dispatch_echoes_metadata(monkeypatch) -> None:
+    metadata = b"\x2a\x00\x00\x00\x00\x00\x00\x00\x07\x00\x00\x00\x00\x00\x00\x00"
+
+    async def fake_execute_action(_dispatch: pb2.ActionDispatch) -> object:
+        return workflow_runtime.ActionExecutionResult(result="ok")
+
+    monkeypatch.setattr(workflow_runtime, "execute_action", fake_execute_action)
+
+    async def scenario() -> None:
+        outgoing: "asyncio.Queue[pb2.Envelope]" = asyncio.Queue()
+        dispatch = pb2.ActionDispatch(
+            action_id="a1",
+            action_name="noop",
+            dispatch_token="tok",
+            metadata=metadata,
+        )
+        envelope = pb2.Envelope(
+            delivery_id=5,
+            partition_id=1,
+            kind=pb2.MessageKind.MESSAGE_KIND_ACTION_DISPATCH,
+            payload=dispatch.SerializeToString(),
+        )
+        await worker._handle_dispatch(envelope, outgoing)
+
+        # First message is the ack, second is the action result.
+        ack = outgoing.get_nowait()
+        assert ack.kind == pb2.MessageKind.MESSAGE_KIND_ACK
+        result_envelope = outgoing.get_nowait()
+        assert result_envelope.kind == pb2.MessageKind.MESSAGE_KIND_ACTION_RESULT
+        result = pb2.ActionResult()
+        result.ParseFromString(result_envelope.payload)
+        assert result.success
+        assert result.dispatch_token == "tok"
+        assert result.metadata == metadata
+
+    asyncio.run(scenario())
+
+
+def test_handle_dispatch_without_metadata_leaves_it_empty(monkeypatch) -> None:
+    async def fake_execute_action(_dispatch: pb2.ActionDispatch) -> object:
+        return workflow_runtime.ActionExecutionResult(result="ok")
+
+    monkeypatch.setattr(workflow_runtime, "execute_action", fake_execute_action)
+
+    async def scenario() -> None:
+        outgoing: "asyncio.Queue[pb2.Envelope]" = asyncio.Queue()
+        dispatch = pb2.ActionDispatch(action_id="a1", action_name="noop")
+        envelope = pb2.Envelope(
+            delivery_id=6,
+            partition_id=1,
+            kind=pb2.MessageKind.MESSAGE_KIND_ACTION_DISPATCH,
+            payload=dispatch.SerializeToString(),
+        )
+        await worker._handle_dispatch(envelope, outgoing)
+
+        outgoing.get_nowait()  # ack
+        result_envelope = outgoing.get_nowait()
+        result = pb2.ActionResult()
+        result.ParseFromString(result_envelope.payload)
+        assert result.metadata == b""
 
     asyncio.run(scenario())
 
