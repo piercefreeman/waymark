@@ -1,48 +1,57 @@
 use tokio::sync::mpsc;
 use waymark_action_core::ActionRef;
 use waymark_action_runtime_core::ActionCallRequest;
-use waymark_action_runtime_metadata::ActionCallCorrelation;
+use waymark_action_runtime_metadata_codec::Encode;
 use waymark_convert_core::TryConvert;
 use waymark_proto::messages as proto;
 
 /// Sends action dispatches as [`proto::WorkflowStreamResponse`] messages
 /// on a tokio mpsc channel.
-pub struct WorkerStreamActionRequester {
+pub struct WorkerStreamActionRequester<Metadata> {
     /// Channel for sending workflow stream responses.
     pub tx: mpsc::Sender<Result<proto::WorkflowStreamResponse, tonic::Status>>,
 
-    /// Instance identifier included in each dispatch.
-    pub instance_id: String,
+    /// Phantom data for the metadata type parameter.
+    _metadata: core::marker::PhantomData<fn() -> Metadata>,
 }
 
-impl waymark_action_runtime_core::ActionCallRequester for WorkerStreamActionRequester {
+impl<Metadata> WorkerStreamActionRequester<Metadata> {
+    /// Create a new requester.
+    pub fn new(tx: mpsc::Sender<Result<proto::WorkflowStreamResponse, tonic::Status>>) -> Self {
+        Self {
+            tx,
+            _metadata: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<Metadata> waymark_action_runtime_core::ActionCallRequester
+    for WorkerStreamActionRequester<Metadata>
+where
+    Metadata: Encode + Send + 'static,
+{
     type Error = mpsc::error::SendError<Result<proto::WorkflowStreamResponse, tonic::Status>>;
 
     type Argument = waymark_vm_value::ReadyValue;
 
-    type Metadata = ActionCallCorrelation;
+    type Metadata = Metadata;
 
     fn request_action_call(
         &self,
         request: ActionCallRequest<Self::Argument, Self::Metadata>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send + '_ {
-        let result = build_dispatch(&self.instance_id, request);
+        let result = build_dispatch(request);
         async move { self.tx.send(result).await }
     }
 }
 
 #[allow(clippy::result_large_err)]
-fn build_dispatch(
-    instance_id: &str,
-    request: ActionCallRequest<waymark_vm_value::ReadyValue, ActionCallCorrelation>,
+fn build_dispatch<Metadata: Encode>(
+    request: ActionCallRequest<waymark_vm_value::ReadyValue, Metadata>,
 ) -> Result<proto::WorkflowStreamResponse, tonic::Status> {
     let ActionCallRequest {
         action_ref,
-        metadata:
-            ActionCallCorrelation {
-                effect_number,
-                promise_state_id,
-            },
+        metadata,
         arguments,
     } = request;
 
@@ -59,10 +68,13 @@ fn build_dispatch(
         waymark_action_runtime_convert::Converter::try_convert((&call_args[..], &arguments[..]))
             .map_err(|err| tonic::Status::internal(format!("action argument conversion: {err}")))?;
 
+    let mut encoded_metadata = Vec::new();
+    metadata.encode(&mut encoded_metadata);
+
     let dispatch = proto::ActionDispatch {
-        action_id: format!("{}/{:?}", effect_number, promise_state_id),
-        instance_id: instance_id.to_owned(),
-        sequence: u32::try_from(effect_number.0).unwrap_or(0),
+        action_id: String::new(),
+        instance_id: String::new(),
+        sequence: 0,
         action_name: action_name.clone(),
         module_name: module_name.clone().unwrap_or_default(),
         kwargs,
@@ -70,10 +82,7 @@ fn build_dispatch(
         max_retries: Some(max_retries),
         attempt_number: None,
         dispatch_token: None,
-        // TODO: encode the rich `ActionCallCorrelation` into these metadata
-        // bytes instead of packing it into `action_id` above; the completion
-        // side would then decode the bytes rather than parsing `action_id`.
-        metadata: Vec::new(),
+        metadata: encoded_metadata,
     };
 
     Ok(proto::WorkflowStreamResponse {
