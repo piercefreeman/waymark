@@ -1,4 +1,5 @@
 use waymark_action_runtime_core::ActionCallCompletion;
+use waymark_action_runtime_metadata::ActionCallCorrelation;
 use waymark_convert_core::Convert as _;
 
 use crate::DispatchCorrelationMap;
@@ -9,7 +10,7 @@ use crate::DispatchCorrelationMap;
 pub(crate) fn resolve_completion(
     correlation_map: &DispatchCorrelationMap,
     completion: waymark_worker_core::ActionCompletion,
-) -> Option<ActionCallCompletion<waymark_vm_value::ReadyValue>> {
+) -> Option<ActionCallCompletion<waymark_vm_value::ReadyValue, ActionCallCorrelation>> {
     let waymark_worker_core::ActionCompletion {
         executor_id: _,
         execution_id: _,
@@ -31,8 +32,10 @@ pub(crate) fn resolve_completion(
     };
 
     Some(ActionCallCompletion {
-        effect_number,
-        promise_state_id,
+        metadata: ActionCallCorrelation {
+            effect_number,
+            promise_state_id,
+        },
         outcome,
     })
 }

@@ -36,9 +36,11 @@ where
 
     type Argument = waymark_vm_value::ReadyValue;
 
+    type Metadata = waymark_action_runtime_metadata::ActionCallCorrelation;
+
     async fn request_action_call(
         &self,
-        request: waymark_action_runtime_core::ActionCallRequest<Self::Argument>,
+        request: waymark_action_runtime_core::ActionCallRequest<Self::Argument, Self::Metadata>,
     ) -> Result<(), Self::Error> {
         let kwargs = waymark_action_runtime_convert::Converter::try_convert((
             &request.action_ref.call_args[..],
@@ -51,11 +53,12 @@ where
         // Store the correlation so the completions provider can route
         // the result back to the correct VM promise.
         {
+            let waymark_action_runtime_metadata::ActionCallCorrelation {
+                effect_number,
+                promise_state_id,
+            } = request.metadata;
             let mut map = self.correlation_map.lock().unwrap();
-            map.insert(
-                dispatch_token,
-                (request.effect_number, request.promise_state_id),
-            );
+            map.insert(dispatch_token, (effect_number, promise_state_id));
         }
 
         let worker_request = waymark_worker_core::ActionRequest {

@@ -1,6 +1,7 @@
 use tokio::sync::mpsc;
 use waymark_action_core::ActionRef;
 use waymark_action_runtime_core::ActionCallRequest;
+use waymark_action_runtime_metadata::ActionCallCorrelation;
 use waymark_convert_core::TryConvert;
 use waymark_proto::messages as proto;
 
@@ -19,9 +20,11 @@ impl waymark_action_runtime_core::ActionCallRequester for WorkerStreamActionRequ
 
     type Argument = waymark_vm_value::ReadyValue;
 
+    type Metadata = ActionCallCorrelation;
+
     fn request_action_call(
         &self,
-        request: ActionCallRequest<Self::Argument>,
+        request: ActionCallRequest<Self::Argument, Self::Metadata>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send + '_ {
         let result = build_dispatch(&self.instance_id, request);
         async move { self.tx.send(result).await }
@@ -31,12 +34,15 @@ impl waymark_action_runtime_core::ActionCallRequester for WorkerStreamActionRequ
 #[allow(clippy::result_large_err)]
 fn build_dispatch(
     instance_id: &str,
-    request: ActionCallRequest<waymark_vm_value::ReadyValue>,
+    request: ActionCallRequest<waymark_vm_value::ReadyValue, ActionCallCorrelation>,
 ) -> Result<proto::WorkflowStreamResponse, tonic::Status> {
     let ActionCallRequest {
         action_ref,
-        effect_number,
-        promise_state_id,
+        metadata:
+            ActionCallCorrelation {
+                effect_number,
+                promise_state_id,
+            },
         arguments,
     } = request;
 
@@ -56,7 +62,7 @@ fn build_dispatch(
     let dispatch = proto::ActionDispatch {
         action_id: format!("{}/{:?}", effect_number, promise_state_id),
         instance_id: instance_id.to_owned(),
-        sequence: u32::try_from(request.effect_number.0).unwrap_or(0),
+        sequence: u32::try_from(effect_number.0).unwrap_or(0),
         action_name: action_name.clone(),
         module_name: module_name.clone().unwrap_or_default(),
         kwargs,

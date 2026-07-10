@@ -1,6 +1,4 @@
 use nonempty_collections::NEVec;
-use waymark_vm_runtime_effect::EffectNumber;
-use waymark_vm_runtime_promise_core::PromiseStateId;
 
 /// The outcome of a completed action call — either a value or an exception.
 pub enum ActionCallOutcome<Value> {
@@ -11,18 +9,21 @@ pub enum ActionCallOutcome<Value> {
     Exception(waymark_vm_runtime_exception::Exception<Value>),
 }
 
-/// A completed action call, pairing its originating effect and promise
-/// with the outcome.
-pub struct ActionCallCompletion<Value> {
-    /// The sequential number of the effect that triggered this call.
-    pub effect_number: EffectNumber,
-
-    /// The id of a promise state this action completion is for.
-    pub promise_state_id: PromiseStateId,
+/// A completed action call, pairing its correlation metadata with the outcome.
+pub struct ActionCallCompletion<Value, Metadata> {
+    /// Correlation metadata identifying which call this completion is for.
+    pub metadata: Metadata,
 
     /// The outcome of the action call.
     pub outcome: ActionCallOutcome<Value>,
 }
+
+/// The [`ActionCallCompletion`] type produced by a given
+/// [`ActionCallCompletionsProvider`], with its value and metadata resolved.
+pub type ActionCallCompletionFor<T> = ActionCallCompletion<
+    <T as ActionCallCompletionsProvider>::Value,
+    <T as ActionCallCompletionsProvider>::Metadata,
+>;
 
 /// A provider of completions for previously dispatched action calls.
 ///
@@ -35,6 +36,9 @@ pub trait ActionCallCompletionsProvider {
     /// The error returned when waiting for completions fails.
     type Error: core::fmt::Debug;
 
+    /// The correlation metadata carried by each completion.
+    type Metadata;
+
     /// Wait for action call completions to become available.
     ///
     /// Returns a non-empty list of [`ActionCallCompletion`]s when action calls
@@ -42,5 +46,5 @@ pub trait ActionCallCompletionsProvider {
     /// (e.g., the provider has shut down).
     fn wait_for_completions(
         &mut self,
-    ) -> impl Future<Output = Result<NEVec<ActionCallCompletion<Self::Value>>, Self::Error>> + Send + '_;
+    ) -> impl Future<Output = Result<NEVec<ActionCallCompletionFor<Self>>, Self::Error>> + Send + '_;
 }
