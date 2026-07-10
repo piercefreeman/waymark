@@ -1,6 +1,7 @@
 use nonempty_collections::NEVec;
 use tokio::sync::mpsc;
-use waymark_action_runtime_core::ActionCallCompletion;
+use waymark_action_runtime_core::{ActionCallCompletion, ActionCallCompletionFor};
+use waymark_action_runtime_metadata::ActionCallCorrelation;
 use waymark_convert_core::Convert as _;
 use waymark_proto::messages as proto;
 use waymark_vm_runtime_effect::EffectNumber;
@@ -25,10 +26,11 @@ impl waymark_action_runtime_core::ActionCallCompletionsProvider
 {
     type Value = waymark_vm_value::ReadyValue;
     type Error = ReceiveError;
+    type Metadata = ActionCallCorrelation;
 
     async fn wait_for_completions(
         &mut self,
-    ) -> Result<NEVec<ActionCallCompletion<Self::Value>>, Self::Error> {
+    ) -> Result<NEVec<ActionCallCompletionFor<Self>>, Self::Error> {
         loop {
             let result = self.rx.recv().await.ok_or(ReceiveError::ChannelClosed)?;
 
@@ -55,7 +57,7 @@ impl waymark_action_runtime_core::ActionCallCompletionsProvider
 
 fn completion_from_result(
     result: &proto::ActionResult,
-) -> Option<ActionCallCompletion<waymark_vm_value::ReadyValue>> {
+) -> Option<ActionCallCompletion<waymark_vm_value::ReadyValue, ActionCallCorrelation>> {
     let outcome = waymark_action_runtime_convert::Converter::convert(result);
     let Some((effect_number, promise_state_id)) = parse_action_id(&result.action_id) else {
         tracing::warn!(
@@ -65,8 +67,10 @@ fn completion_from_result(
         return None;
     };
     Some(ActionCallCompletion {
-        effect_number,
-        promise_state_id,
+        metadata: ActionCallCorrelation {
+            effect_number,
+            promise_state_id,
+        },
         outcome,
     })
 }

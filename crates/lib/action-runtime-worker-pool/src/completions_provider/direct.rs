@@ -1,5 +1,6 @@
 use nonempty_collections::NEVec;
-use waymark_action_runtime_core::ActionCallCompletion;
+use waymark_action_runtime_core::ActionCallCompletionFor;
+use waymark_action_runtime_metadata::ActionCallCorrelation;
 
 use super::shared::resolve_completion;
 use crate::DispatchCorrelationMap;
@@ -36,10 +37,11 @@ where
 {
     type Value = waymark_vm_value::ReadyValue;
     type Error = DirectCompletionsError;
+    type Metadata = ActionCallCorrelation;
 
     async fn wait_for_completions(
         &mut self,
-    ) -> Result<NEVec<ActionCallCompletion<Self::Value>>, Self::Error> {
+    ) -> Result<NEVec<ActionCallCompletionFor<Self>>, Self::Error> {
         loop {
             let maybe_completions = self.pool.poll_complete().await;
             let completions = maybe_completions.ok_or(DirectCompletionsError::WorkerPoolGone)?;

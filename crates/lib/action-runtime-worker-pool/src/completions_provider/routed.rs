@@ -27,7 +27,8 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use nonempty_collections::NEVec;
 use tokio::sync::mpsc;
-use waymark_action_runtime_core::ActionCallCompletion;
+use waymark_action_runtime_core::ActionCallCompletionFor;
+use waymark_action_runtime_metadata::ActionCallCorrelation;
 
 use super::shared::resolve_completion;
 use crate::DispatchCorrelationMap;
@@ -175,10 +176,11 @@ impl Drop for RoutedCompletionsHandle {
 impl waymark_action_runtime_core::ActionCallCompletionsProvider for RoutedCompletionsHandle {
     type Value = waymark_vm_value::ReadyValue;
     type Error = RoutedCompletionsError;
+    type Metadata = ActionCallCorrelation;
 
     async fn wait_for_completions(
         &mut self,
-    ) -> Result<NEVec<ActionCallCompletion<Self::Value>>, Self::Error> {
+    ) -> Result<NEVec<ActionCallCompletionFor<Self>>, Self::Error> {
         loop {
             // Block until at least one completion arrives, then drain any
             // additional ones that are immediately available.
