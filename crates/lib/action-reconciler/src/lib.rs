@@ -9,6 +9,7 @@
 use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
 use waymark_action_core::ActionRef;
 use waymark_action_runtime_core::{ActionCallCompletion, ActionCallOutcome, ActionCallRequest};
+use waymark_action_runtime_metadata::{ActionCallCorrelated, ActionCallCorrelation};
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
@@ -49,7 +50,8 @@ pub struct Poller<ActionCallCompletionsProvider> {
 
 impl<ActionCallRequester> Handler<ActionCallRequester>
 where
-    ActionCallRequester: waymark_action_runtime_core::ActionCallRequester,
+    ActionCallRequester:
+        waymark_action_runtime_core::ActionCallRequester<Metadata = ActionCallCorrelation>,
 {
     /// Dispatch an action call.
     pub async fn request(
@@ -61,8 +63,10 @@ where
     ) -> Result<(), HandleEffectError<ActionCallRequester::Error>> {
         let request = ActionCallRequest {
             action_ref,
-            effect_number,
-            promise_state_id,
+            metadata: ActionCallCorrelation {
+                effect_number,
+                promise_state_id,
+            },
             arguments,
         };
 
@@ -78,6 +82,7 @@ where
 impl<ActionCallCompletionsProvider> Poller<ActionCallCompletionsProvider>
 where
     ActionCallCompletionsProvider: waymark_action_runtime_core::ActionCallCompletionsProvider,
+    ActionCallCompletionsProvider::Metadata: ActionCallCorrelated,
 {
     /// Wait for the next batch of action-completion settlements.
     pub async fn poll<Ack>(
@@ -94,11 +99,10 @@ where
         let settlements: NEVec<_> = completions
             .into_nonempty_iter()
             .map(|completion| {
-                let ActionCallCompletion {
-                    effect_number: _,
-                    promise_state_id,
-                    outcome,
-                } = completion;
+                let ActionCallCompletion { metadata, outcome } = completion;
+                let ActionCallCorrelation {
+                    promise_state_id, ..
+                } = metadata.call_correlation();
 
                 let resolution = match outcome {
                     ActionCallOutcome::Value(value) => PromiseResolution::Resolved(value),
@@ -142,7 +146,9 @@ where
 
 impl<Requester> waymark_extcall_reconciler_core::ActionEffectHandler for Handler<Requester>
 where
-    Requester: waymark_action_runtime_core::ActionCallRequester + Send + Sync,
+    Requester: waymark_action_runtime_core::ActionCallRequester<Metadata = ActionCallCorrelation>
+        + Send
+        + Sync,
     Requester::Argument: Send,
 {
     type Error = HandleEffectError<Requester::Error>;
@@ -163,6 +169,7 @@ where
 impl<Provider> waymark_extcall_reconciler_core::ActionPromiseSettler for Poller<Provider>
 where
     Provider: waymark_action_runtime_core::ActionCallCompletionsProvider + Send + Sync,
+    Provider::Metadata: ActionCallCorrelated,
 {
     type Value = Provider::Value;
     type Error = Provider::Error;

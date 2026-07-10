@@ -17,6 +17,7 @@ use mockall::mock;
 use waymark_action_runtime_core::{
     ActionCallCompletion, ActionCallCompletionsProvider, ActionCallRequest, ActionCallRequester,
 };
+use waymark_action_runtime_metadata::ActionCallCorrelation;
 
 /// Error type for the mock action requester.
 #[derive(Debug, thiserror::Error)]
@@ -34,10 +35,11 @@ mock! {
     impl ActionCallRequester for ActionRequester {
         type Error = MockRequesterError;
         type Argument = waymark_vm_value::ReadyValue;
+        type Metadata = ActionCallCorrelation;
 
         async fn request_action_call(
             &self,
-            request: ActionCallRequest<waymark_vm_value::ReadyValue>,
+            request: ActionCallRequest<waymark_vm_value::ReadyValue, ActionCallCorrelation>,
         ) -> Result<(), MockRequesterError>;
     }
 }
@@ -48,12 +50,13 @@ mock! {
     impl ActionCallCompletionsProvider for CompletionsProvider {
         type Value = waymark_vm_value::ReadyValue;
         type Error = MockProviderError;
+        type Metadata = ActionCallCorrelation;
 
         fn wait_for_completions(
             &mut self,
         ) -> impl Future<
             Output = Result<
-                NEVec<ActionCallCompletion<waymark_vm_value::ReadyValue>>,
+                NEVec<ActionCallCompletion<waymark_vm_value::ReadyValue, ActionCallCorrelation>>,
                 MockProviderError,
             >,
         > + Send;
