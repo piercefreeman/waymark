@@ -4277,6 +4277,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-action-runtime-completions-router"
+version = "0.1.0"
+dependencies = [
+ "dashmap 6.2.1",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "waymark-action-runtime-completions-router-core",
+ "waymark-action-runtime-core",
+ "waymark-ids",
+]
+
+[[package]]
+name = "waymark-action-runtime-completions-router-core"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-action-runtime-convert"
 version = "0.1.0"
 dependencies = [
