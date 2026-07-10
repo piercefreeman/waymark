@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 waymark-action-reconciler = { workspace = true }
+waymark-action-runtime-completions-router = { workspace = true }
 waymark-action-runtime-worker-pool = { workspace = true }
 waymark-execution-driver = { workspace = true }
 waymark-extcall-reconciler = { workspace = true }

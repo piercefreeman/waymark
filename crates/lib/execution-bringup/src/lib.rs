@@ -162,29 +162,36 @@ where
         shutdown_token.child_token(),
     );
 
-    // Routed completions provider — polls the pool and pushes completions
-    // into per-VM channels so each VM only receives its own results.
-    let completions_provider = Arc::new(
-        waymark_action_runtime_worker_pool::RoutedCompletionsProvider::new(worker_pool.clone()),
+    // Routed completions provider — polls the pool (via a direct provider
+    // that stamps each completion with its owning VM id) and demultiplexes
+    // completions into per-VM channels so each VM only receives its own
+    // results.
+    let mut router = waymark_action_runtime_completions_router::RoutedCompletionsProvider::new(
+        waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::new(
+            worker_pool.clone(),
+        ),
     );
+    let registrar = router.registrar();
 
-    // Background task: poll the worker pool and route completions to VMs.
+    // Background task: poll the pool and route completions to VMs.
+    //
+    // This is the only path completions take to reach VMs, so if this task
+    // stops while the subsystem is still running, every VM with an in-flight
+    // action stalls waiting on a completion that can never be routed. The
+    // drop guard escalates any exit — completions source failure, panic —
+    // into a subsystem-wide shutdown instead of parking silently.
     let poll_route_handle = tokio::spawn({
-        let provider = Arc::clone(&completions_provider);
         let shutdown = shutdown_token.child_token();
+        let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
+            let _shutdown_guard = shutdown_guard;
             loop {
                 tokio::select! {
                     _ = shutdown.cancelled() => break,
-                    result = provider.poll_and_route() => {
-                        match result {
-                            Ok(()) => {}
-                            Err(
-                                waymark_action_runtime_worker_pool::PollRouteError::WorkerPoolGone,
-                            ) => {
-                                tracing::info!("worker pool exhausted, stopping poll router");
-                                break;
-                            }
+                    result = router.poll_and_route() => {
+                        if let Err(error) = result {
+                            tracing::error!(?error, "completions source failed, stopping poll router and shutting down");
+                            break;
                         }
                     }
                 }
@@ -195,19 +202,15 @@ where
     let effector_provider = waymark_state_vm_runtimes_core::FnEffectorProvider::new({
         let backend = Arc::clone(&backend);
         let codec = Arc::clone(&codec);
-        let completions = Arc::clone(&completions_provider);
+        let registrar = registrar.clone();
         move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
-            // Each VM gets its own correlation map and completions handle.
-            let correlation_map: waymark_action_runtime_worker_pool::DispatchCorrelationMap =
-                Default::default();
+            let action_call_requester =
+                waymark_action_runtime_worker_pool::WorkerPoolActionRequester {
+                    pool: worker_pool.clone(),
+                    vm_id: *vm_id,
+                };
 
-            let action_call_requester = waymark_action_runtime_worker_pool::WorkerPoolRequester {
-                pool: worker_pool.clone(),
-                executor_id: *vm_id,
-                correlation_map: Arc::clone(&correlation_map),
-            };
-
-            let action_call_complations_provider = completions.register(*vm_id, correlation_map);
+            let action_call_complations_provider = registrar.register(*vm_id);
 
             let (action_handler, action_poller) = waymark_action_reconciler::new(
                 action_call_requester,
