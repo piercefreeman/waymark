@@ -383,6 +383,9 @@ async def execute_workflow(payload: bytes) -> bytes:
                     if execution.exception is not None
                     else "",
                 )
+                # Echo the opaque server correlation metadata untouched.
+                if dispatch.metadata:
+                    action_result.metadata = dispatch.metadata
                 LOGGER.debug(
                     "pytest stream result: action_id=%s success=%s",
                     dispatch.action_id,

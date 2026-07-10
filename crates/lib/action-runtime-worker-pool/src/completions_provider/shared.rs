@@ -17,10 +17,14 @@ pub(crate) fn resolve_completion(
         attempt_number: _,
         dispatch_token,
         result,
+        metadata: _,
     } = completion;
 
     let outcome = waymark_action_runtime_convert::Converter::convert(result);
 
+    // TODO: decode the rich `Metadata` from the completion's echoed `metadata`
+    // bytes (ignored in the destructure above) instead of recovering it from
+    // this in-memory correlation map.
     let correlation = {
         let mut map = correlation_map.lock().unwrap();
         map.remove(&dispatch_token)

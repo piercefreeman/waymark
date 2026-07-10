@@ -28,6 +28,7 @@ where
     let execution_id = request.execution_id;
     let attempt_number = request.attempt_number;
     let dispatch_token = request.dispatch_token;
+    let metadata = request.metadata.clone();
 
     let dispatch = match request::to_dispatch_payload(request) {
         Ok(dispatch) => dispatch,
@@ -60,6 +61,7 @@ where
                 attempt_number,
                 dispatch_token,
                 result: UncheckedExecutionResult(response::decode_action_result(&metrics)),
+                metadata,
             }
         }
         Err(err) => {
@@ -73,6 +75,7 @@ where
                     "RemoteWorkerPoolError",
                     err.to_string(),
                 ))),
+                metadata,
             }
         }
     }
