@@ -84,6 +84,18 @@ impl<VmId: Copy, Metadata> VmScoped for WithVmId<VmId, Metadata> {
 }
 
 // ---------------------------------------------------------------------------
+// Routed
+// ---------------------------------------------------------------------------
+
+impl<VmId: Copy, Metadata> waymark_action_runtime_completions_router_core::Routed<VmId>
+    for WithVmId<VmId, Metadata>
+{
+    fn routing_key(&self) -> VmId {
+        self.vm_id
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Encode / Decode
 // ---------------------------------------------------------------------------
 
