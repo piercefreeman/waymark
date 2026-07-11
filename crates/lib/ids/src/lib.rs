@@ -142,3 +142,59 @@ uuid_types![
 
 #[deprecated = "use InstanceId instead"]
 pub type ExecutorId = InstanceId;
+
+// ---------------------------------------------------------------------------
+// Encode / Decode for UUID-based ids
+// ---------------------------------------------------------------------------
+
+/// Error returned when decoding a UUID-based id from bytes fails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdDecodeError {
+    /// The input bytes are not long enough (need exactly 16 bytes).
+    TooShort,
+    /// The decoded UUID is nil, which is disallowed.
+    NilUuid,
+}
+
+impl core::fmt::Display for IdDecodeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::TooShort => write!(f, "not enough bytes to decode id"),
+            Self::NilUuid => write!(f, "nil uuid is not a valid id"),
+        }
+    }
+}
+
+impl std::error::Error for IdDecodeError {}
+
+macro_rules! impl_encode_decode_for_id {
+    ($name:ident) => {
+        impl waymark_action_runtime_metadata_codec::Encode for $name {
+            fn encode(&self, writer: &mut Vec<u8>) {
+                let uuid: uuid::Uuid = (*self).into();
+                writer.extend_from_slice(uuid.as_bytes());
+            }
+        }
+
+        impl waymark_action_runtime_metadata_codec::Decode for $name {
+            type Error = IdDecodeError;
+
+            fn decode(input: &mut &[u8]) -> Result<Self, Self::Error> {
+                if input.len() < 16 {
+                    return Err(IdDecodeError::TooShort);
+                }
+                let bytes: [u8; 16] = input[..16].try_into().unwrap();
+                *input = &input[16..];
+                let uuid = uuid::Uuid::from_bytes(bytes);
+                Self::try_new(uuid).map_err(|_| IdDecodeError::NilUuid)
+            }
+        }
+    };
+}
+
+impl_encode_decode_for_id!(InstanceId);
+impl_encode_decode_for_id!(LockId);
+impl_encode_decode_for_id!(DispatchToken);
+impl_encode_decode_for_id!(ExecutionId);
+impl_encode_decode_for_id!(WorkflowVersionId);
+impl_encode_decode_for_id!(ScheduleId);
