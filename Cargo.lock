@@ -4328,6 +4328,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-action-runtime-metadata-codec"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-action-runtime-worker-pool"
 version = "0.1.0"
 dependencies = [
