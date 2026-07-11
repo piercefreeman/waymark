@@ -3,6 +3,7 @@
 mod codec;
 mod core;
 mod macros;
+mod pending_action_calls;
 mod registry;
 mod scheduler;
 mod state_vm_executables;

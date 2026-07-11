@@ -31,6 +31,7 @@ pub(super) async fn reset_database(pool: &PgPool) {
     sqlx::query(
         r#"
         TRUNCATE runner_actions_done,
+                 pending_action_calls,
                  queued_instances,
                  runner_instances,
                  vm_executables,

@@ -9,8 +9,11 @@
 //!
 //! # To do
 //!
-//! - Retries / Timeouts / Persistence
+//! - Retries / Timeouts
 //!   See the concrete reconciler crates.
+//! - Sleep persistence
+//!   Action calls already persist via `waymark_action_reconciler::persistent`;
+//!   sleeps are still lost when the executing process dies.
 
 #![warn(missing_docs)]
 
@@ -134,11 +137,11 @@ impl<ActionSettler, SleepSettler> waymark_vm_driver_core::PromiseSettler
     for PromiseSettler<ActionSettler, SleepSettler>
 where
     ActionSettler: waymark_extcall_reconciler_core::ActionPromiseSettler + Send,
-    ActionSettler::Ack: PromiseSettlementAck,
+    ActionSettler::Ack: PromiseSettlementAck + Send,
     ActionSettler::Value: From<()>,
     Ack<ActionSettler::Ack, SleepSettler::Ack>: From<ActionSettler::Ack>,
     SleepSettler: waymark_extcall_reconciler_core::SleepPromiseSettler + Send,
-    SleepSettler::Ack: PromiseSettlementAck,
+    SleepSettler::Ack: PromiseSettlementAck + Send,
     Ack<ActionSettler::Ack, SleepSettler::Ack>: From<SleepSettler::Ack>,
 {
     type Value = ActionSettler::Value;

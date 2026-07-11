@@ -109,6 +109,15 @@ where
     Backend: waymark_workflow_completion_backend::HasVmId<
             VmId = <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
         >,
+    Backend: waymark_action_reconciler_backend::StorePendingActionCall,
+    Backend: waymark_action_reconciler_backend::RemovePendingActionCall,
+    Backend: waymark_action_reconciler_backend::LoadPendingActionCalls,
+    <Backend as waymark_action_reconciler_backend::StorePendingActionCall>::Error: Send,
+    <Backend as waymark_action_reconciler_backend::RemovePendingActionCall>::Error: Send,
+    <Backend as waymark_action_reconciler_backend::LoadPendingActionCalls>::Error: Send,
+    Backend: waymark_action_reconciler_backend::HasVmId<
+            VmId = <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
+        >,
     <Backend as waymark_workload_pinning_backend::PollUnpinnedInstances>::Error: Send,
     <Backend as waymark_workload_pinning_backend::KeepaliveInstancePinnings>::Error: Send,
     <Backend as waymark_workload_pinning_backend::ReleasePinnings>::Error: Send,
@@ -212,9 +221,12 @@ where
 
             let action_call_complations_provider = registrar.register(*vm_id);
 
-            let (action_handler, action_poller) = waymark_action_reconciler::new(
+            let (action_handler, action_poller) = waymark_action_reconciler::persistent::new(
                 action_call_requester,
                 action_call_complations_provider,
+                Arc::clone(&backend),
+                Arc::clone(&codec),
+                *vm_id,
             );
             let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
             let (extcall_handler, extcall_settler) = waymark_extcall_reconciler::new(

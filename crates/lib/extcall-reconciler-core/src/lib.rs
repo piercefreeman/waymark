@@ -85,12 +85,11 @@ pub trait ActionPromiseSettler {
     /// it to reconcile their durable state: a pending call whose promise is
     /// still waiting must (re-)produce a settlement, while one whose promise
     /// is no longer waiting is stale and must never settle again.
-    fn poll_action_settlements<'a, UnifiedAck>(
-        &'a mut self,
-        waiting_promise_state_ids: &'a NEVec<PromiseStateId>,
+    fn poll_action_settlements<UnifiedAck>(
+        &mut self,
+        waiting_promise_state_ids: &NEVec<PromiseStateId>,
     ) -> impl Future<Output = Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>>
     + Send
-    + 'a
     where
         UnifiedAck: From<Self::Ack>;
 }

@@ -3,8 +3,16 @@
 //! and correlates completions from an
 //! [`ActionCallCompletionsProvider`](waymark_action_runtime_core::ActionCallCompletionsProvider)
 //! into promise settlements.
+//!
+//! The crate-level [`Handler`] / [`Poller`] pair is transient: calls in
+//! flight die with the process. The [`persistent`] module provides the
+//! durable counterpart that records every call in an
+//! [`waymark_action_reconciler_backend`] backend and re-dispatches the
+//! orphaned ones when a VM is revived.
 
 #![warn(missing_docs)]
+
+pub mod persistent;
 
 use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
 use waymark_action_core::ActionRef;
@@ -175,9 +183,9 @@ where
     type Error = Provider::Error;
     type Ack = Ack;
 
-    async fn poll_action_settlements<'a, UnifiedAck>(
-        &'a mut self,
-        _waiting_promise_state_ids: &'a NEVec<PromiseStateId>,
+    async fn poll_action_settlements<UnifiedAck>(
+        &mut self,
+        _waiting_promise_state_ids: &NEVec<PromiseStateId>,
     ) -> Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>
     where
         UnifiedAck: From<Self::Ack>,

@@ -4265,14 +4265,30 @@ dependencies = [
 name = "waymark-action-reconciler"
 version = "0.1.0"
 dependencies = [
+ "mockall",
  "nonempty-collections",
+ "serde",
  "thiserror",
+ "tokio",
+ "tracing",
  "waymark-action-core",
+ "waymark-action-reconciler-backend",
  "waymark-action-runtime-core",
  "waymark-action-runtime-metadata",
  "waymark-extcall-reconciler-core",
+ "waymark-vm-codec-core",
+ "waymark-vm-codec-rmp",
  "waymark-vm-driver-core",
  "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+]
+
+[[package]]
+name = "waymark-action-reconciler-backend"
+version = "0.1.0"
+dependencies = [
+ "waymark-action-runtime-metadata",
  "waymark-vm-runtime-promise-core",
 ]
 
@@ -4427,6 +4443,8 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "waymark-action-reconciler-backend",
+ "waymark-action-runtime-metadata",
  "waymark-backend-postgres-migrations",
  "waymark-backends-core",
  "waymark-core-backend",
@@ -4451,6 +4469,8 @@ dependencies = [
  "waymark-state-vm-runtimes-backend",
  "waymark-support-test",
  "waymark-timed-future",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
  "waymark-webapp-backend",
  "waymark-webapp-core",
  "waymark-worker-status-backend",
@@ -4665,6 +4685,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "waymark-action-reconciler",
+ "waymark-action-reconciler-backend",
  "waymark-action-runtime-completions-router",
  "waymark-action-runtime-worker-pool",
  "waymark-execution-driver",
