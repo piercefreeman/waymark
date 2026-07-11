@@ -12,6 +12,8 @@ sqlx-postgres = ["dep:sqlx", "sqlx/postgres"]
 uuid-v4 = ["uuid/v4"]
 
 [dependencies]
+waymark-action-runtime-metadata-codec = { workspace = true }
+
 serde = { workspace = true, features = ["derive"], optional = true }
 sqlx = { workspace = true, default-features = false, features = ["uuid"], optional = true }
 thiserror = { workspace = true }
