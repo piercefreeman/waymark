@@ -70,7 +70,13 @@ async fn effect_handler_dispatches_action_call() {
 
     let provider = MockCompletionsProvider::new();
 
-    let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
+    let (action_handler, action_poller) = waymark_action_reconciler::new(
+        requester,
+        provider,
+        std::sync::Arc::new(waymark_action_reconciler_backend::NoopBackend::<()>::default()),
+        waymark_vm_codec_rmp::RmpCodec,
+        (),
+    );
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
     let (mut handler, _settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
@@ -111,7 +117,13 @@ async fn effect_handler_records_sleep() {
         })
     });
 
-    let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
+    let (action_handler, action_poller) = waymark_action_reconciler::new(
+        requester,
+        provider,
+        std::sync::Arc::new(waymark_action_reconciler_backend::NoopBackend::<()>::default()),
+        waymark_vm_codec_rmp::RmpCodec,
+        (),
+    );
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
     let (mut handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
@@ -148,7 +160,13 @@ async fn action_settler_error_propagates() {
         .expect_wait_for_completions()
         .returning(|| Box::pin(std::future::ready(Err(MockProviderError))));
 
-    let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
+    let (action_handler, action_poller) = waymark_action_reconciler::new(
+        requester,
+        provider,
+        std::sync::Arc::new(waymark_action_reconciler_backend::NoopBackend::<()>::default()),
+        waymark_vm_codec_rmp::RmpCodec,
+        (),
+    );
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
     let (_handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
@@ -177,7 +195,13 @@ async fn sleep_settler_error_propagates() {
         })
     });
 
-    let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
+    let (action_handler, action_poller) = waymark_action_reconciler::new(
+        requester,
+        provider,
+        std::sync::Arc::new(waymark_action_reconciler_backend::NoopBackend::<()>::default()),
+        waymark_vm_codec_rmp::RmpCodec,
+        (),
+    );
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
     let (handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);

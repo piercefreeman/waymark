@@ -221,7 +221,7 @@ where
 
             let action_call_complations_provider = registrar.register(*vm_id);
 
-            let (action_handler, action_poller) = waymark_action_reconciler::persistent::new(
+            let (action_handler, action_poller) = waymark_action_reconciler::new(
                 action_call_requester,
                 action_call_complations_provider,
                 Arc::clone(&backend),

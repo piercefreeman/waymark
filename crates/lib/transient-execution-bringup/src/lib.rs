@@ -117,7 +117,18 @@ pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> Execute
         ActionCallCorrelation,
     >::new(action_result_rx);
 
-    let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
+    // Transient execution persists no VM state, so there is nothing for a
+    // revived VM to reconcile pending action calls against — record them
+    // into a no-op backend.
+    let (action_handler, action_poller) = waymark_action_reconciler::new(
+        requester,
+        provider,
+        std::sync::Arc::new(
+            waymark_action_reconciler_backend::NoopBackend::<InstanceId>::default(),
+        ),
+        codec,
+        vm_id,
+    );
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(skip_sleep);
     let (extcall_handler, extcall_settler) =
         waymark_extcall_reconciler::new(action_handler, sleep_handler, action_poller, sleep_poller);

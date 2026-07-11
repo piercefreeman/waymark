@@ -12,8 +12,8 @@
 //! - Retries / Timeouts
 //!   See the concrete reconciler crates.
 //! - Sleep persistence
-//!   Action calls already persist via `waymark_action_reconciler::persistent`;
-//!   sleeps are still lost when the executing process dies.
+//!   Action calls already persist via `waymark_action_reconciler`; sleeps
+//!   are still lost when the executing process dies.
 
 #![warn(missing_docs)]
 

@@ -19,10 +19,12 @@ tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 
 [dev-dependencies]
 waymark-action-reconciler = { workspace = true }
+waymark-action-reconciler-backend = { workspace = true }
 waymark-action-runtime-core = { workspace = true }
 waymark-action-runtime-metadata = { workspace = true }
 waymark-sleep-reconciler = { workspace = true }
-waymark-vm-value = { workspace = true }
+waymark-vm-codec-rmp = { workspace = true }
+waymark-vm-value = { workspace = true, features = ["serde"] }
 
 mockall = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }

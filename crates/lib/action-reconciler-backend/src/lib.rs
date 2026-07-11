@@ -94,3 +94,65 @@ impl<T> ActionReconcilerBackend for T where
     T: StorePendingActionCall + RemovePendingActionCall + LoadPendingActionCalls
 {
 }
+
+/// A backend that persists nothing, for deployments where action calls are
+/// not meant to outlive the executing process (e.g. transient executions
+/// whose whole VM state dies with it).
+///
+/// Stores and removals do nothing; loads return no pending calls, so
+/// reconciliation never re-dispatches anything.
+#[derive(Debug, Clone, Copy)]
+pub struct NoopBackend<VmId> {
+    // The backend never owns a `VmId`; it only receives references.
+    // `fn() -> VmId` keeps the type `Send`/`Sync` regardless of `VmId`.
+    _phantom_data: core::marker::PhantomData<fn() -> VmId>,
+}
+
+// Manual impl: the derive would needlessly bound `VmId: Default`.
+impl<VmId> Default for NoopBackend<VmId> {
+    fn default() -> Self {
+        Self {
+            _phantom_data: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<VmId> HasVmId for NoopBackend<VmId> {
+    type VmId = VmId;
+}
+
+impl<VmId: Sync> StorePendingActionCall for NoopBackend<VmId> {
+    type Error = core::convert::Infallible;
+
+    async fn store_pending_action_call<'a>(
+        &'a self,
+        _vm_id: &'a Self::VmId,
+        _correlation: ActionCallCorrelation,
+        _payload: impl AsRef<[u8]> + Send + 'a,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl<VmId: Sync> RemovePendingActionCall for NoopBackend<VmId> {
+    type Error = core::convert::Infallible;
+
+    async fn remove_pending_action_call<'a>(
+        &'a self,
+        _vm_id: &'a Self::VmId,
+        _promise_state_id: PromiseStateId,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl<VmId: Sync> LoadPendingActionCalls for NoopBackend<VmId> {
+    type Error = core::convert::Infallible;
+
+    async fn load_pending_action_calls<'a>(
+        &'a self,
+        _vm_id: &'a Self::VmId,
+    ) -> Result<Vec<PendingActionCall>, Self::Error> {
+        Ok(Vec::new())
+    }
+}
