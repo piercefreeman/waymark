@@ -1,7 +1,8 @@
 use serial_test::serial;
 
 use waymark_action_reconciler_backend::{
-    LoadPendingActionCalls as _, PendingActionCall, RemovePendingActionCall as _,
+    LoadPendingActionCalls as _, PendingActionCall, PendingActionCallOutcome,
+    RemovePendingActionCall as _, StoreActionCallOutcome as _, StoreActionCallOutcomeStatus,
     StorePendingActionCall as _,
 };
 use waymark_action_runtime_metadata::ActionCallCorrelation;
@@ -43,10 +44,12 @@ async fn store_load_remove_happy_path() {
             PendingActionCall {
                 correlation: correlation(1, 5),
                 payload: b"payload-a".to_vec(),
+                outcome: None,
             },
             PendingActionCall {
                 correlation: correlation(3, 7),
                 payload: b"payload-b".to_vec(),
+                outcome: None,
             },
         ]
     );
@@ -65,6 +68,7 @@ async fn store_load_remove_happy_path() {
         vec![PendingActionCall {
             correlation: correlation(3, 7),
             payload: b"payload-b".to_vec(),
+            outcome: None,
         }]
     );
 }
@@ -119,6 +123,7 @@ async fn store_rejects_diverging_value() {
         vec![PendingActionCall {
             correlation: correlation(1, 5),
             payload: b"payload".to_vec(),
+            outcome: None,
         }]
     );
 }
@@ -160,6 +165,98 @@ async fn load_only_returns_calls_of_the_requested_vm() {
         vec![PendingActionCall {
             correlation: correlation(1, 5),
             payload: b"payload-a".to_vec(),
+            outcome: None,
         }]
     );
+}
+
+#[serial(postgres)]
+#[tokio::test]
+async fn store_outcome_records_onto_the_pending_call() {
+    let backend = setup_backend().await;
+    let (vm_id, _executable_id) = register_test_vm(&backend).await;
+
+    backend
+        .store_pending_action_call(&vm_id, correlation(1, 5), b"payload")
+        .await
+        .expect("store call");
+
+    let status = backend
+        .store_action_call_outcome(
+            &vm_id,
+            PromiseStateId(5),
+            PendingActionCallOutcome::Value(b"outcome".to_vec()),
+        )
+        .await
+        .expect("store outcome");
+    assert_eq!(status, StoreActionCallOutcomeStatus::Stored);
+
+    let pending = backend
+        .load_pending_action_calls(&vm_id)
+        .await
+        .expect("load pending calls");
+    assert_eq!(
+        pending,
+        vec![PendingActionCall {
+            correlation: correlation(1, 5),
+            payload: b"payload".to_vec(),
+            outcome: Some(PendingActionCallOutcome::Value(b"outcome".to_vec())),
+        }]
+    );
+}
+
+#[serial(postgres)]
+#[tokio::test]
+async fn store_outcome_first_write_wins() {
+    let backend = setup_backend().await;
+    let (vm_id, _executable_id) = register_test_vm(&backend).await;
+
+    backend
+        .store_pending_action_call(&vm_id, correlation(1, 5), b"payload")
+        .await
+        .expect("store call");
+    backend
+        .store_action_call_outcome(
+            &vm_id,
+            PromiseStateId(5),
+            PendingActionCallOutcome::Value(b"first".to_vec()),
+        )
+        .await
+        .expect("store outcome");
+
+    let status = backend
+        .store_action_call_outcome(
+            &vm_id,
+            PromiseStateId(5),
+            PendingActionCallOutcome::Exception(b"second".to_vec()),
+        )
+        .await
+        .expect("store duplicate outcome");
+    assert_eq!(status, StoreActionCallOutcomeStatus::NotPending);
+
+    let pending = backend
+        .load_pending_action_calls(&vm_id)
+        .await
+        .expect("load pending calls");
+    assert_eq!(
+        pending[0].outcome,
+        Some(PendingActionCallOutcome::Value(b"first".to_vec()))
+    );
+}
+
+#[serial(postgres)]
+#[tokio::test]
+async fn store_outcome_without_a_pending_call_is_not_pending() {
+    let backend = setup_backend().await;
+    let (vm_id, _executable_id) = register_test_vm(&backend).await;
+
+    let status = backend
+        .store_action_call_outcome(
+            &vm_id,
+            PromiseStateId(5),
+            PendingActionCallOutcome::Value(b"outcome".to_vec()),
+        )
+        .await
+        .expect("store outcome");
+    assert_eq!(status, StoreActionCallOutcomeStatus::NotPending);
 }

@@ -4276,10 +4276,12 @@ dependencies = [
  "waymark-action-runtime-core",
  "waymark-action-runtime-metadata",
  "waymark-extcall-reconciler-core",
+ "waymark-ids",
  "waymark-vm-codec-core",
  "waymark-vm-codec-rmp",
  "waymark-vm-driver-core",
  "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-value",
 ]

@@ -78,6 +78,66 @@ impl waymark_action_reconciler_backend::StorePendingActionCall for PostgresBacke
     }
 }
 
+impl waymark_action_reconciler_backend::StoreActionCallOutcome for PostgresBackend {
+    type Error = error::StoreOutcomeError;
+
+    #[obs]
+    #[function_name::named]
+    async fn store_action_call_outcome<'a>(
+        &'a self,
+        vm_id: &'a InstanceId,
+        promise_state_id: PromiseStateId,
+        outcome: waymark_action_reconciler_backend::PendingActionCallOutcome,
+    ) -> Result<waymark_action_reconciler_backend::StoreActionCallOutcomeStatus, Self::Error> {
+        use waymark_action_reconciler_backend::PendingActionCallOutcome;
+
+        let promise_state_id_column = i64::try_from(promise_state_id.0)
+            .map_err(|_| error::StoreOutcomeError::PromiseStateIdOutOfRange(promise_state_id))?;
+
+        // First write wins: only a record with no outcome yet is updated,
+        // so duplicate completion deliveries cannot change the outcome.
+        let (query, bytes) = match outcome {
+            PendingActionCallOutcome::Value(bytes) => (
+                r#"
+                UPDATE pending_action_calls
+                SET result = $3
+                WHERE vm_id = $1 AND promise_state_id = $2
+                  AND result IS NULL AND error IS NULL
+                RETURNING 1
+                "#,
+                bytes,
+            ),
+            PendingActionCallOutcome::Exception(bytes) => (
+                r#"
+                UPDATE pending_action_calls
+                SET error = $3
+                WHERE vm_id = $1 AND promise_state_id = $2
+                  AND result IS NULL AND error IS NULL
+                RETURNING 1
+                "#,
+                bytes,
+            ),
+        };
+
+        Self::count_query(&self.query_counts, "update:pending_action_calls_outcome");
+        let returned: Option<i32> = sqlx::query_scalar(query)
+            .bind(vm_id)
+            .bind(promise_state_id_column)
+            .bind(bytes)
+            .fetch_optional(&self.pool)
+            .timed(crate::query_timing_histogram!(
+                "update:pending_action_calls_outcome"
+            ))
+            .await
+            .map_err(error::StoreOutcomeError::Sqlx)?;
+
+        Ok(match returned {
+            Some(_) => waymark_action_reconciler_backend::StoreActionCallOutcomeStatus::Stored,
+            None => waymark_action_reconciler_backend::StoreActionCallOutcomeStatus::NotPending,
+        })
+    }
+}
+
 impl waymark_action_reconciler_backend::RemovePendingActionCall for PostgresBackend {
     type Error = error::RemoveError;
 
@@ -122,10 +182,12 @@ impl waymark_action_reconciler_backend::LoadPendingActionCalls for PostgresBacke
         &'a self,
         vm_id: &'a InstanceId,
     ) -> Result<Vec<waymark_action_reconciler_backend::PendingActionCall>, Self::Error> {
+        use waymark_action_reconciler_backend::PendingActionCallOutcome;
+
         Self::count_query(&self.query_counts, "select:pending_action_calls");
         let rows = sqlx::query(
             r#"
-            SELECT promise_state_id, effect_number, payload
+            SELECT promise_state_id, effect_number, payload, result, error
             FROM pending_action_calls
             WHERE vm_id = $1
             ORDER BY effect_number
@@ -144,11 +206,25 @@ impl waymark_action_reconciler_backend::LoadPendingActionCalls for PostgresBacke
                 let promise_state_id: i64 = row.get("promise_state_id");
                 let effect_number: i64 = row.get("effect_number");
                 let payload: Vec<u8> = row.get("payload");
+                let result: Option<Vec<u8>> = row.get("result");
+                let error: Option<Vec<u8>> = row.get("error");
 
                 let promise_state_id = usize::try_from(promise_state_id)
                     .map_err(|_| error::LoadError::PromiseStateIdOutOfRange(promise_state_id))?;
                 let effect_number = usize::try_from(effect_number)
                     .map_err(|_| error::LoadError::EffectNumberOutOfRange(effect_number))?;
+
+                let outcome = match (result, error) {
+                    (None, None) => None,
+                    (Some(value), None) => Some(PendingActionCallOutcome::Value(value)),
+                    (None, Some(exception)) => Some(PendingActionCallOutcome::Exception(exception)),
+                    (Some(_), Some(_)) => {
+                        return Err(error::LoadError::CorruptOutcome {
+                            vm_id: *vm_id,
+                            promise_state_id: PromiseStateId(promise_state_id),
+                        });
+                    }
+                };
 
                 Ok(waymark_action_reconciler_backend::PendingActionCall {
                     correlation: ActionCallCorrelation {
@@ -156,6 +232,7 @@ impl waymark_action_reconciler_backend::LoadPendingActionCalls for PostgresBacke
                         promise_state_id: PromiseStateId(promise_state_id),
                     },
                     payload,
+                    outcome,
                 })
             })
             .collect()

@@ -10,9 +10,11 @@ waymark-action-reconciler-backend = { workspace = true }
 waymark-action-runtime-core = { workspace = true }
 waymark-action-runtime-metadata = { workspace = true }
 waymark-extcall-reconciler-core = { workspace = true }
+waymark-ids = { workspace = true }
 waymark-vm-codec-core = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true, features = ["serde"] }
 waymark-vm-runtime-promise-core = { workspace = true }
 
 nonempty-collections = { workspace = true }

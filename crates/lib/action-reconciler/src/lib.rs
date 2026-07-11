@@ -11,19 +11,23 @@
 //! - [`Handler::request`] stores a pending-call record *before* dispatching,
 //!   so a call can never be in flight without a durable record backing its
 //!   re-dispatch.
+//! - [`PersistingCompletionsProvider`] sits at the completions source and
+//!   records each execution outcome onto its pending-call record before the
+//!   completion is delivered, so a result survives the executing process.
 //! - On the first poll of a session, [`Poller`] reconciles the stored
 //!   records against the promises the VM is actually waiting on:
-//!   still-waiting calls that this session did not dispatch are re-dispatched
-//!   (they were in flight when the previous session died), while records for
-//!   promises that are no longer waiting are stale (the settlement was
-//!   persisted with the VM state but the removal acknowledgement was lost)
-//!   and are removed.
+//!   still-waiting calls with a recorded outcome settle directly from the
+//!   record (the call finished while nobody was looking — it must not run
+//!   again), still-waiting calls without one are re-dispatched (they were in
+//!   flight when the previous session died), and records for promises that
+//!   are no longer waiting are stale (the settlement was persisted with the
+//!   VM state but the removal acknowledgement was lost) and are removed.
 //! - [`Ack`] removes the record once the driver has persisted the VM state
 //!   that contains the settlement.
 //!
-//! Re-dispatch gives at-least-once execution semantics for actions: a call
-//! whose completion did not make it into a persisted VM snapshot runs again
-//! after a revive.
+//! Actions execute at least once: only a call whose outcome was never
+//! durably recorded is re-dispatched after a revive. Outcome recording is
+//! first-write-wins, so every promise settles with exactly one outcome.
 //!
 //! Deployments that do not persist VM state pair the reconciler with a
 //! [`waymark_action_reconciler_backend::NoopBackend`], which records
@@ -31,15 +35,18 @@
 
 #![warn(missing_docs)]
 
+mod persisting_completions_provider;
 #[cfg(test)]
 mod tests;
+
+pub use self::persisting_completions_provider::PersistingCompletionsProvider;
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use nonempty_collections::NEVec;
 use waymark_action_core::ActionRef;
-use waymark_action_reconciler_backend::PendingActionCall;
+use waymark_action_reconciler_backend::{PendingActionCall, PendingActionCallOutcome};
 use waymark_action_runtime_core::{ActionCallCompletion, ActionCallOutcome, ActionCallRequest};
 use waymark_action_runtime_metadata::{ActionCallCorrelated as _, ActionCallCorrelation};
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
@@ -304,6 +311,9 @@ where
     ActionCallRequester:
         waymark_action_runtime_core::ActionCallRequester<Metadata = ActionCallCorrelation>,
     ActionCallRequester::Argument: serde::de::DeserializeOwned,
+    ActionCallCompletionsProvider::Value: serde::de::DeserializeOwned,
+    waymark_vm_runtime_exception::Exception<ActionCallCompletionsProvider::Value>:
+        serde::de::DeserializeOwned,
     Backend: waymark_action_reconciler_backend::LoadPendingActionCalls,
     Backend: waymark_action_reconciler_backend::RemovePendingActionCall,
     Backend::VmId: Clone,
@@ -312,7 +322,9 @@ where
     /// Wait for the next batch of action-completion settlements.
     ///
     /// On the first call of the session this first reconciles the durable
-    /// pending-call records against `waiting_promise_state_ids`.
+    /// pending-call records against `waiting_promise_state_ids`; settlements
+    /// recovered from recorded outcomes are returned before any completion
+    /// is read from the provider.
     pub async fn poll<Ack>(
         &mut self,
         waiting_promise_state_ids: &NEVec<PromiseStateId>,
@@ -329,7 +341,29 @@ where
     where
         Ack: From<self::Ack<Backend>>,
     {
-        self.reconcile(waiting_promise_state_ids).await?;
+        let needs_reconciliation = self
+            .session_dispatches
+            .lock()
+            .expect("session dispatches poisoned")
+            .is_some();
+        if needs_reconciliation {
+            let settlements = self
+                .reconciliation_pass::<Ack>(waiting_promise_state_ids)
+                .await?;
+
+            // Mark the session reconciled only after a complete pass, and
+            // synchronously with delivering the pass's settlements — the
+            // poll future can be dropped at any await point, and a dropped
+            // partial pass must be re-run by the next poll.
+            *self
+                .session_dispatches
+                .lock()
+                .expect("session dispatches poisoned") = None;
+
+            if let Some(settlements) = NEVec::try_from_vec(settlements) {
+                return Ok(settlements);
+            }
+        }
 
         loop {
             let completions = self
@@ -347,11 +381,12 @@ where
 
                 if !waiting_promise_state_ids.contains(&promise_state_id) {
                     // The VM is not waiting on this promise, so settling it
-                    // would fail the driver. This is a duplicate completion —
-                    // the settlement was already applied and persisted. Drop
-                    // it; any stale record is removed by the next revive's
-                    // reconciliation.
-                    tracing::warn!(
+                    // would fail the driver. This is a duplicate delivery —
+                    // the promise already settled, either from an earlier
+                    // completion or from the recorded outcome during
+                    // reconciliation. Drop it; any stale record is removed
+                    // by the next revive's reconciliation.
+                    tracing::debug!(
                         ?promise_state_id,
                         "dropping an action call completion for a promise that is not waiting"
                     );
@@ -385,18 +420,28 @@ where
         }
     }
 
-    /// Reconcile the durable pending-call records against the promises the
-    /// VM is currently waiting on. Runs fully once per session.
+    /// Run one reconciliation pass of the durable pending-call records
+    /// against the promises the VM is currently waiting on, returning the
+    /// settlements recovered from recorded outcomes.
     ///
-    /// This method is cancel-safe: the session is only marked reconciled
-    /// after a complete pass, and every step of a partial pass (stale-record
-    /// removal, re-dispatch recorded in the session dispatches) is one the
-    /// next attempt observes and does not repeat.
-    async fn reconcile(
+    /// The pass runs in two phases: first the durable-state repair (removing
+    /// stale records, re-dispatching orphaned calls), then a synchronous
+    /// sweep that turns the recorded outcomes into settlements. Keeping the
+    /// settlement construction after the last await point lets the acks be
+    /// built directly in their final form without constraining the `Ack`
+    /// type parameter.
+    ///
+    /// The pass is idempotent, which makes [`poll`](Self::poll) cancel-safe:
+    /// the session is only marked reconciled by the caller after a complete
+    /// pass, and every step of a partial pass is one the next attempt
+    /// observes and does not repeat — stale-record removal, re-dispatches
+    /// recorded in the session dispatches — or safely re-derives — outcome
+    /// settlements, whose records are only removed on acknowledgement.
+    async fn reconciliation_pass<Ack>(
         &mut self,
         waiting_promise_state_ids: &NEVec<PromiseStateId>,
     ) -> Result<
-        (),
+        Vec<PromiseSettlement<ActionCallCompletionsProvider::Value, Ack>>,
         PollError<
             ActionCallCompletionsProvider::Error,
             <Backend as waymark_action_reconciler_backend::LoadPendingActionCalls>::Error,
@@ -404,29 +449,20 @@ where
             Codec::Error,
             ActionCallRequester::Error,
         >,
-    > {
-        {
-            let guard = self
-                .session_dispatches
-                .lock()
-                .expect("session dispatches poisoned");
-            if guard.is_none() {
-                return Ok(());
-            }
-        }
-
+    >
+    where
+        Ack: From<self::Ack<Backend>>,
+    {
         let pending = self
             .backend
             .load_pending_action_calls(&self.vm_id)
             .await
             .map_err(PollError::LoadPendingActionCalls)?;
 
-        for record in pending {
-            let PendingActionCall {
-                correlation,
-                payload,
-            } = record;
-            let promise_state_id = correlation.promise_state_id;
+        // Phase one: repair the durable state — remove stale records and
+        // re-dispatch orphaned calls.
+        for record in &pending {
+            let promise_state_id = record.correlation.promise_state_id;
 
             if !waiting_promise_state_ids.contains(&promise_state_id) {
                 // The promise settled and the settlement was persisted with
@@ -436,6 +472,12 @@ where
                     .remove_pending_action_call(&self.vm_id, promise_state_id)
                     .await
                     .map_err(PollError::RemovePendingActionCall)?;
+                continue;
+            }
+
+            if record.outcome.is_some() {
+                // The call already finished — settled from the recorded
+                // outcome in phase two.
                 continue;
             }
 
@@ -459,13 +501,13 @@ where
             tracing::info!(?promise_state_id, "re-dispatching a pending action call");
             let call: PersistedActionCall<ActionCallRequester::Argument> = self
                 .codec
-                .with_deserializer(&payload, |deserializer| {
+                .with_deserializer(&record.payload, |deserializer| {
                     serde::Deserialize::deserialize(deserializer)
                 })
                 .map_err(PollError::Codec)?;
             let request = ActionCallRequest {
                 action_ref: call.action_ref,
-                metadata: correlation,
+                metadata: record.correlation,
                 arguments: call.arguments,
             };
             self.requester
@@ -483,15 +525,57 @@ where
             session_dispatches.insert(promise_state_id);
         }
 
-        // A complete pass was made — mark the session reconciled and release
-        // the dispatch-tracking memory.
-        let mut guard = self
-            .session_dispatches
-            .lock()
-            .expect("session dispatches poisoned");
-        *guard = None;
+        // Phase two: settle the still-waiting promises whose calls finished,
+        // but whose settlements never made it into a persisted VM snapshot —
+        // from the recorded outcomes, instead of re-executing the actions.
+        let mut settlements = Vec::new();
+        for record in pending {
+            let PendingActionCall {
+                correlation,
+                payload: _,
+                outcome,
+            } = record;
+            let promise_state_id = correlation.promise_state_id;
 
-        Ok(())
+            if !waiting_promise_state_ids.contains(&promise_state_id) {
+                continue;
+            }
+            let Some(outcome) = outcome else {
+                continue;
+            };
+
+            tracing::info!(
+                ?promise_state_id,
+                "settling a promise from a recorded action call outcome"
+            );
+            let resolution = match outcome {
+                PendingActionCallOutcome::Value(bytes) => PromiseResolution::Resolved(
+                    self.codec
+                        .with_deserializer(&bytes, |deserializer| {
+                            serde::Deserialize::deserialize(deserializer)
+                        })
+                        .map_err(PollError::Codec)?,
+                ),
+                PendingActionCallOutcome::Exception(bytes) => PromiseResolution::Rejected(
+                    self.codec
+                        .with_deserializer(&bytes, |deserializer| {
+                            serde::Deserialize::deserialize(deserializer)
+                        })
+                        .map_err(PollError::Codec)?,
+                ),
+            };
+            settlements.push(PromiseSettlement {
+                promise_state_id,
+                resolution,
+                ack: Ack::from(self::Ack {
+                    backend: Arc::clone(&self.backend),
+                    vm_id: self.vm_id.clone(),
+                    promise_state_id,
+                }),
+            });
+        }
+
+        Ok(settlements)
     }
 }
 
@@ -536,6 +620,9 @@ where
         waymark_action_runtime_core::ActionCallRequester<Metadata = ActionCallCorrelation>,
     ActionCallRequester: Send + Sync,
     ActionCallRequester::Argument: serde::de::DeserializeOwned + Send,
+    ActionCallCompletionsProvider::Value: serde::de::DeserializeOwned,
+    waymark_vm_runtime_exception::Exception<ActionCallCompletionsProvider::Value>:
+        serde::de::DeserializeOwned,
     Backend: waymark_action_reconciler_backend::LoadPendingActionCalls,
     Backend: waymark_action_reconciler_backend::RemovePendingActionCall,
     Backend: Send + Sync,

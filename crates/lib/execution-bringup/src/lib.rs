@@ -110,9 +110,11 @@ where
             VmId = <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
         >,
     Backend: waymark_action_reconciler_backend::StorePendingActionCall,
+    Backend: waymark_action_reconciler_backend::StoreActionCallOutcome,
     Backend: waymark_action_reconciler_backend::RemovePendingActionCall,
     Backend: waymark_action_reconciler_backend::LoadPendingActionCalls,
     <Backend as waymark_action_reconciler_backend::StorePendingActionCall>::Error: Send,
+    <Backend as waymark_action_reconciler_backend::StoreActionCallOutcome>::Error: Send,
     <Backend as waymark_action_reconciler_backend::RemovePendingActionCall>::Error: Send,
     <Backend as waymark_action_reconciler_backend::LoadPendingActionCalls>::Error: Send,
     Backend: waymark_action_reconciler_backend::HasVmId<
@@ -172,12 +174,17 @@ where
     );
 
     // Routed completions provider — polls the pool (via a direct provider
-    // that stamps each completion with its owning VM id) and demultiplexes
-    // completions into per-VM channels so each VM only receives its own
-    // results.
+    // that stamps each completion with its owning VM id), records each
+    // outcome onto its pending-call record so it survives this process,
+    // and demultiplexes completions into per-VM channels so each VM only
+    // receives its own results.
     let mut router = waymark_action_runtime_completions_router::RoutedCompletionsProvider::new(
-        waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::new(
-            worker_pool.clone(),
+        waymark_action_reconciler::PersistingCompletionsProvider::new(
+            waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::new(
+                worker_pool.clone(),
+            ),
+            Arc::clone(&backend),
+            Arc::clone(&codec),
         ),
     );
     let registrar = router.registrar();

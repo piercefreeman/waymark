@@ -31,6 +31,18 @@ pub enum StoreError {
     },
 }
 
+/// Error returned when recording an action call outcome fails.
+#[derive(Debug, thiserror::Error)]
+pub enum StoreOutcomeError {
+    /// The underlying database operation failed.
+    #[error("sqlx: {0}")]
+    Sqlx(#[source] sqlx::Error),
+
+    /// The promise state id does not fit in a `BIGINT` column.
+    #[error("promise state id {0:?} does not fit in a BIGINT")]
+    PromiseStateIdOutOfRange(PromiseStateId),
+}
+
 /// Error returned when removing a pending action call fails.
 #[derive(Debug, thiserror::Error)]
 pub enum RemoveError {
@@ -57,4 +69,16 @@ pub enum LoadError {
     /// A stored effect number does not fit in a `usize` on this platform.
     #[error("stored effect number {0} does not fit in a usize")]
     EffectNumberOutOfRange(i64),
+
+    /// The stored row carries both a result and an error.
+    #[error(
+        "corrupt pending action call row for vm {vm_id} promise {promise_state_id:?}: both result and error present"
+    )]
+    CorruptOutcome {
+        /// The VM the pending call belongs to.
+        vm_id: InstanceId,
+
+        /// The promise the pending call fulfills.
+        promise_state_id: PromiseStateId,
+    },
 }

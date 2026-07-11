@@ -3,12 +3,15 @@
 //! The action reconciler ([`waymark_action_reconciler`]) records every
 //! dispatched action call through these traits so that a crash between the
 //! dispatch and the settlement of the corresponding promise does not lose
-//! the call: on revive, the still-pending records are loaded and
-//! re-dispatched.
+//! the call: on revive, the still-pending records are loaded and either
+//! settled from their recorded outcome or re-dispatched.
 //!
 //! A record lives from just before the dispatch until the settlement it
 //! produces has been applied to the VM and the resulting VM state has been
-//! persisted; at that point the record is removed.
+//! persisted; at that point the record is removed. In between, the outcome
+//! of the call's execution is recorded onto the record
+//! ([`StoreActionCallOutcome`]) as soon as it is known, so a completed call
+//! never re-executes just because the VM did not live to see the result.
 
 #![warn(missing_docs)]
 
@@ -61,6 +64,46 @@ pub trait RemovePendingActionCall: HasVmId {
     ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a;
 }
 
+/// The recorded outcome of a pending action call's execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PendingActionCallOutcome {
+    /// The call completed successfully with this codec-encoded value.
+    Value(Vec<u8>),
+
+    /// The call failed with this codec-encoded exception.
+    Exception(Vec<u8>),
+}
+
+/// The status of a [`StoreActionCallOutcome`] operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreActionCallOutcomeStatus {
+    /// The outcome was recorded onto the pending-call record.
+    Stored,
+
+    /// Nothing was recorded: the record is absent (the call already settled
+    /// and was removed) or it already carries an outcome (first write wins).
+    NotPending,
+}
+
+/// Records the outcome of an action call's execution onto its pending-call
+/// record.
+///
+/// First write wins: an outcome is recorded only onto a record that does
+/// not have one yet, so duplicate completion deliveries cannot change the
+/// outcome a promise settles with.
+pub trait StoreActionCallOutcome: HasVmId {
+    /// The error type for outcome-recording operations.
+    type Error: core::fmt::Debug;
+
+    /// Record the outcome of the given call's execution.
+    fn store_action_call_outcome<'a>(
+        &'a self,
+        vm_id: &'a Self::VmId,
+        promise_state_id: PromiseStateId,
+        outcome: PendingActionCallOutcome,
+    ) -> impl Future<Output = Result<StoreActionCallOutcomeStatus, Self::Error>> + Send + 'a;
+}
+
 /// A pending action call loaded from the backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingActionCall {
@@ -69,6 +112,9 @@ pub struct PendingActionCall {
 
     /// The codec-encoded call (action ref and arguments), as stored.
     pub payload: Vec<u8>,
+
+    /// The recorded outcome of the call's execution, if it is already known.
+    pub outcome: Option<PendingActionCallOutcome>,
 }
 
 /// Loads the pending action calls of a VM for re-dispatch on revive.
@@ -86,12 +132,15 @@ pub trait LoadPendingActionCalls: HasVmId {
 
 /// Convenience trait: a backend that includes all traits from this crate.
 pub trait ActionReconcilerBackend:
-    StorePendingActionCall + RemovePendingActionCall + LoadPendingActionCalls
+    StorePendingActionCall + StoreActionCallOutcome + RemovePendingActionCall + LoadPendingActionCalls
 {
 }
 
 impl<T> ActionReconcilerBackend for T where
-    T: StorePendingActionCall + RemovePendingActionCall + LoadPendingActionCalls
+    T: StorePendingActionCall
+        + StoreActionCallOutcome
+        + RemovePendingActionCall
+        + LoadPendingActionCalls
 {
 }
 
@@ -131,6 +180,19 @@ impl<VmId: Sync> StorePendingActionCall for NoopBackend<VmId> {
         _payload: impl AsRef<[u8]> + Send + 'a,
     ) -> Result<(), Self::Error> {
         Ok(())
+    }
+}
+
+impl<VmId: Sync> StoreActionCallOutcome for NoopBackend<VmId> {
+    type Error = core::convert::Infallible;
+
+    async fn store_action_call_outcome<'a>(
+        &'a self,
+        _vm_id: &'a Self::VmId,
+        _promise_state_id: PromiseStateId,
+        _outcome: PendingActionCallOutcome,
+    ) -> Result<StoreActionCallOutcomeStatus, Self::Error> {
+        Ok(StoreActionCallOutcomeStatus::NotPending)
     }
 }
 
