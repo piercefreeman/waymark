@@ -198,7 +198,7 @@ where
         // Acknowledge all promise settlements.
         for ack in promise_settlement_acks.drain(..) {
             use waymark_vm_driver_core::PromiseSettlementAck as _;
-            ack.acknowledge_promise_settlement();
+            ack.acknowledge_promise_settlement().await;
         }
 
         // Then, execute all ready frames until none are left and we suspend

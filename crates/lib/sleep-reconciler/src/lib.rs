@@ -84,7 +84,7 @@ pub struct Poller {
 pub struct Ack;
 
 impl waymark_vm_driver_core::PromiseSettlementAck for Ack {
-    fn acknowledge_promise_settlement(self) {}
+    async fn acknowledge_promise_settlement(self) {}
 }
 
 impl<ActionAck> From<Ack> for waymark_extcall_reconciler_core::Ack<ActionAck, Ack> {

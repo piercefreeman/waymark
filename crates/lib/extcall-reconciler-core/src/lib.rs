@@ -25,13 +25,13 @@ pub enum Ack<ActionAck, SleepAck> {
 
 impl<ActionAck, SleepAck> PromiseSettlementAck for Ack<ActionAck, SleepAck>
 where
-    ActionAck: PromiseSettlementAck,
-    SleepAck: PromiseSettlementAck,
+    ActionAck: PromiseSettlementAck + Send,
+    SleepAck: PromiseSettlementAck + Send,
 {
-    fn acknowledge_promise_settlement(self) {
+    async fn acknowledge_promise_settlement(self) {
         match self {
-            Ack::Action(ack) => ack.acknowledge_promise_settlement(),
-            Ack::Sleep(ack) => ack.acknowledge_promise_settlement(),
+            Ack::Action(ack) => ack.acknowledge_promise_settlement().await,
+            Ack::Sleep(ack) => ack.acknowledge_promise_settlement().await,
         }
     }
 }
@@ -79,10 +79,18 @@ pub trait ActionPromiseSettler {
     type Ack;
 
     /// Poll for the next batch of action-completion settlements.
-    fn poll_action_settlements<UnifiedAck>(
-        &mut self,
+    ///
+    /// `waiting_promise_state_ids` lists the promises the VM is currently
+    /// suspended on. Settlers that persist and re-dispatch action calls use
+    /// it to reconcile their durable state: a pending call whose promise is
+    /// still waiting must (re-)produce a settlement, while one whose promise
+    /// is no longer waiting is stale and must never settle again.
+    fn poll_action_settlements<'a, UnifiedAck>(
+        &'a mut self,
+        waiting_promise_state_ids: &'a NEVec<PromiseStateId>,
     ) -> impl Future<Output = Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>>
     + Send
+    + 'a
     where
         UnifiedAck: From<Self::Ack>;
 }

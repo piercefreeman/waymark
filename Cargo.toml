@@ -9,6 +9,7 @@ publish = false
 [workspace.dependencies]
 waymark-action-core = { path = "crates/lib/action-core" }
 waymark-action-reconciler = { path = "crates/lib/action-reconciler" }
+waymark-action-reconciler-backend = { path = "crates/lib/action-reconciler-backend" }
 waymark-action-runtime-completions-router = { path = "crates/lib/action-runtime-completions-router" }
 waymark-action-runtime-completions-router-core = { path = "crates/lib/action-runtime-completions-router-core" }
 waymark-action-runtime-convert = { path = "crates/lib/action-runtime-convert" }

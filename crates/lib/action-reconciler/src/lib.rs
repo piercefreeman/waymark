@@ -20,7 +20,7 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 pub struct Ack;
 
 impl waymark_vm_driver_core::PromiseSettlementAck for Ack {
-    fn acknowledge_promise_settlement(self) {}
+    async fn acknowledge_promise_settlement(self) {}
 }
 
 impl<SleepAck> From<Ack> for waymark_extcall_reconciler_core::Ack<Ack, SleepAck> {
@@ -175,8 +175,9 @@ where
     type Error = Provider::Error;
     type Ack = Ack;
 
-    async fn poll_action_settlements<UnifiedAck>(
-        &mut self,
+    async fn poll_action_settlements<'a, UnifiedAck>(
+        &'a mut self,
+        _waiting_promise_state_ids: &'a NEVec<PromiseStateId>,
     ) -> Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>
     where
         UnifiedAck: From<Self::Ack>,

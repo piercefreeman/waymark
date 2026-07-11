@@ -79,13 +79,18 @@ pub trait PromiseSettler {
 /// state it calls [`acknowledge_promise_settlement`] on each
 /// [`PromiseSettlement::ack`] in the batch.  This lets the settler
 /// reclaim resources, notify upstream systems, or confirm delivery.
+///
+/// Acknowledgement is infallible from the driver's perspective:
+/// implementations handle their own failures (typically by logging),
+/// since by this point the settlement is already durably applied and
+/// cannot be rolled back.
 pub trait PromiseSettlementAck {
     /// Acknowledge that the settlement has been durably applied.
-    fn acknowledge_promise_settlement(self);
+    fn acknowledge_promise_settlement(self) -> impl Future<Output = ()> + Send;
 }
 
 impl PromiseSettlementAck for () {
-    fn acknowledge_promise_settlement(self) {}
+    async fn acknowledge_promise_settlement(self) {}
 }
 
 impl<A, B> PromiseSettler for (A, B)
@@ -106,7 +111,7 @@ where
 
 #[cfg(feature = "tokio")]
 impl PromiseSettlementAck for tokio::sync::oneshot::Sender<()> {
-    fn acknowledge_promise_settlement(self) {
+    async fn acknowledge_promise_settlement(self) {
         let _ = self.send(());
     }
 }
