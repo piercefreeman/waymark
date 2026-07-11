@@ -7,6 +7,7 @@
 
 #![warn(missing_docs)]
 
+use waymark_action_runtime_metadata_codec::{Decode, Encode};
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
@@ -79,5 +80,102 @@ impl<VmId: Copy, Metadata> VmScoped for WithVmId<VmId, Metadata> {
 
     fn vm_id(&self) -> VmId {
         self.vm_id
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Encode / Decode
+// ---------------------------------------------------------------------------
+
+impl Encode for ActionCallCorrelation {
+    fn encode(&self, writer: &mut Vec<u8>) {
+        writer.extend_from_slice(
+            &u64::try_from(self.effect_number.0)
+                .unwrap_or(u64::MAX)
+                .to_be_bytes(),
+        );
+        writer.extend_from_slice(
+            &u64::try_from(self.promise_state_id.0)
+                .unwrap_or(u64::MAX)
+                .to_be_bytes(),
+        );
+    }
+}
+
+/// Error returned when decoding an [`ActionCallCorrelation`] fails because
+/// the input bytes are too short.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActionCallCorrelationDecodeError;
+
+impl core::fmt::Display for ActionCallCorrelationDecodeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "not enough bytes to decode ActionCallCorrelation")
+    }
+}
+
+impl std::error::Error for ActionCallCorrelationDecodeError {}
+
+impl Decode for ActionCallCorrelation {
+    type Error = ActionCallCorrelationDecodeError;
+
+    fn decode(input: &mut &[u8]) -> Result<Self, Self::Error> {
+        if input.len() < 16 {
+            return Err(ActionCallCorrelationDecodeError);
+        }
+        let effect_number_bytes: [u8; 8] = input[..8].try_into().unwrap();
+        let promise_state_id_bytes: [u8; 8] = input[8..16].try_into().unwrap();
+        *input = &input[16..];
+        let effect_number = EffectNumber(u64::from_be_bytes(effect_number_bytes) as usize);
+        let promise_state_id = PromiseStateId(u64::from_be_bytes(promise_state_id_bytes) as usize);
+        Ok(ActionCallCorrelation {
+            effect_number,
+            promise_state_id,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Encode / Decode for WithVmId
+// ---------------------------------------------------------------------------
+
+impl<VmId: Encode, Metadata: Encode> Encode for WithVmId<VmId, Metadata> {
+    fn encode(&self, writer: &mut Vec<u8>) {
+        self.vm_id.encode(writer);
+        self.inner.encode(writer);
+    }
+}
+
+/// Error returned when decoding a [`WithVmId`] fails.
+#[derive(Debug)]
+pub enum WithVmIdDecodeError<VmIdError> {
+    /// The VM identifier could not be decoded.
+    VmId(VmIdError),
+    /// The inner correlation metadata could not be decoded.
+    Correlation(ActionCallCorrelationDecodeError),
+}
+
+impl<VmIdError: core::fmt::Display> core::fmt::Display for WithVmIdDecodeError<VmIdError> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::VmId(e) => write!(f, "vm id: {e}"),
+            Self::Correlation(e) => write!(f, "correlation: {e}"),
+        }
+    }
+}
+
+impl<VmIdError: core::fmt::Debug + core::fmt::Display> std::error::Error
+    for WithVmIdDecodeError<VmIdError>
+{
+}
+
+impl<VmId: Decode, Metadata: Decode<Error = ActionCallCorrelationDecodeError>> Decode
+    for WithVmId<VmId, Metadata>
+{
+    type Error = WithVmIdDecodeError<VmId::Error>;
+
+    fn decode(input: &mut &[u8]) -> Result<Self, Self::Error> {
+        let vm_id = VmId::decode(input).map_err(WithVmIdDecodeError::VmId)?;
+        let inner = Metadata::decode(input).map_err(WithVmIdDecodeError::Correlation)?;
+        Ok(WithVmId { vm_id, inner })
     }
 }
