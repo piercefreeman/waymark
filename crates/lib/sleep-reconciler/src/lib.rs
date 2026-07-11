@@ -140,18 +140,22 @@ pub enum PollSleepError {
     ChannelClosed,
 }
 
-impl waymark_extcall_reconciler_core::SleepPromiseSettler for Poller {
+impl waymark_extcall_reconciler_core::SettlerAck for Poller {
     type Ack = Ack;
+}
 
+impl<UnifiedAck> waymark_extcall_reconciler_core::SleepPromiseSettler<UnifiedAck> for Poller
+where
+    UnifiedAck: From<Ack>,
+{
     /// The error type returned when polling for sleep settlements fails.
     type Error = PollSleepError;
 
-    async fn poll_sleep_settlements<UnifiedAck, Value>(
+    async fn poll_sleep_settlements<Value>(
         &mut self,
     ) -> Result<NEVec<PromiseSettlement<Value, UnifiedAck>>, Self::Error>
     where
         Value: From<()>,
-        UnifiedAck: From<Self::Ack>,
     {
         self.poll::<Value, UnifiedAck>()
             .await

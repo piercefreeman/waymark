@@ -67,39 +67,47 @@ pub trait SleepEffectHandler {
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
 }
 
+/// Exposes the acknowledgement type a settler produces natively, independent
+/// of the unified ack it is ultimately polled into.
+///
+/// Kept as a separate, non-generic trait so that `Self::Ack` can be named
+/// without committing to (and cyclically depending on) a particular
+/// unified-ack type parameter.
+pub trait SettlerAck {
+    /// The acknowledgement type produced by this settler.
+    type Ack;
+}
+
 /// Produces promise settlements from completed action calls.
-pub trait ActionPromiseSettler {
+pub trait ActionPromiseSettler<UnifiedAck>: SettlerAck
+where
+    UnifiedAck: From<Self::Ack>,
+{
     /// The type of a successful action result value.
     type Value;
 
     /// The error type returned when polling for action settlements fails.
     type Error: std::fmt::Debug;
 
-    /// The acknowledgement type produced by this settler.
-    type Ack;
-
     /// Poll for the next batch of action-completion settlements.
-    fn poll_action_settlements<UnifiedAck>(
+    fn poll_action_settlements(
         &mut self,
     ) -> impl Future<Output = Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>>
-    + Send
-    where
-        UnifiedAck: From<Self::Ack>;
+    + Send;
 }
 
 /// Produces promise settlements from elapsed sleeps.
-pub trait SleepPromiseSettler {
-    /// The acknowledgement type produced by this settler.
-    type Ack;
-
+pub trait SleepPromiseSettler<UnifiedAck>: SettlerAck
+where
+    UnifiedAck: From<Self::Ack>,
+{
     /// The error type returned when polling for sleep settlements fails.
     type Error: std::fmt::Debug;
 
     /// Poll for the next batch of elapsed-sleep settlements.
-    fn poll_sleep_settlements<UnifiedAck, Value>(
+    fn poll_sleep_settlements<Value>(
         &mut self,
     ) -> impl Future<Output = Result<NEVec<PromiseSettlement<Value, UnifiedAck>>, Self::Error>> + Send
     where
-        Value: From<()>,
-        UnifiedAck: From<Self::Ack>;
+        Value: From<()>;
 }

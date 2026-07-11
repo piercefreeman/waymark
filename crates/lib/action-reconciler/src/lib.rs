@@ -166,21 +166,23 @@ where
     }
 }
 
-impl<Provider> waymark_extcall_reconciler_core::ActionPromiseSettler for Poller<Provider>
+impl<Provider> waymark_extcall_reconciler_core::SettlerAck for Poller<Provider> {
+    type Ack = Ack;
+}
+
+impl<Provider, UnifiedAck> waymark_extcall_reconciler_core::ActionPromiseSettler<UnifiedAck>
+    for Poller<Provider>
 where
     Provider: waymark_action_runtime_core::ActionCallCompletionsProvider + Send + Sync,
     Provider::Metadata: ActionCallCorrelated,
+    UnifiedAck: From<Ack>,
 {
     type Value = Provider::Value;
     type Error = Provider::Error;
-    type Ack = Ack;
 
-    async fn poll_action_settlements<UnifiedAck>(
+    async fn poll_action_settlements(
         &mut self,
-    ) -> Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>
-    where
-        UnifiedAck: From<Self::Ack>,
-    {
+    ) -> Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error> {
         self.poll::<UnifiedAck>().await
     }
 }

@@ -133,12 +133,24 @@ where
 impl<ActionSettler, SleepSettler> waymark_vm_driver_core::PromiseSettler
     for PromiseSettler<ActionSettler, SleepSettler>
 where
-    ActionSettler: waymark_extcall_reconciler_core::ActionPromiseSettler + Send,
+    ActionSettler: waymark_extcall_reconciler_core::SettlerAck + Send,
+    SleepSettler: waymark_extcall_reconciler_core::SettlerAck + Send,
+    ActionSettler: waymark_extcall_reconciler_core::ActionPromiseSettler<
+            Ack<
+                <ActionSettler as waymark_extcall_reconciler_core::SettlerAck>::Ack,
+                <SleepSettler as waymark_extcall_reconciler_core::SettlerAck>::Ack,
+            >,
+        >,
+    SleepSettler: waymark_extcall_reconciler_core::SleepPromiseSettler<
+            Ack<
+                <ActionSettler as waymark_extcall_reconciler_core::SettlerAck>::Ack,
+                <SleepSettler as waymark_extcall_reconciler_core::SettlerAck>::Ack,
+            >,
+        >,
     ActionSettler::Ack: PromiseSettlementAck,
     ActionSettler::Value: From<()>,
-    Ack<ActionSettler::Ack, SleepSettler::Ack>: From<ActionSettler::Ack>,
-    SleepSettler: waymark_extcall_reconciler_core::SleepPromiseSettler + Send,
     SleepSettler::Ack: PromiseSettlementAck,
+    Ack<ActionSettler::Ack, SleepSettler::Ack>: From<ActionSettler::Ack>,
     Ack<ActionSettler::Ack, SleepSettler::Ack>: From<SleepSettler::Ack>,
 {
     type Value = ActionSettler::Value;
@@ -150,10 +162,10 @@ where
         _waiting_ids: NEVec<PromiseStateId>,
     ) -> Result<NEVec<PromiseSettlement<Self::Value, Self::Ack>>, Self::Error> {
         tokio::select! {
-            settlements = self.sleep.poll_sleep_settlements::<Self::Ack, Self::Value>() => {
+            settlements = self.sleep.poll_sleep_settlements::<Self::Value>() => {
                 settlements.map_err(GetPromiseSettlementsError::Sleep)
             }
-            settlements = self.action.poll_action_settlements::<Self::Ack>() => {
+            settlements = self.action.poll_action_settlements() => {
                 settlements.map_err(GetPromiseSettlementsError::Action)
             }
         }
