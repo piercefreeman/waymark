@@ -1,0 +1,32 @@
+[package]
+name = "waymark-action-completions-reconciler"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-action-completions-reconciler-backend = { workspace = true }
+waymark-action-runtime-core = { workspace = true, features = ["serde"] }
+waymark-action-runtime-metadata = { workspace = true }
+waymark-extcall-reconciler-core = { workspace = true }
+waymark-vm-codec-core = { workspace = true }
+waymark-vm-driver-core = { workspace = true }
+waymark-vm-runtime-effect = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
+waymark-vm-value = { workspace = true, features = ["serde"] }
+
+dashmap = { workspace = true }
+nonempty-collections = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+waymark-ids = { workspace = true }
+waymark-vm-codec-rmp = { workspace = true }
+
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+
+[lib]
+doctest = false

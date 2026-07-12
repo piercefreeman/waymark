@@ -4255,6 +4255,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-action-completions-reconciler"
+version = "0.1.0"
+dependencies = [
+ "dashmap 6.2.1",
+ "nonempty-collections",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "waymark-action-completions-reconciler-backend",
+ "waymark-action-runtime-core",
+ "waymark-action-runtime-metadata",
+ "waymark-extcall-reconciler-core",
+ "waymark-ids",
+ "waymark-vm-codec-core",
+ "waymark-vm-codec-rmp",
+ "waymark-vm-driver-core",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+]
+
+[[package]]
 name = "waymark-action-completions-reconciler-backend"
 version = "0.1.0"
 dependencies = [
