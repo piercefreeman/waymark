@@ -151,11 +151,18 @@ where
     /// The error type returned when polling for sleep settlements fails.
     type Error = PollSleepError;
 
-    async fn poll_sleep_settlements<Value>(
-        &mut self,
+    async fn poll_sleep_settlements<'a, Value>(
+        &'a mut self,
+        // Elapsed sleeps settle on their own deadlines; the demand set is
+        // not consulted.
+        _waiting_promise_state_ids: nonempty_collections::NESlice<
+            'a,
+            waymark_vm_runtime_promise_core::PromiseStateId,
+        >,
     ) -> Result<NEVec<PromiseSettlement<Value, UnifiedAck>>, Self::Error>
     where
-        Value: From<()>,
+        Value: From<()> + 'a,
+        UnifiedAck: 'a,
     {
         self.poll::<Value, UnifiedAck>()
             .await

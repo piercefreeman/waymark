@@ -7,7 +7,7 @@
 
 #![warn(missing_docs)]
 
-use nonempty_collections::NEVec;
+use nonempty_collections::{NESlice, NEVec};
 use waymark_action_core::ActionRef;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_driver_core::{PromiseSettlement, PromiseSettlementAck};
@@ -90,10 +90,19 @@ where
     type Error: std::fmt::Debug;
 
     /// Poll for the next batch of action-completion settlements.
-    fn poll_action_settlements(
-        &mut self,
+    ///
+    /// `waiting_promise_state_ids` provides the IDs of all promises the
+    /// caller is currently waiting on — see
+    /// [`waymark_vm_driver_core::PromiseSettler::get_promise_settlements`],
+    /// where the demand originates.
+    fn poll_action_settlements<'a>(
+        &'a mut self,
+        waiting_promise_state_ids: NESlice<'a, PromiseStateId>,
     ) -> impl Future<Output = Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>>
-    + Send;
+    + Send
+    + 'a
+    where
+        UnifiedAck: 'a;
 }
 
 /// Produces promise settlements from elapsed sleeps.
@@ -105,9 +114,16 @@ where
     type Error: std::fmt::Debug;
 
     /// Poll for the next batch of elapsed-sleep settlements.
-    fn poll_sleep_settlements<Value>(
-        &mut self,
-    ) -> impl Future<Output = Result<NEVec<PromiseSettlement<Value, UnifiedAck>>, Self::Error>> + Send
+    ///
+    /// `waiting_promise_state_ids` provides the IDs of all promises the
+    /// caller is currently waiting on — see
+    /// [`waymark_vm_driver_core::PromiseSettler::get_promise_settlements`],
+    /// where the demand originates.
+    fn poll_sleep_settlements<'a, Value>(
+        &'a mut self,
+        waiting_promise_state_ids: NESlice<'a, PromiseStateId>,
+    ) -> impl Future<Output = Result<NEVec<PromiseSettlement<Value, UnifiedAck>>, Self::Error>> + Send + 'a
     where
-        Value: From<()>;
+        Value: From<()> + 'a,
+        UnifiedAck: 'a;
 }

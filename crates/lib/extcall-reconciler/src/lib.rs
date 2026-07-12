@@ -159,13 +159,13 @@ where
 
     async fn get_promise_settlements(
         &mut self,
-        _waiting_ids: NEVec<PromiseStateId>,
+        waiting_ids: NEVec<PromiseStateId>,
     ) -> Result<NEVec<PromiseSettlement<Self::Value, Self::Ack>>, Self::Error> {
         tokio::select! {
-            settlements = self.sleep.poll_sleep_settlements::<Self::Value>() => {
+            settlements = self.sleep.poll_sleep_settlements::<Self::Value>(waiting_ids.as_nonempty_slice()) => {
                 settlements.map_err(GetPromiseSettlementsError::Sleep)
             }
-            settlements = self.action.poll_action_settlements() => {
+            settlements = self.action.poll_action_settlements(waiting_ids.as_nonempty_slice()) => {
                 settlements.map_err(GetPromiseSettlementsError::Action)
             }
         }
