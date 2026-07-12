@@ -26,10 +26,9 @@ pub enum WorkerPoolCompletionsError<VmIdError: core::fmt::Display + 'static> {
 /// This polls the worker pool for ALL completions — there is no per-VM
 /// filtering; each completion carries a [`WithVmId`] metadata, decoded from the
 /// bytes the requester encoded and the worker echoed back, so the owning VM can
-/// be recovered.  Single-VM deployments can use this directly; multi-VM
-/// deployments wrap it in the routed completions provider from
-/// `waymark_action_runtime_completions_router`, which demultiplexes completions
-/// to the correct VM by that id.
+/// be recovered.  Consumers that need per-VM demultiplexing (e.g. the durable
+/// completions writer feeding the demand poller) recover the owning VM from
+/// that metadata.
 pub struct WorkerPoolActionCallCompletionsProvider<Pool, VmId> {
     /// The worker pool to poll for completed actions.
     pub pool: Pool,

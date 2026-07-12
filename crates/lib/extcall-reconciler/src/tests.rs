@@ -79,7 +79,8 @@ async fn effect_handler_dispatches_action_call() {
 
     let provider = FakeCompletionsProvider::Pending;
 
-    let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
+    let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
     let (mut handler, _settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
@@ -115,7 +116,8 @@ async fn effect_handler_records_sleep() {
     // The action poller must not complete during this test.
     let provider = FakeCompletionsProvider::Pending;
 
-    let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
+    let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
     let (mut handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
@@ -149,7 +151,8 @@ async fn action_settler_error_propagates() {
 
     let provider = FakeCompletionsProvider::Failing;
 
-    let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
+    let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
     let (_handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
@@ -173,7 +176,8 @@ async fn sleep_settler_error_propagates() {
     // The action poller must not complete during this test.
     let provider = FakeCompletionsProvider::Pending;
 
-    let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
+    let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
     let (handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
