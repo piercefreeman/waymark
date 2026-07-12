@@ -5,11 +5,12 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
-waymark-action-reconciler = { workspace = true }
-waymark-action-runtime-completions-router = { workspace = true }
+waymark-action-completions-reconciler = { workspace = true }
+waymark-action-completions-reconciler-backend = { workspace = true }
 waymark-action-runtime-worker-pool = { workspace = true }
 waymark-execution-driver = { workspace = true }
 waymark-extcall-reconciler = { workspace = true }
+waymark-extcall-reconciler-action-compat = { workspace = true }
 waymark-fullset-effect-handler = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
