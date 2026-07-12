@@ -7,6 +7,7 @@ version = "0.1.0"
 publish = false
 
 [workspace.dependencies]
+waymark-action-completions-reconciler-backend = { path = "crates/lib/action-completions-reconciler-backend" }
 waymark-action-core = { path = "crates/lib/action-core" }
 waymark-action-reconciler = { path = "crates/lib/action-reconciler" }
 waymark-action-runtime-completions-router = { path = "crates/lib/action-runtime-completions-router" }
