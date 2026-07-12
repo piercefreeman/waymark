@@ -30,7 +30,8 @@ pub(super) async fn register_test_vm(backend: &PostgresBackend) -> (InstanceId, 
 pub(super) async fn reset_database(pool: &PgPool) {
     sqlx::query(
         r#"
-        TRUNCATE runner_actions_done,
+        TRUNCATE action_call_completions,
+                 runner_actions_done,
                  queued_instances,
                  runner_instances,
                  vm_executables,
