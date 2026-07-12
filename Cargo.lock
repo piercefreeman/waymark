@@ -4324,6 +4324,7 @@ name = "waymark-action-runtime-core"
 version = "0.1.0"
 dependencies = [
  "nonempty-collections",
+ "serde",
  "waymark-action-core",
  "waymark-vm-runtime-exception",
 ]
