@@ -2,8 +2,7 @@
 //!
 //! These traits abstract the handling and settlement of external calls
 //! (action invocations and sleeps) emitted by the VM interpreter.
-//! Implementations live in the concrete reconciler crates
-//! ([`waymark_action_reconciler`], [`waymark_sleep_reconciler`]).
+//! Implementations live in the concrete reconciler crates.
 
 #![warn(missing_docs)]
 

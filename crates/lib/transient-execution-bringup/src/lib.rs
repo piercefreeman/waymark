@@ -117,7 +117,8 @@ pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> Execute
         ActionCallCorrelation,
     >::new(action_result_rx);
 
-    let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
+    let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(skip_sleep);
     let (extcall_handler, extcall_settler) =
         waymark_extcall_reconciler::new(action_handler, sleep_handler, action_poller, sleep_poller);
