@@ -1,7 +1,7 @@
 //! Correlation metadata carried alongside action calls.
 //!
 //! The action runtime request/completion types
-//! ([`waymark_action_runtime_core`]) are generic over a metadata type; this
+//! (`waymark-action-runtime-core`) are generic over a metadata type; this
 //! crate provides the concrete metadata shapes and the accessor traits that
 //! let metadata-agnostic consumers read only the fields they need.
 
@@ -79,18 +79,6 @@ impl<VmId: Copy, Metadata> VmScoped for WithVmId<VmId, Metadata> {
     type VmId = VmId;
 
     fn vm_id(&self) -> VmId {
-        self.vm_id
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Routed
-// ---------------------------------------------------------------------------
-
-impl<VmId: Copy, Metadata> waymark_action_runtime_completions_router_core::Routed<VmId>
-    for WithVmId<VmId, Metadata>
-{
-    fn routing_key(&self) -> VmId {
         self.vm_id
     }
 }
