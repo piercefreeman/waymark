@@ -177,7 +177,21 @@ async fn main() -> Result<()> {
     let _ =
         tokio::time::timeout(Duration::from_secs(2), execution_handles.executable_sweeper).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), execution_handles.vm_sweeper).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), execution_handles.poll_route).await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        execution_handles.durable_action_completions_writer,
+    )
+    .await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        execution_handles.durable_action_completions_poller,
+    )
+    .await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        execution_handles.durable_action_completions_acker,
+    )
+    .await;
     let _ = tokio::time::timeout(Duration::from_secs(5), bridge_task).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
 
