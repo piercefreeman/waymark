@@ -1,7 +1,5 @@
 //! Tests for the top-level EffectHandler, PromiseSettler, and Ack types.
 
-use std::time::Duration;
-
 use nonempty_collections::NEVec;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_driver_core::{EffectHandler as _, PromiseSettler as _};
@@ -44,22 +42,33 @@ mock! {
     }
 }
 
-mock! {
-    pub CompletionsProvider {}
+/// Hand-rolled completions-provider fake with precisely scripted behaviors.
+enum FakeCompletionsProvider {
+    /// Never yields a completion.
+    Pending,
 
-    impl ActionCallCompletionsProvider for CompletionsProvider {
-        type Value = waymark_vm_value::ReadyValue;
-        type Error = MockProviderError;
-        type Metadata = ActionCallCorrelation;
+    /// Immediately fails with [`MockProviderError`].
+    Failing,
+}
 
-        fn wait_for_completions(
-            &mut self,
-        ) -> impl Future<
-            Output = Result<
-                NEVec<ActionCallCompletion<waymark_vm_value::ReadyValue, ActionCallCorrelation>>,
-                MockProviderError,
-            >,
-        > + Send;
+impl ActionCallCompletionsProvider for FakeCompletionsProvider {
+    type Value = waymark_vm_value::ReadyValue;
+    type Error = MockProviderError;
+    type Metadata = ActionCallCorrelation;
+
+    async fn wait_for_completions(
+        &mut self,
+    ) -> Result<
+        NEVec<ActionCallCompletion<waymark_vm_value::ReadyValue, ActionCallCorrelation>>,
+        MockProviderError,
+    > {
+        match self {
+            Self::Pending => {
+                std::future::pending::<()>().await;
+                unreachable!("pending never resolves")
+            }
+            Self::Failing => Err(MockProviderError),
+        }
     }
 }
 
@@ -68,7 +77,7 @@ async fn effect_handler_dispatches_action_call() {
     let mut requester = MockActionRequester::new();
     requester.expect_request_action_call().returning(|_| Ok(()));
 
-    let provider = MockCompletionsProvider::new();
+    let provider = FakeCompletionsProvider::Pending;
 
     let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
@@ -103,13 +112,8 @@ async fn effect_handler_dispatches_action_call() {
 async fn effect_handler_records_sleep() {
     let requester = MockActionRequester::new();
 
-    let mut provider = MockCompletionsProvider::new();
-    provider.expect_wait_for_completions().returning(|| {
-        Box::pin(async {
-            tokio::time::sleep(Duration::from_secs(60)).await;
-            unreachable!("action poller should not complete during this test")
-        })
-    });
+    // The action poller must not complete during this test.
+    let provider = FakeCompletionsProvider::Pending;
 
     let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
@@ -143,17 +147,14 @@ async fn effect_handler_records_sleep() {
 async fn action_settler_error_propagates() {
     let requester = MockActionRequester::new();
 
-    let mut provider = MockCompletionsProvider::new();
-    provider
-        .expect_wait_for_completions()
-        .returning(|| Box::pin(std::future::ready(Err(MockProviderError))));
+    let provider = FakeCompletionsProvider::Failing;
 
     let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
     let (_handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
     // Handler kept alive — sleep poller blocks waiting for sleeps.
-    // Action mock errors immediately — its error wins tokio::select!.
+    // Action provider errors immediately — its error wins tokio::select!.
 
     let result = settler
         .get_promise_settlements(NEVec::new(PromiseStateId(0)))
@@ -169,20 +170,15 @@ async fn action_settler_error_propagates() {
 async fn sleep_settler_error_propagates() {
     let requester = MockActionRequester::new();
 
-    let mut provider = MockCompletionsProvider::new();
-    provider.expect_wait_for_completions().returning(|| {
-        Box::pin(async {
-            tokio::time::sleep(Duration::from_secs(60)).await;
-            unreachable!("action poller should not complete during this test")
-        })
-    });
+    // The action poller must not complete during this test.
+    let provider = FakeCompletionsProvider::Pending;
 
     let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
     let (handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
     drop(handler); // Close sleep channel — sleep poller errors with ChannelClosed.
-    // Action mock blocks for 60s — sleep error wins tokio::select!.
+    // Action provider never completes — sleep error wins tokio::select!.
 
     let result = settler
         .get_promise_settlements(NEVec::new(PromiseStateId(0)))

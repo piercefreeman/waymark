@@ -6,7 +6,7 @@
 
 #![warn(missing_docs)]
 
-use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
+use nonempty_collections::{IntoNonEmptyIterator as _, NESlice, NEVec, NonEmptyIterator as _};
 use waymark_action_core::ActionRef;
 use waymark_action_runtime_core::{ActionCallCompletion, ActionCallOutcome, ActionCallRequest};
 use waymark_action_runtime_metadata::{ActionCallCorrelated, ActionCallCorrelation};
@@ -180,9 +180,15 @@ where
     type Value = Provider::Value;
     type Error = Provider::Error;
 
-    async fn poll_action_settlements(
-        &mut self,
-    ) -> Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error> {
+    async fn poll_action_settlements<'a>(
+        &'a mut self,
+        // The transient completion sources yield everything they have; the
+        // demand set is not consulted.
+        _waiting_promise_state_ids: NESlice<'a, PromiseStateId>,
+    ) -> Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>
+    where
+        UnifiedAck: 'a,
+    {
         self.poll::<UnifiedAck>().await
     }
 }
