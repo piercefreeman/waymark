@@ -36,6 +36,7 @@ waymark-dag-viz = { path = "crates/lib/dag-viz" }
 waymark-execution-bringup = { path = "crates/lib/execution-bringup" }
 waymark-execution-driver = { path = "crates/lib/execution-driver" }
 waymark-extcall-reconciler = { path = "crates/lib/extcall-reconciler" }
+waymark-extcall-reconciler-action-compat = { path = "crates/lib/extcall-reconciler-action-compat" }
 waymark-extcall-reconciler-core = { path = "crates/lib/extcall-reconciler-core" }
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-fullset-effect-handler = { path = "crates/lib/fullset-effect-handler" }
