@@ -5595,6 +5595,7 @@ dependencies = [
  "waymark-vm-ast-old",
  "waymark-vm-bytecode",
  "waymark-vm-bytecode-core",
+ "waymark-vm-compiler-metadata",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-fullset",
@@ -5615,6 +5616,16 @@ dependencies = [
  "waymark-vm-instructions-pureset",
  "waymark-vm-runtime-core",
  "waymark-vm-value",
+]
+
+[[package]]
+name = "waymark-vm-compiler-metadata"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "indexmap 2.13.0",
+ "serde",
+ "waymark-typed-vec-serde",
 ]
 
 [[package]]
