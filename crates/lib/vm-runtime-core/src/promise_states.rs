@@ -35,6 +35,11 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
     }
 
     /// Allocate a new waiting promise state and return its id.
+    ///
+    /// Ids are indexes into an append-only list: entries are never
+    /// removed or compacted, so an id is never handed out for a different
+    /// promise — upholding the unique-per-VM invariant documented on
+    /// [`PromiseStateId`].
     pub fn prepare(&mut self) -> PromiseStateId {
         self.0.push(PromiseState::Waiting(Vec::new()))
     }

@@ -12,7 +12,17 @@ use index_type::{IndexTooBigError, IndexType};
 #[index_too_big_error(msg = "promise state id")]
 pub struct PromiseStateIdTooBigError;
 
-/// Index of a [`PromiseState`] in the promise states store.
+/// An opaque identifier of a promise state.
+///
+/// # Invariant: unique per VM
+///
+/// An id value belongs to at most one promise over the entire lifetime of
+/// the VM that issued it — including snapshot/restore cycles.  External
+/// systems durably key their state by promise state id (scoped by the VM
+/// identity) and rely on exactly this property.
+///
+/// How ids are allocated and stored is an implementation concern of the
+/// promise states store, free to change as long as the invariant holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IndexType, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[index_type(error = PromiseStateIdTooBigError)]
