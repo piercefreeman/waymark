@@ -26,6 +26,8 @@ pub struct WorkerConfig {
     pub persistence_interval: Option<NonZeroDuration>,
     pub lock_ttl: NonZeroDuration,
     pub lock_heartbeat: NonZeroDuration,
+    pub action_effect_reconciler_lock_ttl: NonZeroDuration,
+    pub action_effect_reconciler_lock_heartbeat: NonZeroDuration,
     pub evict_sleep_threshold: NonZeroDuration,
     pub expired_lock_reclaimer_interval: NonZeroDuration,
     pub expired_lock_reclaimer_batch_size: NonZeroUsize,
@@ -72,6 +74,12 @@ impl WorkerConfig {
         let FromMillis(lock_ttl) = envfury::or_parse("WAYMARK_LOCK_TTL_MS", "15000")?;
 
         let FromMillis(lock_heartbeat) = envfury::or_parse("WAYMARK_LOCK_HEARTBEAT_MS", "5000")?;
+
+        let FromMillis(action_effect_reconciler_lock_ttl) =
+            envfury::or_parse("WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_TTL_MS", "15000")?;
+
+        let FromMillis(action_effect_reconciler_lock_heartbeat) =
+            envfury::or_parse("WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_HEARTBEAT_MS", "5000")?;
 
         let FromMillis(evict_sleep_threshold) =
             envfury::or_parse("WAYMARK_EVICT_SLEEP_THRESHOLD_MS", "10000")?;
@@ -143,6 +151,8 @@ impl WorkerConfig {
             persistence_interval,
             lock_ttl,
             lock_heartbeat,
+            action_effect_reconciler_lock_ttl,
+            action_effect_reconciler_lock_heartbeat,
             evict_sleep_threshold,
             expired_lock_reclaimer_interval,
             expired_lock_reclaimer_batch_size,

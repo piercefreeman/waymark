@@ -1,8 +1,10 @@
-//! Bringup for the execution subsystem — wires the workload-pinning manager
-//! and execution-driver together, spawning their run loops.
+//! Bringup for the execution subsystem — wires the workload-pinning
+//! manager, the execution driver, the worker pool, and the durable
+//! action-call pipelines (requests and completions) together, spawning
+//! their run loops.
 //!
-//! [`start`] takes a backend, a pre-built state manager, and configuration,
-//! then spawns all the loops needed for VM execution.
+//! [`start`] takes a backend, a worker pool, and configuration, then
+//! spawns all the loops needed for VM execution.
 
 #![warn(missing_docs)]
 
@@ -17,7 +19,17 @@ use waymark_worker_core::{BaseWorkerPool, WorkerPoolError};
 /// Configuration for [`start`].
 pub struct Config<NodeId> {
     /// The node identifier for this executor instance.
+    ///
+    /// Also the identity this process owns action-call request locks
+    /// under.
     pub node_id: NodeId,
+
+    /// How long an action-call request lock lasts before it needs to be
+    /// renewed.
+    pub action_effect_reconciler_lock_ttl: NonZeroDuration,
+
+    /// How often to renew the held action-call request locks.
+    pub action_effect_reconciler_lock_heartbeat: NonZeroDuration,
 
     /// How many VMs can be pinned concurrently.
     pub max_pinned: NonZeroUsize,
@@ -63,14 +75,18 @@ pub struct Handles {
 
     /// Join handle for the durable action-call completions acker.
     pub durable_action_completions_acker: tokio::task::JoinHandle<()>,
+
+    /// Join handle for the action-call request lock renewal heartbeat.
+    pub action_effect_reconciler_lock_renewal: tokio::task::JoinHandle<()>,
 }
 
 /// Start the execution subsystem.
 ///
-/// Spawns the workload-pinning manager and the execution driver, wiring
-/// them together via an mpsc channel. The caller is responsible for
-/// constructing the [`waymark_state_manager::State`] with the appropriate
-/// [`waymark_state_vm_runtimes::SpawningFactory`].
+/// Launches the worker pool, assembles the VM runtime state (spawning
+/// factory, effectors, and the durable action-call request reconcile),
+/// and spawns every run loop: the workload-pinning manager, the execution
+/// driver, the state sweepers, the durable action-call completions
+/// pipeline, and the action-call request lock renewal heartbeat.
 ///
 /// Returns an error if the worker pool fails to launch; nothing is spawned
 /// in that case.
@@ -95,7 +111,7 @@ where
     Backend: waymark_state_vm_executables_backend::LoadExecutable,
     <Backend as waymark_state_vm_executables_backend::LoadExecutable>::Error: Send + 'static,
     Backend: Send + Sync + 'static,
-    Backend::NodeId: Clone + Send,
+    Backend::NodeId: Clone + Send + Sync + 'static,
     Backend: waymark_workload_pinning_backend::HasInstanceId<
             InstanceId = <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
         >,
@@ -120,6 +136,19 @@ where
         Send + 'static,
     <Backend as waymark_action_completions_reconciler_backend::AckCompletions>::Error:
         Send + 'static,
+    Backend: waymark_action_effect_reconciler_backend::RecordActionCallRequests,
+    Backend: waymark_action_effect_reconciler_backend::LockVmActionCallRequests,
+    Backend: waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks,
+    Backend: waymark_action_effect_reconciler_backend::HasVmId<VmId = waymark_ids::InstanceId>,
+    Backend:
+        waymark_action_effect_reconciler_backend::HasLockOwnerId<LockOwnerId = Backend::NodeId>,
+    Backend: waymark_action_effect_reconciler_backend::HasTimestamp<
+            Timestamp = chrono::DateTime<chrono::Utc>,
+        >,
+    <Backend as waymark_action_effect_reconciler_backend::RecordActionCallRequests>::Error:
+        Send + 'static,
+    <Backend as waymark_action_effect_reconciler_backend::LockVmActionCallRequests>::Error:
+        Send + 'static,
     Backend: waymark_workflow_completion_backend::RecordCompletion,
     Backend: waymark_workflow_completion_backend::RecordException,
     Backend: waymark_workflow_completion_backend::HasVmId<
@@ -136,6 +165,8 @@ where
 {
     let Config {
         node_id,
+        action_effect_reconciler_lock_ttl,
+        action_effect_reconciler_lock_heartbeat,
         max_pinned,
         pinning_ttl,
         pinning_heartbeat,
@@ -252,10 +283,52 @@ where
         }
     });
 
+    // Durable action-call requests: emitted action calls are recorded as
+    // born-locked request rows before delivery to the local pool, and the
+    // renewal heartbeat keeps the held locks alive while the attempts run.
+    // A held lock is the authorization to execute its attempt; a lock that
+    // cannot be renewed in time is a fence breach, and with no per-attempt
+    // termination primitive the drop guard escalates to subsystem shutdown,
+    // force-terminating every local attempt with the process.
+    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
+    let renewal_params = waymark_action_effect_reconciler::renewal::Params {
+        backend: Arc::clone(&backend),
+        lock_owner_id: node_id.clone(),
+        lock_time_to_live: action_effect_reconciler_lock_ttl,
+        heartbeat: action_effect_reconciler_lock_heartbeat,
+        held_locks_rx,
+    };
+    let action_effect_reconciler_lock_renewal_handle = tokio::spawn({
+        let shutdown = shutdown_token.child_token();
+        let shutdown_guard = shutdown_token.clone().drop_guard();
+        async move {
+            let _shutdown_guard = shutdown_guard;
+            tokio::select! {
+                _ = shutdown.cancelled() => {}
+                result = waymark_action_effect_reconciler::renewal::run(renewal_params) => {
+                    match result {
+                        Ok(()) => {
+                            tracing::info!("action-call request lock renewal drained");
+                        }
+                        Err(error) => {
+                            tracing::error!(
+                                ?error,
+                                "action-call request lock fence breached, shutting down"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let requests_factory_worker_pool = worker_pool.clone();
     let effector_provider = waymark_state_vm_runtimes_core::FnEffectorProvider::new({
         let backend = Arc::clone(&backend);
         let codec = Arc::clone(&codec);
         let registrar = registrar.clone();
+        let lock_owner_id = node_id.clone();
+        let held_locks_tx = held_locks_tx.clone();
         move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
             let action_call_requester =
                 waymark_action_runtime_worker_pool::WorkerPoolActionRequester {
@@ -263,8 +336,15 @@ where
                     vm_id: *vm_id,
                 };
 
-            let action_handler =
-                waymark_extcall_reconciler_action_compat::EffectHandler::new(action_call_requester);
+            let action_handler = waymark_action_effect_reconciler::EffectHandler {
+                backend: Arc::clone(&backend),
+                codec: Arc::clone(&codec),
+                lock_owner_id: lock_owner_id.clone(),
+                lock_time_to_live: action_effect_reconciler_lock_ttl,
+                held_locks_tx: held_locks_tx.clone(),
+                vm_id: *vm_id,
+                requester: action_call_requester,
+            };
             let action_settler = registrar.subscribe(*vm_id);
 
             let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
@@ -296,6 +376,24 @@ where
         interpreter_provider,
         effector_provider,
     );
+
+    // Reconcile-before-produce: at VM revival, pending request rows whose
+    // locks lapsed are relocked and their calls redelivered to the local
+    // pool, before the VM exists.
+    let vm_runtimes_factory = waymark_action_effect_reconciler::ReconcilingFactory {
+        inner: vm_runtimes_factory,
+        backend: Arc::clone(&backend),
+        codec: Arc::clone(&codec),
+        lock_owner_id: node_id.clone(),
+        lock_time_to_live: action_effect_reconciler_lock_ttl,
+        held_locks_tx: held_locks_tx.clone(),
+        requester_provider: move |vm_id: &waymark_ids::InstanceId| {
+            waymark_action_runtime_worker_pool::WorkerPoolActionRequester {
+                pool: requests_factory_worker_pool.clone(),
+                vm_id: *vm_id,
+            }
+        },
+    };
 
     let (vm_runtimes_state, vm_runtimes_sweeper) =
         waymark_state_manager::State::new(vm_retention, vm_runtimes_factory);
@@ -343,6 +441,7 @@ where
         durable_action_completions_writer: durable_action_completions_writer_handle,
         durable_action_completions_poller: durable_action_completions_poller_handle,
         durable_action_completions_acker: durable_action_completions_acker_handle,
+        action_effect_reconciler_lock_renewal: action_effect_reconciler_lock_renewal_handle,
     })
 }
 
