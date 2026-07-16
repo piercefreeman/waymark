@@ -10,6 +10,7 @@ publish = false
 waymark-action-completions-reconciler = { path = "crates/lib/action-completions-reconciler" }
 waymark-action-completions-reconciler-backend = { path = "crates/lib/action-completions-reconciler-backend" }
 waymark-action-core = { path = "crates/lib/action-core" }
+waymark-action-effect-reconciler = { path = "crates/lib/action-effect-reconciler" }
 waymark-action-effect-reconciler-backend = { path = "crates/lib/action-effect-reconciler-backend" }
 waymark-action-runtime-convert = { path = "crates/lib/action-runtime-convert" }
 waymark-action-runtime-core = { path = "crates/lib/action-runtime-core" }
