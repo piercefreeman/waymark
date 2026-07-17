@@ -39,6 +39,7 @@ waymark-workflow-registry-backend = { workspace = true }
 waymark-workflow-service-vm-executables-backend = { workspace = true }
 waymark-workflow-service-vm-runtimes-backend = { workspace = true }
 waymark-workload-pinning-backend = { workspace = true }
+waymark-workload-pinning-core = { workspace = true }
 
 chrono = { workspace = true }
 function_name = { workspace = true }
