@@ -16,14 +16,6 @@ pub enum RefreshError {
     Sqlx(#[source] sqlx::Error),
 }
 
-/// Error returned by [`super::PostgresBackend`] when releasing pinnings.
-#[derive(Debug, thiserror::Error)]
-pub enum ReleaseError {
-    /// The underlying database operation failed.
-    #[error("sqlx: {0}")]
-    Sqlx(#[source] sqlx::Error),
-}
-
 /// Error returned by [`super::PostgresBackend`] when unpinning workloads.
 #[derive(Debug, thiserror::Error)]
 pub enum UnpinError {

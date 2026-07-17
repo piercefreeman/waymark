@@ -1,8 +1,8 @@
 //! Postgres backend for workload pinning.
 //!
 //! Implements [`waymark_workload_pinning_backend::Backend`] so that the
-//! workload pinning manager can pin, refresh, and release workload
-//! pinnings via Postgres.
+//! workload pinning manager can pin, refresh, and unpin workloads via
+//! Postgres.
 
 pub mod error;
 
@@ -194,40 +194,6 @@ impl waymark_workload_pinning_backend::UnpinWorkloads for PostgresBackend {
             ))
             .await
             .map_err(error::UnpinError::Sqlx)?;
-
-            Ok(())
-        }
-    }
-}
-
-impl waymark_workload_pinning_backend::ReleasePinnings for PostgresBackend {
-    type Error = error::ReleaseError;
-
-    #[obs]
-    #[function_name::named]
-    fn release_pinnings<'a>(
-        &'a self,
-        node_id: Self::NodeId,
-        workload_ids: impl nonempty_collections::IntoNonEmptyIterator<Item = Self::WorkloadId> + 'a,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a {
-        let ids: Vec<InstanceId> = workload_ids.into_iter().collect();
-        async move {
-            Self::count_query(&self.query_counts, "update:runnable_workloads_release");
-            sqlx::query(
-                r#"
-                UPDATE runnable_workloads
-                SET node_id = NULL, expires_at = NULL, updated_at = NOW()
-                WHERE node_id = $1 AND workload_id = ANY($2)
-                "#,
-            )
-            .bind(node_id)
-            .bind(&ids)
-            .execute(&self.pool)
-            .timed(crate::query_timing_histogram!(
-                "update:runnable_workloads_release"
-            ))
-            .await
-            .map_err(error::ReleaseError::Sqlx)?;
 
             Ok(())
         }

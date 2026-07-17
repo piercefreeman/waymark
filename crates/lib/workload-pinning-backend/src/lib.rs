@@ -18,23 +18,15 @@ mod common;
 
 pub mod keepalive;
 pub mod poll;
-pub mod release;
 pub mod unpin;
 
 pub use self::common::*;
 
 pub use self::keepalive::KeepalivePinnings;
 pub use self::poll::PollUnpinnedWorkloads;
-pub use self::release::ReleasePinnings;
 pub use self::unpin::UnpinWorkloads;
 
 /// All workload pinning backend traits.
-pub trait Backend:
-    PollUnpinnedWorkloads + KeepalivePinnings + ReleasePinnings + UnpinWorkloads
-{
-}
+pub trait Backend: PollUnpinnedWorkloads + KeepalivePinnings + UnpinWorkloads {}
 
-impl<T> Backend for T where
-    T: PollUnpinnedWorkloads + KeepalivePinnings + ReleasePinnings + UnpinWorkloads
-{
-}
+impl<T> Backend for T where T: PollUnpinnedWorkloads + KeepalivePinnings + UnpinWorkloads {}
