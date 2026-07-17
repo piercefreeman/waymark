@@ -4419,6 +4419,7 @@ dependencies = [
  "waymark-webapp-backend",
  "waymark-webapp-core",
  "waymark-worker-status-backend",
+ "waymark-workflow-completion-backend",
  "waymark-workflow-registry-backend",
  "waymark-workflow-service-vm-runtimes-backend",
  "waymark-workload-pinning-backend",
@@ -6241,6 +6242,32 @@ dependencies = [
  "waymark-pool-status",
  "waymark-worker-status-backend",
  "waymark-worker-status-core",
+]
+
+[[package]]
+name = "waymark-workflow-completion"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
+ "tracing",
+ "waymark-vm-codec-core",
+ "waymark-vm-driver-core",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
+ "waymark-workflow-completion-backend",
+]
+
+[[package]]
+name = "waymark-workflow-completion-backend"
+version = "0.1.0"
+
+[[package]]
+name = "waymark-workflow-completion-core"
+version = "0.1.0"
+dependencies = [
+ "waymark-vm-runtime-exception",
 ]
 
 [[package]]
