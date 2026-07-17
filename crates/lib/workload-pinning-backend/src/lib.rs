@@ -15,11 +15,11 @@ pub mod release;
 
 pub use self::common::*;
 
-pub use self::keepalive::KeepaliveInstancePinnings;
-pub use self::poll::PollUnpinnedInstances;
+pub use self::keepalive::KeepalivePinnings;
+pub use self::poll::PollUnpinnedWorkloads;
 pub use self::release::ReleasePinnings;
 
 /// All workload pinning backend traits.
-pub trait Backend: PollUnpinnedInstances + KeepaliveInstancePinnings + ReleasePinnings {}
+pub trait Backend: PollUnpinnedWorkloads + KeepalivePinnings + ReleasePinnings {}
 
-impl<T> Backend for T where T: PollUnpinnedInstances + KeepaliveInstancePinnings + ReleasePinnings {}
+impl<T> Backend for T where T: PollUnpinnedWorkloads + KeepalivePinnings + ReleasePinnings {}
