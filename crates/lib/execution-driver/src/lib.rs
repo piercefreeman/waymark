@@ -214,20 +214,21 @@ async fn drive_one<
         }
     };
 
+    // The pin is lifted only after `evicted()` has resolved — the VM
+    // driver has fully exited by then.
     match evicted {
         Evicted::DriverError(waymark_vm_driver_thread::Error::Driver(
             waymark_vm_driver::Error::NoReadyFramesOrWaitingPromises,
         )) => {
-            // TODO: park the workload via the pinned handle once the
-            // workload-pinning manager grows the park operation; the pin
-            // is lifted for now.
-            tracing::debug!("VM evicted, park requested, unpinning");
+            // The workflow has no ready frames and no waiting promises:
+            // its terminal outcome is durably recorded, so an unpark will
+            // never be needed — which justifies parking.
+            tracing::debug!("VM evicted, parking workload");
+            pinned.unpin(waymark_workload_pinning_core::UnpinMode::Park);
         }
         Evicted::DriverError(_) | Evicted::HandledElsewhere => {
             tracing::debug!("VM evicted, unpinning");
+            drop(pinned);
         }
     }
-
-    // `vm` drops before `pinned` on scope exit; the pin is held until the VM
-    // driver has fully exited.
 }
