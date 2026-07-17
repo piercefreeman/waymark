@@ -66,7 +66,7 @@ impl waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntime for Postgre
 
         sqlx::query(
             r#"
-            INSERT INTO workload_pinnings (instance_id)
+            INSERT INTO runnable_workloads (workload_id)
             VALUES ($1)
             "#,
         )
