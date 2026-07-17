@@ -1,6 +1,6 @@
 //! Error types for the workload-pinning postgres backend.
 
-/// Error returned by [`super::PostgresBackend`] when polling for unpinned instances.
+/// Error returned by [`super::PostgresBackend`] when polling for unpinned workloads.
 #[derive(Debug, thiserror::Error)]
 pub enum PollError {
     /// The underlying database operation failed.

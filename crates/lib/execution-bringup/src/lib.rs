@@ -18,7 +18,7 @@ use waymark_worker_core::{BaseWorkerPool, WorkerPoolError};
 
 /// Configuration for [`start`].
 pub struct Config<NodeId> {
-    /// The node identifier for this executor instance.
+    /// The identifier of this node.
     ///
     /// Also the identity this process owns action-call request locks
     /// under.
@@ -92,7 +92,7 @@ pub struct Handles {
 /// in that case.
 ///
 /// `shutdown_token` requests a graceful stop — new workloads are refused while
-/// the maintenance loop keeps running until all active instances drain.
+/// the maintenance loop keeps running until all active workloads drain.
 /// `force_shutdown_token` breaks out of that drain immediately, so shutdown
 /// can't hang forever on a workload that never evicts.
 pub async fn start<Backend, WorkerPool>(
@@ -103,8 +103,8 @@ pub async fn start<Backend, WorkerPool>(
     force_shutdown_token: CancellationToken,
 ) -> Result<Handles, WorkerPoolError>
 where
-    Backend: waymark_workload_pinning_backend::PollUnpinnedInstances,
-    Backend: waymark_workload_pinning_backend::KeepaliveInstancePinnings,
+    Backend: waymark_workload_pinning_backend::PollUnpinnedWorkloads,
+    Backend: waymark_workload_pinning_backend::KeepalivePinnings,
     Backend: waymark_workload_pinning_backend::ReleasePinnings,
     Backend:
         waymark_workload_pinning_backend::HasTimestamp<Timestamp = chrono::DateTime<chrono::Utc>>,
@@ -112,8 +112,8 @@ where
     <Backend as waymark_state_vm_executables_backend::LoadExecutable>::Error: Send + 'static,
     Backend: Send + Sync + 'static,
     Backend::NodeId: Clone + Send + Sync + 'static,
-    Backend: waymark_workload_pinning_backend::HasInstanceId<
-            InstanceId = <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
+    Backend: waymark_workload_pinning_backend::HasWorkloadId<
+            WorkloadId = <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
         >,
     Backend: waymark_state_vm_runtimes_backend::HasVmId<VmId = waymark_ids::InstanceId>,
     <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId:
@@ -154,8 +154,8 @@ where
     Backend: waymark_workflow_completion_backend::HasVmId<
             VmId = <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
         >,
-    <Backend as waymark_workload_pinning_backend::PollUnpinnedInstances>::Error: Send,
-    <Backend as waymark_workload_pinning_backend::KeepaliveInstancePinnings>::Error: Send,
+    <Backend as waymark_workload_pinning_backend::PollUnpinnedWorkloads>::Error: Send,
+    <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error: Send,
     <Backend as waymark_workload_pinning_backend::ReleasePinnings>::Error: Send,
     <Backend as waymark_state_vm_runtimes_backend::StoreSnapshot>::Error: Send + 'static,
     <Backend as waymark_state_vm_runtimes_backend::LoadForRevive>::Error: Send + 'static,
