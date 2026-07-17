@@ -165,6 +165,7 @@ waymark-workflow-service-vm-executables = { path = "crates/lib/workflow-service-
 waymark-workflow-service-vm-executables-backend = { path = "crates/lib/workflow-service-vm-executables-backend" }
 waymark-workflow-service-vm-runtimes = { path = "crates/lib/workflow-service-vm-runtimes" }
 waymark-workflow-service-vm-runtimes-backend = { path = "crates/lib/workflow-service-vm-runtimes-backend" }
+waymark-workload-pinning-core = { path = "crates/lib/workload-pinning-core" }
 waymark-workload-pinning-backend = { path = "crates/lib/workload-pinning-backend" }
 waymark-workload-pinning-manager = { path = "crates/lib/workload-pinning-manager" }
 
