@@ -4737,6 +4737,8 @@ dependencies = [
  "waymark-state-manager",
  "waymark-state-manager-core",
  "waymark-state-vm-runtimes",
+ "waymark-vm-driver",
+ "waymark-vm-driver-thread",
  "waymark-workload-pinning-manager",
 ]
 
