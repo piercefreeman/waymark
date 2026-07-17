@@ -1,0 +1,19 @@
+[package]
+name = "waymark-workflow-initialization-convert-proto"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+
+[dependencies]
+waymark-action-runtime-convert = { workspace = true }
+waymark-convert-core = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-vm-compiler-metadata = { workspace = true }
+waymark-vm-runtime = { workspace = true }
+waymark-vm-value = { workspace = true }
+
+index_type = { workspace = true }
+thiserror = { workspace = true }
+
+[lib]
+doctest = false
