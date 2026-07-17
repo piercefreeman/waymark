@@ -55,7 +55,10 @@ where
         NEVec<Backend::WorkloadId>,
         tokio::sync::oneshot::Sender<usize>,
     )>,
-    pub evict_rx: tokio::sync::mpsc::UnboundedReceiver<Backend::WorkloadId>,
+    pub evict_rx: tokio::sync::mpsc::UnboundedReceiver<(
+        Backend::WorkloadId,
+        waymark_workload_pinning_core::UnpinMode,
+    )>,
     pub count_tx: tokio::sync::mpsc::UnboundedSender<usize>,
     pub shutdown_token: CancellationToken,
     pub pinning_heartbeat: NonZeroDuration,
@@ -70,7 +73,7 @@ where
     Backend: waymark_workload_pinning_backend::KeepalivePinnings<
             Timestamp = chrono::DateTime<chrono::Utc>,
         >,
-    Backend: waymark_workload_pinning_backend::ReleasePinnings,
+    Backend: waymark_workload_pinning_backend::UnpinWorkloads,
     Backend::NodeId: Clone,
     Backend::WorkloadId: Clone + std::hash::Hash + Eq,
 {
@@ -114,11 +117,18 @@ where
                     }
                 }
             }
-            Some(id) = evict_rx.recv() => {
-                if let Err(error) = (*backend).release_pinnings(node_id.clone(), NEVec::new(id.clone())).await {
-                    break Err((MaintenanceError::Release(error), active_ids));
+            Some(eviction) = evict_rx.recv() => {
+                // Coalesce everything already queued into one batch.
+                let mut unpins = NEVec::new(eviction);
+                while let Ok(eviction) = evict_rx.try_recv() {
+                    unpins.push(eviction);
                 }
-                active_ids.remove(&id);
+                if let Err(error) = (*backend).unpin_workloads(node_id.clone(), unpins.clone()).await {
+                    break Err((MaintenanceError::Unpin(error), active_ids));
+                }
+                for (id, _mode) in unpins {
+                    active_ids.remove(&id);
+                }
                 let _ = count_tx.send(active_ids.len());
             }
             _ = heartbeat_tick.tick() => {
