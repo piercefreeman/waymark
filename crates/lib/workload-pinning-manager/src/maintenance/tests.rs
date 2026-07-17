@@ -7,6 +7,7 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use waymark_workload_pinning_backend::PinningStatus;
+use waymark_workload_pinning_core::UnpinMode;
 
 use super::{MaintainParams, refresh_active_pinnings, run_maintenance_loop};
 use crate::poll::poll_and_pin;
@@ -23,7 +24,7 @@ async fn maintain_loop_exits_when_batch_closed_and_empty() {
     let backend = Arc::new(MockBackend::new());
 
     let (batch_tx, batch_rx) = mpsc::channel::<(NEVec<u64>, oneshot::Sender<usize>)>(1);
-    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<u64>();
+    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
 
     // Close both channels — no work can ever arrive.
@@ -59,8 +60,11 @@ async fn maintain_loop_continues_until_last_eviction_after_batch_closed() {
 
     let mut backend = MockBackend::new();
     backend
-        .expect_release_pinnings()
-        .with(predicate::eq(node_id), predicate::eq(nev![id]))
+        .expect_unpin_workloads()
+        .with(
+            predicate::eq(node_id),
+            predicate::eq(nev![(id, UnpinMode::Release)]),
+        )
         .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
     // The heartbeat interval is long enough that refresh should never
     // fire, but allow it optionally so the test doesn't panic if it does.
@@ -78,7 +82,7 @@ async fn maintain_loop_continues_until_last_eviction_after_batch_closed() {
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<(NEVec<u64>, oneshot::Sender<usize>)>(1);
-    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<u64>();
+    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
 
     // Stage a batch.  The reply oneshot is kept alive so we can wait
@@ -119,7 +123,7 @@ async fn maintain_loop_continues_until_last_eviction_after_batch_closed() {
     assert_eq!(batch_size, 1);
 
     // Now evict the ID — the loop should drain and exit.
-    evict_tx.send(id).expect("evict send");
+    evict_tx.send((id, UnpinMode::Release)).expect("evict send");
 
     let result = tokio::time::timeout(Duration::from_secs(5), &mut loop_future)
         .await
@@ -153,14 +157,17 @@ async fn maintain_loop_heartbeats_fire_for_active_ids() {
             }])))
         });
     backend
-        .expect_release_pinnings()
-        .with(predicate::eq(node_id), predicate::eq(nev![id]))
+        .expect_unpin_workloads()
+        .with(
+            predicate::eq(node_id),
+            predicate::eq(nev![(id, UnpinMode::Release)]),
+        )
         .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<(NEVec<u64>, oneshot::Sender<usize>)>(1);
-    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<u64>();
+    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
 
     // Stage a batch so there is an active ID to heartbeat.
@@ -205,7 +212,7 @@ async fn maintain_loop_heartbeats_fire_for_active_ids() {
     // Clean up: close the batch channel and evict the active ID so
     // the loop can drain and exit naturally.
     drop(batch_tx);
-    evict_tx.send(id).expect("evict send");
+    evict_tx.send((id, UnpinMode::Release)).expect("evict send");
 
     let result = tokio::time::timeout(Duration::from_secs(5), &mut loop_future)
         .await
@@ -214,7 +221,7 @@ async fn maintain_loop_heartbeats_fire_for_active_ids() {
     assert!(result.is_ok(), "expected Ok, got {result:?}");
 
     // Explicit: refresh_pinnings was called at least twice and
-    // release_pinnings was called exactly once.
+    // unpin_workloads was called exactly once.
     let mut mock = Arc::into_inner(backend)
         .unwrap_or_else(|| panic!("backend should be exclusively owned after loop exits"));
     mock.checkpoint();
@@ -245,14 +252,17 @@ async fn maintain_loop_heartbeats_after_batch_closed() {
             }])))
         });
     backend
-        .expect_release_pinnings()
-        .with(predicate::eq(node_id), predicate::eq(nev![id]))
+        .expect_unpin_workloads()
+        .with(
+            predicate::eq(node_id),
+            predicate::eq(nev![(id, UnpinMode::Release)]),
+        )
         .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<(NEVec<u64>, oneshot::Sender<usize>)>(1);
-    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<u64>();
+    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
 
     // Stage a batch.
@@ -297,7 +307,7 @@ async fn maintain_loop_heartbeats_after_batch_closed() {
     }
 
     // Evict the last ID — loop should now drain and exit.
-    evict_tx.send(id).expect("evict send");
+    evict_tx.send((id, UnpinMode::Release)).expect("evict send");
 
     let result = tokio::time::timeout(Duration::from_secs(5), &mut loop_future)
         .await
@@ -306,7 +316,7 @@ async fn maintain_loop_heartbeats_after_batch_closed() {
     assert!(result.is_ok(), "expected Ok, got {result:?}");
 
     // Explicit: refresh_pinnings was called at least twice and
-    // release_pinnings was called exactly once.
+    // unpin_workloads was called exactly once.
     let mut mock = Arc::into_inner(backend)
         .unwrap_or_else(|| panic!("backend should be exclusively owned after loop exits"));
     mock.checkpoint();
@@ -407,17 +417,20 @@ async fn refresh_pinnings_propagates_error() {
     assert!(result.is_err());
 }
 
-/// When releasing a pinning fails, the maintenance loop must exit with
+/// When an unpin fails, the maintenance loop must exit with
 /// the error and return the remaining active IDs.
 #[tokio::test]
-async fn maintain_loop_exits_on_release_error() {
+async fn maintain_loop_exits_on_unpin_error() {
     let id = 1u64;
     let node_id = test_node_id();
 
     let mut backend = MockBackend::new();
     backend
-        .expect_release_pinnings()
-        .with(predicate::eq(node_id), predicate::eq(nev![id]))
+        .expect_unpin_workloads()
+        .with(
+            predicate::eq(node_id),
+            predicate::eq(nev![(id, UnpinMode::Release)]),
+        )
         .return_once(move |_, _| {
             Box::pin(std::future::ready(Err(crate::test_utils::mock::MockError)))
         });
@@ -435,7 +448,7 @@ async fn maintain_loop_exits_on_release_error() {
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<(NEVec<u64>, oneshot::Sender<usize>)>(1);
-    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<u64>();
+    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
 
     let (reply_tx, reply_rx) = oneshot::channel::<usize>();
@@ -470,21 +483,21 @@ async fn maintain_loop_exits_on_release_error() {
     };
     assert_eq!(batch_size, 1);
 
-    // Evict the ID — the release call will fail.
-    evict_tx.send(id).expect("evict send");
+    // Evict the ID — the unpin call will fail.
+    evict_tx.send((id, UnpinMode::Release)).expect("evict send");
 
     let result = tokio::time::timeout(Duration::from_secs(5), &mut loop_future)
         .await
-        .expect("loop should exit on release error");
+        .expect("loop should exit on unpin error");
 
     match result {
-        Err((crate::MaintenanceError::Release(_), ids)) => {
+        Err((crate::MaintenanceError::Unpin(_), ids)) => {
             assert!(
                 ids.contains(&id),
-                "the failed-to-release id must remain in active_ids, got {ids:?}"
+                "the failed-to-unpin id must remain in active_ids, got {ids:?}"
             );
         }
-        other => panic!("expected Release error, got {other:?}"),
+        other => panic!("expected Unpin error, got {other:?}"),
     }
 }
 
@@ -511,7 +524,7 @@ async fn maintain_loop_exits_on_force_shutdown() {
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<(NEVec<u64>, oneshot::Sender<usize>)>(1);
-    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<u64>();
+    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
 
     let (reply_tx, reply_rx) = oneshot::channel::<usize>();
@@ -584,16 +597,16 @@ async fn maintain_loop_exits_on_refresh_error() {
         .returning(move |_, _, _| {
             Box::pin(std::future::ready(Err(crate::test_utils::mock::MockError)))
         });
-    // release should never fire — the refresh failure exits the loop first
+    // unpin should never fire — the refresh failure exits the loop first
     backend
-        .expect_release_pinnings()
+        .expect_unpin_workloads()
         .times(0)
         .returning(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<(NEVec<u64>, oneshot::Sender<usize>)>(1);
-    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<u64>();
+    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
 
     // Stage a batch so there is an active ID to trigger a heartbeat.
@@ -645,4 +658,156 @@ async fn maintain_loop_exits_on_refresh_error() {
 
     // Clean up: prevent the evict channel from dangling.
     drop(evict_tx);
+}
+
+/// An eviction carrying the park mode must be forwarded to the backend
+/// as-is.
+#[tokio::test]
+async fn maintain_loop_forwards_park_mode() {
+    let id = 1u64;
+    let node_id = test_node_id();
+
+    let mut backend = MockBackend::new();
+    backend
+        .expect_unpin_workloads()
+        .with(
+            predicate::eq(node_id),
+            predicate::eq(nev![(id, UnpinMode::Park)]),
+        )
+        .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
+    backend
+        .expect_refresh_pinnings()
+        .times(0..)
+        .returning(move |_, _, _| {
+            let pinning = test_pinning(node_id, 1);
+            Box::pin(std::future::ready(Ok(nev![PinningStatus {
+                workload_id: id,
+                pinning: Some(pinning),
+            }])))
+        });
+
+    let backend = Arc::new(backend);
+
+    let (batch_tx, batch_rx) = mpsc::channel::<(NEVec<u64>, oneshot::Sender<usize>)>(1);
+    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+
+    let (reply_tx, reply_rx) = oneshot::channel::<usize>();
+    batch_tx
+        .send((nev![id], reply_tx))
+        .await
+        .expect("batch send");
+    drop(batch_tx);
+
+    let loop_future = run_maintenance_loop(MaintainParams {
+        backend: Arc::clone(&backend),
+        node_id,
+        batch_rx,
+        evict_rx,
+        count_tx,
+        shutdown_token: CancellationToken::new(),
+        pinning_heartbeat: long_heartbeat(),
+        pinning_ttl: test_pinning_ttl(),
+    });
+    tokio::pin!(loop_future);
+
+    // Wait for the batch ack before evicting.
+    let batch_size = tokio::select! {
+        size = reply_rx => size.expect("maintain loop should ack the batch"),
+        result = &mut loop_future => {
+            panic!("loop exited before processing batch: {result:?}");
+        }
+        _ = tokio::time::sleep(Duration::from_secs(5)) => {
+            panic!("batch was never processed");
+        }
+    };
+    assert_eq!(batch_size, 1);
+
+    evict_tx.send((id, UnpinMode::Park)).expect("evict send");
+
+    let result = tokio::time::timeout(Duration::from_secs(5), &mut loop_future)
+        .await
+        .expect("loop should exit after the park eviction");
+    assert!(result.is_ok(), "expected Ok, got {result:?}");
+}
+
+/// Evictions already queued when the loop wakes must be coalesced into
+/// a single mixed-mode unpin batch, in channel order.
+#[tokio::test]
+async fn maintain_loop_coalesces_queued_evictions() {
+    let node_id = test_node_id();
+
+    let mut backend = MockBackend::new();
+    backend
+        .expect_unpin_workloads()
+        .with(
+            predicate::eq(node_id),
+            predicate::eq(nev![(1u64, UnpinMode::Release), (2u64, UnpinMode::Park)]),
+        )
+        .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
+    backend
+        .expect_refresh_pinnings()
+        .times(0..)
+        .returning(move |_, _, _| {
+            let pinning = test_pinning(node_id, 1);
+            Box::pin(std::future::ready(Ok(nev![
+                PinningStatus {
+                    workload_id: 1u64,
+                    pinning: Some(pinning.clone()),
+                },
+                PinningStatus {
+                    workload_id: 2u64,
+                    pinning: Some(pinning),
+                },
+            ])))
+        });
+
+    let backend = Arc::new(backend);
+
+    let (batch_tx, batch_rx) = mpsc::channel::<(NEVec<u64>, oneshot::Sender<usize>)>(1);
+    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+
+    let (reply_tx, reply_rx) = oneshot::channel::<usize>();
+    batch_tx
+        .send((nev![1u64, 2u64], reply_tx))
+        .await
+        .expect("batch send");
+    drop(batch_tx);
+
+    let loop_future = run_maintenance_loop(MaintainParams {
+        backend: Arc::clone(&backend),
+        node_id,
+        batch_rx,
+        evict_rx,
+        count_tx,
+        shutdown_token: CancellationToken::new(),
+        pinning_heartbeat: long_heartbeat(),
+        pinning_ttl: test_pinning_ttl(),
+    });
+    tokio::pin!(loop_future);
+
+    // Wait for the batch ack before evicting.
+    let batch_size = tokio::select! {
+        size = reply_rx => size.expect("maintain loop should ack the batch"),
+        result = &mut loop_future => {
+            panic!("loop exited before processing batch: {result:?}");
+        }
+        _ = tokio::time::sleep(Duration::from_secs(5)) => {
+            panic!("batch was never processed");
+        }
+    };
+    assert_eq!(batch_size, 2);
+
+    // Queue both evictions before the loop is polled again — it must
+    // drain them into one backend call.
+    evict_tx
+        .send((1u64, UnpinMode::Release))
+        .expect("evict send");
+    evict_tx.send((2u64, UnpinMode::Park)).expect("evict send");
+
+    let result = tokio::time::timeout(Duration::from_secs(5), &mut loop_future)
+        .await
+        .expect("loop should exit after draining the evictions");
+    assert!(result.is_ok(), "expected Ok, got {result:?}");
 }

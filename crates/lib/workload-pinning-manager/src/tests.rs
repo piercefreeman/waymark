@@ -7,6 +7,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_workload_pinning_backend::PinningStatus;
+use waymark_workload_pinning_core::UnpinMode;
 
 use crate::test_utils::helpers::{
     short_heartbeat, test_max_concurrent, test_node_id, test_pinning, test_pinning_ttl,
@@ -134,10 +135,13 @@ async fn maintenance_drains_after_poll_error() {
                 pinning: Some(pinning.clone()),
             }])))
         });
-    // Eviction releases the pinning.
+    // Eviction unpins the workload.
     backend
-        .expect_release_pinnings()
-        .with(predicate::eq(node_id), predicate::eq(nev![id]))
+        .expect_unpin_workloads()
+        .with(
+            predicate::eq(node_id),
+            predicate::eq(nev![(id, UnpinMode::Release)]),
+        )
         .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
@@ -174,7 +178,7 @@ async fn maintenance_drains_after_poll_error() {
     // Ensure the handle was received and dropped.
     handle_dropper.await.expect("handle dropper panicked");
 
-    // Explicit: release_pinnings was called (and completed) before run() returned.
+    // Explicit: unpin_workloads was called (and completed) before run() returned.
     let mut mock = Arc::into_inner(backend)
         .unwrap_or_else(|| panic!("backend should be exclusively owned after run() drops its Arc"));
     mock.checkpoint();
@@ -242,8 +246,11 @@ async fn maintenance_heartbeats_after_poll_is_dead() {
             });
     }
     backend
-        .expect_release_pinnings()
-        .with(predicate::eq(node_id), predicate::eq(nev![id]))
+        .expect_unpin_workloads()
+        .with(
+            predicate::eq(node_id),
+            predicate::eq(nev![(id, UnpinMode::Release)]),
+        )
         .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
@@ -288,7 +295,7 @@ async fn maintenance_heartbeats_after_poll_is_dead() {
 
     monitor.await.expect("monitor panicked");
 
-    // Explicit: release_pinnings was called (and completed) before run() returned.
+    // Explicit: unpin_workloads was called (and completed) before run() returned.
     let mut mock = Arc::into_inner(backend)
         .unwrap_or_else(|| panic!("backend should be exclusively owned after run() drops its Arc"));
     mock.checkpoint();
