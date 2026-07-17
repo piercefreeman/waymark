@@ -5,6 +5,7 @@ use std::num::NonZeroUsize;
 
 use nonempty_collections::{IntoNonEmptyIterator, NEVec, NonEmptyIterator};
 use waymark_workload_pinning_backend::{Pinning, PinningStatus};
+use waymark_workload_pinning_core::UnpinMode;
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("mock error")]
@@ -31,10 +32,10 @@ mockall::mock! {
             >,
         > + Send;
 
-        pub fn release_pinnings(
+        pub fn unpin_workloads(
             &self,
             node_id: u64,
-            workload_ids: NEVec<u64>,
+            workloads: NEVec<(u64, UnpinMode)>,
         ) -> impl Future<Output = Result<(), MockError>> + Send;
     }
 }
@@ -84,15 +85,15 @@ impl waymark_workload_pinning_backend::KeepalivePinnings for MockBackend {
     }
 }
 
-impl waymark_workload_pinning_backend::ReleasePinnings for MockBackend {
+impl waymark_workload_pinning_backend::UnpinWorkloads for MockBackend {
     type Error = MockError;
 
-    fn release_pinnings<'a>(
+    fn unpin_workloads<'a>(
         &'a self,
         node_id: u64,
-        workload_ids: impl IntoNonEmptyIterator<Item = u64> + 'a,
+        workloads: impl IntoNonEmptyIterator<Item = (u64, UnpinMode)> + 'a,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a {
-        let ids: NEVec<u64> = workload_ids.into_nonempty_iter().collect();
-        self.release_pinnings(node_id, ids)
+        let workloads: NEVec<(u64, UnpinMode)> = workloads.into_nonempty_iter().collect();
+        self.unpin_workloads(node_id, workloads)
     }
 }

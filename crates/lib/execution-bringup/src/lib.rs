@@ -105,7 +105,7 @@ pub async fn start<Backend, WorkerPool>(
 where
     Backend: waymark_workload_pinning_backend::PollUnpinnedWorkloads,
     Backend: waymark_workload_pinning_backend::KeepalivePinnings,
-    Backend: waymark_workload_pinning_backend::ReleasePinnings,
+    Backend: waymark_workload_pinning_backend::UnpinWorkloads,
     Backend:
         waymark_workload_pinning_backend::HasTimestamp<Timestamp = chrono::DateTime<chrono::Utc>>,
     Backend: waymark_state_vm_executables_backend::LoadExecutable,
@@ -156,7 +156,7 @@ where
         >,
     <Backend as waymark_workload_pinning_backend::PollUnpinnedWorkloads>::Error: Send,
     <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error: Send,
-    <Backend as waymark_workload_pinning_backend::ReleasePinnings>::Error: Send,
+    <Backend as waymark_workload_pinning_backend::UnpinWorkloads>::Error: Send,
     <Backend as waymark_state_vm_runtimes_backend::StoreSnapshot>::Error: Send + 'static,
     <Backend as waymark_state_vm_runtimes_backend::LoadForRevive>::Error: Send + 'static,
     <Backend as waymark_workflow_completion_backend::RecordCompletion>::Error: Send + 'static,
