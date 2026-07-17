@@ -25,8 +25,8 @@ pub struct RunOutcome<PollError, KeepaliveError, ReleaseError> {
 
 /// Convenience alias for [`RunOutcome`] parameterized on a backend.
 pub type RunOutcomeFor<Backend> = RunOutcome<
-    <Backend as waymark_workload_pinning_backend::PollUnpinnedInstances>::Error,
-    <Backend as waymark_workload_pinning_backend::KeepaliveInstancePinnings>::Error,
+    <Backend as waymark_workload_pinning_backend::PollUnpinnedWorkloads>::Error,
+    <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error,
     <Backend as waymark_workload_pinning_backend::ReleasePinnings>::Error,
 >;
 

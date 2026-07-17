@@ -70,7 +70,7 @@ async fn maintain_loop_continues_until_last_eviction_after_batch_closed() {
         .returning(move |_, _, _| {
             let pinning = test_pinning(node_id, 1);
             Box::pin(std::future::ready(Ok(nev![PinningStatus {
-                instance_id: id,
+                workload_id: id,
                 pinning: Some(pinning),
             }])))
         });
@@ -148,7 +148,7 @@ async fn maintain_loop_heartbeats_fire_for_active_ids() {
         .returning(move |_, _, _| {
             refresh_tx.send(()).ok();
             Box::pin(std::future::ready(Ok(nev![PinningStatus {
-                instance_id: id,
+                workload_id: id,
                 pinning: Some(pinning.clone()),
             }])))
         });
@@ -240,7 +240,7 @@ async fn maintain_loop_heartbeats_after_batch_closed() {
         .returning(move |_, _, _| {
             refresh_tx.send(()).ok();
             Box::pin(std::future::ready(Ok(nev![PinningStatus {
-                instance_id: id,
+                workload_id: id,
                 pinning: Some(pinning.clone()),
             }])))
         });
@@ -317,7 +317,7 @@ async fn manager_refreshes_pinnings_on_active_vms() {
 
     let mut backend = MockBackend::new();
     backend
-        .expect_poll_unlocked()
+        .expect_poll_unpinned()
         .with(
             predicate::always(),
             predicate::always(),
@@ -334,7 +334,7 @@ async fn manager_refreshes_pinnings_on_active_vms() {
         .return_once(move |_, _, _| {
             let pinning = test_pinning(test_node_id(), 1);
             let statuses = nev![PinningStatus {
-                instance_id: id,
+                workload_id: id,
                 pinning: Some(pinning),
             }];
             Box::pin(std::future::ready(Ok(statuses)))
@@ -348,7 +348,7 @@ async fn manager_refreshes_pinnings_on_active_vms() {
     )
     .await
     .expect("poll and pin")
-    .expect("instances available");
+    .expect("workloads available");
 
     refresh_active_pinnings(
         &backend,
@@ -367,7 +367,7 @@ async fn refresh_pinnings_propagates_error() {
 
     let mut backend = MockBackend::new();
     backend
-        .expect_poll_unlocked()
+        .expect_poll_unpinned()
         .with(
             predicate::always(),
             predicate::always(),
@@ -393,7 +393,7 @@ async fn refresh_pinnings_propagates_error() {
     )
     .await
     .expect("poll and pin")
-    .expect("instances available");
+    .expect("workloads available");
 
     let result = refresh_active_pinnings(
         &backend,
@@ -427,7 +427,7 @@ async fn maintain_loop_exits_on_release_error() {
         .returning(move |_, _, _| {
             let pinning = test_pinning(node_id, 1);
             Box::pin(std::future::ready(Ok(nev![PinningStatus {
-                instance_id: id,
+                workload_id: id,
                 pinning: Some(pinning),
             }])))
         });
@@ -503,7 +503,7 @@ async fn maintain_loop_exits_on_force_shutdown() {
         .returning(move |_, _, _| {
             let pinning = test_pinning(node_id, 1);
             Box::pin(std::future::ready(Ok(nev![PinningStatus {
-                instance_id: id,
+                workload_id: id,
                 pinning: Some(pinning),
             }])))
         });

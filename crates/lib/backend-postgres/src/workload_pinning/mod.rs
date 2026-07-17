@@ -1,7 +1,7 @@
 //! Postgres backend for workload pinning.
 //!
 //! Implements [`waymark_workload_pinning_backend::Backend`] so that the
-//! workload pinning manager can claim, refresh, and release instance
+//! workload pinning manager can pin, refresh, and release workload
 //! pinnings via Postgres.
 
 pub mod error;
@@ -31,21 +31,21 @@ impl waymark_workload_pinning_backend::HasNodeId for PostgresBackend {
     type NodeId = uuid::Uuid;
 }
 
-impl waymark_workload_pinning_backend::HasInstanceId for PostgresBackend {
-    type InstanceId = InstanceId;
+impl waymark_workload_pinning_backend::HasWorkloadId for PostgresBackend {
+    type WorkloadId = InstanceId;
 }
 
-impl waymark_workload_pinning_backend::PollUnpinnedInstances for PostgresBackend {
+impl waymark_workload_pinning_backend::PollUnpinnedWorkloads for PostgresBackend {
     type Error = error::PollError;
 
     #[obs]
     #[function_name::named]
-    async fn poll_unlocked(
+    async fn poll_unpinned(
         &self,
         now: Self::Timestamp,
         pinning: Pinning<Self::NodeId, Self::Timestamp>,
         max_items: NonZeroUsize,
-    ) -> Result<Option<NEVec<Self::InstanceId>>, Self::Error> {
+    ) -> Result<Option<NEVec<Self::WorkloadId>>, Self::Error> {
         Self::count_query(&self.query_counts, "update:workload_pinnings_poll");
         let rows = sqlx::query(
             r#"
@@ -81,7 +81,7 @@ impl waymark_workload_pinning_backend::PollUnpinnedInstances for PostgresBackend
     }
 }
 
-impl waymark_workload_pinning_backend::KeepaliveInstancePinnings for PostgresBackend {
+impl waymark_workload_pinning_backend::KeepalivePinnings for PostgresBackend {
     type Error = error::RefreshError;
 
     #[obs]
@@ -91,15 +91,15 @@ impl waymark_workload_pinning_backend::KeepaliveInstancePinnings for PostgresBac
         // TODO: the trait should be updated to drop this param
         _now: Self::Timestamp,
         pinning: Pinning<Self::NodeId, Self::Timestamp>,
-        instance_ids: impl nonempty_collections::IntoNonEmptyIterator<Item = Self::InstanceId> + 'a,
+        workload_ids: impl nonempty_collections::IntoNonEmptyIterator<Item = Self::WorkloadId> + 'a,
     ) -> impl Future<
         Output = Result<
-            NEVec<PinningStatus<Self::InstanceId, Pinning<Self::NodeId, Self::Timestamp>>>,
+            NEVec<PinningStatus<Self::WorkloadId, Pinning<Self::NodeId, Self::Timestamp>>>,
             Self::Error,
         >,
     > + Send
     + 'a {
-        let ids: NEVec<InstanceId> = instance_ids.into_nonempty_iter().collect();
+        let ids: NEVec<InstanceId> = workload_ids.into_nonempty_iter().collect();
         async move {
             Self::count_query(&self.query_counts, "update:workload_pinnings_refresh");
             // Re-fence every row still owned by this node, even if it has
@@ -135,7 +135,7 @@ impl waymark_workload_pinning_backend::KeepaliveInstancePinnings for PostgresBac
             let statuses = ids
                 .into_nonempty_iter()
                 .map(|id| PinningStatus {
-                    instance_id: id,
+                    workload_id: id,
                     pinning: if refreshed.contains(&id) {
                         Some(Pinning {
                             node_id: pinning.node_id,
@@ -160,9 +160,9 @@ impl waymark_workload_pinning_backend::ReleasePinnings for PostgresBackend {
     fn release_pinnings<'a>(
         &'a self,
         node_id: Self::NodeId,
-        instance_ids: impl nonempty_collections::IntoNonEmptyIterator<Item = Self::InstanceId> + 'a,
+        workload_ids: impl nonempty_collections::IntoNonEmptyIterator<Item = Self::WorkloadId> + 'a,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a {
-        let ids: Vec<InstanceId> = instance_ids.into_iter().collect();
+        let ids: Vec<InstanceId> = workload_ids.into_iter().collect();
         async move {
             Self::count_query(&self.query_counts, "update:workload_pinnings_release");
             sqlx::query(

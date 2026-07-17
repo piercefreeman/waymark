@@ -18,6 +18,6 @@ pub enum MaintenanceError<KeepaliveError, ReleaseError> {
 
 /// Convenience alias for [`MaintenanceError`] parameterized on a backend.
 pub type MaintenanceErrorFor<Backend> = MaintenanceError<
-    <Backend as waymark_workload_pinning_backend::KeepaliveInstancePinnings>::Error,
+    <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error,
     <Backend as waymark_workload_pinning_backend::ReleasePinnings>::Error,
 >;

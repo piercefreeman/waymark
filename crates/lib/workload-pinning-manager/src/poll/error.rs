@@ -23,4 +23,4 @@ pub enum PollLoopError<PollError> {
 
 /// Convenience alias for [`PollLoopError`] parameterized on a backend.
 pub type PollLoopErrorFor<Backend> =
-    PollLoopError<<Backend as waymark_workload_pinning_backend::PollUnpinnedInstances>::Error>;
+    PollLoopError<<Backend as waymark_workload_pinning_backend::PollUnpinnedWorkloads>::Error>;
