@@ -1,4 +1,4 @@
-//! Poll loop — polls for unpinned instances and dispatches handles.
+//! Poll loop — polls for unpinned workloads and dispatches handles.
 
 mod error;
 
@@ -18,14 +18,14 @@ use crate::PinnedHandle;
 pub(super) struct PollParams<Backend>
 where
     Backend: waymark_workload_pinning_backend::HasNodeId,
-    Backend: waymark_workload_pinning_backend::HasInstanceId,
+    Backend: waymark_workload_pinning_backend::HasWorkloadId,
 {
     pub backend: Arc<Backend>,
     pub node_id: Backend::NodeId,
-    pub pinned_tx: tokio::sync::mpsc::Sender<NEVec<PinnedHandle<Backend::InstanceId>>>,
-    pub evict_tx: tokio::sync::mpsc::UnboundedSender<Backend::InstanceId>,
+    pub pinned_tx: tokio::sync::mpsc::Sender<NEVec<PinnedHandle<Backend::WorkloadId>>>,
+    pub evict_tx: tokio::sync::mpsc::UnboundedSender<Backend::WorkloadId>,
     pub batch_tx: tokio::sync::mpsc::Sender<(
-        NEVec<Backend::InstanceId>,
+        NEVec<Backend::WorkloadId>,
         tokio::sync::oneshot::Sender<usize>,
     )>,
     pub count_rx: tokio::sync::mpsc::UnboundedReceiver<usize>,
@@ -38,12 +38,12 @@ pub(super) async fn run_poll_loop<Backend>(
     params: PollParams<Backend>,
 ) -> Result<(), PollLoopErrorFor<Backend>>
 where
-    Backend: waymark_workload_pinning_backend::PollUnpinnedInstances<
+    Backend: waymark_workload_pinning_backend::PollUnpinnedWorkloads<
             Timestamp = chrono::DateTime<chrono::Utc>,
         >,
     Backend: waymark_workload_pinning_backend::HasTimestamp,
     Backend::NodeId: Clone,
-    Backend::InstanceId: Clone + std::hash::Hash + Eq,
+    Backend::WorkloadId: Clone + std::hash::Hash + Eq,
 {
     let PollParams {
         backend,
@@ -83,7 +83,7 @@ where
                 ) => {
                     match result {
                         Ok(Some(count)) => current_count = count,
-                        Ok(None) => { /* no instances — count unchanged */ }
+                        Ok(None) => { /* no workloads — count unchanged */ }
                         Err(error) => break Err(error),
                     }
                 }
@@ -104,18 +104,18 @@ where
 
 /// Poll for new workloads and pin them.
 ///
-/// Returns the newly pinned instance IDs, or `None` if no instances were available.
+/// Returns the newly pinned workload IDs, or `None` if no workloads were available.
 pub(super) async fn poll_and_pin<Backend>(
     backend: &Backend,
     node_id: Backend::NodeId,
     max_items: NonZeroUsize,
     pinning_ttl: NonZeroDuration,
 ) -> Result<
-    Option<NEVec<Backend::InstanceId>>,
-    <Backend as waymark_workload_pinning_backend::PollUnpinnedInstances>::Error,
+    Option<NEVec<Backend::WorkloadId>>,
+    <Backend as waymark_workload_pinning_backend::PollUnpinnedWorkloads>::Error,
 >
 where
-    Backend: waymark_workload_pinning_backend::PollUnpinnedInstances<
+    Backend: waymark_workload_pinning_backend::PollUnpinnedWorkloads<
             Timestamp = chrono::DateTime<chrono::Utc>,
         >,
 {
@@ -129,38 +129,38 @@ where
         expires_at,
     };
 
-    backend.poll_unlocked(now, pinning, max_items).await
+    backend.poll_unpinned(now, pinning, max_items).await
 }
 
 /// Poll, register with the maintain loop, and publish handles.
 ///
 /// Returns the updated active count from the maintain loop, or `None` if no
-/// instances were available to dispatch (count is unchanged).
+/// workloads were available to dispatch (count is unchanged).
 async fn poll_and_dispatch<Backend>(
     backend: &Backend,
     node_id: Backend::NodeId,
     max_items: NonZeroUsize,
     pinning_ttl: NonZeroDuration,
     batch_tx: &tokio::sync::mpsc::Sender<(
-        NEVec<Backend::InstanceId>,
+        NEVec<Backend::WorkloadId>,
         tokio::sync::oneshot::Sender<usize>,
     )>,
-    pinned_tx: &tokio::sync::mpsc::Sender<NEVec<PinnedHandle<Backend::InstanceId>>>,
-    evict_tx: &tokio::sync::mpsc::UnboundedSender<Backend::InstanceId>,
+    pinned_tx: &tokio::sync::mpsc::Sender<NEVec<PinnedHandle<Backend::WorkloadId>>>,
+    evict_tx: &tokio::sync::mpsc::UnboundedSender<Backend::WorkloadId>,
 ) -> Result<Option<usize>, PollLoopErrorFor<Backend>>
 where
-    Backend: waymark_workload_pinning_backend::PollUnpinnedInstances<
+    Backend: waymark_workload_pinning_backend::PollUnpinnedWorkloads<
             Timestamp = chrono::DateTime<chrono::Utc>,
         >,
     Backend: waymark_workload_pinning_backend::HasTimestamp,
-    Backend::InstanceId: Clone,
+    Backend::WorkloadId: Clone,
 {
     let ids = poll_and_pin(backend, node_id, max_items, pinning_ttl)
         .await
         .map_err(PollLoopError::Poll)?;
 
     let Some(ids) = ids else {
-        // No instances to dispatch — count unchanged.
+        // No workloads to dispatch — count unchanged.
         return Ok(None);
     };
 

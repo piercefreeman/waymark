@@ -30,14 +30,14 @@ use waymark_nonzero_duration::NonZeroDuration;
 pub struct Params<Backend>
 where
     Backend: waymark_workload_pinning_backend::HasNodeId,
-    Backend: waymark_workload_pinning_backend::HasInstanceId,
+    Backend: waymark_workload_pinning_backend::HasWorkloadId,
 {
     /// Token to signal graceful shutdown of the poll loop.
     ///
     /// Cancelling this token stops accepting new workloads (polling ceases)
     /// while in-flight work is allowed to complete naturally — the
     /// maintenance loop keeps heartbeating and processing evictions
-    /// until all active instances drain.
+    /// until all active workloads drain.
     ///
     /// For an immediate stop of everything, use
     /// [`force_shutdown_token`](Params::force_shutdown_token).
@@ -55,11 +55,11 @@ where
     /// Backend for database operations (poll, pin, unpin).
     pub backend: Arc<Backend>,
 
-    /// The node identifier for this executor instance.
+    /// The identifier of this node.
     pub node_id: Backend::NodeId,
 
     /// Channel for sending newly pinned handles to external consumers.
-    pub pinned_tx: tokio::sync::mpsc::Sender<NEVec<PinnedHandle<Backend::InstanceId>>>,
+    pub pinned_tx: tokio::sync::mpsc::Sender<NEVec<PinnedHandle<Backend::WorkloadId>>>,
 
     /// Maximum number of workloads to run concurrently.
     pub max_pinned: NonZeroUsize,
@@ -80,16 +80,15 @@ pub async fn run<Backend>(params: Params<Backend>) -> RunOutcomeFor<Backend>
 where
     Backend:
         waymark_workload_pinning_backend::HasTimestamp<Timestamp = chrono::DateTime<chrono::Utc>>,
-    Backend: waymark_workload_pinning_backend::PollUnpinnedInstances,
-    Backend: waymark_workload_pinning_backend::KeepaliveInstancePinnings,
+    Backend: waymark_workload_pinning_backend::PollUnpinnedWorkloads,
+    Backend: waymark_workload_pinning_backend::KeepalivePinnings,
     Backend: waymark_workload_pinning_backend::ReleasePinnings,
     Backend: Send + Sync + 'static,
-    <Backend as waymark_workload_pinning_backend::PollUnpinnedInstances>::Error: std::fmt::Debug,
-    <Backend as waymark_workload_pinning_backend::KeepaliveInstancePinnings>::Error:
-        std::fmt::Debug,
+    <Backend as waymark_workload_pinning_backend::PollUnpinnedWorkloads>::Error: std::fmt::Debug,
+    <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error: std::fmt::Debug,
     <Backend as waymark_workload_pinning_backend::ReleasePinnings>::Error: std::fmt::Debug,
     Backend::NodeId: Clone,
-    Backend::InstanceId: Clone + std::hash::Hash + Eq,
+    Backend::WorkloadId: Clone + std::hash::Hash + Eq,
 {
     let Params {
         shutdown_token,
@@ -113,7 +112,7 @@ where
 
     // Poll → Maintain: dispatch newly-pinned IDs with a oneshot to get back the count.
     let (batch_tx, batch_rx) = tokio::sync::mpsc::channel::<(
-        NEVec<Backend::InstanceId>,
+        NEVec<Backend::WorkloadId>,
         tokio::sync::oneshot::Sender<usize>,
     )>(1);
     // Maintain → Poll: push updated count after evictions.
