@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
 /// Adapter that binds a VM id to a shared backend.
-pub(crate) struct SnapshotAdapter<VmId, Backend> {
+pub struct SnapshotAdapter<VmId, Backend> {
+    /// The VM whose snapshots this adapter persists.
     pub vm_id: VmId,
+
+    /// The backend the snapshots are persisted to.
     pub backend: Arc<Backend>,
 }
 

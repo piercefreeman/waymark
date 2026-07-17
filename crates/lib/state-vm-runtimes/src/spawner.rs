@@ -5,9 +5,21 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
+/// The outcome of awaiting a VM eviction; see [`Spawned::evicted`].
+#[derive(Debug)]
+pub enum Evicted<DriverError> {
+    /// The driver exited with this error; the caller took it and now
+    /// owns handling it.
+    DriverError(DriverError),
+
+    /// The exit error was already taken by a competing caller; that
+    /// caller owns handling it.
+    HandledElsewhere,
+}
+
 /// A spawned VM handle that exposes the access to the VM.
 #[must_use = "driver thread is aborted when this handle is dropped"]
-pub struct Spawned {
+pub struct Spawned<DriverError> {
     /// Gracefully cancels the driver loop.
     driver_loop_cancel: CancellationToken,
 
@@ -16,8 +28,9 @@ pub struct Spawned {
     /// That's the one that waits for the driver to complete.
     driver_completion_task: Option<tokio::task::JoinHandle<()>>,
 
-    /// Cancelled when the driver thread exits (the VM is evicted).
-    driver_evicted: CancellationToken,
+    /// Delivers the exit error reported by the driver completion task;
+    /// see [`Spawned::evicted`].
+    driver_error: crate::once_receiver::OnceReceiver<DriverError>,
 
     /// Opaque handles kept alive while this VM is running.
     #[allow(
@@ -28,11 +41,31 @@ pub struct Spawned {
     keepalive_handles: Vec<Box<dyn Send + Sync>>,
 }
 
-impl Spawned {
-    /// Returns a future that resolves when the VM driver thread exits
-    /// (the VM is evicted).
-    pub fn evicted(&self) -> impl std::future::Future<Output = ()> + '_ {
-        self.driver_evicted.cancelled()
+impl<DriverError> Spawned<DriverError> {
+    /// Wait for the VM driver thread to exit (the VM is evicted) and
+    /// take the exit error.
+    ///
+    /// The error is handed out exactly once: the first call to complete
+    /// receives [`Evicted::DriverError`], and every call after that receives
+    /// [`Evicted::HandledElsewhere`].
+    ///
+    /// # Cancellation safety
+    ///
+    /// This method is cancellation-safe: if the future is dropped
+    /// before completing, the error is retained and remains available
+    /// to the next caller.
+    pub async fn evicted(&self) -> Evicted<DriverError> {
+        match self.driver_error.recv().await {
+            Some(Ok(error)) => Evicted::DriverError(error),
+            // The completion task is never aborted (dropping the
+            // `Spawned` merely detaches it) and every statement between
+            // its spawn and the send is infallible, so the sender
+            // cannot be dropped without sending — short of runtime
+            // teardown, during which no caller is left running to
+            // observe it.
+            Some(Err(_)) => unreachable!("driver completion task gone without reporting"),
+            None => Evicted::HandledElsewhere,
+        }
     }
 
     /// Trigger the graceful eviction of the VM.
@@ -67,11 +100,17 @@ impl Spawned {
     }
 }
 
-impl Drop for Spawned {
+impl<DriverError> Drop for Spawned<DriverError> {
     fn drop(&mut self) {
         self.driver_loop_cancel.cancel();
     }
 }
+
+/// The exit error a spawned VM driver reports, as computed from the
+/// higher-level types the VM is spawned with.
+pub type ErrorFor<Value, Interpreter, Codec, Persister, Effector> = waymark_vm_driver_thread::Error<
+    waymark_vm_driver::ErrorFor<Value, Interpreter, Arc<Codec>, Persister, Effector>,
+>;
 
 /// Spawn a new VM runtime on a dedicated OS thread.
 #[tracing::instrument(skip_all)]
@@ -81,7 +120,7 @@ pub(crate) async fn spawn<Codec, Executable, Interpreter, Value, Effector, Persi
     effector: Effector,
     persister: Persister,
     keepalive_handles: Vec<Box<dyn Send + Sync>>,
-) -> Spawned
+) -> Spawned<ErrorFor<Value, Interpreter, Codec, Persister, Effector>>
 where
     Codec: waymark_vm_codec_core::SerializerProvider<Ok = ()>,
     Codec: Send + Sync + 'static,
@@ -121,7 +160,7 @@ where
     <Effector as waymark_vm_driver_core::PromiseSettler>::Error: Send,
 {
     let cancel = CancellationToken::new();
-    let driver_evicted = CancellationToken::new();
+    let (error_tx, error_rx) = tokio::sync::oneshot::channel();
     let driver = waymark_vm_driver_thread::spawn(waymark_vm_driver::Params {
         runtime,
         effector,
@@ -131,20 +170,11 @@ where
     });
 
     let completion = tokio::spawn({
-        let driver_evicted = driver_evicted.clone();
-        {
-            async move {
-                let _driver_evicted = driver_evicted.drop_guard();
-                let Err(error) = driver.await;
-                match error {
-                    waymark_vm_driver_thread::Error::Driver(error) => {
-                        tracing::error!(?error, "vm driver terminated");
-                    }
-                    waymark_vm_driver_thread::Error::Thread(error) => {
-                        tracing::error!(?error, "vm thread panicked");
-                    }
-                }
-            }
+        // The send signals the eviction; if the task is aborted before
+        // the driver exits, dropping the sender signals it instead.
+        async move {
+            let Err(error) = driver.await;
+            let _ = error_tx.send(error);
         }
         .in_current_span()
     });
@@ -152,7 +182,7 @@ where
     Spawned {
         driver_loop_cancel: cancel,
         driver_completion_task: Some(completion),
-        driver_evicted,
+        driver_error: crate::once_receiver::OnceReceiver::new(error_rx),
         keepalive_handles,
     }
 }
