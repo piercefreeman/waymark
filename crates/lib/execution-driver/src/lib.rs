@@ -23,25 +23,27 @@ use tracing::Instrument as _;
 ///
 /// Returns when the [`CancellationToken`] fires or the pinning channel closes.
 #[tracing::instrument(skip_all)]
-pub async fn run<Factory>(
+pub async fn run<Factory, DriverError>(
     mut pinned_rx: mpsc::Receiver<
         NEVec<waymark_workload_pinning_manager::PinnedHandle<Factory::Key>>,
     >,
     state: Arc<
         waymark_state_manager::State<
             Factory::Key,
-            Arc<waymark_state_vm_runtimes::Spawned>,
+            Arc<waymark_state_vm_runtimes::Spawned<DriverError>>,
             Factory,
         >,
     >,
     shutdown_token: CancellationToken,
 ) where
-    Factory: waymark_state_manager_core::Factory<Value = Arc<waymark_state_vm_runtimes::Spawned>>
-        + Send
+    Factory: waymark_state_manager_core::Factory<
+            Value = Arc<waymark_state_vm_runtimes::Spawned<DriverError>>,
+        > + Send
         + Sync
         + 'static,
     Factory::Key: Eq + Hash + Clone + std::fmt::Debug + Send + Sync + 'static,
     Factory::Error: std::fmt::Debug,
+    DriverError: Send + 'static,
 {
     let shutdown = shutdown_token.clone().cancelled_owned();
     let mut shutdown = std::pin::pin!(shutdown);
@@ -71,23 +73,25 @@ pub async fn run<Factory>(
 /// the VM driver exits or global shutdown fires. Dropping the handles on
 /// return releases the pinning and decrements the state-manager refcount.
 #[tracing::instrument(skip_all, fields(instance_id = ?pinned.id()))]
-async fn drive_one<Factory>(
+async fn drive_one<Factory, DriverError>(
     pinned: waymark_workload_pinning_manager::PinnedHandle<Factory::Key>,
     state: Arc<
         waymark_state_manager::State<
             Factory::Key,
-            Arc<waymark_state_vm_runtimes::Spawned>,
+            Arc<waymark_state_vm_runtimes::Spawned<DriverError>>,
             Factory,
         >,
     >,
     shutdown: CancellationToken,
 ) where
-    Factory: waymark_state_manager_core::Factory<Value = Arc<waymark_state_vm_runtimes::Spawned>>
-        + Send
+    Factory: waymark_state_manager_core::Factory<
+            Value = Arc<waymark_state_vm_runtimes::Spawned<DriverError>>,
+        > + Send
         + Sync
         + 'static,
     Factory::Key: Eq + Hash + Clone + std::fmt::Debug + Send + Sync + 'static,
     Factory::Error: std::fmt::Debug,
+    DriverError: Send + 'static,
 {
     let vm = match state.get(pinned.id().clone()).await {
         Ok(vm) => vm,
@@ -106,7 +110,7 @@ async fn drive_one<Factory>(
         _ = shutdown.cancelled() => {
             tracing::debug!("shutting down: evicting VM and unpinning");
             vm.trigger_eviction();
-            vm.evicted().await;
+            let _ = vm.evicted().await;
         }
     }
 

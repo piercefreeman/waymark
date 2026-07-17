@@ -12,10 +12,12 @@
 
 #![warn(missing_docs)]
 
+mod once_receiver;
 mod snapshot_adapter;
 mod spawner;
 
-pub use self::spawner::Spawned;
+pub use self::snapshot_adapter::SnapshotAdapter;
+pub use self::spawner::{ErrorFor, Evicted, Spawned};
 
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -177,7 +179,17 @@ where
         Send + 'static,
 {
     type Key = Backend::VmId;
-    type Value = Arc<Spawned>;
+    type Value = Arc<
+        Spawned<
+            ErrorFor<
+                Value,
+                InterpreterProvider::Interpreter,
+                Codec,
+                SnapshotAdapter<Backend::VmId, Backend>,
+                EffectorProvider::Effector,
+            >,
+        >,
+    >;
     type Error = SpawningError<
         <Backend as waymark_state_vm_runtimes_backend::LoadForRevive>::Error,
         ExecutableProvider::Error,
