@@ -265,14 +265,14 @@ async fn refresh_returns_mixed_statuses_for_refreshed_and_lost() {
     .expect("pin both vms")
     .expect("workloads available");
 
-    // Release vm_b so it loses its pinning.
-    waymark_workload_pinning_backend::ReleasePinnings::release_pinnings(
+    // Unpin vm_b in release mode so it loses its pinning.
+    waymark_workload_pinning_backend::UnpinWorkloads::unpin_workloads(
         &backend,
         node_id,
-        nonempty_collections::NEVec::new(vm_b),
+        nonempty_collections::NEVec::new((vm_b, waymark_workload_pinning_core::UnpinMode::Release)),
     )
     .await
-    .expect("release vm_b");
+    .expect("unpin vm_b");
 
     // Refresh both — vm_a should stay pinned, vm_b should be None.
     let mut ids = nonempty_collections::NEVec::new(vm_a);
@@ -293,47 +293,6 @@ async fn refresh_returns_mixed_statuses_for_refreshed_and_lost() {
         .collect();
     assert!(by_id[&vm_a].is_some());
     assert!(by_id[&vm_b].is_none());
-}
-
-#[serial(postgres)]
-#[tokio::test]
-async fn release_clears_pinning() {
-    let backend = setup_backend().await;
-    let node_id = Uuid::new_v4();
-    let (vm_id, _executable_id) = register_test_vm(&backend).await;
-
-    // Pin the VM.
-    waymark_workload_pinning_backend::PollUnpinnedWorkloads::poll_unpinned(
-        &backend,
-        test_now(),
-        test_pinning(node_id),
-        test_max_items(),
-    )
-    .await
-    .expect("pin vm")
-    .expect("workloads available");
-
-    // Release it.
-    waymark_workload_pinning_backend::ReleasePinnings::release_pinnings(
-        &backend,
-        node_id,
-        nonempty_collections::NEVec::new(vm_id),
-    )
-    .await
-    .expect("release pinning");
-
-    // Poll again — should pick it up since it's released.
-    let result = waymark_workload_pinning_backend::PollUnpinnedWorkloads::poll_unpinned(
-        &backend,
-        test_now(),
-        test_pinning(node_id),
-        test_max_items(),
-    )
-    .await
-    .expect("poll after release")
-    .expect("workloads available");
-    let ids: Vec<InstanceId> = result.into_iter().collect();
-    assert_eq!(ids, vec![vm_id]);
 }
 
 #[serial(postgres)]
