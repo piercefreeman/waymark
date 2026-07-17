@@ -14,7 +14,7 @@ pub(super) async fn setup_backend() -> PostgresBackend {
 /// Snapshot bytes written by [`register_test_vm`].
 pub(super) const TEST_VM_SNAPSHOT: &[u8] = b"test-snapshot";
 
-/// Register a VM runtime (its snapshot and workload pinning rows) through the
+/// Register a VM runtime (its snapshot and runnable-workload rows) through the
 /// production [`RegisterVmRuntime`] path and return its identifiers, so tests
 /// share exactly the registration behavior they exercise.
 pub(super) async fn register_test_vm(backend: &PostgresBackend) -> (InstanceId, WorkflowVersionId) {
@@ -39,7 +39,7 @@ pub(super) async fn reset_database(pool: &PgPool) {
                  vm_runtime_snapshots,
                  workflow_schedules,
                  workflow_versions,
-                 workload_pinnings,
+                 runnable_workloads,
                  worker_status
         RESTART IDENTITY CASCADE
         "#,
