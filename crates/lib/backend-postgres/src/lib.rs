@@ -7,6 +7,7 @@ mod core;
 mod macros;
 mod registry;
 mod scheduler;
+mod sleep_requests;
 mod state_vm_executables;
 #[cfg(test)]
 mod test_helpers;
