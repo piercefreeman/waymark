@@ -71,6 +71,7 @@ waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-sleep-compat = { path = "crates/lib/sleep-compat" }
 waymark-sleep-core = { path = "crates/lib/sleep-core" }
+waymark-sleep-reconciler-backend = { path = "crates/lib/sleep-reconciler-backend" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-state-manager = { path = "crates/lib/state-manager" }
 waymark-state-manager-core = { path = "crates/lib/state-manager-core" }

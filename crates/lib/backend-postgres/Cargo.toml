@@ -26,6 +26,7 @@ waymark-runner-state = { workspace = true }
 waymark-scheduler-backend = { workspace = true }
 waymark-scheduler-core = { workspace = true }
 waymark-secret-string = { workspace = true }
+waymark-sleep-reconciler-backend = { workspace = true }
 waymark-state-vm-executables-backend = { workspace = true }
 waymark-state-vm-runtimes-backend = { workspace = true }
 waymark-timed-future = { workspace = true }
