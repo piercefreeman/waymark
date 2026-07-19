@@ -23,7 +23,12 @@ pub trait PollUnpinnedWorkloads: HasTimestamp + HasNodeId + HasWorkloadId {
     /// Workloads are guaranteed to be freshly pinned with
     /// the provided `pinning`.
     ///
-    /// `now` is used for expiration checks of stale pinnings.
+    /// `now` is the caller-clock instant `pinning.expires_at` was
+    /// computed against.  Implementations keep expiry on the store's
+    /// clock alone: staleness is judged against the store's own now,
+    /// and the fresh expiry is stored as the store's now plus the
+    /// remaining duration `expires_at - now` — a difference of two
+    /// caller-clock values, so no cross-node clock agreement is needed.
     ///
     /// Returns `Ok(None)` if no workloads were available.
     fn poll_unpinned(

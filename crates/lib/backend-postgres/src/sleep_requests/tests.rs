@@ -65,8 +65,19 @@ async fn record_then_poll_returns_only_demanded_and_due() {
     assert_eq!(polled[..], [key(vm_a, 1)]);
 
     // Once the deadline passes, the future one becomes due as well.
+    // Dueness is on the database clock, so rewind the stored deadline
+    // instead of polling with a future timestamp.
+    sqlx::query(
+        "UPDATE sleep_requests SET wake_at = NOW() - interval '1 second' \
+         WHERE vm_id = $1 AND promise_state_id = $2",
+    )
+    .bind(vm_a)
+    .bind(2i64)
+    .execute(backend.pool())
+    .await
+    .expect("rewind the stored deadline");
     let polled = backend
-        .poll_due_sleeps(future + Duration::seconds(1), demand.as_nonempty_slice())
+        .poll_due_sleeps(now, demand.as_nonempty_slice())
         .await
         .expect("poll past the deadline");
     assert_eq!(polled.len(), 2);
