@@ -4710,6 +4710,7 @@ dependencies = [
  "waymark-fullset-effect-handler",
  "waymark-ids",
  "waymark-nonzero-duration",
+ "waymark-sleep-compat",
  "waymark-sleep-reconciler",
  "waymark-state-manager",
  "waymark-state-vm-executables",
@@ -4758,6 +4759,7 @@ dependencies = [
  "waymark-extcall-reconciler-action-compat",
  "waymark-extcall-reconciler-core",
  "waymark-nonzero-duration",
+ "waymark-sleep-compat",
  "waymark-sleep-reconciler",
  "waymark-vm-driver-core",
  "waymark-vm-interpreter-extcallset",
@@ -5208,6 +5210,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-sleep-compat"
+version = "0.1.0"
+dependencies = [
+ "waymark-sleep-core",
+ "waymark-vm-value",
+]
+
+[[package]]
+name = "waymark-sleep-core"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-sleep-reconciler"
 version = "0.1.0"
 dependencies = [
@@ -5216,6 +5230,8 @@ dependencies = [
  "tracing",
  "waymark-extcall-reconciler-core",
  "waymark-nonzero-duration",
+ "waymark-sleep-compat",
+ "waymark-sleep-core",
  "waymark-vm-driver-core",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-value",
@@ -5499,6 +5515,7 @@ dependencies = [
  "waymark-extcall-reconciler-action-compat",
  "waymark-fullset-effect-handler",
  "waymark-proto",
+ "waymark-sleep-compat",
  "waymark-sleep-reconciler",
  "waymark-system-vm",
  "waymark-vm-ast-old-proto",

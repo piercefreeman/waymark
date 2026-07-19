@@ -119,7 +119,8 @@ pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> Execute
 
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
     let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
-    let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(skip_sleep);
+    let (sleep_handler, sleep_poller) =
+        waymark_sleep_reconciler::new::<waymark_sleep_compat::ReadyValueSleepProvider>(skip_sleep);
     let (extcall_handler, extcall_settler) =
         waymark_extcall_reconciler::new(action_handler, sleep_handler, action_poller, sleep_poller);
     let completion_handler = waymark_workflow_completion_direct::DirectHandler::new(completion_tx);
