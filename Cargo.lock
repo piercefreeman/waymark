@@ -5240,7 +5240,6 @@ name = "waymark-sleep-reconciler"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "dashmap 6.2.1",
  "nonempty-collections",
  "thiserror",
  "tokio",
@@ -5248,6 +5247,7 @@ dependencies = [
  "waymark-extcall-reconciler-core",
  "waymark-ids",
  "waymark-nonzero-duration",
+ "waymark-promise-settlement-demand-registry",
  "waymark-sleep-compat",
  "waymark-sleep-core",
  "waymark-sleep-reconciler-backend",
