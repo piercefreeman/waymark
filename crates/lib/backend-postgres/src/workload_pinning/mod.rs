@@ -48,25 +48,27 @@ impl waymark_workload_pinning_backend::PollUnpinnedWorkloads for PostgresBackend
         max_items: NonZeroUsize,
     ) -> Result<Option<NEVec<Self::WorkloadId>>, Self::Error> {
         Self::count_query(&self.query_counts, "update:runnable_workloads_poll");
+        // Staleness check and fresh expiry both use the database clock:
+        // the steal comparison is single-clock and needs no cross-node
+        // time agreement.
         let rows = sqlx::query(
             r#"
             UPDATE runnable_workloads
-            SET node_id = $3, expires_at = $4, updated_at = NOW()
+            SET node_id = $2, expires_at = NOW() + ($3 * interval '1 microsecond'), updated_at = NOW()
             WHERE workload_id IN (
                 SELECT workload_id
                 FROM runnable_workloads
-                WHERE node_id IS NULL OR expires_at <= $1
+                WHERE node_id IS NULL OR expires_at <= NOW()
                 ORDER BY updated_at
-                LIMIT $2
+                LIMIT $1
                 FOR UPDATE SKIP LOCKED
             )
             RETURNING workload_id
             "#,
         )
-        .bind(now)
         .bind(max_items.get() as i64)
         .bind(pinning.node_id)
-        .bind(pinning.expires_at)
+        .bind(crate::remaining_micros(now, pinning.expires_at))
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!(
             "update:runnable_workloads_poll"
@@ -89,8 +91,7 @@ impl waymark_workload_pinning_backend::KeepalivePinnings for PostgresBackend {
     #[function_name::named]
     fn refresh_pinnings<'a>(
         &'a self,
-        // TODO: the trait should be updated to drop this param
-        _now: Self::Timestamp,
+        now: Self::Timestamp,
         pinning: Pinning<Self::NodeId, Self::Timestamp>,
         workload_ids: impl nonempty_collections::IntoNonEmptyIterator<Item = Self::WorkloadId> + 'a,
     ) -> impl Future<
@@ -109,20 +110,20 @@ impl waymark_workload_pinning_backend::KeepalivePinnings for PostgresBackend {
             // release nulls it, so either makes this UPDATE match zero rows and
             // report the pinning as lost. Row-level locking serializes a
             // concurrent poll-steal against this refresh, so whichever commits
-            // first wins deterministically. Guarding on `expires_at > now` here
+            // first wins deterministically. Guarding on `expires_at > NOW()` here
             // would instead drop a still-owned pinning that nobody contested
             // just because a heartbeat landed late.
             let rows = sqlx::query(
                 r#"
                 UPDATE runnable_workloads
-                SET expires_at = $3, updated_at = NOW()
+                SET expires_at = NOW() + ($3 * interval '1 microsecond'), updated_at = NOW()
                 WHERE node_id = $1 AND workload_id = ANY($2)
                 RETURNING workload_id
                 "#,
             )
             .bind(pinning.node_id)
             .bind(ids.as_ref())
-            .bind(pinning.expires_at)
+            .bind(crate::remaining_micros(now, pinning.expires_at))
             .fetch_all(&self.pool)
             .timed(crate::query_timing_histogram!(
                 "update:runnable_workloads_refresh"

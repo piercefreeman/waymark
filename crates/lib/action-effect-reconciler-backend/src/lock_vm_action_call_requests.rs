@@ -14,8 +14,12 @@ pub trait LockVmActionCallRequests: HasVmId + HasLockOwnerId + HasTimestamp {
     /// locked rows for delivery.
     ///
     /// A row is eligible when it is unlocked or its lock expired at or
-    /// before `now`.  Rows locked by another owner and unexpired are left
-    /// untouched and reported via
+    /// before the store's own now.  `now` is the caller-clock instant
+    /// `lock.expires_at` was computed against: the taken lock's expiry
+    /// is stored as the store's now plus `expires_at - now` — a
+    /// difference of two caller-clock values, so no cross-node clock
+    /// agreement is needed.  Rows locked by another owner and unexpired
+    /// are left untouched and reported via
     /// [`VmLockOutcome::held_elsewhere`] — an attempt is presumed running
     /// in that owner's pool.
     ///

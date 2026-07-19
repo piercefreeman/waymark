@@ -116,7 +116,7 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
             INSERT INTO action_call_requests
                 (vm_id, promise_state_id, effect_number, request,
                  locked_by, lock_expires_at)
-            SELECT t.*, $5, $6
+            SELECT t.*, $5, NOW() + ($6 * interval '1 microsecond')
             FROM UNNEST($1::uuid[], $2::bigint[], $3::bigint[], $4::bytea[])
                 AS t(vm_id, promise_state_id, effect_number, request)
             ON CONFLICT (vm_id, promise_state_id) DO NOTHING
@@ -128,7 +128,7 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
         .bind(&effect_numbers)
         .bind(&requests)
         .bind(lock.owner)
-        .bind(lock.expires_at)
+        .bind(crate::remaining_micros(Utc::now(), lock.expires_at))
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!(
             "insert:action_call_requests"
@@ -234,15 +234,14 @@ impl waymark_action_effect_reconciler_backend::LockVmActionCallRequests for Post
         let locked_rows = sqlx::query(
             r#"
             UPDATE action_call_requests
-            SET locked_by = $2, lock_expires_at = $3
-            WHERE vm_id = $1 AND (locked_by IS NULL OR lock_expires_at <= $4)
+            SET locked_by = $2, lock_expires_at = NOW() + ($3 * interval '1 microsecond')
+            WHERE vm_id = $1 AND (locked_by IS NULL OR lock_expires_at <= NOW())
             RETURNING vm_id, promise_state_id, effect_number, request
             "#,
         )
         .bind(vm_id)
         .bind(lock.owner)
-        .bind(lock.expires_at)
-        .bind(now)
+        .bind(crate::remaining_micros(now, lock.expires_at))
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!(
             "update:action_call_requests_lock"
@@ -325,7 +324,7 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
             ),
             renewed AS (
                 UPDATE action_call_requests r
-                SET lock_expires_at = $4
+                SET lock_expires_at = NOW() + ($4 * interval '1 microsecond')
                 FROM input i
                 WHERE r.vm_id = i.vm_id
                     AND r.promise_state_id = i.promise_state_id
@@ -345,7 +344,7 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
         .bind(&columns.vm_ids)
         .bind(&columns.promise_state_ids)
         .bind(lock.owner)
-        .bind(lock.expires_at)
+        .bind(crate::remaining_micros(Utc::now(), lock.expires_at))
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!(
             "update:action_call_requests_renew"
