@@ -63,14 +63,18 @@ impl waymark_sleep_reconciler_backend::RecordSleeps for PostgresBackend {
         let mut vm_ids = Vec::with_capacity(records.len().get());
         let mut promise_state_ids = Vec::with_capacity(records.len().get());
         let mut effect_numbers = Vec::with_capacity(records.len().get());
-        let mut wake_ats = Vec::with_capacity(records.len().get());
+        let mut wake_micros = Vec::with_capacity(records.len().get());
+        // One caller-clock base for the whole batch: each stored deadline
+        // is the store's now plus (wake_at - now), a difference of two
+        // caller-clock values.
+        let now = chrono::Utc::now();
         for record in records.iter() {
             vm_ids.push(record.vm_id);
             promise_state_ids
                 .push(i64::try_from(record.promise_state_id.0).map_err(Self::Error::OutOfRange)?);
             effect_numbers
                 .push(i64::try_from(record.effect_number.0).map_err(Self::Error::OutOfRange)?);
-            wake_ats.push(record.wake_at);
+            wake_micros.push(crate::remaining_micros(now, record.wake_at));
         }
 
         Self::count_query(&self.query_counts, "insert:sleep_requests");
@@ -83,8 +87,10 @@ impl waymark_sleep_reconciler_backend::RecordSleeps for PostgresBackend {
             r#"
             INSERT INTO sleep_requests
                 (vm_id, promise_state_id, effect_number, wake_at)
-            SELECT * FROM UNNEST($1::uuid[], $2::bigint[], $3::bigint[], $4::timestamptz[])
-                AS t(vm_id, promise_state_id, effect_number, wake_at)
+            SELECT t.vm_id, t.promise_state_id, t.effect_number,
+                   NOW() + (t.wake_micros * interval '1 microsecond')
+            FROM UNNEST($1::uuid[], $2::bigint[], $3::bigint[], $4::bigint[])
+                AS t(vm_id, promise_state_id, effect_number, wake_micros)
             ON CONFLICT (vm_id, promise_state_id) DO NOTHING
             RETURNING vm_id, promise_state_id
             "#,
@@ -92,7 +98,7 @@ impl waymark_sleep_reconciler_backend::RecordSleeps for PostgresBackend {
         .bind(&vm_ids)
         .bind(&promise_state_ids)
         .bind(&effect_numbers)
-        .bind(&wake_ats)
+        .bind(&wake_micros)
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!("insert:sleep_requests"))
         .await
@@ -175,7 +181,9 @@ impl waymark_sleep_reconciler_backend::PollDueSleeps for PostgresBackend {
     #[function_name::named]
     async fn poll_due_sleeps(
         &self,
-        now: chrono::DateTime<chrono::Utc>,
+        // Dueness is judged on the store's clock alone; the caller's
+        // clock plays no part once the deadline is stored.
+        _now: chrono::DateTime<chrono::Utc>,
         demand: NESlice<'_, SleepKey<InstanceId>>,
     ) -> Result<Vec<SleepKey<InstanceId>>, Self::Error> {
         let columns = key_columns(demand.iter()).map_err(Self::Error::OutOfRange)?;
@@ -192,12 +200,11 @@ impl waymark_sleep_reconciler_backend::PollDueSleeps for PostgresBackend {
             FROM sleep_requests s
             JOIN UNNEST($1::uuid[], $2::bigint[]) AS d(vm_id, promise_state_id)
                 ON s.vm_id = d.vm_id AND s.promise_state_id = d.promise_state_id
-            WHERE s.wake_at <= $3
+            WHERE s.wake_at <= NOW()
             "#,
         )
         .bind(&columns.vm_ids)
         .bind(&columns.promise_state_ids)
-        .bind(now)
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!("select:sleep_requests_poll"))
         .await
