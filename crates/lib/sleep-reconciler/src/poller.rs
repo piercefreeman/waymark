@@ -2,23 +2,12 @@
 //! backend for exactly the sleeps the VMs are currently waiting on, as
 //! they come due, and settles their promises.
 //!
-//! # Architecture
-//!
-//! [`state`] creates the shared state of per-VM entries, taking the
-//! sender of the ack channel; it returns the cloneable
-//! [`DemandRegistrar`] and the opaque [`StateToken`].  Use
-//! [`subscribe`](DemandRegistrar::subscribe) to wire up each VM with a
-//! [`SettlementsHandle`] — the per-VM implementation of
-//! [`waymark_extcall_reconciler_core::SleepPromiseSettler`] — and drive
-//! [`run`] with the [`StateToken`] in its [`Params`] as the single
-//! shared poll loop.
-//!
-//! A handle call registers its demand (the promise ids the VM is waiting
-//! on) and parks; the poller loop queries the union of all registered
-//! demand (minus rows already buffered) for rows that have come due and
-//! delivers them into the owning handles' buffers.  The handle turns
-//! delivered keys into promise settlements — an elapsed sleep resolves
-//! to the value minted by the handle's
+//! Built on [`waymark_promise_settlement_demand_registry::registry`]:
+//! the registry owns demand registration, item buffering, delivery, and
+//! the waiter lifecycle — see its docs for the architecture and the
+//! cancellation-safety story.  This module owns the backend query and
+//! the mapping of delivered due sleeps into promise settlements — an
+//! elapsed sleep resolves to the value minted by the handle's
 //! [`waymark_sleep_core::SleepValueProvider`] — each carrying an [`Ack`]
 //! minted from the row's own key: acknowledging (after the settlement
 //! has been applied and the VM state persisted) pushes the key onto the
@@ -31,31 +20,15 @@
 //! notifications.  The loop therefore re-polls on a configured interval
 //! ([`Params::poll_interval`]) while demand is registered, and
 //! immediately when new demand arrives.
-//!
-//! Rows stay in the backend until acked, so all in-memory state here is
-//! disposable: a crashed or re-registered VM simply re-demands and
-//! re-fetches.
-//!
-//! # Cancellation safety
-//!
-//! A handle's `poll_sleep_settlements` future may be dropped at any
-//! time.  Keys fetched for it land in its buffer and are returned by the
-//! next call; demand registered by a cancelled call is refreshed
-//! (replaced) by the next call.  Dropping the handle itself removes its
-//! registry entry (identity-guarded, so a stale handle cannot displace a
-//! re-registered successor) and discards its buffer — the rows are still
-//! in the backend.
 
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-use dashmap::DashMap;
 use nonempty_collections::{IntoNonEmptyIterator as _, NESlice, NEVec, NonEmptyIterator as _};
 use waymark_nonzero_duration::NonZeroDuration;
+use waymark_promise_settlement_demand_registry::registry;
 use waymark_sleep_reconciler_backend::{PollDueSleeps, SleepKey};
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime_promise_core::PromiseStateId;
@@ -106,32 +79,6 @@ impl<ActionAck, VmId> From<Ack<VmId>>
     }
 }
 
-/// Per-VM mutable state: the currently registered demand and the keys
-/// fetched-but-not-yet-consumed.
-#[derive(Default)]
-struct EntryState {
-    demand: HashSet<PromiseStateId>,
-    buffer: Vec<PromiseStateId>,
-}
-
-/// One registered VM: its state plus the waiter wakeup.
-#[derive(Default)]
-struct VmEntry {
-    state: std::sync::Mutex<EntryState>,
-    notify: tokio::sync::Notify,
-}
-
-/// State shared between the poller, the registrar, and the handles.
-struct Shared<VmId> {
-    entries: DashMap<VmId, Arc<VmEntry>>,
-    /// Wakes the poll loop when new demand is registered.
-    demand_notify: tokio::sync::Notify,
-    /// Set when the [`run`] loop exits so waiters fail instead of hanging.
-    closed: AtomicBool,
-    /// The channel settlement acks push their keys onto.
-    ack_tx: tokio::sync::mpsc::UnboundedSender<SleepKey<VmId>>,
-}
-
 // ---------------------------------------------------------------------------
 // DemandRegistrar
 // ---------------------------------------------------------------------------
@@ -150,17 +97,10 @@ pub fn state<VmId>(
 where
     VmId: Eq + std::hash::Hash,
 {
-    let shared = Arc::new(Shared {
-        entries: DashMap::new(),
-        demand_notify: tokio::sync::Notify::new(),
-        closed: AtomicBool::new(false),
-        ack_tx,
-    });
+    let (registrar, token) = registry::state(ack_tx);
     (
-        DemandRegistrar {
-            shared: Arc::clone(&shared),
-        },
-        StateToken { shared },
+        DemandRegistrar { inner: registrar },
+        StateToken { inner: token },
     )
 }
 
@@ -168,22 +108,31 @@ where
 ///
 /// Created by [`state`]; its only job is to be handed to [`run`] via
 /// [`Params`].
-pub struct StateToken<VmId> {
-    shared: Arc<Shared<VmId>>,
+pub struct StateToken<VmId>
+where
+    VmId: Eq + std::hash::Hash,
+{
+    inner: registry::StateToken<VmId, PromiseStateId, SleepKey<VmId>>,
 }
 
 /// Subscribes VMs to the shared poller state.
 ///
 /// Created by [`state`]; cloneable, so it can be handed out to every
 /// place that wires up VMs.
-pub struct DemandRegistrar<VmId> {
-    shared: Arc<Shared<VmId>>,
+pub struct DemandRegistrar<VmId>
+where
+    VmId: Eq + std::hash::Hash,
+{
+    inner: registry::DemandRegistrar<VmId, PromiseStateId, SleepKey<VmId>>,
 }
 
-impl<VmId> Clone for DemandRegistrar<VmId> {
+impl<VmId> Clone for DemandRegistrar<VmId>
+where
+    VmId: Eq + std::hash::Hash,
+{
     fn clone(&self) -> Self {
         Self {
-            shared: Arc::clone(&self.shared),
+            inner: self.inner.clone(),
         }
     }
 }
@@ -204,14 +153,8 @@ where
         &self,
         vm_id: VmId,
     ) -> SettlementsHandle<VmId, SleepValueProvider> {
-        let entry = Arc::new(VmEntry::default());
-        self.shared
-            .entries
-            .insert(vm_id.clone(), Arc::clone(&entry));
         SettlementsHandle {
-            vm_id,
-            entry,
-            shared: Arc::clone(&self.shared),
+            inner: self.inner.subscribe(vm_id),
             provider: std::marker::PhantomData,
         }
     }
@@ -225,6 +168,7 @@ where
 pub struct Params<Backend>
 where
     Backend: PollDueSleeps,
+    Backend::VmId: Eq + std::hash::Hash,
 {
     /// The durable sleeps backend to poll.
     pub backend: Arc<Backend>,
@@ -260,15 +204,17 @@ where
         state,
         poll_interval,
     } = params;
-    let shared = state.shared;
-    let _closed_guard = ClosedGuard(Arc::clone(&shared));
+    let driver = state.inner.into_driver();
 
     loop {
         // Arm the wakeup before collecting so a registration racing the
         // collection is never missed.
-        let registered = shared.demand_notify.notified();
+        let registered = driver.demand_registered();
 
-        let Some(demand) = collect_demand(&shared) else {
+        let Some(demand) = driver.collect_demand(|vm_id, promise_state_id| SleepKey {
+            vm_id: vm_id.clone(),
+            promise_state_id,
+        }) else {
             registered.await;
             continue;
         };
@@ -279,7 +225,7 @@ where
             .map_err(Error::Poll)?;
 
         for key in due {
-            deliver(&shared, key);
+            driver.deliver(&key.vm_id, key.promise_state_id);
         }
 
         // Wait out the poll interval; new demand cuts the wait short —
@@ -289,69 +235,6 @@ where
             () = registered => {}
         }
     }
-}
-
-/// Marks the registry closed when the [`run`] loop goes away, waking every
-/// parked waiter so it fails instead of hanging.
-struct ClosedGuard<VmId>(Arc<Shared<VmId>>)
-where
-    VmId: Eq + std::hash::Hash;
-
-impl<VmId> Drop for ClosedGuard<VmId>
-where
-    VmId: Eq + std::hash::Hash,
-{
-    fn drop(&mut self) {
-        self.0.closed.store(true, Ordering::SeqCst);
-        // `notify_one` (not `notify_waiters`) so a permit is stored for a
-        // waiter that has checked `closed` but not yet parked — otherwise
-        // it would sleep through the shutdown and hang forever.
-        for entry in self.0.entries.iter() {
-            entry.value().notify.notify_one();
-        }
-    }
-}
-
-/// The union of all registered demand, minus keys already buffered.
-fn collect_demand<VmId>(shared: &Shared<VmId>) -> Option<NEVec<SleepKey<VmId>>>
-where
-    VmId: Clone + Eq + std::hash::Hash,
-{
-    let mut keys = Vec::new();
-    for entry in shared.entries.iter() {
-        let vm_id = entry.key();
-        let state = entry.value().state.lock().expect("entry state poisoned");
-        keys.extend(
-            state
-                .demand
-                .iter()
-                .filter(|id| !state.buffer.contains(id))
-                .map(|id| SleepKey {
-                    vm_id: vm_id.clone(),
-                    promise_state_id: *id,
-                }),
-        );
-    }
-    NEVec::try_from_vec(keys)
-}
-
-/// Deliver a due key to its VM's buffer.
-fn deliver<VmId>(shared: &Shared<VmId>, key: SleepKey<VmId>)
-where
-    VmId: Eq + std::hash::Hash,
-{
-    let Some(entry) = shared.entries.get(&key.vm_id) else {
-        // The handle was dropped while the query was in flight; the
-        // row stays in the backend for a future registration.
-        return;
-    };
-
-    let mut state = entry.state.lock().expect("entry state poisoned");
-    if !state.buffer.contains(&key.promise_state_id) {
-        state.buffer.push(key.promise_state_id);
-    }
-    drop(state);
-    entry.notify.notify_one();
 }
 
 // ---------------------------------------------------------------------------
@@ -370,24 +253,9 @@ pub struct SettlementsHandle<VmId, SleepValueProvider>
 where
     VmId: Eq + std::hash::Hash,
 {
-    vm_id: VmId,
-    entry: Arc<VmEntry>,
-    shared: Arc<Shared<VmId>>,
+    inner: registry::DemandHandle<VmId, PromiseStateId, SleepKey<VmId>>,
     /// The sleep value provider is purely type-level.
     provider: std::marker::PhantomData<fn() -> SleepValueProvider>,
-}
-
-impl<VmId, SleepValueProvider> Drop for SettlementsHandle<VmId, SleepValueProvider>
-where
-    VmId: Eq + std::hash::Hash,
-{
-    fn drop(&mut self) {
-        // Only remove the entry if it is still ours — the VM may have been
-        // re-subscribed while this handle was winding down.
-        self.shared
-            .entries
-            .remove_if(&self.vm_id, |_, entry| Arc::ptr_eq(entry, &self.entry));
-    }
 }
 
 impl<VmId, SleepValueProvider> waymark_extcall_reconciler_core::SettlerAck
@@ -424,41 +292,12 @@ where
     where
         UnifiedAck: 'a,
     {
-        loop {
-            {
-                let mut state = self.entry.state.lock().expect("entry state poisoned");
-                // Refresh the registered demand — this call's set replaces
-                // whatever a previous (possibly cancelled) call left.
-                state.demand = waiting_promise_state_ids.iter().copied().collect();
-
-                let mut matched = Vec::new();
-                let mut index = 0;
-                while index < state.buffer.len() {
-                    if state.demand.contains(&state.buffer[index]) {
-                        matched.push(state.buffer.swap_remove(index));
-                    } else {
-                        index += 1;
-                    }
-                }
-
-                if let Some(matched) = NEVec::try_from_vec(matched) {
-                    // Satisfied: clear the demand so the poller stops
-                    // fetching for this VM until the next call.
-                    state.demand.clear();
-                    drop(state);
-                    return Ok(self.settle(matched));
-                }
-            }
-
-            // Checked after the buffer so keys delivered before the poller
-            // went away can still be drained.
-            if self.shared.closed.load(Ordering::SeqCst) {
-                return Err(PollSleepSettlementsError::PollerGone);
-            }
-
-            self.shared.demand_notify.notify_one();
-            self.entry.notify.notified().await;
-        }
+        let matched = self
+            .inner
+            .wait_for_matching(waiting_promise_state_ids)
+            .await
+            .map_err(|registry::RegistryClosedError| PollSleepSettlementsError::PollerGone)?;
+        Ok(self.settle(matched))
     }
 }
 
@@ -483,10 +322,10 @@ where
                     resolution: PromiseResolution::Resolved(SleepValueProvider::value()),
                     ack: Ack {
                         key: SleepKey {
-                            vm_id: self.vm_id.clone(),
+                            vm_id: self.inner.vm_id().clone(),
                             promise_state_id,
                         },
-                        ack_tx: self.shared.ack_tx.clone(),
+                        ack_tx: self.inner.ack_sender().clone(),
                     }
                     .into(),
                 }
