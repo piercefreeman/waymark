@@ -1,22 +1,17 @@
 //! Background acker — batch-deletes durably-applied completions.
+//!
+//! A thin adapter over
+//! [`waymark_promise_settlement_demand_registry::acker`], which owns the
+//! batching and retry behavior.
 
 #[cfg(test)]
 mod tests;
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use nonempty_collections::NESlice;
 use waymark_action_completions_reconciler_backend::{AckCompletions, CompletionKey};
-
-/// Initial delay between retries of a failed ack batch.
-const RETRY_INITIAL_BACKOFF: Duration = Duration::from_millis(25);
-
-/// Cap on the retry delay.
-const RETRY_MAX_BACKOFF: Duration = Duration::from_secs(1);
-
-/// Upper bound on how many keys are deleted per batch.
-const ACK_BATCH_LIMIT: usize = 1024;
+use waymark_promise_settlement_demand_registry::acker;
 
 /// Parameters for [`run`].
 pub struct Params<Backend>
@@ -28,6 +23,25 @@ where
 
     /// The receiving half of the ack channel.
     pub ack_rx: tokio::sync::mpsc::UnboundedReceiver<CompletionKey<Backend::VmId>>,
+}
+
+/// Adapts the backend's ack capability to the shared acker.
+struct BackendAcker<Backend>(Arc<Backend>);
+
+impl<Backend> acker::AckKeys for BackendAcker<Backend>
+where
+    Backend: AckCompletions,
+    Backend::Error: core::fmt::Debug,
+{
+    type Key = CompletionKey<Backend::VmId>;
+    type Error = Backend::Error;
+
+    fn ack_keys<'a>(
+        &'a self,
+        keys: NESlice<'a, Self::Key>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a {
+        self.0.ack_completions(keys)
+    }
 }
 
 /// Drain acknowledged completion keys and batch-delete their rows.
@@ -42,34 +56,10 @@ where
     Backend: AckCompletions,
     Backend::Error: core::fmt::Debug,
 {
-    let Params {
-        backend,
-        mut ack_rx,
-    } = params;
-
-    // Reused across batches; borrowed (never moved out), so the
-    // allocation is kept.
-    let mut keys = Vec::new();
-    loop {
-        keys.clear();
-        let received = ack_rx.recv_many(&mut keys, ACK_BATCH_LIMIT).await;
-        if received == 0 {
-            // Every sender is gone; nothing more will be acked.
-            return;
-        }
-
-        let mut backoff = RETRY_INITIAL_BACKOFF;
-        loop {
-            let batch =
-                NESlice::try_from_slice(&keys).expect("recv_many returned a non-zero count");
-            match backend.ack_completions(batch).await {
-                Ok(()) => break,
-                Err(error) => {
-                    tracing::error!(?error, ?backoff, "acking completions failed; retrying");
-                    tokio::time::sleep(backoff).await;
-                    backoff = (backoff * 2).min(RETRY_MAX_BACKOFF);
-                }
-            }
-        }
-    }
+    let Params { backend, ack_rx } = params;
+    acker::run(acker::Params {
+        acker: BackendAcker(backend),
+        ack_rx,
+    })
+    .await
 }
