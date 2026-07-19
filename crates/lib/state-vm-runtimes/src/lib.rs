@@ -182,7 +182,6 @@ where
     type Value = Arc<
         Spawned<
             ErrorFor<
-                Value,
                 InterpreterProvider::Interpreter,
                 Codec,
                 SnapshotAdapter<Backend::VmId, Backend>,
