@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 waymark-extcall-reconciler-core = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
+waymark-promise-settlement-demand-registry = { workspace = true }
 waymark-sleep-core = { workspace = true }
 waymark-sleep-reconciler-backend = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
@@ -14,7 +15,6 @@ waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
 chrono = { workspace = true, default-features = false, features = ["clock"] }
-dashmap = { workspace = true }
 nonempty-collections = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time"] }
