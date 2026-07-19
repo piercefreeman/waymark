@@ -4258,7 +4258,6 @@ dependencies = [
 name = "waymark-action-completions-reconciler"
 version = "0.1.0"
 dependencies = [
- "dashmap 6.2.1",
  "nonempty-collections",
  "serde",
  "thiserror",
@@ -4269,6 +4268,7 @@ dependencies = [
  "waymark-action-runtime-metadata",
  "waymark-extcall-reconciler-core",
  "waymark-ids",
+ "waymark-promise-settlement-demand-registry",
  "waymark-vm-codec-core",
  "waymark-vm-codec-rmp",
  "waymark-vm-driver-core",

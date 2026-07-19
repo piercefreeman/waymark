@@ -9,13 +9,13 @@ waymark-action-completions-reconciler-backend = { workspace = true }
 waymark-action-runtime-core = { workspace = true, features = ["serde"] }
 waymark-action-runtime-metadata = { workspace = true }
 waymark-extcall-reconciler-core = { workspace = true }
+waymark-promise-settlement-demand-registry = { workspace = true }
 waymark-vm-codec-core = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 waymark-vm-value = { workspace = true, features = ["serde"] }
 
-dashmap = { workspace = true }
 nonempty-collections = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

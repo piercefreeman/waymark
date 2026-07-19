@@ -2,54 +2,28 @@
 //! backend for exactly the completions the VMs are currently waiting on
 //! and settles their promises.
 //!
-//! # Architecture
-//!
-//! [`state`] creates the shared state of per-VM entries, taking the
-//! sender of the ack channel; it returns the cloneable
-//! [`DemandRegistrar`] and the opaque [`StateToken`].  Use
-//! [`subscribe`](DemandRegistrar::subscribe) to wire up each VM with a
-//! [`SettlementsHandle`] — the per-VM implementation of
-//! [`waymark_extcall_reconciler_core::ActionPromiseSettler`] — and drive
-//! [`run`] with the [`StateToken`] in its [`Params`] as the single
-//! shared poll loop.
-//!
-//! A handle call registers its demand (the promise ids the VM is waiting
-//! on) and parks; the poller loop queries the union of all registered
-//! demand (minus rows already buffered), decodes the fetched outcomes,
-//! and delivers them into the owning handles' buffers.  The handle turns
-//! delivered rows into promise settlements, each carrying an [`Ack`]
-//! minted from the row's own key: acknowledging (after the settlement has
-//! been applied and the VM state persisted) pushes the key onto the ack
-//! channel the registry was created with, from where the background
+//! Built on [`waymark_promise_settlement_demand_registry::registry`]:
+//! the registry owns demand registration, item buffering, delivery, and
+//! the waiter lifecycle — see its docs for the architecture and the
+//! cancellation-safety story.  This module owns the backend query, the
+//! outcome decoding, and the mapping of delivered completions into
+//! promise settlements, each carrying an [`Ack`] minted from the row's
+//! own key: acknowledging (after the settlement has been applied and the
+//! VM state persisted) pushes the key onto the ack channel the registry
+//! was created with, from where the background
 //! [`acker::run`](crate::acker::run) loop deletes the row.
-//!
-//! Rows stay in the backend until acked, so all in-memory state here is
-//! disposable: a crashed or re-registered VM simply re-demands and
-//! re-fetches.
-//!
-//! # Cancellation safety
-//!
-//! A handle's `poll_action_settlements` future may be dropped at any
-//! time.  Rows fetched for it land in its buffer and are returned by the
-//! next call; demand registered by a cancelled call is refreshed
-//! (replaced) by the next call.  Dropping the handle itself removes its
-//! registry entry (identity-guarded, so a stale handle cannot displace a
-//! re-registered successor) and discards its buffer — the rows are still
-//! in the backend.
 
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-use dashmap::DashMap;
 use nonempty_collections::{IntoNonEmptyIterator as _, NESlice, NEVec, NonEmptyIterator as _};
 use waymark_action_completions_reconciler_backend::{
     CompletionKey, CompletionRecord, PollCompletions,
 };
 use waymark_action_runtime_core::ActionCallOutcome;
+use waymark_promise_settlement_demand_registry::registry;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_value::ReadyValue;
@@ -109,30 +83,10 @@ struct BufferedCompletion {
     outcome: ActionCallOutcome<ReadyValue>,
 }
 
-/// Per-VM mutable state: the currently registered demand and the rows
-/// fetched-but-not-yet-consumed.
-#[derive(Default)]
-struct EntryState {
-    demand: HashSet<PromiseStateId>,
-    buffer: Vec<BufferedCompletion>,
-}
-
-/// One registered VM: its state plus the waiter wakeup.
-#[derive(Default)]
-struct VmEntry {
-    state: std::sync::Mutex<EntryState>,
-    notify: tokio::sync::Notify,
-}
-
-/// State shared between the poller, the registrar, and the handles.
-struct Shared<VmId> {
-    entries: DashMap<VmId, Arc<VmEntry>>,
-    /// Wakes the poll loop when new demand is registered.
-    demand_notify: tokio::sync::Notify,
-    /// Set when the [`run`] loop exits so waiters fail instead of hanging.
-    closed: AtomicBool,
-    /// The channel settlement acks push their keys onto.
-    ack_tx: tokio::sync::mpsc::UnboundedSender<CompletionKey<VmId>>,
+impl registry::HasPromiseStateId for BufferedCompletion {
+    fn promise_state_id(&self) -> PromiseStateId {
+        self.promise_state_id
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -153,17 +107,10 @@ pub fn state<VmId>(
 where
     VmId: Eq + std::hash::Hash,
 {
-    let shared = Arc::new(Shared {
-        entries: DashMap::new(),
-        demand_notify: tokio::sync::Notify::new(),
-        closed: AtomicBool::new(false),
-        ack_tx,
-    });
+    let (registrar, token) = registry::state(ack_tx);
     (
-        DemandRegistrar {
-            shared: Arc::clone(&shared),
-        },
-        StateToken { shared },
+        DemandRegistrar { inner: registrar },
+        StateToken { inner: token },
     )
 }
 
@@ -171,22 +118,31 @@ where
 ///
 /// Created by [`state`]; its only job is to be handed to [`run`] via
 /// [`Params`].
-pub struct StateToken<VmId> {
-    shared: Arc<Shared<VmId>>,
+pub struct StateToken<VmId>
+where
+    VmId: Eq + std::hash::Hash,
+{
+    inner: registry::StateToken<VmId, BufferedCompletion, CompletionKey<VmId>>,
 }
 
 /// Subscribes VMs to the shared poller state.
 ///
 /// Created by [`state`]; cloneable, so it can be handed out to every
 /// place that wires up VMs.
-pub struct DemandRegistrar<VmId> {
-    shared: Arc<Shared<VmId>>,
+pub struct DemandRegistrar<VmId>
+where
+    VmId: Eq + std::hash::Hash,
+{
+    inner: registry::DemandRegistrar<VmId, BufferedCompletion, CompletionKey<VmId>>,
 }
 
-impl<VmId> Clone for DemandRegistrar<VmId> {
+impl<VmId> Clone for DemandRegistrar<VmId>
+where
+    VmId: Eq + std::hash::Hash,
+{
     fn clone(&self) -> Self {
         Self {
-            shared: Arc::clone(&self.shared),
+            inner: self.inner.clone(),
         }
     }
 }
@@ -201,12 +157,8 @@ where
     /// the previous handle keeps its buffer but will no longer receive
     /// deliveries, and its eventual drop does not disturb the new entry.
     pub fn subscribe(&self, vm_id: VmId) -> SettlementsHandle<VmId> {
-        let entry = Arc::new(VmEntry::default());
-        self.shared.entries.insert(vm_id, Arc::clone(&entry));
         SettlementsHandle {
-            vm_id,
-            entry,
-            shared: Arc::clone(&self.shared),
+            inner: self.inner.subscribe(vm_id),
         }
     }
 }
@@ -219,6 +171,7 @@ where
 pub struct Params<Backend, Codec>
 where
     Backend: PollCompletions,
+    Backend::VmId: Eq + std::hash::Hash,
 {
     /// The durable completions backend to poll.
     pub backend: Arc<Backend>,
@@ -250,15 +203,17 @@ where
         codec,
         state,
     } = params;
-    let shared = state.shared;
-    let _closed_guard = ClosedGuard(Arc::clone(&shared));
+    let driver = state.inner.into_driver();
 
     loop {
         // Arm the wakeup before collecting so a registration racing the
         // collection is never missed.
-        let registered = shared.demand_notify.notified();
+        let registered = driver.demand_registered();
 
-        let Some(demand) = collect_demand(&shared) else {
+        let Some(demand) = driver.collect_demand(|vm_id, promise_state_id| CompletionKey {
+            vm_id: *vm_id,
+            promise_state_id,
+        }) else {
             registered.await;
             continue;
         };
@@ -269,96 +224,26 @@ where
             .map_err(Error::Poll)?;
 
         for record in records {
-            deliver(&shared, &codec, record).map_err(Error::OutcomeDecode)?;
+            let CompletionRecord {
+                vm_id,
+                promise_state_id,
+                effect_number: _,
+                outcome,
+            } = record;
+            let outcome: ActionCallOutcome<ReadyValue> = codec
+                .with_deserializer(&outcome, |deserializer| {
+                    serde::Deserialize::deserialize(deserializer)
+                })
+                .map_err(Error::OutcomeDecode)?;
+            driver.deliver(
+                &vm_id,
+                BufferedCompletion {
+                    promise_state_id,
+                    outcome,
+                },
+            );
         }
     }
-}
-
-/// Marks the registry closed when the [`run`] loop goes away, waking every
-/// parked waiter so it fails instead of hanging.
-struct ClosedGuard<VmId>(Arc<Shared<VmId>>)
-where
-    VmId: Eq + std::hash::Hash;
-
-impl<VmId> Drop for ClosedGuard<VmId>
-where
-    VmId: Eq + std::hash::Hash,
-{
-    fn drop(&mut self) {
-        self.0.closed.store(true, Ordering::SeqCst);
-        // `notify_one` (not `notify_waiters`) so a permit is stored for a
-        // waiter that has checked `closed` but not yet parked — otherwise
-        // it would sleep through the shutdown and hang forever.
-        for entry in self.0.entries.iter() {
-            entry.value().notify.notify_one();
-        }
-    }
-}
-
-/// The union of all registered demand, minus rows already buffered.
-fn collect_demand<VmId>(shared: &Shared<VmId>) -> Option<NEVec<CompletionKey<VmId>>>
-where
-    VmId: Copy + Eq + std::hash::Hash,
-{
-    let mut keys = Vec::new();
-    for entry in shared.entries.iter() {
-        let vm_id = *entry.key();
-        let state = entry.value().state.lock().expect("entry state poisoned");
-        let buffered: HashSet<PromiseStateId> = state
-            .buffer
-            .iter()
-            .map(|completion| completion.promise_state_id)
-            .collect();
-        keys.extend(
-            state
-                .demand
-                .iter()
-                .filter(|id| !buffered.contains(id))
-                .map(|id| CompletionKey {
-                    vm_id,
-                    promise_state_id: *id,
-                }),
-        );
-    }
-    NEVec::try_from_vec(keys)
-}
-
-/// Decode a fetched record and deliver it to its VM's buffer.
-fn deliver<VmId, Codec>(
-    shared: &Shared<VmId>,
-    codec: &Codec,
-    record: CompletionRecord<VmId>,
-) -> Result<(), Codec::Error>
-where
-    VmId: Eq + std::hash::Hash,
-    Codec: waymark_vm_codec_core::DeserializerProvider,
-{
-    let outcome: ActionCallOutcome<ReadyValue> = codec
-        .with_deserializer(&record.outcome, |deserializer| {
-            serde::Deserialize::deserialize(deserializer)
-        })?;
-
-    let Some(entry) = shared.entries.get(&record.vm_id) else {
-        // The handle was dropped while the query was in flight; the
-        // row stays in the backend for a future registration.
-        return Ok(());
-    };
-
-    let mut state = entry.state.lock().expect("entry state poisoned");
-    let already_buffered = state
-        .buffer
-        .iter()
-        .any(|completion| completion.promise_state_id == record.promise_state_id);
-    if !already_buffered {
-        state.buffer.push(BufferedCompletion {
-            promise_state_id: record.promise_state_id,
-            outcome,
-        });
-    }
-    drop(state);
-    entry.notify.notify_one();
-
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -376,22 +261,7 @@ pub struct SettlementsHandle<VmId>
 where
     VmId: Eq + std::hash::Hash,
 {
-    vm_id: VmId,
-    entry: Arc<VmEntry>,
-    shared: Arc<Shared<VmId>>,
-}
-
-impl<VmId> Drop for SettlementsHandle<VmId>
-where
-    VmId: Eq + std::hash::Hash,
-{
-    fn drop(&mut self) {
-        // Only remove the entry if it is still ours — the VM may have been
-        // re-subscribed while this handle was winding down.
-        self.shared
-            .entries
-            .remove_if(&self.vm_id, |_, entry| Arc::ptr_eq(entry, &self.entry));
-    }
+    inner: registry::DemandHandle<VmId, BufferedCompletion, CompletionKey<VmId>>,
 }
 
 impl<VmId> waymark_extcall_reconciler_core::SettlerAck for SettlementsHandle<VmId>
@@ -423,41 +293,12 @@ where
     where
         UnifiedAck: 'a,
     {
-        loop {
-            {
-                let mut state = self.entry.state.lock().expect("entry state poisoned");
-                // Refresh the registered demand — this call's set replaces
-                // whatever a previous (possibly cancelled) call left.
-                state.demand = waiting_promise_state_ids.iter().copied().collect();
-
-                let mut matched = Vec::new();
-                let mut index = 0;
-                while index < state.buffer.len() {
-                    if state.demand.contains(&state.buffer[index].promise_state_id) {
-                        matched.push(state.buffer.swap_remove(index));
-                    } else {
-                        index += 1;
-                    }
-                }
-
-                if let Some(matched) = NEVec::try_from_vec(matched) {
-                    // Satisfied: clear the demand so the poller stops
-                    // fetching for this VM until the next call.
-                    state.demand.clear();
-                    drop(state);
-                    return Ok(self.settle(matched));
-                }
-            }
-
-            // Checked after the buffer so rows delivered before the poller
-            // went away can still be drained.
-            if self.shared.closed.load(Ordering::SeqCst) {
-                return Err(PollActionSettlementsError::PollerGone);
-            }
-
-            self.shared.demand_notify.notify_one();
-            self.entry.notify.notified().await;
-        }
+        let matched = self
+            .inner
+            .wait_for_matching(waiting_promise_state_ids)
+            .await
+            .map_err(|registry::RegistryClosedError| PollActionSettlementsError::PollerGone)?;
+        Ok(self.settle(matched))
     }
 }
 
@@ -493,10 +334,10 @@ where
                     resolution,
                     ack: Ack {
                         key: CompletionKey {
-                            vm_id: self.vm_id,
+                            vm_id: *self.inner.vm_id(),
                             promise_state_id,
                         },
-                        ack_tx: self.shared.ack_tx.clone(),
+                        ack_tx: self.inner.ack_sender().clone(),
                     }
                     .into(),
                 }
