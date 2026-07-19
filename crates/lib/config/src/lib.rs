@@ -29,6 +29,7 @@ pub struct WorkerConfig {
     pub action_effect_reconciler_lock_ttl: NonZeroDuration,
     pub action_effect_reconciler_lock_heartbeat: NonZeroDuration,
     pub evict_sleep_threshold: NonZeroDuration,
+    pub sleep_poll_interval: NonZeroDuration,
     pub expired_lock_reclaimer_interval: NonZeroDuration,
     pub expired_lock_reclaimer_batch_size: NonZeroUsize,
     pub scheduler: SchedulerConfig,
@@ -83,6 +84,9 @@ impl WorkerConfig {
 
         let FromMillis(evict_sleep_threshold) =
             envfury::or_parse("WAYMARK_EVICT_SLEEP_THRESHOLD_MS", "10000")?;
+
+        let FromMillis(sleep_poll_interval) =
+            envfury::or_parse("WAYMARK_SLEEP_POLL_INTERVAL_MS", "250")?;
 
         let FromMillisMin::<_, 1>(expired_lock_reclaimer_interval) =
             envfury::or_parse("WAYMARK_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS", "15000")?;
@@ -154,6 +158,7 @@ impl WorkerConfig {
             action_effect_reconciler_lock_ttl,
             action_effect_reconciler_lock_heartbeat,
             evict_sleep_threshold,
+            sleep_poll_interval,
             expired_lock_reclaimer_interval,
             expired_lock_reclaimer_batch_size,
             scheduler,
