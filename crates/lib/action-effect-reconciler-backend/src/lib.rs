@@ -5,8 +5,7 @@
 //! (born locked) when the VM emits the effect, locked/relocked for
 //! delivery at VM revival reconcile, kept alive by lock renewal while the
 //! attempt runs in the owner's local worker pool, and unlocked at graceful
-//! shutdown if its call was never delivered.  Rows of a VM that reached
-//! its terminal state are purged wholesale.
+//! shutdown if its call was never delivered.
 //!
 //! # The removal invariant
 //!
@@ -15,7 +14,9 @@
 //! durably recorded** (in postgres, a trigger on the completions table).
 //! Implementations must uphold this invariant.  Consequently, the
 //! existence of a request row *means* its outcome has not been durably
-//! recorded yet.
+//! recorded yet.  Rows of a VM that no longer exists are likewise
+//! removed by the store itself alongside the VM (in postgres, a trigger
+//! on snapshot deletion).
 //!
 //! # Composition constraint
 //!
@@ -29,14 +30,12 @@
 mod common;
 
 pub mod lock_vm_action_call_requests;
-pub mod purge_vm_action_call_requests;
 pub mod record_action_call_requests;
 pub mod renew_action_call_request_locks;
 pub mod unlock_action_call_requests;
 
 pub use self::common::*;
 pub use self::lock_vm_action_call_requests::LockVmActionCallRequests;
-pub use self::purge_vm_action_call_requests::PurgeVmActionCallRequests;
 pub use self::record_action_call_requests::RecordActionCallRequests;
 pub use self::renew_action_call_request_locks::RenewActionCallRequestLocks;
 pub use self::unlock_action_call_requests::UnlockActionCallRequests;
