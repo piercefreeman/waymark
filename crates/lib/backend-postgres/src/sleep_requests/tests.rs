@@ -5,13 +5,12 @@ use waymark_ids::InstanceId;
 use waymark_sleep_reconciler_backend::record_sleeps;
 use waymark_sleep_reconciler_backend::record_sleeps::Error as _;
 use waymark_sleep_reconciler_backend::{
-    AckSleeps as _, PollDueSleeps as _, PurgeVmSleeps as _, RecordSleeps as _, SleepKey,
-    SleepRecord,
+    AckSleeps as _, PollDueSleeps as _, RecordSleeps as _, SleepKey, SleepRecord,
 };
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use super::super::test_helpers::setup_backend;
+use super::super::test_helpers::{register_test_vm, setup_backend};
 use super::error::RecordError;
 
 fn record(
@@ -206,10 +205,10 @@ async fn ack_removes_rows_and_is_idempotent() {
 
 #[serial(postgres)]
 #[tokio::test]
-async fn purge_removes_all_rows_of_the_vm_only() {
+async fn snapshot_delete_sweeps_all_rows_of_the_vm_only() {
     let backend = setup_backend().await;
-    let vm_a = InstanceId::new_uuid_v4();
-    let vm_b = InstanceId::new_uuid_v4();
+    let (vm_a, _) = register_test_vm(&backend).await;
+    let (vm_b, _) = register_test_vm(&backend).await;
     let now = Utc::now();
     let wake = now - Duration::hours(1);
 
@@ -224,12 +223,11 @@ async fn purge_removes_all_rows_of_the_vm_only() {
         .await
         .expect("record");
 
-    backend.purge_vm_sleeps(&vm_a).await.expect("purge");
-    // Purging a VM with no rows is a no-op.
-    backend
-        .purge_vm_sleeps(&InstanceId::new_uuid_v4())
+    sqlx::query("DELETE FROM vm_runtime_snapshots WHERE vm_id = $1")
+        .bind(vm_a)
+        .execute(backend.pool())
         .await
-        .expect("purge of unknown vm");
+        .expect("delete vm_a snapshot");
 
     let demand = NEVec::try_from_vec(vec![key(vm_a, 1), key(vm_a, 2), key(vm_b, 1)]).unwrap();
     let polled = backend
