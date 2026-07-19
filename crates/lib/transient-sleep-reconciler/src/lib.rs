@@ -102,6 +102,9 @@ impl waymark_extcall_reconciler_core::SleepEffectHandler for Handler {
 
     async fn record_sleep(
         &mut self,
+        // The effect number feeds the durable divergence check; the
+        // in-memory records are keyed by promise alone.
+        _effect_number: waymark_vm_runtime_effect::EffectNumber,
         promise_state_id: PromiseStateId,
         duration: NonZeroDuration,
     ) -> Result<(), Self::Error> {

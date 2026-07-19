@@ -120,7 +120,7 @@ where
                 duration,
             } => {
                 self.sleep
-                    .record_sleep(promise_state_id, duration)
+                    .record_sleep(emitted_effect.number, promise_state_id, duration)
                     .await
                     .map_err(HandleEffectError::Sleep)?;
             }

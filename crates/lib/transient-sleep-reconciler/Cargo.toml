@@ -9,6 +9,7 @@ waymark-extcall-reconciler-core = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-sleep-core = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
+waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
 nonempty-collections = { workspace = true }
