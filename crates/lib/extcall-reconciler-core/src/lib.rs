@@ -61,6 +61,7 @@ pub trait SleepEffectHandler {
     /// Record a sleep deadline for the given promise.
     fn record_sleep(
         &mut self,
+        effect_number: EffectNumber,
         promise_state_id: PromiseStateId,
         duration: NonZeroDuration,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
