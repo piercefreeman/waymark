@@ -5222,6 +5222,15 @@ name = "waymark-sleep-core"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-sleep-reconciler-backend"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
 name = "waymark-smoke"
 version = "0.1.0"
 dependencies = [
