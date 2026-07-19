@@ -5,7 +5,9 @@
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashSet;
 use std::collections::btree_map::BTreeMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 use nonempty_collections::NEVec;
@@ -22,10 +24,16 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 /// (useful for testing and debugging).
 pub fn new<SleepValueProvider>(skip_sleep: bool) -> (Handler, Poller<SleepValueProvider>) {
     let (tx, rx) = mpsc::unbounded_channel();
-    let handler = Handler { tx, skip_sleep };
+    let recorded = Arc::new(std::sync::Mutex::new(RecordedSleeps::new()));
+    let handler = Handler {
+        tx,
+        skip_sleep,
+        recorded: Arc::clone(&recorded),
+    };
     let poller = Poller {
         rx,
         pending: BTreeMap::new(),
+        recorded,
         provider: std::marker::PhantomData,
     };
     (handler, poller)
@@ -33,6 +41,13 @@ pub fn new<SleepValueProvider>(skip_sleep: bool) -> (Handler, Poller<SleepValueP
 
 /// Pending sleeps grouped by deadline, earliest first.
 type PendingSleeps = BTreeMap<Instant, Vec<PromiseStateId>>;
+
+/// The promises with an outstanding recorded sleep.
+///
+/// Shared (behind `Arc<std::sync::Mutex<_>>`) between the handler
+/// (inserts on record) and the acks minted for settlements (remove on
+/// acknowledge).
+type RecordedSleeps = HashSet<PromiseStateId>;
 
 /// Records sleep deadlines.
 pub struct Handler {
@@ -42,11 +57,29 @@ pub struct Handler {
     /// When true, sleep deadlines are set to now (immediate) instead of
     /// now + duration, effectively skipping all sleeps.
     pub skip_sleep: bool,
+
+    /// Promises with an outstanding recorded sleep — used to ignore
+    /// re-records.
+    pub recorded: Arc<std::sync::Mutex<RecordedSleeps>>,
 }
 
 impl Handler {
     /// Record a sleep effect.
+    ///
+    /// Recording is idempotent per promise: while the recorded sleep is
+    /// outstanding — not yet settled and acknowledged — any re-record for
+    /// the same promise is ignored and the first recorded deadline stands;
+    /// re-emitted sleep effects must not walk the deadline forward.
     pub fn record(&self, promise_state_id: PromiseStateId, duration: NonZeroDuration) {
+        let newly_recorded = self
+            .recorded
+            .lock()
+            .expect("recorded sleeps poisoned")
+            .insert(promise_state_id);
+        if !newly_recorded {
+            tracing::debug!(?promise_state_id, "sleep already recorded, ignoring");
+            return;
+        }
         let deadline = if self.skip_sleep {
             Instant::now()
         } else {
@@ -82,14 +115,33 @@ pub struct Poller<SleepValueProvider> {
     pub rx: mpsc::UnboundedReceiver<(PromiseStateId, Instant)>,
     /// Pending sleeps grouped by deadline, earliest first.
     pub pending: PendingSleeps,
+    /// Promises with an outstanding recorded sleep — the acks minted for
+    /// settlements remove their entries.
+    pub recorded: Arc<std::sync::Mutex<RecordedSleeps>>,
     /// The sleep value provider is purely type-level.
-    provider: std::marker::PhantomData<fn() -> SleepValueProvider>,
+    pub provider: std::marker::PhantomData<fn() -> SleepValueProvider>,
 }
 
-pub struct Ack;
+/// Settlement acknowledgement for an elapsed sleep.
+///
+/// Acknowledging removes the promise's recorded-sleep entry: the
+/// settlement has been applied, so the record has served its purpose and
+/// the promise id becomes recordable again.
+pub struct Ack {
+    /// The promise whose sleep settlement this acknowledges.
+    pub promise_state_id: PromiseStateId,
+    /// The recorded-sleeps set to remove the promise's entry from on
+    /// acknowledge.
+    pub recorded: Arc<std::sync::Mutex<RecordedSleeps>>,
+}
 
 impl waymark_vm_driver_core::PromiseSettlementAck for Ack {
-    fn acknowledge_promise_settlement(self) {}
+    fn acknowledge_promise_settlement(self) {
+        self.recorded
+            .lock()
+            .expect("recorded sleeps poisoned")
+            .remove(&self.promise_state_id);
+    }
 }
 
 impl<ActionAck> From<Ack> for waymark_extcall_reconciler_core::Ack<ActionAck, Ack> {
@@ -118,7 +170,8 @@ where
                     .push(promise_state_id);
             }
 
-            if let Some(settlements) = collect_elapsed::<SleepValueProvider, Ack>(&mut self.pending)
+            if let Some(settlements) =
+                collect_elapsed::<SleepValueProvider, Ack>(&mut self.pending, &self.recorded)
             {
                 return Some(settlements);
             }
@@ -193,6 +246,7 @@ where
 /// Move any elapsed sleeps into settlements.
 fn collect_elapsed<SleepValueProvider, Ack>(
     pending: &mut PendingSleeps,
+    recorded: &Arc<std::sync::Mutex<RecordedSleeps>>,
 ) -> Option<NEVec<PromiseSettlement<SleepValueProvider::Value, Ack>>>
 where
     SleepValueProvider: waymark_sleep_core::SleepValueProvider,
@@ -210,7 +264,10 @@ where
             settlements.push(PromiseSettlement {
                 promise_state_id,
                 resolution: PromiseResolution::Resolved(SleepValueProvider::value()),
-                ack: Ack::from(self::Ack),
+                ack: Ack::from(self::Ack {
+                    promise_state_id,
+                    recorded: Arc::clone(recorded),
+                }),
             });
         }
     }

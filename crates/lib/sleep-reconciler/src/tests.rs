@@ -156,3 +156,79 @@ async fn skip_sleep_flag_is_independent_per_handler() {
     let normal_settlements = normal_poller.poll::<crate::Ack>().await.unwrap();
     assert_eq!(normal_settlements[0].promise_state_id, normal_psid);
 }
+
+#[tokio::test]
+async fn re_record_keeps_the_original_deadline() {
+    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(false);
+    let psid = PromiseStateId(0);
+
+    // First record wins; a re-record with a far-away deadline must not
+    // walk the deadline forward.
+    handler.record(
+        psid,
+        NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+    );
+    handler.record(
+        psid,
+        NonZeroDuration::try_from(Duration::from_secs(3600)).unwrap(),
+    );
+
+    tokio::select! {
+        settlements = poller.poll::<crate::Ack>() => {
+            let settlements = settlements.unwrap();
+            assert_eq!(settlements.len().get(), 1);
+            assert_eq!(settlements[0].promise_state_id, psid);
+        }
+        _ = tokio::time::sleep(Duration::from_secs(1)) => {
+            panic!("the original (elapsed) deadline should have settled");
+        }
+    }
+}
+
+#[tokio::test]
+async fn ack_makes_the_promise_recordable_again() {
+    use waymark_vm_driver_core::PromiseSettlementAck as _;
+
+    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(false);
+    let psid = PromiseStateId(0);
+
+    handler.record(
+        psid,
+        NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+    );
+
+    let settlements = poller.poll::<crate::Ack>().await.unwrap();
+    for settlement in settlements {
+        settlement.ack.acknowledge_promise_settlement();
+    }
+
+    // The recorded-sleep entry is gone — a new record for the same
+    // promise goes through.
+    handler.record(
+        psid,
+        NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+    );
+
+    let settlements = poller.poll::<crate::Ack>().await.unwrap();
+    assert_eq!(settlements.len().get(), 1);
+    assert_eq!(settlements[0].promise_state_id, psid);
+}
+
+#[tokio::test]
+async fn re_record_yields_a_single_settlement() {
+    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(false);
+    let psid = PromiseStateId(0);
+
+    handler.record(
+        psid,
+        NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+    );
+    handler.record(
+        psid,
+        NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+    );
+
+    let settlements = poller.poll::<crate::Ack>().await.unwrap();
+    assert_eq!(settlements.len().get(), 1);
+    assert_eq!(settlements[0].promise_state_id, psid);
+}
