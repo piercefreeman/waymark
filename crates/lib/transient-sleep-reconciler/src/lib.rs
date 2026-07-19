@@ -1,6 +1,7 @@
-//! Sleep extcall reconciler.
+//! Transient in-memory sleep extcall reconciler.
 //!
-//! Manages sleep deadline tracking and settlement generation.
+//! Manages sleep deadline tracking and settlement generation in process
+//! memory — nothing is durably recorded.
 
 #[cfg(test)]
 mod tests;

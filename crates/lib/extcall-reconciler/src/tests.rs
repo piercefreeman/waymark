@@ -83,7 +83,7 @@ async fn effect_handler_dispatches_action_call() {
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
     let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
     let (sleep_handler, sleep_poller) =
-        waymark_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
+        waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
     let (mut handler, _settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
 
@@ -121,7 +121,7 @@ async fn effect_handler_records_sleep() {
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
     let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
     let (sleep_handler, sleep_poller) =
-        waymark_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
+        waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
     let (mut handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
 
@@ -157,7 +157,7 @@ async fn action_settler_error_propagates() {
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
     let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
     let (sleep_handler, sleep_poller) =
-        waymark_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
+        waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
     let (_handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
     // Handler kept alive — sleep poller blocks waiting for sleeps.
@@ -183,7 +183,7 @@ async fn sleep_settler_error_propagates() {
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
     let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
     let (sleep_handler, sleep_poller) =
-        waymark_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
+        waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
     let (handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
     drop(handler); // Close sleep channel — sleep poller errors with ChannelClosed.
