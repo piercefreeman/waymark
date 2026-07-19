@@ -12,6 +12,7 @@ waymark-extcall-reconciler = { workspace = true }
 waymark-extcall-reconciler-action-compat = { workspace = true }
 waymark-fullset-effect-handler = { workspace = true }
 waymark-proto = { workspace = true }
+waymark-sleep-compat = { workspace = true }
 waymark-sleep-reconciler = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
 waymark-vm-ast-old-proto = { workspace = true }

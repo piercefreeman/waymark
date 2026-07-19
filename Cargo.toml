@@ -69,6 +69,8 @@ waymark-scheduler-backend = { path = "crates/lib/scheduler-backend" }
 waymark-scheduler-config = { path = "crates/lib/scheduler-config" }
 waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
+waymark-sleep-compat = { path = "crates/lib/sleep-compat" }
+waymark-sleep-core = { path = "crates/lib/sleep-core" }
 waymark-sleep-reconciler = { path = "crates/lib/sleep-reconciler" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-state-manager = { path = "crates/lib/state-manager" }
@@ -165,8 +167,8 @@ waymark-workflow-service-vm-executables = { path = "crates/lib/workflow-service-
 waymark-workflow-service-vm-executables-backend = { path = "crates/lib/workflow-service-vm-executables-backend" }
 waymark-workflow-service-vm-runtimes = { path = "crates/lib/workflow-service-vm-runtimes" }
 waymark-workflow-service-vm-runtimes-backend = { path = "crates/lib/workflow-service-vm-runtimes-backend" }
-waymark-workload-pinning-core = { path = "crates/lib/workload-pinning-core" }
 waymark-workload-pinning-backend = { path = "crates/lib/workload-pinning-backend" }
+waymark-workload-pinning-core = { path = "crates/lib/workload-pinning-core" }
 waymark-workload-pinning-manager = { path = "crates/lib/workload-pinning-manager" }
 
 anyhow = "1"

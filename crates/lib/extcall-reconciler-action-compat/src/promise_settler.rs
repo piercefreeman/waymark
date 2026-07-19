@@ -45,6 +45,14 @@ impl<ActionCallCompletionsProvider> waymark_extcall_reconciler_core::SettlerAck
     type Ack = Ack;
 }
 
+impl<ActionCallCompletionsProvider> waymark_extcall_reconciler_core::HasValue
+    for PromiseSettler<ActionCallCompletionsProvider>
+where
+    ActionCallCompletionsProvider: waymark_action_runtime_core::ActionCallCompletionsProvider,
+{
+    type Value = ActionCallCompletionsProvider::Value;
+}
+
 impl<ActionCallCompletionsProvider, UnifiedAck>
     waymark_extcall_reconciler_core::ActionPromiseSettler<UnifiedAck>
     for PromiseSettler<ActionCallCompletionsProvider>
@@ -54,7 +62,6 @@ where
     ActionCallCompletionsProvider::Metadata: ActionCallCorrelated,
     UnifiedAck: From<Ack>,
 {
-    type Value = ActionCallCompletionsProvider::Value;
     type Error = ActionCallCompletionsProvider::Error;
 
     async fn poll_action_settlements<'a>(

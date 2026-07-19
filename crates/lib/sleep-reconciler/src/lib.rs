@@ -16,14 +16,17 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 
 /// Create a paired sleep handler and poller.
 ///
+/// `SleepValueProvider` supplies the value elapsed sleeps resolve with.
+///
 /// Set `skip_sleep` to true to force all sleeps to resolve immediately
 /// (useful for testing and debugging).
-pub fn new(skip_sleep: bool) -> (Handler, Poller) {
+pub fn new<SleepValueProvider>(skip_sleep: bool) -> (Handler, Poller<SleepValueProvider>) {
     let (tx, rx) = mpsc::unbounded_channel();
     let handler = Handler { tx, skip_sleep };
     let poller = Poller {
         rx,
         pending: BTreeMap::new(),
+        provider: std::marker::PhantomData,
     };
     (handler, poller)
 }
@@ -74,11 +77,13 @@ impl waymark_extcall_reconciler_core::SleepEffectHandler for Handler {
 }
 
 /// Always-active polling handle for sleep deadlines.
-pub struct Poller {
+pub struct Poller<SleepValueProvider> {
     /// Receives new sleep deadlines from the handler.
     pub rx: mpsc::UnboundedReceiver<(PromiseStateId, Instant)>,
     /// Pending sleeps grouped by deadline, earliest first.
     pub pending: PendingSleeps,
+    /// The sleep value provider is purely type-level.
+    provider: std::marker::PhantomData<fn() -> SleepValueProvider>,
 }
 
 pub struct Ack;
@@ -93,11 +98,15 @@ impl<ActionAck> From<Ack> for waymark_extcall_reconciler_core::Ack<ActionAck, Ac
     }
 }
 
-impl Poller {
+impl<SleepValueProvider> Poller<SleepValueProvider>
+where
+    SleepValueProvider: waymark_sleep_core::SleepValueProvider,
+{
     /// Wait for the next batch of elapsed sleep settlements.
-    pub async fn poll<Value, Ack>(&mut self) -> Option<NEVec<PromiseSettlement<Value, Ack>>>
+    pub async fn poll<Ack>(
+        &mut self,
+    ) -> Option<NEVec<PromiseSettlement<SleepValueProvider::Value, Ack>>>
     where
-        Value: From<()>,
         Ack: From<self::Ack>,
     {
         loop {
@@ -109,7 +118,8 @@ impl Poller {
                     .push(promise_state_id);
             }
 
-            if let Some(settlements) = collect_elapsed::<Value, Ack>(&mut self.pending) {
+            if let Some(settlements) = collect_elapsed::<SleepValueProvider, Ack>(&mut self.pending)
+            {
                 return Some(settlements);
             }
 
@@ -140,18 +150,29 @@ pub enum PollSleepError {
     ChannelClosed,
 }
 
-impl waymark_extcall_reconciler_core::SettlerAck for Poller {
+impl<SleepValueProvider> waymark_extcall_reconciler_core::SettlerAck
+    for Poller<SleepValueProvider>
+{
     type Ack = Ack;
 }
 
-impl<UnifiedAck> waymark_extcall_reconciler_core::SleepPromiseSettler<UnifiedAck> for Poller
+impl<SleepValueProvider> waymark_extcall_reconciler_core::HasValue for Poller<SleepValueProvider>
 where
+    SleepValueProvider: waymark_sleep_core::SleepValueProvider,
+{
+    type Value = SleepValueProvider::Value;
+}
+
+impl<SleepValueProvider, UnifiedAck>
+    waymark_extcall_reconciler_core::SleepPromiseSettler<UnifiedAck> for Poller<SleepValueProvider>
+where
+    SleepValueProvider: waymark_sleep_core::SleepValueProvider,
     UnifiedAck: From<Ack>,
 {
     /// The error type returned when polling for sleep settlements fails.
     type Error = PollSleepError;
 
-    async fn poll_sleep_settlements<'a, Value>(
+    async fn poll_sleep_settlements<'a>(
         &'a mut self,
         // Elapsed sleeps settle on their own deadlines; the demand set is
         // not consulted.
@@ -159,23 +180,22 @@ where
             'a,
             waymark_vm_runtime_promise_core::PromiseStateId,
         >,
-    ) -> Result<NEVec<PromiseSettlement<Value, UnifiedAck>>, Self::Error>
+    ) -> Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>
     where
-        Value: From<()> + 'a,
         UnifiedAck: 'a,
     {
-        self.poll::<Value, UnifiedAck>()
+        self.poll::<UnifiedAck>()
             .await
             .ok_or(PollSleepError::ChannelClosed)
     }
 }
 
 /// Move any elapsed sleeps into settlements.
-fn collect_elapsed<Value, Ack>(
+fn collect_elapsed<SleepValueProvider, Ack>(
     pending: &mut PendingSleeps,
-) -> Option<NEVec<PromiseSettlement<Value, Ack>>>
+) -> Option<NEVec<PromiseSettlement<SleepValueProvider::Value, Ack>>>
 where
-    Value: From<()>,
+    SleepValueProvider: waymark_sleep_core::SleepValueProvider,
     Ack: From<self::Ack>,
 {
     let now = Instant::now();
@@ -189,7 +209,7 @@ where
             tracing::debug!(?promise_state_id, "sleep elapsed");
             settlements.push(PromiseSettlement {
                 promise_state_id,
-                resolution: PromiseResolution::Resolved(Value::from(())),
+                resolution: PromiseResolution::Resolved(SleepValueProvider::value()),
                 ack: Ack::from(self::Ack),
             });
         }
