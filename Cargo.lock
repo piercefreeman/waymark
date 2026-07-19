@@ -5011,6 +5011,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-promise-settlement-demand-registry"
+version = "0.1.0"
+dependencies = [
+ "dashmap 6.2.1",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
 name = "waymark-proto"
 version = "0.1.0"
 dependencies = [
