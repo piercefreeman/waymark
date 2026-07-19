@@ -71,7 +71,6 @@ waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-sleep-compat = { path = "crates/lib/sleep-compat" }
 waymark-sleep-core = { path = "crates/lib/sleep-core" }
-waymark-sleep-reconciler = { path = "crates/lib/sleep-reconciler" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-state-manager = { path = "crates/lib/state-manager" }
 waymark-state-manager-core = { path = "crates/lib/state-manager-core" }
@@ -91,6 +90,7 @@ waymark-timed-channel = { path = "crates/lib/timed-channel" }
 waymark-timed-future = { path = "crates/lib/timed-future" }
 waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
 waymark-transient-execution-bringup = { path = "crates/lib/transient-execution-bringup" }
+waymark-transient-sleep-reconciler = { path = "crates/lib/transient-sleep-reconciler" }
 waymark-typed-vec-serde = { path = "crates/lib/typed-vec-serde" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }

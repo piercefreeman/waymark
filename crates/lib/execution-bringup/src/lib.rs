@@ -347,7 +347,7 @@ where
             };
             let action_settler = registrar.subscribe(*vm_id);
 
-            let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new::<
+            let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
                 waymark_sleep_compat::ReadyValueSleepProvider,
             >(false);
             let (extcall_handler, extcall_settler) = waymark_extcall_reconciler::new(
