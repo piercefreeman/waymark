@@ -5526,6 +5526,7 @@ dependencies = [
  "waymark-sleep-compat",
  "waymark-sleep-core",
  "waymark-vm-driver-core",
+ "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-value",
 ]
