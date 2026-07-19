@@ -12,7 +12,7 @@ services:
     ports:
       - "5435:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U waymark"]
+      test: ["CMD-SHELL", "pg_isready -U waymark -d waymark_example"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -31,8 +31,7 @@ services:
       WAYMARK_USER_MODULE: example_app.workflows
       WAYMARK_CONCURRENT_PER_WORKER: 500
       WAYMARK_MAX_CONCURRENT_INSTANCES: 5000
-      RUST_LOG: waymark::waymark_core::runloop=debug,waymark::waymark_core::lock=debug,waymark::workers::remote=trace,waymark::server_worker=debug,waymark::backends::postgres=debug,waymark=info,start_workers=info
-      WAYMARK_LOG_LEVEL: DEBUG
+      RUST_LOG: info,waymark=debug
       WAYMARK_WEBAPP_ENABLED: "true"
       WAYMARK_WEBAPP_ADDR: "0.0.0.0:24119"
       WAYMARK_RUNNER_PROFILE_INTERVAL_MS: "5000"
