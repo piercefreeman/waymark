@@ -4413,6 +4413,7 @@ dependencies = [
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
  "waymark-secret-string",
+ "waymark-state-vm-executables-backend",
  "waymark-state-vm-runtimes-backend",
  "waymark-support-test",
  "waymark-timed-future",
@@ -4421,6 +4422,7 @@ dependencies = [
  "waymark-worker-status-backend",
  "waymark-workflow-completion-backend",
  "waymark-workflow-registry-backend",
+ "waymark-workflow-service-vm-executables-backend",
  "waymark-workflow-service-vm-runtimes-backend",
  "waymark-workload-pinning-backend",
 ]
@@ -6321,6 +6323,23 @@ dependencies = [
  "waymark-backends-core",
  "waymark-ids",
 ]
+
+[[package]]
+name = "waymark-workflow-service-vm-executables"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
+ "waymark-vm-ast-old",
+ "waymark-vm-codec-core",
+ "waymark-vm-compiler-for-ast-old",
+ "waymark-vm-compiler-for-ast-old-core",
+ "waymark-workflow-service-vm-executables-backend",
+]
+
+[[package]]
+name = "waymark-workflow-service-vm-executables-backend"
+version = "0.1.0"
 
 [[package]]
 name = "waymark-workflow-service-vm-runtimes"
