@@ -5223,6 +5223,28 @@ name = "waymark-sleep-core"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-sleep-reconciler"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "dashmap 6.2.1",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "waymark-extcall-reconciler-core",
+ "waymark-ids",
+ "waymark-nonzero-duration",
+ "waymark-sleep-compat",
+ "waymark-sleep-core",
+ "waymark-sleep-reconciler-backend",
+ "waymark-vm-driver-core",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+]
+
+[[package]]
 name = "waymark-sleep-reconciler-backend"
 version = "0.1.0"
 dependencies = [
