@@ -1,0 +1,31 @@
+[package]
+name = "waymark-sleep-reconciler"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-extcall-reconciler-core = { workspace = true }
+waymark-nonzero-duration = { workspace = true }
+waymark-sleep-core = { workspace = true }
+waymark-sleep-reconciler-backend = { workspace = true }
+waymark-vm-driver-core = { workspace = true }
+waymark-vm-runtime-effect = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
+
+chrono = { workspace = true, default-features = false, features = ["clock"] }
+dashmap = { workspace = true }
+nonempty-collections = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+waymark-ids = { workspace = true }
+waymark-sleep-compat = { workspace = true }
+waymark-vm-value = { workspace = true }
+
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+
+[lib]
+doctest = false
