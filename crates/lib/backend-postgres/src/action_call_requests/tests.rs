@@ -7,14 +7,14 @@ use waymark_action_effect_reconciler_backend::record_action_call_requests::Error
 use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::RenewalStatus;
 use waymark_action_effect_reconciler_backend::{
     ActionCallRequestKey, ActionCallRequestRecord, LockVmActionCallRequests as _,
-    PurgeVmActionCallRequests as _, RecordActionCallRequests as _,
-    RenewActionCallRequestLocks as _, RequestLock, UnlockActionCallRequests as _,
+    RecordActionCallRequests as _, RenewActionCallRequestLocks as _, RequestLock,
+    UnlockActionCallRequests as _,
 };
 use waymark_ids::InstanceId;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use super::super::test_helpers::setup_backend;
+use super::super::test_helpers::{register_test_vm, setup_backend};
 use super::error::RecordError;
 
 fn record(
@@ -330,10 +330,10 @@ async fn recording_a_completion_removes_the_request() {
 
 #[serial(postgres)]
 #[tokio::test]
-async fn purge_removes_only_the_vms_requests() {
+async fn snapshot_delete_sweeps_only_the_vms_requests() {
     let backend = setup_backend().await;
-    let vm_a = InstanceId::new_uuid_v4();
-    let vm_b = InstanceId::new_uuid_v4();
+    let (vm_a, _) = register_test_vm(&backend).await;
+    let (vm_b, _) = register_test_vm(&backend).await;
     let owner = uuid::Uuid::new_v4();
 
     let records =
@@ -343,10 +343,11 @@ async fn purge_removes_only_the_vms_requests() {
         .await
         .expect("record");
 
-    backend
-        .purge_vm_action_call_requests(&vm_a)
+    sqlx::query("DELETE FROM vm_runtime_snapshots WHERE vm_id = $1")
+        .bind(vm_a)
+        .execute(backend.pool())
         .await
-        .expect("purge");
+        .expect("delete vm_a snapshot");
 
     let statuses = backend
         .renew_action_call_request_locks(

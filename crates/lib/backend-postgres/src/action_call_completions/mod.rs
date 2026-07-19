@@ -2,8 +2,9 @@
 //!
 //! Implements the `waymark_action_completions_reconciler_backend`
 //! traits: completions are recorded as they arrive from the worker pool,
-//! polled by demand, deleted on ack, and purged per VM on terminal
-//! completion.
+//! polled by demand, and deleted on ack.  Rows of a deleted VM are
+//! swept by the snapshot-deletion cleanup trigger, so there is no purge
+//! operation here.
 
 pub mod error;
 
@@ -272,26 +273,6 @@ impl waymark_action_completions_reconciler_backend::AckCompletions for PostgresB
         ))
         .await
         .map_err(Self::Error::Sqlx)?;
-
-        Ok(())
-    }
-}
-
-impl waymark_action_completions_reconciler_backend::PurgeVmCompletions for PostgresBackend {
-    type Error = error::PurgeError;
-
-    #[obs]
-    #[function_name::named]
-    async fn purge_vm_completions(&self, vm_id: &InstanceId) -> Result<(), Self::Error> {
-        Self::count_query(&self.query_counts, "delete:action_call_completions_purge");
-        sqlx::query("DELETE FROM action_call_completions WHERE vm_id = $1")
-            .bind(vm_id)
-            .execute(&self.pool)
-            .timed(crate::query_timing_histogram!(
-                "delete:action_call_completions_purge"
-            ))
-            .await
-            .map_err(Self::Error::Sqlx)?;
 
         Ok(())
     }

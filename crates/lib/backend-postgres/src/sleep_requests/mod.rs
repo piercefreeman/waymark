@@ -2,7 +2,8 @@
 //!
 //! Implements the `waymark_sleep_reconciler_backend` traits: sleeps are
 //! recorded as the VM emits them, polled by demand and dueness, deleted
-//! on ack, and purged per VM on terminal completion.
+//! on ack.  Rows of a deleted VM are swept by the snapshot-deletion
+//! cleanup trigger, so there is no purge operation here.
 
 pub mod error;
 
@@ -243,26 +244,6 @@ impl waymark_sleep_reconciler_backend::AckSleeps for PostgresBackend {
         .timed(crate::query_timing_histogram!("delete:sleep_requests_ack"))
         .await
         .map_err(Self::Error::Sqlx)?;
-
-        Ok(())
-    }
-}
-
-impl waymark_sleep_reconciler_backend::PurgeVmSleeps for PostgresBackend {
-    type Error = error::PurgeError;
-
-    #[obs]
-    #[function_name::named]
-    async fn purge_vm_sleeps(&self, vm_id: &InstanceId) -> Result<(), Self::Error> {
-        Self::count_query(&self.query_counts, "delete:sleep_requests_purge");
-        sqlx::query("DELETE FROM sleep_requests WHERE vm_id = $1")
-            .bind(vm_id)
-            .execute(&self.pool)
-            .timed(crate::query_timing_histogram!(
-                "delete:sleep_requests_purge"
-            ))
-            .await
-            .map_err(Self::Error::Sqlx)?;
 
         Ok(())
     }
