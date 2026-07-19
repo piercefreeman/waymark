@@ -1,5 +1,5 @@
 [package]
-name = "waymark-sleep-reconciler"
+name = "waymark-transient-sleep-reconciler"
 edition = "2024"
 version.workspace = true
 publish.workspace = true
