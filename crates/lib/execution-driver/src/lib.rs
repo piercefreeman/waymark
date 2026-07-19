@@ -20,7 +20,6 @@ use waymark_state_vm_runtimes::Evicted;
 
 /// The exit error of the VMs the execution driver drives.
 type DriverErrorFor<
-    Value,
     ExecutionError,
     SnapshotSerializationError,
     SnapshotPersistenceError,
@@ -28,7 +27,6 @@ type DriverErrorFor<
     GettingPromiseSettlementsError,
 > = waymark_vm_driver_thread::Error<
     waymark_vm_driver::Error<
-        Value,
         ExecutionError,
         SnapshotSerializationError,
         SnapshotPersistenceError,
@@ -40,7 +38,6 @@ type DriverErrorFor<
 /// The state manager the execution driver operates on.
 type StateFor<
     Factory,
-    Value,
     ExecutionError,
     SnapshotSerializationError,
     SnapshotPersistenceError,
@@ -51,7 +48,6 @@ type StateFor<
     Arc<
         waymark_state_vm_runtimes::Spawned<
             DriverErrorFor<
-                Value,
                 ExecutionError,
                 SnapshotSerializationError,
                 SnapshotPersistenceError,
@@ -71,7 +67,6 @@ type StateFor<
 #[tracing::instrument(skip_all)]
 pub async fn run<
     Factory,
-    Value,
     ExecutionError,
     SnapshotSerializationError,
     SnapshotPersistenceError,
@@ -84,7 +79,6 @@ pub async fn run<
     state: Arc<
         StateFor<
             Factory,
-            Value,
             ExecutionError,
             SnapshotSerializationError,
             SnapshotPersistenceError,
@@ -98,7 +92,6 @@ pub async fn run<
             Value = Arc<
                 waymark_state_vm_runtimes::Spawned<
                     DriverErrorFor<
-                        Value,
                         ExecutionError,
                         SnapshotSerializationError,
                         SnapshotPersistenceError,
@@ -112,7 +105,6 @@ pub async fn run<
         + 'static,
     Factory::Key: Eq + Hash + Clone + std::fmt::Debug + Send + Sync + 'static,
     Factory::Error: std::fmt::Debug,
-    Value: Send + 'static,
     ExecutionError: Send + 'static,
     SnapshotSerializationError: Send + 'static,
     SnapshotPersistenceError: Send + 'static,
@@ -149,7 +141,6 @@ pub async fn run<
 #[tracing::instrument(skip_all, fields(instance_id = ?pinned.id()))]
 async fn drive_one<
     Factory,
-    Value,
     ExecutionError,
     SnapshotSerializationError,
     SnapshotPersistenceError,
@@ -160,7 +151,6 @@ async fn drive_one<
     state: Arc<
         StateFor<
             Factory,
-            Value,
             ExecutionError,
             SnapshotSerializationError,
             SnapshotPersistenceError,
@@ -174,7 +164,6 @@ async fn drive_one<
             Value = Arc<
                 waymark_state_vm_runtimes::Spawned<
                     DriverErrorFor<
-                        Value,
                         ExecutionError,
                         SnapshotSerializationError,
                         SnapshotPersistenceError,
@@ -188,7 +177,6 @@ async fn drive_one<
         + 'static,
     Factory::Key: Eq + Hash + Clone + std::fmt::Debug + Send + Sync + 'static,
     Factory::Error: std::fmt::Debug,
-    Value: Send + 'static,
     ExecutionError: Send + 'static,
     SnapshotSerializationError: Send + 'static,
     SnapshotPersistenceError: Send + 'static,

@@ -108,8 +108,8 @@ impl<DriverError> Drop for Spawned<DriverError> {
 
 /// The exit error a spawned VM driver reports, as computed from the
 /// higher-level types the VM is spawned with.
-pub type ErrorFor<Value, Interpreter, Codec, Persister, Effector> = waymark_vm_driver_thread::Error<
-    waymark_vm_driver::ErrorFor<Value, Interpreter, Arc<Codec>, Persister, Effector>,
+pub type ErrorFor<Interpreter, Codec, Persister, Effector> = waymark_vm_driver_thread::Error<
+    waymark_vm_driver::ErrorFor<Interpreter, Arc<Codec>, Persister, Effector>,
 >;
 
 /// Spawn a new VM runtime on a dedicated OS thread.
@@ -120,7 +120,7 @@ pub(crate) async fn spawn<Codec, Executable, Interpreter, Value, Effector, Persi
     effector: Effector,
     persister: Persister,
     keepalive_handles: Vec<Box<dyn Send + Sync>>,
-) -> Spawned<ErrorFor<Value, Interpreter, Codec, Persister, Effector>>
+) -> Spawned<ErrorFor<Interpreter, Codec, Persister, Effector>>
 where
     Codec: waymark_vm_codec_core::SerializerProvider<Ok = ()>,
     Codec: Send + Sync + 'static,

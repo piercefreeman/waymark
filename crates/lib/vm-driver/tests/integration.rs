@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 use waymark_vm_codec_rmp::RmpCodec;
 use waymark_vm_driver::{Error, Params, run};
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
-use waymark_vm_runtime_core::{RegisterId, ResolvePromiseError};
+use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_runtime_test::{
@@ -177,11 +177,14 @@ async fn returns_step_errors() {
 }
 
 #[tokio::test]
-async fn duplicate_resolutions_error() {
+async fn duplicate_resolutions_are_ignored() {
     let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel::<EmittedEffect<TestEffect>>(1);
     let (settlements_tx, settlements_rx) =
         tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, ()>>(2);
 
+    // At-least-once delivery: the same promise settled twice.  The
+    // first resolution wins, the redelivery is dropped, and the VM
+    // runs to completion.
     settlements_tx
         .send(PromiseSettlement {
             promise_state_id: PromiseStateId(0),
@@ -198,6 +201,7 @@ async fn duplicate_resolutions_error() {
         })
         .await
         .unwrap();
+    drop(settlements_tx);
 
     let result = run(Params {
         runtime: runtime(executable(vec![function(
@@ -217,34 +221,48 @@ async fn duplicate_resolutions_error() {
     })
     .await;
 
-    let Err(Error::ResolvingPromise(ResolvePromiseError::AlreadyResolved(err))) = result else {
-        panic!("expected AlreadyResolved");
-    };
-    assert_eq!(err.new_value, TestReadyValue::Int(11));
+    assert!(matches!(result, Err(Error::NoReadyFramesOrWaitingPromises)));
 }
 
 #[tokio::test]
-async fn unknown_promise_id_error() {
+async fn duplicate_rejection_after_resolution_is_ignored() {
     let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel::<EmittedEffect<TestEffect>>(1);
     let (settlements_tx, settlements_rx) =
-        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, ()>>(1);
+        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, ()>>(2);
 
+    // A redelivered settlement may even change flavor: a rejection
+    // arriving for an already-resolved promise is dropped the same way.
     settlements_tx
         .send(PromiseSettlement {
-            promise_state_id: PromiseStateId(9),
-            resolution: PromiseResolution::Resolved(TestReadyValue::Int(41)),
+            promise_state_id: PromiseStateId(0),
+            resolution: PromiseResolution::Resolved(TestReadyValue::Int(10)),
             ack: (),
         })
         .await
         .unwrap();
+    settlements_tx
+        .send(PromiseSettlement {
+            promise_state_id: PromiseStateId(0),
+            resolution: PromiseResolution::Rejected(Exception {
+                type_id: "late".to_string(),
+                details: TestReadyValue::Int(99),
+            }),
+            ack: (),
+        })
+        .await
+        .unwrap();
+    drop(settlements_tx);
 
     let result = run(Params {
         runtime: runtime(executable(vec![function(
             1,
-            vec![vec![TestInstruction::Suspend {
-                dst: RegisterId(0),
-                resume: StateId(1),
-            }]],
+            vec![
+                vec![TestInstruction::Suspend {
+                    dst: RegisterId(0),
+                    resume: StateId(1),
+                }],
+                vec![TestInstruction::Exit],
+            ],
         )])),
         effector: (effects_tx, settlements_rx),
         persister: (),
@@ -253,11 +271,55 @@ async fn unknown_promise_id_error() {
     })
     .await;
 
-    let Err(Error::ResolvingPromise(ResolvePromiseError::PromiseStateNotFound(err))) = result
-    else {
-        panic!("expected PromiseStateNotFound");
-    };
-    assert_eq!(err.promise_state_id, PromiseStateId(9));
+    assert!(matches!(result, Err(Error::NoReadyFramesOrWaitingPromises)));
+}
+
+#[tokio::test]
+async fn unknown_promise_ids_are_ignored() {
+    let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel::<EmittedEffect<TestEffect>>(1);
+    let (settlements_tx, settlements_rx) =
+        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, ()>>(2);
+
+    // A settlement for a promise this runtime does not know — e.g. a
+    // stale redelivery for a state that was garbage collected.  It is
+    // dropped, and the settlement that follows still applies normally.
+    settlements_tx
+        .send(PromiseSettlement {
+            promise_state_id: PromiseStateId(9),
+            resolution: PromiseResolution::Resolved(TestReadyValue::Int(41)),
+            ack: (),
+        })
+        .await
+        .unwrap();
+    settlements_tx
+        .send(PromiseSettlement {
+            promise_state_id: PromiseStateId(0),
+            resolution: PromiseResolution::Resolved(TestReadyValue::Int(10)),
+            ack: (),
+        })
+        .await
+        .unwrap();
+    drop(settlements_tx);
+
+    let result = run(Params {
+        runtime: runtime(executable(vec![function(
+            1,
+            vec![
+                vec![TestInstruction::Suspend {
+                    dst: RegisterId(0),
+                    resume: StateId(1),
+                }],
+                vec![TestInstruction::Exit],
+            ],
+        )])),
+        effector: (effects_tx, settlements_rx),
+        persister: (),
+        codec: RmpCodec,
+        cancel: CancellationToken::new(),
+    })
+    .await;
+
+    assert!(matches!(result, Err(Error::NoReadyFramesOrWaitingPromises)));
 }
 
 #[tokio::test]
