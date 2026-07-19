@@ -3,7 +3,9 @@
 //! Implements the `waymark_action_effect_reconciler_backend` traits:
 //! requests are recorded born-locked at effect emission, locked for
 //! delivery at VM revival reconcile, kept alive by lock renewal, unlocked
-//! at graceful shutdown, and purged per VM on terminal completion.
+//! at graceful shutdown.  Rows of a deleted VM are swept by the
+//! snapshot-deletion cleanup trigger, so there is no purge operation
+//! here.
 //! Removal happens in the schema itself: the trigger installed by
 //! migration `0017` deletes a request row the moment its completion is
 //! recorded.
@@ -414,26 +416,6 @@ impl waymark_action_effect_reconciler_backend::UnlockActionCallRequests for Post
         ))
         .await
         .map_err(Self::Error::Sqlx)?;
-
-        Ok(())
-    }
-}
-
-impl waymark_action_effect_reconciler_backend::PurgeVmActionCallRequests for PostgresBackend {
-    type Error = error::PurgeError;
-
-    #[obs]
-    #[function_name::named]
-    async fn purge_vm_action_call_requests(&self, vm_id: &InstanceId) -> Result<(), Self::Error> {
-        Self::count_query(&self.query_counts, "delete:action_call_requests_purge");
-        sqlx::query("DELETE FROM action_call_requests WHERE vm_id = $1")
-            .bind(vm_id)
-            .execute(&self.pool)
-            .timed(crate::query_timing_histogram!(
-                "delete:action_call_requests_purge"
-            ))
-            .await
-            .map_err(Self::Error::Sqlx)?;
 
         Ok(())
     }
