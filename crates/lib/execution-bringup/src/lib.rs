@@ -1,7 +1,7 @@
 //! Bringup for the execution subsystem — wires the workload-pinning
-//! manager, the execution driver, the worker pool, and the durable
-//! action-call pipelines (requests and completions) together, spawning
-//! their run loops.
+//! manager, the execution driver, the worker pool, the durable
+//! action-call pipelines (requests and completions), and the durable
+//! sleeps pipeline together, spawning their run loops.
 //!
 //! [`start`] takes a backend, a worker pool, and configuration, then
 //! spawns all the loops needed for VM execution.
@@ -40,6 +40,10 @@ pub struct Config<NodeId> {
     /// How often to refresh pinnings on active workloads.
     pub pinning_heartbeat: NonZeroDuration,
 
+    /// How long the durable-sleeps demand poller waits between polls
+    /// while demand is registered.
+    pub sleep_poll_interval: NonZeroDuration,
+
     /// How long to retain a VM state after eviction.
     pub vm_retention: NonZeroDuration,
 
@@ -76,6 +80,12 @@ pub struct Handles {
     /// Join handle for the durable action-call completions acker.
     pub durable_action_completions_acker: tokio::task::JoinHandle<()>,
 
+    /// Join handle for the durable sleeps demand poller.
+    pub durable_sleeps_poller: tokio::task::JoinHandle<()>,
+
+    /// Join handle for the durable sleeps acker.
+    pub durable_sleeps_acker: tokio::task::JoinHandle<()>,
+
     /// Join handle for the action-call request lock renewal heartbeat.
     pub action_effect_reconciler_lock_renewal: tokio::task::JoinHandle<()>,
 }
@@ -86,7 +96,8 @@ pub struct Handles {
 /// factory, effectors, and the durable action-call request reconcile),
 /// and spawns every run loop: the workload-pinning manager, the execution
 /// driver, the state sweepers, the durable action-call completions
-/// pipeline, and the action-call request lock renewal heartbeat.
+/// pipeline, the durable sleeps pipeline, and the action-call request
+/// lock renewal heartbeat.
 ///
 /// Returns an error if the worker pool fails to launch; nothing is spawned
 /// in that case.
@@ -136,6 +147,15 @@ where
         Send + 'static,
     <Backend as waymark_action_completions_reconciler_backend::AckCompletions>::Error:
         Send + 'static,
+    Backend: waymark_sleep_reconciler_backend::RecordSleeps,
+    Backend: waymark_sleep_reconciler_backend::PollDueSleeps,
+    Backend: waymark_sleep_reconciler_backend::AckSleeps,
+    Backend: waymark_sleep_reconciler_backend::HasVmId<VmId = waymark_ids::InstanceId>,
+    Backend:
+        waymark_sleep_reconciler_backend::HasTimestamp<Timestamp = chrono::DateTime<chrono::Utc>>,
+    <Backend as waymark_sleep_reconciler_backend::RecordSleeps>::Error: Send + 'static,
+    <Backend as waymark_sleep_reconciler_backend::PollDueSleeps>::Error: Send + 'static,
+    <Backend as waymark_sleep_reconciler_backend::AckSleeps>::Error: Send + 'static,
     Backend: waymark_action_effect_reconciler_backend::RecordActionCallRequests,
     Backend: waymark_action_effect_reconciler_backend::LockVmActionCallRequests,
     Backend: waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks,
@@ -170,6 +190,7 @@ where
         max_pinned,
         pinning_ttl,
         pinning_heartbeat,
+        sleep_poll_interval,
         vm_retention,
         vm_sweep_interval,
         executable_retention,
@@ -283,6 +304,54 @@ where
         }
     });
 
+    // Durable sleeps pipeline — sleep requests are recorded durably as the
+    // VMs emit them (inline in the per-VM effect handler, so there is no
+    // writer loop) and removed only once their settlements have been
+    // durably applied.  Two background loops, each holding a drop guard on
+    // the subsystem shutdown token, mirroring the completions pipeline
+    // above.
+    let (sleep_ack_tx, sleep_ack_rx) = tokio::sync::mpsc::unbounded_channel();
+    let sleep_acker_params = waymark_sleep_reconciler::acker::Params {
+        backend: Arc::clone(&backend),
+        ack_rx: sleep_ack_rx,
+    };
+    let durable_sleeps_acker_handle = tokio::spawn({
+        let shutdown = shutdown_token.child_token();
+        let shutdown_guard = shutdown_token.clone().drop_guard();
+        async move {
+            let _shutdown_guard = shutdown_guard;
+            tokio::select! {
+                _ = shutdown.cancelled() => {}
+                () = waymark_sleep_reconciler::acker::run(sleep_acker_params) => {}
+            }
+        }
+    });
+
+    let (sleep_registrar, sleep_poller_state) =
+        waymark_sleep_reconciler::poller::state(sleep_ack_tx);
+    let sleep_poller_params = waymark_sleep_reconciler::poller::Params {
+        backend: Arc::clone(&backend),
+        state: sleep_poller_state,
+        poll_interval: sleep_poll_interval,
+    };
+    let durable_sleeps_poller_handle = tokio::spawn({
+        let shutdown = shutdown_token.child_token();
+        let shutdown_guard = shutdown_token.clone().drop_guard();
+        async move {
+            let _shutdown_guard = shutdown_guard;
+            tokio::select! {
+                _ = shutdown.cancelled() => {}
+                result = waymark_sleep_reconciler::poller::run(sleep_poller_params) => {
+                    let Err(error) = result;
+                    tracing::error!(
+                        ?error,
+                        "durable sleeps demand poller failed, shutting down"
+                    );
+                }
+            }
+        }
+    });
+
     // Durable action-call requests: emitted action calls are recorded as
     // born-locked request rows before delivery to the local pool, and the
     // renewal heartbeat keeps the held locks alive while the attempts run.
@@ -327,6 +396,7 @@ where
         let backend = Arc::clone(&backend);
         let codec = Arc::clone(&codec);
         let registrar = registrar.clone();
+        let sleep_registrar = sleep_registrar.clone();
         let lock_owner_id = node_id.clone();
         let held_locks_tx = held_locks_tx.clone();
         move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
@@ -347,14 +417,17 @@ where
             };
             let action_settler = registrar.subscribe(*vm_id);
 
-            let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
-                waymark_sleep_compat::ReadyValueSleepProvider,
-            >(false);
+            let sleep_handler = waymark_sleep_reconciler::EffectHandler {
+                backend: Arc::clone(&backend),
+                vm_id: *vm_id,
+            };
+            let sleep_settler =
+                sleep_registrar.subscribe::<waymark_sleep_compat::ReadyValueSleepProvider>(*vm_id);
             let (extcall_handler, extcall_settler) = waymark_extcall_reconciler::new(
                 action_handler,
                 sleep_handler,
                 action_settler,
-                sleep_poller,
+                sleep_settler,
             );
             let completion_handler = waymark_workflow_completion::EffectHandler::new(
                 Arc::clone(&backend),
@@ -443,6 +516,8 @@ where
         durable_action_completions_writer: durable_action_completions_writer_handle,
         durable_action_completions_poller: durable_action_completions_poller_handle,
         durable_action_completions_acker: durable_action_completions_acker_handle,
+        durable_sleeps_poller: durable_sleeps_poller_handle,
+        durable_sleeps_acker: durable_sleeps_acker_handle,
         action_effect_reconciler_lock_renewal: action_effect_reconciler_lock_renewal_handle,
     })
 }
