@@ -11,7 +11,7 @@ use waymark_workload_pinning_core::UnpinMode;
 
 use crate::test_utils::helpers::{
     long_heartbeat, short_heartbeat, test_fencing_margin, test_max_concurrent, test_node_id,
-    test_pinning, test_pinning_ttl,
+    test_pinning, test_pinning_ttl, test_unpin_retry_interval,
 };
 use crate::test_utils::mock::{MockBackend, MockError};
 use crate::{Params, PinnedHandle, run};
@@ -39,6 +39,7 @@ async fn run_exits_on_cancellation() {
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
         pinning_heartbeat: short_heartbeat(),
+        unpin_retry_interval: test_unpin_retry_interval(),
         pinning_fencing_margin: test_fencing_margin(),
     });
 
@@ -94,6 +95,7 @@ async fn run_propagates_poll_error() {
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
         pinning_heartbeat: short_heartbeat(),
+        unpin_retry_interval: test_unpin_retry_interval(),
         pinning_fencing_margin: test_fencing_margin(),
     });
 
@@ -173,6 +175,7 @@ async fn maintenance_drains_after_poll_error() {
             max_pinned: test_max_concurrent(),
             pinning_ttl: test_pinning_ttl(),
             pinning_heartbeat: short_heartbeat(),
+            unpin_retry_interval: test_unpin_retry_interval(),
             pinning_fencing_margin: test_fencing_margin(),
         }),
     )
@@ -292,6 +295,7 @@ async fn maintenance_heartbeats_after_poll_is_dead() {
             max_pinned: test_max_concurrent(),
             pinning_ttl: test_pinning_ttl(),
             pinning_heartbeat: NonZeroDuration::new(heartbeat).unwrap(),
+            unpin_retry_interval: test_unpin_retry_interval(),
             pinning_fencing_margin: test_fencing_margin(),
         }),
     )
@@ -357,6 +361,7 @@ async fn cleanup_unpins_remaining_workloads_on_force_shutdown() {
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
         pinning_heartbeat: long_heartbeat(),
+        unpin_retry_interval: test_unpin_retry_interval(),
         pinning_fencing_margin: test_fencing_margin(),
     });
     tokio::pin!(run_future);
@@ -384,9 +389,9 @@ async fn cleanup_unpins_remaining_workloads_on_force_shutdown() {
         other => panic!("expected ForceShutdown, got {other:?}"),
     }
     assert!(
-        outcome.cleanup_error.is_none(),
-        "expected clean cleanup, got {:?}",
-        outcome.cleanup_error
+        outcome.unpin_error.is_none(),
+        "expected no unpin error, got {:?}",
+        outcome.unpin_error
     );
 
     // Explicit: the cleanup unpin was called exactly once.
@@ -396,8 +401,8 @@ async fn cleanup_unpins_remaining_workloads_on_force_shutdown() {
 }
 
 /// When the cleanup unpin itself fails, the error must surface on
-/// `cleanup_error` instead of being swallowed.
-#[tokio::test]
+/// `unpin_error` instead of being swallowed.
+#[tokio::test(flavor = "multi_thread")]
 async fn cleanup_reports_unpin_error() {
     let id = 1u64;
     let node_id = test_node_id();
@@ -423,7 +428,19 @@ async fn cleanup_reports_unpin_error() {
             predicate::eq(node_id),
             predicate::eq(nev![(id, UnpinMode::Release)]),
         )
-        .return_once(move |_, _| Box::pin(std::future::ready(Err(MockError))));
+        .returning(move |_, _| Box::pin(std::future::ready(Err(MockError))));
+    // The heartbeat is short so the unpin loop's retries land inside the
+    // test window; refreshes are incidental here.
+    backend
+        .expect_refresh_pinnings()
+        .times(0..)
+        .returning(move |_, _, _| {
+            let pinning = test_pinning(node_id, 1);
+            Box::pin(std::future::ready(Ok(nev![PinningStatus {
+                workload_id: id,
+                pinning: Some(pinning),
+            }])))
+        });
 
     let backend = Arc::new(backend);
 
@@ -439,7 +456,8 @@ async fn cleanup_reports_unpin_error() {
         pinned_tx,
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
-        pinning_heartbeat: long_heartbeat(),
+        pinning_heartbeat: short_heartbeat(),
+        unpin_retry_interval: test_unpin_retry_interval(),
         pinning_fencing_margin: test_fencing_margin(),
     });
     tokio::pin!(run_future);
@@ -452,14 +470,14 @@ async fn cleanup_reports_unpin_error() {
 
     force_shutdown.cancel();
 
-    let outcome = tokio::time::timeout(Duration::from_secs(5), &mut run_future)
+    let outcome = tokio::time::timeout(Duration::from_secs(10), &mut run_future)
         .await
         .expect("run should exit after force shutdown");
 
     drop(handles);
 
     assert!(
-        outcome.cleanup_error.is_some(),
+        outcome.unpin_error.is_some(),
         "expected the cleanup unpin failure to be reported"
     );
 }
@@ -529,6 +547,7 @@ async fn unpin_park_flows_end_to_end() {
             max_pinned: test_max_concurrent(),
             pinning_ttl: test_pinning_ttl(),
             pinning_heartbeat: short_heartbeat(),
+            unpin_retry_interval: test_unpin_retry_interval(),
             pinning_fencing_margin: test_fencing_margin(),
         }),
     )
@@ -543,8 +562,8 @@ async fn unpin_park_flows_end_to_end() {
     mock.checkpoint();
 
     assert!(
-        outcome.cleanup_error.is_none(),
-        "expected no cleanup, got {:?}",
-        outcome.cleanup_error
+        outcome.unpin_error.is_none(),
+        "expected no unpin error, got {:?}",
+        outcome.unpin_error
     );
 }
