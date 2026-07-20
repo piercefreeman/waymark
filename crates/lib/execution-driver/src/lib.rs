@@ -193,8 +193,17 @@ async fn drive_one<
 
     tracing::debug!("VM running");
 
+    let mut fenced = false;
     let evicted = tokio::select! {
         evicted = vm.evicted() => evicted,
+        _ = pinned.fenced() => {
+            // The pinning lapsed or was lost to another node — this node
+            // can no longer prove it holds it, so stop driving the VM.
+            tracing::warn!("pinning fenced; evicting VM");
+            fenced = true;
+            vm.trigger_eviction();
+            vm.evicted().await
+        }
         _ = shutdown.cancelled() => {
             tracing::debug!("shutting down: evicting VM");
             vm.trigger_eviction();
@@ -204,6 +213,15 @@ async fn drive_one<
 
     // The pin is lifted only after `evicted()` has resolved — the VM
     // driver has fully exited by then.
+
+    // A fenced pinning is lost: another node may already hold it, so it
+    // is not ours to park. Release it unconditionally.
+    if fenced {
+        tracing::debug!("VM evicted after fence, releasing");
+        drop(pinned);
+        return;
+    }
+
     match evicted {
         Evicted::DriverError(waymark_vm_driver_thread::Error::Driver(
             waymark_vm_driver::Error::NoReadyFramesOrWaitingPromises,
