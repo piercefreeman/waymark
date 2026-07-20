@@ -20,6 +20,7 @@
 //! - WAYMARK_PERSIST_INTERVAL_MS: Result persistence tick (default: 500)
 //! - WAYMARK_LOCK_TTL_MS: Instance lock TTL (default: 15000)
 //! - WAYMARK_LOCK_HEARTBEAT_MS: Lock refresh heartbeat interval (default: 5000)
+//! - WAYMARK_PINNING_FENCING_MARGIN_MS: How early a pinning is fenced before its ttl (default: 1000)
 //! - WAYMARK_EVICT_SLEEP_THRESHOLD_MS: Sleep duration before evicting idle instances (default: 10000)
 //! - WAYMARK_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS: Sweep interval for expired queue locks (default: 15000)
 //! - WAYMARK_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE: Max expired locks to reclaim per sweep (default: 1000)
@@ -156,6 +157,7 @@ async fn main() -> Result<()> {
         max_pinned: config.max_concurrent_instances,
         pinning_ttl: config.lock_ttl,
         pinning_heartbeat: config.lock_heartbeat,
+        pinning_fencing_margin: config.pinning_fencing_margin,
         sleep_poll_interval: config.sleep_poll_interval,
         vm_retention: config.vm_retention,
         vm_sweep_interval: config.vm_sweep_interval,
