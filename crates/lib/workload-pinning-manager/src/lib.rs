@@ -4,6 +4,7 @@
 
 mod maintenance;
 mod outcome;
+mod pinned_batch;
 mod pinned_handle;
 mod poll;
 
@@ -69,6 +70,14 @@ where
 
     /// How often to refresh pinnings on active workloads.
     pub pinning_heartbeat: NonZeroDuration,
+
+    /// How much earlier than the pinning ttl the local lapse deadline
+    /// falls: a pinning not re-confirmed within `pinning_ttl -
+    /// pinning_fencing_margin` of its (monotonic, pre-send) anchor
+    /// lapses and the workload is fenced — the margin budgets the
+    /// eviction latency between the fence signal and the workload
+    /// actually stopping.
+    pub pinning_fencing_margin: NonZeroDuration,
 }
 
 /// Run the workload management loop.
@@ -88,7 +97,7 @@ where
     <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error: std::fmt::Debug,
     <Backend as waymark_workload_pinning_backend::UnpinWorkloads>::Error: std::fmt::Debug,
     Backend::NodeId: Clone,
-    Backend::WorkloadId: Clone + std::hash::Hash + Eq,
+    Backend::WorkloadId: Clone + std::hash::Hash + Eq + std::fmt::Debug,
 {
     let Params {
         shutdown_token,
@@ -99,6 +108,7 @@ where
         max_pinned,
         pinning_ttl,
         pinning_heartbeat,
+        pinning_fencing_margin,
     } = params;
 
     info!(
@@ -111,10 +121,8 @@ where
     let (evict_tx, evict_rx) = tokio::sync::mpsc::unbounded_channel();
 
     // Poll → Maintain: dispatch newly-pinned IDs with a oneshot to get back the count.
-    let (batch_tx, batch_rx) = tokio::sync::mpsc::channel::<(
-        NEVec<Backend::WorkloadId>,
-        tokio::sync::oneshot::Sender<usize>,
-    )>(1);
+    let (batch_tx, batch_rx) =
+        tokio::sync::mpsc::channel::<pinned_batch::PinnedBatch<Backend::WorkloadId>>(1);
     // Maintain → Poll: push updated count after evictions.
     let (count_tx, count_rx) = tokio::sync::mpsc::unbounded_channel::<usize>();
 
@@ -145,6 +153,7 @@ where
         shutdown_token: force_shutdown_token,
         pinning_heartbeat,
         pinning_ttl,
+        pinning_fencing_margin,
     });
 
     // When the maintenance loop exits — for any reason — cancel the
