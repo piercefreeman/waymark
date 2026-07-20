@@ -7,6 +7,7 @@ mod outcome;
 mod pinned_batch;
 mod pinned_handle;
 mod poll;
+mod unpin;
 
 #[cfg(test)]
 mod test_utils {
@@ -22,7 +23,7 @@ pub use self::poll::*;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use nonempty_collections::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
+use nonempty_collections::NEVec;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use waymark_nonzero_duration::NonZeroDuration;
@@ -71,6 +72,13 @@ where
     /// How often to refresh pinnings on active workloads.
     pub pinning_heartbeat: NonZeroDuration,
 
+    /// How long to wait before retrying a failed unpin.
+    ///
+    /// Together with the loop's failure tolerance this is the budget for
+    /// riding out a database blip before the pinnings of evicted
+    /// workloads are abandoned and left to lapse.
+    pub unpin_retry_interval: NonZeroDuration,
+
     /// How much earlier than the pinning ttl the local lapse deadline
     /// falls: a pinning not re-confirmed within `pinning_ttl -
     /// pinning_fencing_margin` of its (monotonic, pre-send) anchor
@@ -82,9 +90,9 @@ where
 
 /// Run the workload management loop.
 ///
-/// Returns a [`RunOutcomeFor`] that preserves the independent results of
-/// the poll loop, maintenance loop, and cleanup phase so callers can
-/// inspect every stage of the run lifecycle.
+/// Runs the poll, maintenance and unpin loops concurrently. Returns a
+/// [`RunOutcomeFor`] that preserves each loop's result independently so
+/// callers can inspect every stage of the run lifecycle.
 pub async fn run<Backend>(params: Params<Backend>) -> RunOutcomeFor<Backend>
 where
     Backend:
@@ -108,6 +116,7 @@ where
         max_pinned,
         pinning_ttl,
         pinning_heartbeat,
+        unpin_retry_interval,
         pinning_fencing_margin,
     } = params;
 
@@ -125,6 +134,9 @@ where
         tokio::sync::mpsc::channel::<pinned_batch::PinnedBatch<Backend::WorkloadId>>(1);
     // Maintain → Poll: push updated count after evictions.
     let (count_tx, count_rx) = tokio::sync::mpsc::unbounded_channel::<usize>();
+    // Maintain → Unpin: the durable unpin of an evicted workload.
+    let (unpin_tx, unpin_rx) = tokio::sync::mpsc::unbounded_channel();
+    let unpin_tx = unpin::wrap_tx(unpin_tx);
 
     // Give the poll loop a child token so it can be cancelled internally
     // without affecting the caller's shutdown_token. The child is also
@@ -149,6 +161,7 @@ where
         node_id: node_id.clone(),
         batch_rx,
         evict_rx,
+        unpin_tx: unpin_tx.clone(),
         count_tx,
         shutdown_token: force_shutdown_token,
         pinning_heartbeat,
@@ -156,43 +169,54 @@ where
         pinning_fencing_margin,
     });
 
+    // The unpin loop outlives the maintenance loop by design: it closes
+    // only once every sender is gone, so it still drains the evictions —
+    // and the cleanup below — that maintenance forwards on its way out.
+    let unpin_future = unpin::run_unpin_loop(unpin::UnpinParams {
+        backend: Arc::clone(&backend),
+        node_id: node_id.clone(),
+        unpin_rx,
+        retry_interval: unpin_retry_interval,
+    });
+
     // When the maintenance loop exits — for any reason — cancel the
     // poll loop's child token so it exits promptly. There is no point
     // accepting new work without maintenance.
     // (Poll exits never cancel maintenance; maintenance must always drain.)
+    //
+    // Whatever pinnings it still held are routed into the unpin loop, so
+    // cleanup goes through the same retrying machinery as every other
+    // unpin.  They are always released: no park decision was made for
+    // them, so they must remain runnable.
     let maintenance_future = async move {
         let _cancel_poll = poll_shutdown.drop_guard();
-        maintenance_future.await
+        let unpin_tx = unpin_tx;
+        let result = match maintenance_future.await {
+            Ok(()) => Ok(()),
+            Err((error, ids)) => {
+                if !ids.is_empty() {
+                    debug!("releasing pinnings on shutdown");
+                    for id in ids {
+                        unpin_tx.request(id, waymark_workload_pinning_core::UnpinMode::Release);
+                    }
+                }
+                Err(error)
+            }
+        };
+
+        // Closing the input is what lets the unpin loop drain and exit,
+        // so it is done explicitly rather than left to the drop order.
+        drop(unpin_tx);
+        result
     };
 
-    let (poll_result, maintenance_result) = tokio::join!(poll_future, maintenance_future);
-
-    // The maintenance loop returns active IDs alongside any error so
-    // they can be released during cleanup.  On a clean exit the set
-    // is always empty and there is nothing to release.
-    let (maintenance_error, active_ids) = match maintenance_result {
-        Ok(()) => (None, None),
-        Err((error, ids)) => (Some(error), Some(ids)),
-    };
-
-    let mut cleanup_error = None;
-    if let Some(ids) = active_ids
-        && let Some(ids) = ids.try_into_nonempty_iter()
-    {
-        debug!("releasing pinnings on shutdown");
-        // Cleanup always releases: no park decision was made for these
-        // workloads, so they must remain runnable.
-        let unpins = ids.map(|id| (id, waymark_workload_pinning_core::UnpinMode::Release));
-        if let Err(error) = backend.unpin_workloads(node_id, unpins).await {
-            warn!(?error, "failed to unpin workloads during cleanup");
-            cleanup_error = Some(error);
-        }
-    }
+    let (poll_result, maintenance_result, unpin_result) =
+        tokio::join!(poll_future, maintenance_future, unpin_future);
 
     RunOutcome {
         poll_error: poll_result.err(),
-        maintenance_error,
-        cleanup_error,
+        maintenance_error: maintenance_result.err(),
+        unpin_error: unpin_result.err(),
     }
 }
 
