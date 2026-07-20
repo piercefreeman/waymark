@@ -10,8 +10,8 @@ use waymark_workload_pinning_backend::PinningStatus;
 use waymark_workload_pinning_core::UnpinMode;
 
 use crate::test_utils::helpers::{
-    long_heartbeat, short_heartbeat, test_max_concurrent, test_node_id, test_pinning,
-    test_pinning_ttl,
+    long_heartbeat, short_heartbeat, test_fencing_margin, test_max_concurrent, test_node_id,
+    test_pinning, test_pinning_ttl,
 };
 use crate::test_utils::mock::{MockBackend, MockError};
 use crate::{Params, PinnedHandle, run};
@@ -39,6 +39,7 @@ async fn run_exits_on_cancellation() {
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
         pinning_heartbeat: short_heartbeat(),
+        pinning_fencing_margin: test_fencing_margin(),
     });
 
     tokio::pin!(run_future);
@@ -93,6 +94,7 @@ async fn run_propagates_poll_error() {
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
         pinning_heartbeat: short_heartbeat(),
+        pinning_fencing_margin: test_fencing_margin(),
     });
 
     let outcome = tokio::time::timeout(Duration::from_secs(5), run_future)
@@ -171,6 +173,7 @@ async fn maintenance_drains_after_poll_error() {
             max_pinned: test_max_concurrent(),
             pinning_ttl: test_pinning_ttl(),
             pinning_heartbeat: short_heartbeat(),
+            pinning_fencing_margin: test_fencing_margin(),
         }),
     )
     .await
@@ -289,6 +292,7 @@ async fn maintenance_heartbeats_after_poll_is_dead() {
             max_pinned: test_max_concurrent(),
             pinning_ttl: test_pinning_ttl(),
             pinning_heartbeat: NonZeroDuration::new(heartbeat).unwrap(),
+            pinning_fencing_margin: test_fencing_margin(),
         }),
     )
     .await
@@ -353,6 +357,7 @@ async fn cleanup_unpins_remaining_workloads_on_force_shutdown() {
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
         pinning_heartbeat: long_heartbeat(),
+        pinning_fencing_margin: test_fencing_margin(),
     });
     tokio::pin!(run_future);
 
@@ -435,6 +440,7 @@ async fn cleanup_reports_unpin_error() {
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
         pinning_heartbeat: long_heartbeat(),
+        pinning_fencing_margin: test_fencing_margin(),
     });
     tokio::pin!(run_future);
 
@@ -523,6 +529,7 @@ async fn unpin_park_flows_end_to_end() {
             max_pinned: test_max_concurrent(),
             pinning_ttl: test_pinning_ttl(),
             pinning_heartbeat: short_heartbeat(),
+            pinning_fencing_margin: test_fencing_margin(),
         }),
     )
     .await

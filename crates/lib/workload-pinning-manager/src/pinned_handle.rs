@@ -2,6 +2,7 @@
 //!
 //! See [`PinnedHandle`].
 
+use tokio_util::sync::CancellationToken;
 use waymark_workload_pinning_core::UnpinMode;
 
 /// A handle to a pinned workload.
@@ -18,6 +19,7 @@ use waymark_workload_pinning_core::UnpinMode;
 pub struct PinnedHandle<WorkloadId> {
     id: Option<WorkloadId>,
     evict_tx: tokio::sync::mpsc::UnboundedSender<(WorkloadId, UnpinMode)>,
+    fence: CancellationToken,
 }
 
 impl<WorkloadId> PinnedHandle<WorkloadId> {
@@ -25,10 +27,12 @@ impl<WorkloadId> PinnedHandle<WorkloadId> {
     pub(crate) fn new(
         id: WorkloadId,
         evict_tx: tokio::sync::mpsc::UnboundedSender<(WorkloadId, UnpinMode)>,
+        fence: CancellationToken,
     ) -> Self {
         Self {
             id: Some(id),
             evict_tx,
+            fence,
         }
     }
 
@@ -38,6 +42,21 @@ impl<WorkloadId> PinnedHandle<WorkloadId> {
         // neither uses the handle after taking it — so any other caller
         // observes the `id` present.
         unsafe { self.id.as_ref().unwrap_unchecked() }
+    }
+
+    /// Resolve when the workload is fenced.
+    ///
+    /// Fencing means this node can no longer prove it holds the
+    /// pinning: the pinning **lapsed** (its local deadline passed
+    /// without a confirmed refresh) or was **lost** (a refresh reported
+    /// it held by another node).  The workload may already be executing
+    /// elsewhere.  What to do about that is the consumer's concern; this
+    /// signal only reports the fact.
+    ///
+    /// Cancellation-safe: fencing is a latched state, so the future can
+    /// be dropped and re-created freely.
+    pub async fn fenced(&self) {
+        self.fence.cancelled().await;
     }
 
     /// Unpin the workload with the given mode.

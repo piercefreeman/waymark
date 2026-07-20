@@ -14,6 +14,7 @@ use tracing::info;
 use waymark_nonzero_duration::NonZeroDuration;
 
 use crate::PinnedHandle;
+use crate::pinned_batch::PinnedBatch;
 
 pub(super) struct PollParams<Backend>
 where
@@ -27,10 +28,7 @@ where
         Backend::WorkloadId,
         waymark_workload_pinning_core::UnpinMode,
     )>,
-    pub batch_tx: tokio::sync::mpsc::Sender<(
-        NEVec<Backend::WorkloadId>,
-        tokio::sync::oneshot::Sender<usize>,
-    )>,
+    pub batch_tx: tokio::sync::mpsc::Sender<PinnedBatch<Backend::WorkloadId>>,
     pub count_rx: tokio::sync::mpsc::UnboundedReceiver<usize>,
     pub shutdown_token: CancellationToken,
     pub max_pinned: NonZeroUsize,
@@ -144,10 +142,7 @@ async fn poll_and_dispatch<Backend>(
     node_id: Backend::NodeId,
     max_items: NonZeroUsize,
     pinning_ttl: NonZeroDuration,
-    batch_tx: &tokio::sync::mpsc::Sender<(
-        NEVec<Backend::WorkloadId>,
-        tokio::sync::oneshot::Sender<usize>,
-    )>,
+    batch_tx: &tokio::sync::mpsc::Sender<PinnedBatch<Backend::WorkloadId>>,
     pinned_tx: &tokio::sync::mpsc::Sender<NEVec<PinnedHandle<Backend::WorkloadId>>>,
     evict_tx: &tokio::sync::mpsc::UnboundedSender<(
         Backend::WorkloadId,
@@ -161,6 +156,11 @@ where
     Backend: waymark_workload_pinning_backend::HasTimestamp,
     Backend::WorkloadId: Clone,
 {
+    // The local anchor of these pinnings, captured before the pinning
+    // call is sent: the store-side expiry cannot land earlier than
+    // `pinned_at + ttl`, so the fence deadline derived from it in the
+    // maintenance loop is conservative.
+    let pinned_at = tokio::time::Instant::now();
     let ids = poll_and_pin(backend, node_id, max_items, pinning_ttl)
         .await
         .map_err(PollLoopError::Poll)?;
@@ -170,9 +170,18 @@ where
         return Ok(None);
     };
 
+    let pinned: NEVec<(Backend::WorkloadId, CancellationToken)> = ids
+        .into_nonempty_iter()
+        .map(|id| (id, CancellationToken::new()))
+        .collect();
+
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
     batch_tx
-        .send((ids.clone(), reply_tx))
+        .send(PinnedBatch {
+            pinned_at,
+            pinned: pinned.clone(),
+            reply: reply_tx,
+        })
         .await
         .map_err(|_| PollLoopError::MaintenanceClosed)?;
 
@@ -180,9 +189,9 @@ where
         .await
         .map_err(|_| PollLoopError::MaintenanceUnresponsive)?;
 
-    let handles: NEVec<_> = ids
+    let handles: NEVec<_> = pinned
         .into_nonempty_iter()
-        .map(|id| PinnedHandle::new(id, evict_tx.clone()))
+        .map(|(id, fence)| PinnedHandle::new(id, evict_tx.clone(), fence))
         .collect();
     pinned_tx
         .send(handles)
