@@ -1387,3 +1387,84 @@ async fn refresh_recovers_on_retry_and_extends_the_fence() {
         .expect("loop should drain after the eviction");
     assert!(result.is_ok(), "expected a clean drain, got {result:?}");
 }
+
+/// A fatal exit hands the still-held ids to the caller for cleanup
+/// release — so every holder must be fenced on the way out, or its
+/// driver would keep running against a pinning the caller just released.
+#[tokio::test(flavor = "multi_thread")]
+async fn force_shutdown_fences_the_tracked_workloads() {
+    let id = 1u64;
+    let node_id = test_node_id();
+
+    let mut backend = MockBackend::new();
+    backend
+        .expect_refresh_pinnings()
+        .times(0..)
+        .returning(move |_, _, _| {
+            let pinning = test_pinning(node_id, 1);
+            Box::pin(std::future::ready(Ok(nev![PinningStatus {
+                workload_id: id,
+                pinning: Some(pinning),
+            }])))
+        });
+
+    let backend = Arc::new(backend);
+
+    let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
+    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+
+    let fence = CancellationToken::new();
+    let (reply_tx, reply_rx) = oneshot::channel::<usize>();
+    batch_tx
+        .send(PinnedBatch {
+            pinned_at: tokio::time::Instant::now(),
+            pinned: nev![(id, fence.clone())],
+            reply: reply_tx,
+        })
+        .await
+        .expect("batch send");
+    drop(batch_tx);
+
+    let shutdown = CancellationToken::new();
+    let loop_future = run_maintenance_loop(MaintainParams {
+        backend: Arc::clone(&backend),
+        node_id,
+        batch_rx,
+        evict_rx,
+        count_tx,
+        shutdown_token: shutdown.clone(),
+        pinning_heartbeat: long_heartbeat(),
+        pinning_ttl: test_pinning_ttl(),
+        pinning_fencing_margin: test_fencing_margin(),
+    });
+    tokio::pin!(loop_future);
+
+    tokio::select! {
+        size = reply_rx => assert_eq!(size.expect("batch ack"), 1),
+        result = &mut loop_future => panic!("loop exited before processing batch: {result:?}"),
+        _ = tokio::time::sleep(Duration::from_secs(5)) => panic!("batch was never processed"),
+    }
+
+    assert!(!fence.is_cancelled(), "not fenced while healthy");
+
+    shutdown.cancel();
+
+    let result = tokio::time::timeout(Duration::from_secs(5), &mut loop_future)
+        .await
+        .expect("loop should exit on force shutdown");
+
+    match result {
+        Err((crate::MaintenanceError::ForceShutdown, ids)) => {
+            assert!(ids.contains(&id), "the id must be handed back for cleanup");
+        }
+        other => panic!("expected ForceShutdown error, got {other:?}"),
+    }
+
+    assert!(
+        fence.is_cancelled(),
+        "the holder must be fenced before cleanup releases its pinning"
+    );
+
+    drop(evict_tx);
+}
