@@ -26,6 +26,7 @@ pub struct WorkerConfig {
     pub persistence_interval: Option<NonZeroDuration>,
     pub lock_ttl: NonZeroDuration,
     pub lock_heartbeat: NonZeroDuration,
+    pub pinning_fencing_margin: NonZeroDuration,
     pub action_effect_reconciler_lock_ttl: NonZeroDuration,
     pub action_effect_reconciler_lock_heartbeat: NonZeroDuration,
     pub evict_sleep_threshold: NonZeroDuration,
@@ -75,6 +76,9 @@ impl WorkerConfig {
         let FromMillis(lock_ttl) = envfury::or_parse("WAYMARK_LOCK_TTL_MS", "15000")?;
 
         let FromMillis(lock_heartbeat) = envfury::or_parse("WAYMARK_LOCK_HEARTBEAT_MS", "5000")?;
+
+        let FromMillis(pinning_fencing_margin) =
+            envfury::or_parse("WAYMARK_PINNING_FENCING_MARGIN_MS", "1000")?;
 
         let FromMillis(action_effect_reconciler_lock_ttl) =
             envfury::or_parse("WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_TTL_MS", "15000")?;
@@ -155,6 +159,7 @@ impl WorkerConfig {
             persistence_interval,
             lock_ttl,
             lock_heartbeat,
+            pinning_fencing_margin,
             action_effect_reconciler_lock_ttl,
             action_effect_reconciler_lock_heartbeat,
             evict_sleep_threshold,
