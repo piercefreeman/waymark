@@ -487,6 +487,9 @@ where
         max_pinned,
         pinning_ttl,
         pinning_heartbeat,
+        // TODO(fencing commit 3): surface through `Config` and the env.
+        pinning_fencing_margin: NonZeroDuration::new(std::time::Duration::from_secs(1))
+            .expect("one second is non-zero"),
     };
 
     let pinning_manager = tokio::spawn(async move {

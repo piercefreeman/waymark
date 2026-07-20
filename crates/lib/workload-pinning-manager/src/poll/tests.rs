@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mockall::predicate;
-use nonempty_collections::{NEVec, nev};
+use nonempty_collections::nev;
 use tokio_util::sync::CancellationToken;
 
 use super::{PollParams, poll_and_pin, run_poll_loop};
@@ -140,7 +140,7 @@ async fn poll_loop_exits_on_pinned_receiver_closed() {
     let (pinned_tx, pinned_rx) = tokio::sync::mpsc::channel(1);
     let (evict_tx, _evict_rx) = tokio::sync::mpsc::unbounded_channel();
     let (batch_tx, mut batch_rx) =
-        tokio::sync::mpsc::channel::<(NEVec<u64>, tokio::sync::oneshot::Sender<usize>)>(1);
+        tokio::sync::mpsc::channel::<crate::pinned_batch::PinnedBatch<u64>>(1);
     let (count_tx, count_rx) = tokio::sync::mpsc::unbounded_channel();
 
     // Drop the pinned-handle receiver before the loop dispatches.
@@ -149,7 +149,7 @@ async fn poll_loop_exits_on_pinned_receiver_closed() {
     // Spawn a helper to consume the batch and reply — without this the
     // poll loop hangs waiting for the batch ack.
     let batch_acker = tokio::spawn(async move {
-        while let Some((_ids, reply)) = batch_rx.recv().await {
+        while let Some(crate::pinned_batch::PinnedBatch { reply, .. }) = batch_rx.recv().await {
             let _ = reply.send(0);
         }
     });
