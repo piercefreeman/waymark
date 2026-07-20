@@ -40,6 +40,11 @@ pub struct Config<NodeId> {
     /// How often to refresh pinnings on active workloads.
     pub pinning_heartbeat: NonZeroDuration,
 
+    /// How much earlier than the pinning ttl a pinning is fenced when it
+    /// cannot be re-confirmed — the margin budgets the eviction latency
+    /// between the fence signal and the workload actually stopping.
+    pub pinning_fencing_margin: NonZeroDuration,
+
     /// How long the durable-sleeps demand poller waits between polls
     /// while demand is registered.
     pub sleep_poll_interval: NonZeroDuration,
@@ -190,6 +195,7 @@ where
         max_pinned,
         pinning_ttl,
         pinning_heartbeat,
+        pinning_fencing_margin,
         sleep_poll_interval,
         vm_retention,
         vm_sweep_interval,
@@ -487,9 +493,7 @@ where
         max_pinned,
         pinning_ttl,
         pinning_heartbeat,
-        // TODO(fencing commit 3): surface through `Config` and the env.
-        pinning_fencing_margin: NonZeroDuration::new(std::time::Duration::from_secs(1))
-            .expect("one second is non-zero"),
+        pinning_fencing_margin,
     };
 
     let pinning_manager = tokio::spawn(async move {
