@@ -25,6 +25,10 @@ pub(crate) fn short_heartbeat() -> NonZeroDuration {
     NonZeroDuration::new(Duration::from_millis(100)).unwrap()
 }
 
+pub(crate) fn test_unpin_retry_interval() -> NonZeroDuration {
+    NonZeroDuration::new(Duration::from_millis(50)).unwrap()
+}
+
 pub(crate) fn test_fencing_margin() -> NonZeroDuration {
     NonZeroDuration::new(Duration::from_millis(1)).unwrap()
 }
