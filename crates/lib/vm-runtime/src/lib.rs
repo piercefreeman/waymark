@@ -11,8 +11,7 @@ pub mod step;
 use std::collections::VecDeque;
 
 use waymark_vm_runtime_core::{
-    ExceptionHandlers, Frame, FrameKind, PromiseStates, Registers, RejectPromiseError,
-    ResolvePromiseError, RuntimeState,
+    ExceptionHandlers, Frame, FrameKind, PromiseStates, Registers, RuntimeState, SettlePromiseError,
 };
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
@@ -215,7 +214,7 @@ where
         &mut self,
         promise_state_id: PromiseStateId,
         value: Value::ReadyValue,
-    ) -> Result<(), ResolvePromiseError<Value::ReadyValue>> {
+    ) -> Result<(), SettlePromiseError<Value::ReadyValue>> {
         self.state
             .resolve_promise(promise_state_id, Value::from_ready(value))
             .map_err(|error| {
@@ -238,7 +237,8 @@ where
         &mut self,
         promise_state_id: PromiseStateId,
         exception: waymark_vm_runtime_exception::Exception<Value::ReadyValue>,
-    ) -> Result<(), RejectPromiseError<Value::ReadyValue>> {
+    ) -> Result<(), SettlePromiseError<waymark_vm_runtime_exception::Exception<Value::ReadyValue>>>
+    {
         let exception = waymark_vm_runtime_exception::Exception {
             type_id: exception.type_id,
             details: Value::from_ready(exception.details),
