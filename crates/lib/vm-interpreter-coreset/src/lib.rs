@@ -9,6 +9,7 @@ use derive_where::derive_where;
 use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_runtime_core::{
     Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, Registers, RuntimeState,
+    SettledPromiseState,
 };
 
 pub use self::error::*;
@@ -218,7 +219,7 @@ where
                             .map_err(AwaitError::SourcePromiseStateNotFound)
                             .map_err(Error::Await)?;
                         return Ok(match promise_state {
-                            PromiseState::Resolved(value) => {
+                            PromiseState::Settled(SettledPromiseState::Resolved(value)) => {
                                 Continuation::immediate_resume(
                                     &mut frame,
                                     *resume,
@@ -228,7 +229,7 @@ where
                                 state.ready.push_back(frame);
                                 ExecutionOutcome::ExitFrame
                             }
-                            PromiseState::Rejected(exception) => {
+                            PromiseState::Settled(SettledPromiseState::Rejected(exception)) => {
                                 Continuation::<_, _, _, ()>::immediate_raise_exception(
                                     &mut frame,
                                     *resume,

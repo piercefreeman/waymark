@@ -103,7 +103,7 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
     /// Idempotently resolve a promise at a given `promise_state_id` with
     /// the provided `value`.
     ///
-    /// Returns a list of continuations to resume, or an error is this promise
+    /// Returns a list of continuations to resume, or an error if this promise
     /// has already been resolved.
     #[allow(clippy::type_complexity)]
     pub fn resolve(
@@ -166,6 +166,7 @@ mod tests {
     use super::{PromiseStateId, PromiseStateNotFoundError, PromiseStates, ResolvePromiseError};
     use crate::{
         Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, RegisterId, Registers,
+        SettledPromiseState,
     };
 
     fn continuation(
@@ -221,7 +222,7 @@ mod tests {
         assert_eq!(continuations.len(), 1);
         assert!(matches!(
             states.get(promise_state_id).expect("promise state exists"),
-            PromiseState::Resolved(value) if *value == 23
+            PromiseState::Settled(SettledPromiseState::Resolved(value)) if *value == 23
         ));
     }
 
@@ -257,7 +258,7 @@ mod tests {
         assert!(continuations.is_empty());
         assert!(matches!(
             states.get(promise_state_id).expect("promise state exists"),
-            PromiseState::Rejected(Exception { type_id, details })
+            PromiseState::Settled(SettledPromiseState::Rejected(Exception { type_id, details }))
                 if type_id == "ValueError" && *details == 23
         ));
     }

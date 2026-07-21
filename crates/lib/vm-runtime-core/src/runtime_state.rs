@@ -93,7 +93,7 @@ mod tests {
     use super::RuntimeState;
     use crate::{
         Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, PromiseStates, RegisterId,
-        Registers, ResolvePromiseError,
+        Registers, ResolvePromiseError, SettledPromiseState,
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,12 +152,14 @@ mod tests {
 
         assert_eq!(runtime.ready.len(), 2);
 
-        let PromiseState::Resolved(PromiseValue::Ready(TestReadyValue::Int(value))) = runtime
+        let PromiseState::Settled(SettledPromiseState::Resolved(PromiseValue::Ready(
+            TestReadyValue::Int(value),
+        ))) = runtime
             .promise_states
             .get(promise_state_id)
             .expect("promise state exists")
         else {
-            panic!("promise state should be ready with a resolved value");
+            panic!("promise state should be settled with a resolved value");
         };
         assert_eq!(*value, 41);
 
@@ -185,7 +187,9 @@ mod tests {
         let promise_state = promise_states
             .get_mut(promise_state_id)
             .expect("promise state exists");
-        *promise_state = PromiseState::Resolved(PromiseValue::Ready(TestReadyValue::Int(7)));
+        *promise_state = PromiseState::Settled(SettledPromiseState::Resolved(PromiseValue::Ready(
+            TestReadyValue::Int(7),
+        )));
 
         let mut runtime = RuntimeState {
             ready: VecDeque::new(),
@@ -210,7 +214,9 @@ mod tests {
         assert_eq!(value, 9);
         assert!(runtime.ready.is_empty());
 
-        let PromiseState::Resolved(PromiseValue::Ready(TestReadyValue::Int(value))) = runtime
+        let PromiseState::Settled(SettledPromiseState::Resolved(PromiseValue::Ready(
+            TestReadyValue::Int(value),
+        ))) = runtime
             .promise_states
             .get(promise_state_id)
             .expect("promise state exists")
@@ -244,12 +250,12 @@ mod tests {
             .reject_promise(promise_state_id, exception.clone())
             .expect("waiting promise should resolve exceptionally");
 
-        let PromiseState::Rejected(stored_exception) = runtime
+        let PromiseState::Settled(SettledPromiseState::Rejected(stored_exception)) = runtime
             .promise_states
             .get(promise_state_id)
             .expect("promise state exists")
         else {
-            panic!("promise state should be ready with an exception");
+            panic!("promise state should be settled with an exception");
         };
         assert_eq!(stored_exception.type_id, exception.type_id);
         assert_eq!(stored_exception.details, exception.details);
