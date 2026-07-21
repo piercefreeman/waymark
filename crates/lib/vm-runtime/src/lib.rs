@@ -232,6 +232,8 @@ where
     }
 
     /// Reject an async computation for a given promise.
+    ///
+    /// Notifies all continuations that wait on it.
     pub fn reject_promise(
         &mut self,
         promise_state_id: PromiseStateId,
