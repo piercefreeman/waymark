@@ -257,6 +257,75 @@ where
                     }
                 }
             }
+            waymark_vm_instructions_coreset::CoreSet::Race { dst, srcs } => {
+                // The instruction set stays plain-`Vec`; lift the sources
+                // into a non-empty view here - a race with no sources
+                // would never settle.
+                let Some(srcs) = nonempty_collections::NESlice::try_from_slice(srcs) else {
+                    return Err(Error::Race(RaceError::EmptySources));
+                };
+
+                // Scan the sources in the listed order for one that has
+                // already settled, collecting the pending promise ids
+                // along the way.
+                let mut winner = None;
+                let mut pending = Vec::with_capacity(srcs.len().get());
+                for (arm_index, src) in srcs.iter().enumerate() {
+                    match frame.regs[*src].as_ready() {
+                        Ok(_) => {
+                            winner = Some(arm_index);
+                            break;
+                        }
+                        Err(waymark_vm_runtime_promise_core::UnresolvedPromiseError {
+                            promise_state_id,
+                        }) => {
+                            let promise_state = state
+                                .promise_states
+                                .get(promise_state_id)
+                                .map_err(RaceError::SourcePromiseStateNotFound)
+                                .map_err(Error::Race)?;
+                            match promise_state {
+                                PromiseState::Settled(_) => {
+                                    winner = Some(arm_index);
+                                    break;
+                                }
+                                PromiseState::Waiting(_) => pending.push(promise_state_id),
+                            }
+                        }
+                    }
+                }
+
+                if let Some(arm_index) = winner {
+                    // A settled source wins outright - no race promise
+                    // is allocated.
+                    let resolution = Value::from_race_arm_index(arm_index)
+                        .map_err(RaceError::ArmIndexNotRepresentable)
+                        .map_err(Error::Race)?;
+                    frame.regs.set(*dst, resolution);
+                } else {
+                    let race = state.promise_states.prepare();
+                    for (arm_index, promise_state_id) in pending.into_iter().enumerate() {
+                        let resolution = Value::from_race_arm_index(arm_index)
+                            .map_err(RaceError::ArmIndexNotRepresentable)
+                            .map_err(Error::Race)?;
+
+                        // The scan above just observed these promise states
+                        // as waiting, and nothing runs in between: the store
+                        // is append-only and no settlement can occur
+                        // mid-instruction.
+                        let Ok(promise_state) = state.promise_states.get_mut(promise_state_id)
+                        else {
+                            unreachable!();
+                        };
+                        let PromiseState::Waiting(waiters) = promise_state else {
+                            unreachable!();
+                        };
+
+                        waiters.push(waymark_vm_runtime_core::Waiter::RaceArm { race, resolution });
+                    }
+                    frame.regs.set(*dst, Value::from_pending(race));
+                }
+            }
             waymark_vm_instructions_coreset::CoreSet::PushExceptionHandlers { handlers } => {
                 frame.exception_handler_blocks.push(handlers.clone());
             }

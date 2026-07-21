@@ -27,3 +27,14 @@ where
         }
     }
 }
+
+impl<T> waymark_vm_interpreter_coreset::value::FromRaceArmIndex for PromiseValue<T>
+where
+    T: waymark_vm_interpreter_coreset::value::FromRaceArmIndex,
+{
+    fn from_race_arm_index(
+        arm_index: usize,
+    ) -> Result<Self, waymark_vm_interpreter_coreset::value::FromRaceArmIndexError> {
+        Ok(Self::Ready(T::from_race_arm_index(arm_index)?))
+    }
+}

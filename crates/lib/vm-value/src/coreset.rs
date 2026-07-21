@@ -15,3 +15,13 @@ impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for ReadyValue {
         self.clone()
     }
 }
+
+impl waymark_vm_interpreter_coreset::value::FromRaceArmIndex for ReadyValue {
+    fn from_race_arm_index(
+        arm_index: usize,
+    ) -> Result<Self, waymark_vm_interpreter_coreset::value::FromRaceArmIndexError> {
+        let arm_index = i64::try_from(arm_index)
+            .map_err(|_| waymark_vm_interpreter_coreset::value::FromRaceArmIndexError)?;
+        Ok(Self::Int(arm_index))
+    }
+}

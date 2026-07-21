@@ -114,6 +114,16 @@ impl waymark_vm_interpreter_coreset::value::ShouldJump for TestReadyValue {
     }
 }
 
+impl waymark_vm_interpreter_coreset::value::FromRaceArmIndex for TestReadyValue {
+    fn from_race_arm_index(
+        arm_index: usize,
+    ) -> Result<Self, waymark_vm_interpreter_coreset::value::FromRaceArmIndexError> {
+        let arm_index = i64::try_from(arm_index)
+            .map_err(|_| waymark_vm_interpreter_coreset::value::FromRaceArmIndexError)?;
+        Ok(Self::Int(arm_index))
+    }
+}
+
 impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestReadyValue {
     fn capture_copy(&self) -> Self {
         self.clone()
@@ -393,6 +403,14 @@ impl waymark_vm_interpreter_coreset::value::ShouldJump for TestValue {
             .require_ready_ref()
             .map_err(|_| waymark_vm_interpreter_coreset::value::NotAConditionalError)?;
         value.should_jump()
+    }
+}
+
+impl waymark_vm_interpreter_coreset::value::FromRaceArmIndex for TestValue {
+    fn from_race_arm_index(
+        arm_index: usize,
+    ) -> Result<Self, waymark_vm_interpreter_coreset::value::FromRaceArmIndexError> {
+        Ok(Self::Ready(TestReadyValue::from_race_arm_index(arm_index)?))
     }
 }
 

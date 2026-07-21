@@ -8,6 +8,10 @@ pub enum Error<Spec: waymark_vm_instructions_coreset::Spec> {
     #[error("await: {0}")]
     Await(#[source] AwaitError),
 
+    /// Racing promises failed.
+    #[error("race: {0}")]
+    Race(#[source] RaceError),
+
     /// Returning from a function failed.
     #[error("return: {0}")]
     Return(#[source] FnExitError),
@@ -50,6 +54,25 @@ pub enum AwaitError {
     /// The pending promise no longer existed in the runtime state.
     #[error("source promise state: {0}")]
     SourcePromiseStateNotFound(#[source] PromiseStateNotFoundError),
+}
+
+/// Errors produced while evaluating a `Race` instruction.
+#[derive(Debug, thiserror::Error)]
+pub enum RaceError {
+    /// The instruction listed no sources to race.
+    ///
+    /// This is a mistake in the bytecode - a race with no sources would
+    /// never settle and the racing frame would suspend forever.
+    #[error("race has no sources")]
+    EmptySources,
+
+    /// A pending source promise no longer existed in the runtime state.
+    #[error("source promise state: {0}")]
+    SourcePromiseStateNotFound(#[source] PromiseStateNotFoundError),
+
+    /// The winning arm index could not be represented as a value.
+    #[error("arm index: {0}")]
+    ArmIndexNotRepresentable(#[source] crate::value::FromRaceArmIndexError),
 }
 
 /// Errors produced while evaluating a `JumpIf` instruction.

@@ -5913,6 +5913,7 @@ name = "waymark-vm-interpreter-coreset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
+ "nonempty-collections",
  "thiserror",
  "waymark-vm-bytecode",
  "waymark-vm-exception-handler",

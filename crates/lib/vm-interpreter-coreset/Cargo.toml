@@ -14,6 +14,7 @@ waymark-vm-runtime-promise-core = { workspace = true }
 waymark-vm-runtime-value = { workspace = true }
 
 derive-where = { workspace = true }
+nonempty-collections = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

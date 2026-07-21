@@ -6,6 +6,7 @@
 mod support;
 
 mod extcall;
+mod race;
 mod sleep;
 mod state_entry;
 mod synchronous;

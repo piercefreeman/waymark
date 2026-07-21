@@ -68,6 +68,29 @@ pub enum CoreSet<Spec: self::Spec> {
         resume: Spec::StateId,
     },
 
+    /// Create a race promise that resolves with the index of the first
+    /// source to settle.
+    ///
+    /// The sources are scanned in the listed order: a source that holds
+    /// a ready value or an already-settled promise wins outright and no
+    /// race promise is allocated. Otherwise a race promise is created and
+    /// every source gets a race arm that resolves it upon settlement -
+    /// the first arm to fire wins, and a settlement of either kind fires
+    /// the arm the same way.
+    ///
+    /// This instruction does not suspend the execution: awaiting the race
+    /// promise - and then the winning source - is up to the subsequent
+    /// instructions.
+    Race {
+        /// The register in the current frame to store the race promise at.
+        dst: Spec::RegisterId,
+
+        /// The registers holding the sources to race.
+        ///
+        /// Must not be empty.
+        srcs: Vec<Spec::RegisterId>,
+    },
+
     /// Push one exception-handler block as the new innermost active scope.
     PushExceptionHandlers {
         /// Handlers to activate for subsequent execution in this frame.

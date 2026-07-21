@@ -82,6 +82,16 @@ impl waymark_vm_interpreter_coreset::value::ShouldJump for TestValue {
     }
 }
 
+impl waymark_vm_interpreter_coreset::value::FromRaceArmIndex for TestValue {
+    fn from_race_arm_index(
+        arm_index: usize,
+    ) -> Result<Self, waymark_vm_interpreter_coreset::value::FromRaceArmIndexError> {
+        let arm_index = i64::try_from(arm_index)
+            .map_err(|_| waymark_vm_interpreter_coreset::value::FromRaceArmIndexError)?;
+        Ok(Self::Ready(TestReadyValue::Int(arm_index)))
+    }
+}
+
 impl Suspendable for TestValue {
     fn from_pending(promise_state_id: PromiseStateId) -> Self {
         Self::Pending(promise_state_id)
