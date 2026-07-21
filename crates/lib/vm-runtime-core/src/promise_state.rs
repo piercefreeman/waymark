@@ -11,19 +11,19 @@ pub enum SettledPromiseState<Value> {
     Rejected(waymark_vm_runtime_exception::Exception<Value>),
 }
 
-/// An errors that occurs when an attempt to resolve an already resolved
+/// An error that occurs when an attempt to settle an already settled
 /// promise is made.
 ///
-/// Resolving a promise is idempotent, so you could ignore this error if there
-/// is no strong need for the promise to be resolved with *this* particular
+/// Settling a promise is idempotent, so you could ignore this error if there
+/// is no strong need for the promise to be settled with *this* particular
 /// operation. The consequence of this error is that the value that was
-/// provided for resolving the promise has not been able to be stored in
+/// provided for settling the promise has not been able to be stored in
 /// the promise.
 #[derive(Debug, thiserror::Error)]
-#[error("resolving an already resolved promise")]
-pub struct ResolvingAlreadyResolvedPromiseError<Value> {
+#[error("settling an already settled promise")]
+pub struct SettlingAlreadySettledPromiseError<Value> {
     /// The new value that has not been able to be stored in
-    /// the already-resolved promise.
+    /// the already-settled promise.
     pub new_value: Value,
 }
 
@@ -47,14 +47,14 @@ impl<FunctionId, StateId, Value> PromiseState<FunctionId, StateId, Value> {
     /// Idempotently resolve a promise.
     ///
     /// Returns a list of continuations to resume, or an error if this promise
-    /// has already been resolved.
+    /// has already settled.
     #[allow(clippy::type_complexity)]
     pub fn resolve(
         &mut self,
         value: Value,
     ) -> Result<
         Vec<crate::Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
-        ResolvingAlreadyResolvedPromiseError<Value>,
+        SettlingAlreadySettledPromiseError<Value>,
     > {
         let replaced = std::mem::replace(self, Self::Settled(SettledPromiseState::Resolved(value)));
         match replaced {
@@ -71,7 +71,7 @@ impl<FunctionId, StateId, Value> PromiseState<FunctionId, StateId, Value> {
                     unreachable!();
                 };
 
-                Err(ResolvingAlreadyResolvedPromiseError { new_value })
+                Err(SettlingAlreadySettledPromiseError { new_value })
             }
         }
     }
@@ -83,7 +83,7 @@ impl<FunctionId, StateId, Value> PromiseState<FunctionId, StateId, Value> {
         exception: waymark_vm_runtime_exception::Exception<Value>,
     ) -> Result<
         Vec<crate::Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
-        ResolvingAlreadyResolvedPromiseError<waymark_vm_runtime_exception::Exception<Value>>,
+        SettlingAlreadySettledPromiseError<waymark_vm_runtime_exception::Exception<Value>>,
     > {
         let replaced = std::mem::replace(
             self,
@@ -103,7 +103,7 @@ impl<FunctionId, StateId, Value> PromiseState<FunctionId, StateId, Value> {
                     unreachable!();
                 };
 
-                Err(ResolvingAlreadyResolvedPromiseError { new_value })
+                Err(SettlingAlreadySettledPromiseError { new_value })
             }
         }
     }

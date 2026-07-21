@@ -181,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_promise_returns_error_when_promise_is_already_resolved() {
+    fn resolve_promise_returns_error_when_promise_has_already_settled() {
         let mut promise_states = PromiseStates::<&'static str, usize, TestValue>::new();
         let promise_state_id = promise_states.prepare();
         let promise_state = promise_states
@@ -202,10 +202,10 @@ mod tests {
                 promise_state_id,
                 PromiseValue::Ready(TestReadyValue::Int(9)),
             )
-            .expect_err("already resolved promise should reject a second value");
+            .expect_err("already settled promise should reject a second value");
 
-        let ResolvePromiseError::AlreadyResolved(err) = err else {
-            panic!("duplicate resolution should surface an already-resolved error");
+        let ResolvePromiseError::AlreadySettled(err) = err else {
+            panic!("duplicate resolution should surface an already-settled error");
         };
 
         let PromiseValue::Ready(TestReadyValue::Int(value)) = err.new_value else {
