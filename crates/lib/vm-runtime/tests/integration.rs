@@ -243,10 +243,10 @@ fn resolve_promise_preserves_the_first_value_when_duplicate_resolution_occurs() 
 
     let err = runtime
         .resolve_promise(PromiseStateId(0), TestReadyValue::Int(11))
-        .expect_err("already-ready promise should reject a new value");
+        .expect_err("already-settled promise should reject a new value");
 
-    let ResolvePromiseError::AlreadyResolved(err) = err else {
-        panic!("duplicate resolutions should report already-resolved errors");
+    let ResolvePromiseError::AlreadySettled(err) = err else {
+        panic!("duplicate resolutions should report already-settled errors");
     };
 
     assert_eq!(err.new_value, TestReadyValue::Int(11));

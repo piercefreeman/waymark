@@ -172,7 +172,7 @@ where
                     match runtime.resolve_promise(promise_state_id, value) {
                         Ok(()) => {}
                         Err(
-                            error @ (ResolvePromiseError::AlreadyResolved(_)
+                            error @ (ResolvePromiseError::AlreadySettled(_)
                             | ResolvePromiseError::PromiseStateNotFound(_)),
                         ) => {
                             tracing::info!(
@@ -188,7 +188,7 @@ where
                     match runtime.reject_promise(promise_state_id, exception) {
                         Ok(()) => {}
                         Err(
-                            error @ (ResolvePromiseError::AlreadyResolved(_)
+                            error @ (ResolvePromiseError::AlreadySettled(_)
                             | ResolvePromiseError::PromiseStateNotFound(_)),
                         ) => {
                             tracing::info!(

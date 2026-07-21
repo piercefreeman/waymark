@@ -95,7 +95,7 @@ pub enum ReturnFnCallError {
     #[error("function call result promise was not found")]
     ReturnPromiseNotFound,
 
-    /// The destination promise for the function call had already been resolved.
-    #[error("function call result promise has already been resolved")]
-    ReturnPromiseAlreadyResolved,
+    /// The destination promise for the function call had already settled.
+    #[error("function call result promise has already settled")]
+    ReturnPromiseAlreadySettled,
 }
