@@ -84,10 +84,10 @@ where
                 state
                     .reject_promise(ret, exception)
                     .map_err(|error| match error {
-                        waymark_vm_runtime_core::ResolvePromiseError::PromiseStateNotFound(_) => {
+                        waymark_vm_runtime_core::SettlePromiseError::PromiseStateNotFound(_) => {
                             ReturnFnCallError::ReturnPromiseNotFound
                         }
-                        waymark_vm_runtime_core::ResolvePromiseError::AlreadySettled(_) => {
+                        waymark_vm_runtime_core::SettlePromiseError::AlreadySettled(_) => {
                             ReturnFnCallError::ReturnPromiseAlreadySettled
                         }
                     })
@@ -294,10 +294,10 @@ where
                             .resolve_promise(ret, val)
                             .map_err(|error| {
                                 match error {
-                                waymark_vm_runtime_core::ResolvePromiseError::PromiseStateNotFound(
+                                waymark_vm_runtime_core::SettlePromiseError::PromiseStateNotFound(
                                     _,
                                 ) => ReturnFnCallError::ReturnPromiseNotFound,
-                                waymark_vm_runtime_core::ResolvePromiseError::AlreadySettled(
+                                waymark_vm_runtime_core::SettlePromiseError::AlreadySettled(
                                     _,
                                 ) => ReturnFnCallError::ReturnPromiseAlreadySettled,
                             }
