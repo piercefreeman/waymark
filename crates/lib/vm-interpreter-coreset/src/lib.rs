@@ -87,8 +87,8 @@ where
                         waymark_vm_runtime_core::ResolvePromiseError::PromiseStateNotFound(_) => {
                             ReturnFnCallError::ReturnPromiseNotFound
                         }
-                        waymark_vm_runtime_core::ResolvePromiseError::AlreadyResolved(_) => {
-                            ReturnFnCallError::ReturnPromiseAlreadyResolved
+                        waymark_vm_runtime_core::ResolvePromiseError::AlreadySettled(_) => {
+                            ReturnFnCallError::ReturnPromiseAlreadySettled
                         }
                     })
                     .map_err(FnExitError::FnCall)?;
@@ -297,9 +297,9 @@ where
                                 waymark_vm_runtime_core::ResolvePromiseError::PromiseStateNotFound(
                                     _,
                                 ) => ReturnFnCallError::ReturnPromiseNotFound,
-                                waymark_vm_runtime_core::ResolvePromiseError::AlreadyResolved(
+                                waymark_vm_runtime_core::ResolvePromiseError::AlreadySettled(
                                     _,
-                                ) => ReturnFnCallError::ReturnPromiseAlreadyResolved,
+                                ) => ReturnFnCallError::ReturnPromiseAlreadySettled,
                             }
                             })
                             .map_err(FnExitError::FnCall)
