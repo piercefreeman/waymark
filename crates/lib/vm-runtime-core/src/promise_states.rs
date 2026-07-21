@@ -1,7 +1,7 @@
 use index_type::typed_vec::TypedVec;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::{Continuation, PromiseState, SettlingAlreadySettledPromiseError};
+use crate::{PromiseState, SettlingAlreadySettledPromiseError};
 
 /// A list of promise states.
 #[derive(Debug)]
@@ -85,7 +85,7 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
 
 /// Errors returned when settling a promise state.
 #[derive(Debug, thiserror::Error)]
-pub enum SettlePromiseError<Value> {
+pub enum SettlePromiseStateError<Value> {
     /// The requested promise state ID does not exist.
     #[error(transparent)]
     PromiseStateNotFound(PromiseStateNotFoundError),
@@ -95,31 +95,53 @@ pub enum SettlePromiseError<Value> {
     AlreadySettled(SettlingAlreadySettledPromiseError<Value>),
 }
 
+impl<Value> SettlePromiseStateError<Value> {
+    /// Map the `Value` of this [`SettlePromiseStateError`] into `OtherValue`
+    /// using function `f`.
+    pub fn map<OtherValue>(
+        self,
+        f: impl FnOnce(Value) -> OtherValue,
+    ) -> SettlePromiseStateError<OtherValue> {
+        match self {
+            Self::PromiseStateNotFound(error) => {
+                SettlePromiseStateError::PromiseStateNotFound(error)
+            }
+            Self::AlreadySettled(error) => {
+                let SettlingAlreadySettledPromiseError { new_value } = error;
+                let new_value = f(new_value);
+                SettlePromiseStateError::AlreadySettled(SettlingAlreadySettledPromiseError {
+                    new_value,
+                })
+            }
+        }
+    }
+}
+
 impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
     /// Idempotently resolve a promise at a given `promise_state_id` with
     /// the provided `value`.
     ///
-    /// Returns a list of continuations to resume, or an error if this promise
+    /// Returns a list of waiters to notify, or an error if this promise
     /// has already settled.
-    #[allow(clippy::type_complexity)]
     pub fn resolve(
         &mut self,
         promise_state_id: PromiseStateId,
         value: Value,
-    ) -> Result<
-        Vec<crate::Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
-        SettlePromiseError<Value>,
-    > {
+    ) -> Result<Vec<crate::Waiter<FunctionId, StateId, Value>>, SettlePromiseStateError<Value>>
+    {
         let promise_state = self
             .get_mut(promise_state_id)
-            .map_err(SettlePromiseError::PromiseStateNotFound)?;
+            .map_err(SettlePromiseStateError::PromiseStateNotFound)?;
 
         promise_state
             .resolve(value)
-            .map_err(SettlePromiseError::AlreadySettled)
+            .map_err(SettlePromiseStateError::AlreadySettled)
     }
 
     /// Idempotently reject a promise at a given `promise_state_id`.
+    ///
+    /// Returns a list of waiters to notify, or an error if this promise
+    /// has already settled.
     #[expect(
         clippy::type_complexity,
         reason = "we purposely avoid alias for the error"
@@ -129,34 +151,16 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
         promise_state_id: PromiseStateId,
         exception: waymark_vm_runtime_exception::Exception<Value>,
     ) -> Result<
-        Vec<Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
-        SettlePromiseError<waymark_vm_runtime_exception::Exception<Value>>,
+        Vec<crate::Waiter<FunctionId, StateId, Value>>,
+        SettlePromiseStateError<waymark_vm_runtime_exception::Exception<Value>>,
     > {
         let promise_state = self
             .get_mut(promise_state_id)
-            .map_err(SettlePromiseError::PromiseStateNotFound)?;
+            .map_err(SettlePromiseStateError::PromiseStateNotFound)?;
 
         promise_state
             .reject(exception)
-            .map_err(SettlePromiseError::AlreadySettled)
-    }
-}
-
-impl<Value> SettlePromiseError<Value> {
-    /// Map the `Value` of this [`SettlePromiseError`] into `OtherValue` using
-    /// function `f`.
-    pub fn map<OtherValue>(
-        self,
-        f: impl FnOnce(Value) -> OtherValue,
-    ) -> SettlePromiseError<OtherValue> {
-        match self {
-            Self::PromiseStateNotFound(error) => SettlePromiseError::PromiseStateNotFound(error),
-            Self::AlreadySettled(error) => {
-                let SettlingAlreadySettledPromiseError { new_value } = error;
-                let new_value = f(new_value);
-                SettlePromiseError::AlreadySettled(SettlingAlreadySettledPromiseError { new_value })
-            }
-        }
+            .map_err(SettlePromiseStateError::AlreadySettled)
     }
 }
 
@@ -164,10 +168,12 @@ impl<Value> SettlePromiseError<Value> {
 mod tests {
     use waymark_vm_runtime_exception::Exception;
 
-    use super::{PromiseStateId, PromiseStateNotFoundError, PromiseStates, SettlePromiseError};
+    use super::{
+        PromiseStateId, PromiseStateNotFoundError, PromiseStates, SettlePromiseStateError,
+    };
     use crate::{
         Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, RegisterId, Registers,
-        SettledPromiseState,
+        SettledPromiseState, Waiter,
     };
 
     fn continuation(
@@ -214,7 +220,7 @@ mod tests {
         let state = states
             .get_mut(promise_state_id)
             .expect("promise state exists");
-        *state = PromiseState::Waiting(vec![continuation(RegisterId(0), 4)]);
+        *state = PromiseState::Waiting(vec![Waiter::Continuation(continuation(RegisterId(0), 4))]);
 
         let continuations = states
             .resolve(promise_state_id, 23)
@@ -231,7 +237,7 @@ mod tests {
     fn resolve_rejects_unknown_promise_state_ids() {
         let mut states = PromiseStates::<&'static str, usize, i32>::new();
 
-        let Err(SettlePromiseError::PromiseStateNotFound(PromiseStateNotFoundError {
+        let Err(SettlePromiseStateError::PromiseStateNotFound(PromiseStateNotFoundError {
             promise_state_id,
         })) = states.resolve(PromiseStateId(4), 23)
         else {

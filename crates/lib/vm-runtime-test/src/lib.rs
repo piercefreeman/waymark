@@ -164,7 +164,9 @@ impl Interpreter for TestInterpreter {
                     .get_mut(promise_state_id)
                     .expect("prepared promise state should exist");
                 *promise_state =
-                    PromiseState::Waiting(vec![Continuation::capture(frame, resume, dst)]);
+                    PromiseState::Waiting(vec![waymark_vm_runtime_core::Waiter::Continuation(
+                        Continuation::capture(frame, resume, dst),
+                    )]);
                 Ok(ExecutionOutcome::ExitFrame)
             }
             TestInstruction::EmitRegister(register) => {

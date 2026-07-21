@@ -84,11 +84,16 @@ where
                 state
                     .reject_promise(ret, exception)
                     .map_err(|error| match error {
-                        waymark_vm_runtime_core::SettlePromiseError::PromiseStateNotFound(_) => {
-                            ReturnFnCallError::ReturnPromiseNotFound
-                        }
-                        waymark_vm_runtime_core::SettlePromiseError::AlreadySettled(_) => {
-                            ReturnFnCallError::ReturnPromiseAlreadySettled
+                        waymark_vm_runtime_core::SettlePromiseError::PromiseState(
+                            waymark_vm_runtime_core::SettlePromiseStateError::PromiseStateNotFound(
+                                _,
+                            ),
+                        ) => ReturnFnCallError::ReturnPromiseNotFound,
+                        waymark_vm_runtime_core::SettlePromiseError::PromiseState(
+                            waymark_vm_runtime_core::SettlePromiseStateError::AlreadySettled(_),
+                        ) => ReturnFnCallError::ReturnPromiseAlreadySettled,
+                        waymark_vm_runtime_core::SettlePromiseError::RaceArmTargetNotFound(_) => {
+                            ReturnFnCallError::ReturnRaceArmTargetNotFound
                         }
                     })
                     .map_err(FnExitError::FnCall)?;
@@ -238,8 +243,10 @@ where
                                 state.ready.push_back(frame);
                                 ExecutionOutcome::ExitFrame
                             }
-                            PromiseState::Waiting(continuations) => {
-                                continuations.push(Continuation::capture(frame, *resume, *dst));
+                            PromiseState::Waiting(waiters) => {
+                                waiters.push(waymark_vm_runtime_core::Waiter::Continuation(
+                                    Continuation::capture(frame, *resume, *dst),
+                                ));
                                 ExecutionOutcome::ExitFrame
                             }
                         });
@@ -294,12 +301,19 @@ where
                             .resolve_promise(ret, val)
                             .map_err(|error| {
                                 match error {
-                                waymark_vm_runtime_core::SettlePromiseError::PromiseStateNotFound(
-                                    _,
+                                waymark_vm_runtime_core::SettlePromiseError::PromiseState(
+                                    waymark_vm_runtime_core::SettlePromiseStateError::PromiseStateNotFound(
+                                        _,
+                                    ),
                                 ) => ReturnFnCallError::ReturnPromiseNotFound,
-                                waymark_vm_runtime_core::SettlePromiseError::AlreadySettled(
-                                    _,
+                                waymark_vm_runtime_core::SettlePromiseError::PromiseState(
+                                    waymark_vm_runtime_core::SettlePromiseStateError::AlreadySettled(
+                                        _,
+                                    ),
                                 ) => ReturnFnCallError::ReturnPromiseAlreadySettled,
+                                waymark_vm_runtime_core::SettlePromiseError::RaceArmTargetNotFound(
+                                    _,
+                                ) => ReturnFnCallError::ReturnRaceArmTargetNotFound,
                             }
                             })
                             .map_err(FnExitError::FnCall)

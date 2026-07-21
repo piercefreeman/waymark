@@ -12,7 +12,7 @@ use nonempty_collections::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use tokio_util::sync::CancellationToken;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime::{FrameFor, Runtime};
-use waymark_vm_runtime_core::SettlePromiseError;
+use waymark_vm_runtime_core::{SettlePromiseError, SettlePromiseStateError};
 
 /// Errors returned by the driver loop.
 #[derive(Debug)]
@@ -43,6 +43,11 @@ pub enum Error<
 
     /// Getting promise settlements has failed.
     GettingPromiseSettlements(GettingPromiseSettlementsError),
+
+    /// A settlement propagation hit a race arm targeting a missing race
+    /// promise - the runtime state is corrupted and the VM cannot
+    /// continue.
+    RaceArmTargetNotFound(waymark_vm_runtime_core::PromiseStateNotFoundError),
 
     /// The driver was cancelled via its [`CancellationToken`].
     Cancelled,
@@ -172,14 +177,19 @@ where
                     match runtime.resolve_promise(promise_state_id, value) {
                         Ok(()) => {}
                         Err(
-                            error @ (SettlePromiseError::AlreadySettled(_)
-                            | SettlePromiseError::PromiseStateNotFound(_)),
+                            error @ SettlePromiseError::PromiseState(
+                                SettlePromiseStateError::AlreadySettled(_)
+                                | SettlePromiseStateError::PromiseStateNotFound(_),
+                            ),
                         ) => {
                             tracing::info!(
                                 ?promise_state_id,
                                 ?error,
                                 "stale promise resolution ignored"
                             );
+                        }
+                        Err(SettlePromiseError::RaceArmTargetNotFound(error)) => {
+                            return Err(Error::RaceArmTargetNotFound(error));
                         }
                     }
                 }
@@ -188,14 +198,19 @@ where
                     match runtime.reject_promise(promise_state_id, exception) {
                         Ok(()) => {}
                         Err(
-                            error @ (SettlePromiseError::AlreadySettled(_)
-                            | SettlePromiseError::PromiseStateNotFound(_)),
+                            error @ SettlePromiseError::PromiseState(
+                                SettlePromiseStateError::AlreadySettled(_)
+                                | SettlePromiseStateError::PromiseStateNotFound(_),
+                            ),
                         ) => {
                             tracing::info!(
                                 ?promise_state_id,
                                 ?error,
                                 "stale promise rejection ignored"
                             );
+                        }
+                        Err(SettlePromiseError::RaceArmTargetNotFound(error)) => {
+                            return Err(Error::RaceArmTargetNotFound(error));
                         }
                     }
                 }

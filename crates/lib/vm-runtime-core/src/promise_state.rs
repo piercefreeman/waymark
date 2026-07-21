@@ -31,10 +31,10 @@ pub struct SettlingAlreadySettledPromiseError<Value> {
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PromiseState<FunctionId, StateId, Value> {
-    /// A list of continuations to resume when a promise settles.
+    /// A list of waiters to notify when a promise settles.
     ///
-    /// Awaiting on it will add the frame to the list of continuations.
-    Waiting(Vec<crate::Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>),
+    /// Awaiting on it will add the frame to the list of waiters.
+    Waiting(Vec<crate::Waiter<FunctionId, StateId, Value>>),
 
     /// A promise that has settled.
     ///
@@ -46,19 +46,18 @@ pub enum PromiseState<FunctionId, StateId, Value> {
 impl<FunctionId, StateId, Value> PromiseState<FunctionId, StateId, Value> {
     /// Idempotently resolve a promise.
     ///
-    /// Returns a list of continuations to resume, or an error if this promise
+    /// Returns a list of waiters to notify, or an error if this promise
     /// has already settled.
-    #[allow(clippy::type_complexity)]
     pub fn resolve(
         &mut self,
         value: Value,
     ) -> Result<
-        Vec<crate::Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
+        Vec<crate::Waiter<FunctionId, StateId, Value>>,
         SettlingAlreadySettledPromiseError<Value>,
     > {
         let replaced = std::mem::replace(self, Self::Settled(SettledPromiseState::Resolved(value)));
         match replaced {
-            PromiseState::Waiting(continuations) => Ok(continuations),
+            PromiseState::Waiting(waiters) => Ok(waiters),
             PromiseState::Settled(original) => {
                 // This shouldn't happen often.
                 std::hint::cold_path();
@@ -77,12 +76,15 @@ impl<FunctionId, StateId, Value> PromiseState<FunctionId, StateId, Value> {
     }
 
     /// Idempotently reject a promise.
+    ///
+    /// Returns a list of waiters to notify, or an error if this promise
+    /// has already settled.
     #[allow(clippy::type_complexity)]
     pub fn reject(
         &mut self,
         exception: waymark_vm_runtime_exception::Exception<Value>,
     ) -> Result<
-        Vec<crate::Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
+        Vec<crate::Waiter<FunctionId, StateId, Value>>,
         SettlingAlreadySettledPromiseError<waymark_vm_runtime_exception::Exception<Value>>,
     > {
         let replaced = std::mem::replace(
@@ -90,7 +92,7 @@ impl<FunctionId, StateId, Value> PromiseState<FunctionId, StateId, Value> {
             Self::Settled(SettledPromiseState::Rejected(exception)),
         );
         match replaced {
-            PromiseState::Waiting(continuations) => Ok(continuations),
+            PromiseState::Waiting(waiters) => Ok(waiters),
             PromiseState::Settled(original) => {
                 // This shouldn't happen often.
                 std::hint::cold_path();
@@ -115,7 +117,7 @@ mod tests {
     use waymark_vm_runtime_promise_value::PromiseValue;
 
     use super::{PromiseState, SettledPromiseState};
-    use crate::{Continuation, ExceptionHandlers, Frame, FrameKind, RegisterId, Registers};
+    use crate::{Continuation, ExceptionHandlers, Frame, FrameKind, RegisterId, Registers, Waiter};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum TestReadyValue {
@@ -148,7 +150,8 @@ mod tests {
 
     #[test]
     fn resolve_waiting_promise_returns_continuations_and_marks_resolved() {
-        let mut state = PromiseState::Waiting(vec![continuation(RegisterId(1), 3)]);
+        let mut state =
+            PromiseState::Waiting(vec![Waiter::Continuation(continuation(RegisterId(1), 3))]);
 
         let continuations = state
             .resolve(PromiseValue::Ready(TestReadyValue::Int(17)))
@@ -162,11 +165,10 @@ mod tests {
             ))) if *value == 17
         ));
 
-        let resumed = continuations
-            .into_iter()
-            .next()
-            .expect("continuation is returned")
-            .resume(PromiseValue::Ready(TestReadyValue::Int(17)));
+        let Some(Waiter::Continuation(continuation)) = continuations.into_iter().next() else {
+            panic!("continuation waiter is returned");
+        };
+        let resumed = continuation.resume(PromiseValue::Ready(TestReadyValue::Int(17)));
         assert_eq!(resumed.state, 3);
         assert_eq!(resumed.regs.get(RegisterId(0)), None);
         assert_eq!(
@@ -201,7 +203,8 @@ mod tests {
 
     #[test]
     fn reject_waiting_promise_preserves_exceptional_settlements() {
-        let mut state = PromiseState::Waiting(vec![continuation(RegisterId(1), 3)]);
+        let mut state =
+            PromiseState::Waiting(vec![Waiter::Continuation(continuation(RegisterId(1), 3))]);
 
         let continuations = state
             .reject(Exception {
@@ -217,14 +220,13 @@ mod tests {
                     && *details == PromiseValue::Ready(TestReadyValue::Int(17))
         ));
 
-        let resumed = continuations
-            .into_iter()
-            .next()
-            .expect("continuation is returned")
-            .raise_exception(Exception {
-                type_id: "ValueError".to_owned(),
-                details: PromiseValue::Ready(TestReadyValue::Int(17)),
-            });
+        let Some(Waiter::Continuation(continuation)) = continuations.into_iter().next() else {
+            panic!("continuation waiter is returned");
+        };
+        let resumed = continuation.raise_exception(Exception {
+            type_id: "ValueError".to_owned(),
+            details: PromiseValue::Ready(TestReadyValue::Int(17)),
+        });
 
         let Some(exception) = resumed.exception else {
             panic!("exceptional resume should raise into the frame");

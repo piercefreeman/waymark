@@ -98,4 +98,9 @@ pub enum ReturnFnCallError {
     /// The destination promise for the function call had already settled.
     #[error("function call result promise has already settled")]
     ReturnPromiseAlreadySettled,
+
+    /// The settlement propagation hit a race arm targeting a missing race
+    /// promise - the runtime state is corrupted.
+    #[error("race arm target promise was not found")]
+    ReturnRaceArmTargetNotFound,
 }
