@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::{Frame, PromiseStates, RejectPromiseError, ResolvePromiseError};
+use crate::{Frame, PromiseStates, SettlePromiseError};
 
 /// The state shape of the runtime.
 ///
@@ -48,7 +48,7 @@ where
         &mut self,
         promise_state_id: PromiseStateId,
         value: Value,
-    ) -> Result<(), ResolvePromiseError<Value>> {
+    ) -> Result<(), SettlePromiseError<Value>> {
         let continuations = self
             .promise_states
             .resolve(promise_state_id, value.clone())?;
@@ -68,7 +68,7 @@ where
         &mut self,
         promise_state_id: PromiseStateId,
         exception: waymark_vm_runtime_exception::Exception<Value>,
-    ) -> Result<(), RejectPromiseError<Value>> {
+    ) -> Result<(), SettlePromiseError<waymark_vm_runtime_exception::Exception<Value>>> {
         let continuations = self
             .promise_states
             .reject(promise_state_id, exception.clone())?;
@@ -93,7 +93,7 @@ mod tests {
     use super::RuntimeState;
     use crate::{
         Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, PromiseStates, RegisterId,
-        Registers, ResolvePromiseError, SettledPromiseState,
+        Registers, SettlePromiseError, SettledPromiseState,
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,7 +204,7 @@ mod tests {
             )
             .expect_err("already settled promise should reject a second value");
 
-        let ResolvePromiseError::AlreadySettled(err) = err else {
+        let SettlePromiseError::AlreadySettled(err) = err else {
             panic!("duplicate resolution should surface an already-settled error");
         };
 
