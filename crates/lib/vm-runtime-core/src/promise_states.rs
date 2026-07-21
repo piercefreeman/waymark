@@ -1,7 +1,7 @@
 use index_type::typed_vec::TypedVec;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::{Continuation, PromiseState, ResolvingAlreadyResolvedPromiseError};
+use crate::{Continuation, PromiseState, SettlingAlreadySettledPromiseError};
 
 /// Errors returned when rejecting a promise state.
 pub type RejectPromiseError<Value> =
@@ -92,11 +92,11 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
 pub enum ResolvePromiseError<Value> {
     /// The requested promise state ID does not exist.
     #[error(transparent)]
-    PromiseStateNotFound(#[from] PromiseStateNotFoundError),
+    PromiseStateNotFound(PromiseStateNotFoundError),
 
-    /// The promise state has already been resolved.
+    /// The promise state has already settled.
     #[error(transparent)]
-    AlreadyResolved(#[from] ResolvingAlreadyResolvedPromiseError<Value>),
+    AlreadySettled(SettlingAlreadySettledPromiseError<Value>),
 }
 
 impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
@@ -104,7 +104,7 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
     /// the provided `value`.
     ///
     /// Returns a list of continuations to resume, or an error if this promise
-    /// has already been resolved.
+    /// has already settled.
     #[allow(clippy::type_complexity)]
     pub fn resolve(
         &mut self,
@@ -114,11 +114,13 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
         Vec<crate::Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
         ResolvePromiseError<Value>,
     > {
-        let promise_state = self.get_mut(promise_state_id)?;
+        let promise_state = self
+            .get_mut(promise_state_id)
+            .map_err(ResolvePromiseError::PromiseStateNotFound)?;
 
         promise_state
             .resolve(value)
-            .map_err(ResolvePromiseError::AlreadyResolved)
+            .map_err(ResolvePromiseError::AlreadySettled)
     }
 
     /// Idempotently reject a promise at a given `promise_state_id`.
@@ -131,11 +133,13 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
         Vec<Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
         RejectPromiseError<Value>,
     > {
-        let promise_state = self.get_mut(promise_state_id)?;
+        let promise_state = self
+            .get_mut(promise_state_id)
+            .map_err(ResolvePromiseError::PromiseStateNotFound)?;
 
         promise_state
             .reject(exception)
-            .map_err(ResolvePromiseError::AlreadyResolved)
+            .map_err(ResolvePromiseError::AlreadySettled)
     }
 }
 
@@ -148,10 +152,10 @@ impl<Value> ResolvePromiseError<Value> {
     ) -> ResolvePromiseError<OtherValue> {
         match self {
             Self::PromiseStateNotFound(error) => ResolvePromiseError::PromiseStateNotFound(error),
-            Self::AlreadyResolved(error) => {
-                let ResolvingAlreadyResolvedPromiseError { new_value } = error;
+            Self::AlreadySettled(error) => {
+                let SettlingAlreadySettledPromiseError { new_value } = error;
                 let new_value = f(new_value);
-                ResolvePromiseError::AlreadyResolved(ResolvingAlreadyResolvedPromiseError {
+                ResolvePromiseError::AlreadySettled(SettlingAlreadySettledPromiseError {
                     new_value,
                 })
             }
