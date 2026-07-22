@@ -59,9 +59,6 @@ fn build_dispatch<Metadata: Encode>(
         action_name,
         module_name,
         call_args,
-        timeout_seconds,
-        max_retries,
-        ..
     } = action_ref;
 
     let kwargs =
@@ -78,8 +75,8 @@ fn build_dispatch<Metadata: Encode>(
         action_name: action_name.clone(),
         module_name: module_name.clone().unwrap_or_default(),
         kwargs,
-        timeout_seconds: Some(timeout_seconds),
-        max_retries: Some(max_retries),
+        timeout_seconds: None,
+        max_retries: None,
         attempt_number: None,
         dispatch_token: None,
         metadata: encoded_metadata,
