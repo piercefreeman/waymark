@@ -11,7 +11,8 @@ pub mod step;
 use std::collections::VecDeque;
 
 use waymark_vm_runtime_core::{
-    ExceptionHandlers, Frame, FrameKind, PromiseStates, Registers, RuntimeState, SettlePromiseError,
+    ExceptionHandlers, Frame, FrameKind, PromiseStates, Registers, RuntimeState, SelectStates,
+    SettlePromiseError,
 };
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
@@ -112,6 +113,7 @@ where
         let state = RuntimeState {
             ready,
             promise_states: PromiseStates::new(),
+            select_states: SelectStates::new(),
             effect_counter: waymark_vm_runtime_effect::EffectNumber(0),
         };
 

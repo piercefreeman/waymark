@@ -27,6 +27,42 @@ pub struct ResumeWithValue {
     pub dst: RegisterId,
 }
 
+/// Specifies that a [`Continuation`] is to resume through one of the arms
+/// of a select, chosen at resume time via [`Continuation::into_arm`].
+///
+/// Typical use is for continuations that suspend on multiple asynchronously
+/// obtained values at once, resuming with whichever settles first.
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ResumeSelectArm;
+
+/// One arm of a select: where the arm's settlement is delivered.
+///
+/// Originates in the select's [`crate::PromiseWaiter::Select`] entries -
+/// planted one per raced promise - and is consumed by
+/// [`Continuation::into_arm`] when the arm settles first.
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SelectArm<StateId> {
+    /// The register to deliver this arm's resolved value to.
+    dst: RegisterId,
+
+    /// The state to resume the execution from for this arm.
+    resume: StateId,
+}
+
+impl<StateId> SelectArm<StateId> {
+    /// Create a select arm delivering to the `dst` register and resuming
+    /// from the `resume` state.
+    ///
+    /// Crate-internal on purpose: select arms are only ever minted by
+    /// the runtime itself when a select is installed, so they cannot be
+    /// forged from the outside.
+    pub(crate) fn new(dst: RegisterId, resume: StateId) -> Self {
+        Self { dst, resume }
+    }
+}
+
 impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, ResumeWithValue> {
     /// Capture the given `frame` as a continuation, with a `dst` register
     /// to be populated by a resolved value upon coninuing, and the given
@@ -76,9 +112,7 @@ impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, Resume
         // Assign the value to the register where it belongs.
         frame.regs.set(dst, value);
     }
-}
 
-impl<FunctionId, StateId, Value, Resumer> Continuation<FunctionId, StateId, Value, Resumer> {
     /// Resume the continuation with a raised exception.
     pub fn raise_exception(
         self,
@@ -111,12 +145,47 @@ impl<FunctionId, StateId, Value, Resumer> Continuation<FunctionId, StateId, Valu
     }
 }
 
+impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, ResumeSelectArm> {
+    /// Capture the given `frame` as a select continuation.
+    ///
+    /// The frame is not positioned at any resume state yet: the delivery
+    /// target arrives with the claiming arm via [`Continuation::into_arm`].
+    pub fn capture_select(frame: Frame<FunctionId, StateId, Value>) -> Self {
+        Self {
+            resumer: ResumeSelectArm,
+            prepared_resume_frame: frame,
+        }
+    }
+
+    /// Choose the arm that settled, producing an ordinary value-resumable
+    /// continuation positioned at that arm's resume state.
+    pub fn into_arm(
+        self,
+        arm: SelectArm<StateId>,
+    ) -> Continuation<FunctionId, StateId, Value, ResumeWithValue> {
+        let Self {
+            mut prepared_resume_frame,
+            resumer: ResumeSelectArm,
+        } = self;
+        let SelectArm { dst, resume } = arm;
+
+        // Complete what a plain capture does upfront: position the frame
+        // at the chosen arm's resume state.
+        prepared_resume_frame.state = resume;
+
+        Continuation {
+            resumer: ResumeWithValue { dst },
+            prepared_resume_frame,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use waymark_vm_runtime_exception::Exception;
     use waymark_vm_runtime_promise_value::PromiseValue;
 
-    use super::Continuation;
+    use super::{Continuation, SelectArm};
     use crate::{ExceptionHandlers, Frame, FrameKind, RegisterId, Registers};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,5 +282,39 @@ mod tests {
             exception.details,
             PromiseValue::Ready(TestReadyValue::Int(42))
         );
+    }
+
+    #[test]
+    fn capture_select_leaves_the_frame_state_untouched() {
+        let continuation = Continuation::capture_select(frame(1));
+
+        let resumed = continuation
+            .into_arm(SelectArm::new(RegisterId(1), 7))
+            .resume(PromiseValue::Ready(TestReadyValue::Int(42)));
+
+        assert_eq!(resumed.state, 7);
+        assert_eq!(
+            resumed.regs.get(RegisterId(1)),
+            Some(&PromiseValue::Ready(TestReadyValue::Int(42)))
+        );
+        assert!(resumed.exception.is_none());
+    }
+
+    #[test]
+    fn into_arm_positions_the_frame_for_exceptional_resumes_too() {
+        let continuation = Continuation::capture_select(frame(1));
+
+        let resumed = continuation
+            .into_arm(SelectArm::new(RegisterId(0), 9))
+            .raise_exception(Exception {
+                type_id: "ValueError".to_owned(),
+                details: PromiseValue::Ready(TestReadyValue::Int(42)),
+            });
+
+        assert_eq!(resumed.state, 9);
+        let Some(exception) = resumed.exception else {
+            panic!("exceptional resume should raise into the frame");
+        };
+        assert_eq!(exception.type_id, "ValueError");
     }
 }
