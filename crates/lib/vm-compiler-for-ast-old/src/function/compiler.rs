@@ -70,6 +70,7 @@ pub use self::error::*;
 use waymark_vm_ast_old::{FunctionDef, Spanned};
 use waymark_vm_compiler_for_ast_old_core::InstructionFor;
 
+use super::extras::ExtraFunctions;
 use super::table::FunctionTable;
 
 /// Concrete function-compiler error type for a spec and lowering pair.
@@ -89,6 +90,9 @@ where
     /// Program-wide function metadata for resolving user-defined calls.
     function_table: &'a FunctionTable,
 
+    /// Program-wide extra functions introduced during lowering.
+    extra_fns: &'a mut ExtraFunctions<Spec>,
+
     /// Bytecode emitter for the function currently being lowered.
     emitter: FunctionEmitter<Spec>,
 
@@ -107,6 +111,7 @@ where
     /// Creates a compiler for one function definition.
     pub fn new(
         function_table: &'a FunctionTable,
+        extra_fns: &'a mut ExtraFunctions<Spec>,
         function: &'a Spanned<FunctionDef>,
     ) -> Result<Self, ErrorFor<Spec, Lowering>> {
         let mut local_frame = LocalFrame::new();
@@ -123,6 +128,7 @@ where
         Ok(Self {
             phantom_data: core::marker::PhantomData,
             function_table,
+            extra_fns,
             emitter: FunctionEmitter::new(),
             local_frame,
             flow_state,
@@ -163,6 +169,7 @@ where
             self.function_table,
             &mut self.emitter,
             &mut self.local_frame,
+            &mut *self.extra_fns,
             &mut self.flow_state,
         )
     }

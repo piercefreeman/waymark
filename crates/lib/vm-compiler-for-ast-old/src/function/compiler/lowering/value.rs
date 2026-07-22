@@ -580,6 +580,8 @@ mod tests {
     use waymark_vm_instructions_pureset::PureSet;
     use waymark_vm_runtime_core::RegisterId;
 
+    use crate::function::extras::ExtraFunctions;
+
     use crate::function::compiler::{
         CompilerContextMut,
         bytecode::emitter::FunctionEmitter,
@@ -593,6 +595,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
 
         let dst = {
             let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
@@ -600,6 +603,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -656,6 +660,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
 
         let dst = {
             let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
@@ -663,6 +668,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -724,6 +730,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
         let duration = int(2);
 
         {
@@ -732,6 +739,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -785,6 +793,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
 
         {
             let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
@@ -792,6 +801,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -827,6 +837,7 @@ mod tests {
         let mut local_frame = LocalFrame::new();
         let preferred_dst = local_frame.allocate_register();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
 
         let dst = {
             let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
@@ -834,6 +845,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -866,6 +878,7 @@ mod tests {
         let mut local_frame = LocalFrame::new();
         let preferred_dst = local_frame.allocate_register();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
 
         let dst = {
             let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
@@ -873,6 +886,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -925,6 +939,7 @@ mod tests {
         let mut local_frame = LocalFrame::new();
         let preferred_dst = local_frame.allocate_register();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
 
         let dst = {
             let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
@@ -932,6 +947,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -989,6 +1005,7 @@ mod tests {
         let mut local_frame = LocalFrame::new();
         let preferred_dst = local_frame.allocate_register();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
 
         let dst = {
             let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
@@ -996,6 +1013,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -1058,6 +1076,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
 
         {
             let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
@@ -1065,6 +1084,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -1105,6 +1125,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
 
         {
             let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
@@ -1112,6 +1133,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -1165,6 +1187,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
 
         {
             let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
@@ -1172,6 +1195,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -1239,6 +1263,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
         let expr = spanned(Expr::List {
             elements: vec![int(1), int(2)],
         });
@@ -1249,6 +1274,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -1292,6 +1318,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
         let expr = spanned(Expr::Dict {
             entries: vec![DictEntry {
                 key: int(1),
@@ -1305,6 +1332,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -1351,6 +1379,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
         let expr = len_expr(spanned(Expr::List {
             elements: vec![int(1), int(2)],
         }));
@@ -1361,6 +1390,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -1409,6 +1439,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
         let expr = spanned(Expr::Index {
             object: Box::new(spanned(Expr::List {
                 elements: vec![int(3), int(4)],
@@ -1422,6 +1453,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -1483,6 +1515,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
         let expr = spanned(Expr::Dot {
             object: Box::new(spanned(Expr::Dict {
                 entries: vec![DictEntry {
@@ -1499,6 +1532,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
@@ -1555,6 +1589,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
 
         {
             let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
@@ -1562,6 +1597,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 )
                 .into_ref(),
