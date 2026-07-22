@@ -10,6 +10,7 @@ mod env;
 mod error;
 mod r#loop;
 mod suspend;
+mod wrapper_fn;
 
 mod plan {
     //! AST planning helpers that normalize statements and expressions before

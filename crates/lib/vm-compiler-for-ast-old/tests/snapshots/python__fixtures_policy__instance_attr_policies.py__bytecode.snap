@@ -1,25 +1,11 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: bytecode for python/tests/fixtures_policy/instance_attr_policies.py
+expression: "bytecode for python/tests/fixtures_policy/instance_attr_policies.py [compilation error]"
 ---
-fn main(input: [value], output: []):
-    a = @instance_attr_policies.action_with_instance_retry(value=value) [retry: 2, backoff: 10s]
-    b = @instance_attr_policies.action_with_instance_timeout(value=a) [timeout: 2m]
-    c = @instance_attr_policies.action_with_both_policies(value=b) [retry: 1] [timeout: 2m]
-    return c
----
-f0: [4 registers]
-  s0:
-    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_instance_retry"), args: [r0], resume: s1 })
-  s1:
-    CoreSet(Await { dst: r1, src: r1, resume: s2 })
-  s2:
-    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("action_with_instance_timeout"), args: [r1], resume: s3 })
-  s3:
-    CoreSet(Await { dst: r2, src: r2, resume: s4 })
-  s4:
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("action_with_both_policies"), args: [r2], resume: s5 })
-  s5:
-    CoreSet(Await { dst: r3, src: r3, resume: s6 })
-  s6:
-    CoreSet(Return { src: r3 })
+FunctionCompiler(
+    Unsupported(
+        RetryPolicy {
+            action_name: "action_with_instance_retry",
+        },
+    ),
+)
