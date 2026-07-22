@@ -225,7 +225,7 @@ where
         let arg_registers = args.iter().map(RegisterHandle::register).collect();
 
         if !policies.is_empty() {
-            let wrapper_function_id = super::wrapper_fn::create(
+            let wrapper_function_id = super::wrapper_fn::create::<Spec, Lowering>(
                 self.context.extra_fns,
                 action_name,
                 action_ref,
