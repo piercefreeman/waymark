@@ -982,7 +982,10 @@ class TimeoutProbeWorkflow(Workflow):
                     timeout_probe_attempt(
                         counter_path=counter_path,
                     ),
-                    retry=RetryPolicy(attempts=1),
+                    retry=RetryPolicy(
+                        attempts=1,
+                        exception_types=["ActionTimeout"],
+                    ),
                     timeout=1,
                 )
             elif max_attempts == 2:
@@ -990,31 +993,46 @@ class TimeoutProbeWorkflow(Workflow):
                     timeout_probe_attempt(
                         counter_path=counter_path,
                     ),
-                    retry=RetryPolicy(attempts=2),
+                    retry=RetryPolicy(
+                        attempts=2,
+                        exception_types=["ActionTimeout"],
+                    ),
                     timeout=1,
                 )
             elif max_attempts == 3:
                 await self.run_action(
                     timeout_probe_attempt(counter_path=counter_path),
-                    retry=RetryPolicy(attempts=3),
+                    retry=RetryPolicy(
+                        attempts=3,
+                        exception_types=["ActionTimeout"],
+                    ),
                     timeout=1,
                 )
             elif max_attempts == 4:
                 await self.run_action(
                     timeout_probe_attempt(counter_path=counter_path),
-                    retry=RetryPolicy(attempts=4),
+                    retry=RetryPolicy(
+                        attempts=4,
+                        exception_types=["ActionTimeout"],
+                    ),
                     timeout=1,
                 )
             elif max_attempts == 5:
                 await self.run_action(
                     timeout_probe_attempt(counter_path=counter_path),
-                    retry=RetryPolicy(attempts=5),
+                    retry=RetryPolicy(
+                        attempts=5,
+                        exception_types=["ActionTimeout"],
+                    ),
                     timeout=1,
                 )
             else:
                 await self.run_action(
                     timeout_probe_attempt(counter_path=counter_path),
-                    retry=RetryPolicy(attempts=6),
+                    retry=RetryPolicy(
+                        attempts=6,
+                        exception_types=["ActionTimeout"],
+                    ),
                     timeout=1,
                 )
         except Exception:
