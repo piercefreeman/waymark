@@ -60,6 +60,16 @@ pub enum Error<LiteralLoweringError, ActionLoweringError> {
         seconds: u64,
     },
 
+    /// A retry backoff duration cannot be represented in bytecode.
+    #[error("backoff duration {seconds}s on action `{action_name}` is out of range")]
+    BackoffDurationOutOfRange {
+        /// The action the retry policy is attached to.
+        action_name: String,
+
+        /// The out-of-range duration in seconds.
+        seconds: u64,
+    },
+
     /// Lowering a literal into the target VM constant type failed.
     #[error("literal lowering failed")]
     LiteralLowering(#[source] LiteralLoweringError),
