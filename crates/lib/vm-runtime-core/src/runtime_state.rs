@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::{Frame, PromiseStates, SettlePromiseError};
+use crate::{Frame, PromiseStates, PromiseWaiter, SelectStates, SettlePromiseError};
 
 /// The state shape of the runtime.
 ///
@@ -31,6 +31,9 @@ pub struct RuntimeState<FunctionId, StateId, Value> {
     // or something like that.
     pub promise_states: PromiseStates<FunctionId, StateId, Value>,
 
+    /// A state of the selects of this runtime.
+    pub select_states: SelectStates<FunctionId, StateId, Value>,
+
     /// Sequential counter of effects produced by this runtime.
     ///
     /// Incremented each time the runtime emits an effect.
@@ -43,17 +46,29 @@ where
 {
     /// Provide an async computation value for a given promise.
     ///
-    /// Notifies all continuations that wait on it.
+    /// Notifies all waiters: resumes the continuations and claims the
+    /// selects this promise is an arm of - delivering the value either way.
     pub fn resolve_promise(
         &mut self,
         promise_state_id: PromiseStateId,
         value: Value,
     ) -> Result<(), SettlePromiseError<Value>> {
-        let continuations = self
+        let waiters = self
             .promise_states
             .resolve(promise_state_id, value.clone())?;
 
-        for continuation in continuations {
+        for waiter in waiters {
+            let continuation = match waiter {
+                PromiseWaiter::Await(continuation) => continuation,
+                PromiseWaiter::Select(select_state_claim) => {
+                    // An already-claimed select means this arm lost -
+                    // inert by the claimed-exactly-once semantics.
+                    let Some(continuation) = self.select_states.claim(select_state_claim) else {
+                        continue;
+                    };
+                    continuation
+                }
+            };
             let frame = continuation.resume(value.clone());
             self.ready.push_back(frame);
         }
@@ -63,17 +78,29 @@ where
 
     /// Reject an async computation for a given promise.
     ///
-    /// Notifies all continuations that wait on it.
+    /// Notifies all waiters: resumes the continuations and claims the
+    /// selects this promise is an arm of - raising the exception either way.
     pub fn reject_promise(
         &mut self,
         promise_state_id: PromiseStateId,
         exception: waymark_vm_runtime_exception::Exception<Value>,
     ) -> Result<(), SettlePromiseError<waymark_vm_runtime_exception::Exception<Value>>> {
-        let continuations = self
+        let waiters = self
             .promise_states
             .reject(promise_state_id, exception.clone())?;
 
-        for continuation in continuations {
+        for waiter in waiters {
+            let continuation = match waiter {
+                PromiseWaiter::Await(continuation) => continuation,
+                PromiseWaiter::Select(select_state_claim) => {
+                    // An already-claimed select means this arm lost -
+                    // inert by the claimed-exactly-once semantics.
+                    let Some(continuation) = self.select_states.claim(select_state_claim) else {
+                        continue;
+                    };
+                    continuation
+                }
+            };
             let frame = continuation.raise_exception(exception.clone());
             self.ready.push_back(frame);
         }
@@ -92,8 +119,9 @@ mod tests {
 
     use super::RuntimeState;
     use crate::{
-        Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, PromiseStates, RegisterId,
-        Registers, SettlePromiseError, SettledPromiseState,
+        Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, PromiseStates,
+        PromiseWaiter, RegisterId, Registers, SelectStates, SettlePromiseError,
+        SettledPromiseState,
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,13 +161,14 @@ mod tests {
             .get_mut(promise_state_id)
             .expect("promise state exists");
         *promise_state = PromiseState::Waiting(vec![
-            continuation(RegisterId(0), 3),
-            continuation(RegisterId(1), 5),
+            PromiseWaiter::Await(continuation(RegisterId(0), 3)),
+            PromiseWaiter::Await(continuation(RegisterId(1), 5)),
         ]);
 
         let mut runtime = RuntimeState {
             ready: VecDeque::new(),
             promise_states,
+            select_states: SelectStates::new(),
             effect_counter: EffectNumber(0),
         };
 
@@ -194,6 +223,7 @@ mod tests {
         let mut runtime = RuntimeState {
             ready: VecDeque::new(),
             promise_states,
+            select_states: SelectStates::new(),
             effect_counter: EffectNumber(0),
         };
 
@@ -233,11 +263,13 @@ mod tests {
         let promise_state = promise_states
             .get_mut(promise_state_id)
             .expect("promise state exists");
-        *promise_state = PromiseState::Waiting(vec![continuation(RegisterId(0), 3)]);
+        *promise_state =
+            PromiseState::Waiting(vec![PromiseWaiter::Await(continuation(RegisterId(0), 3))]);
 
         let mut runtime = RuntimeState {
             ready: VecDeque::new(),
             promise_states,
+            select_states: SelectStates::new(),
             effect_counter: EffectNumber(0),
         };
 
@@ -274,12 +306,16 @@ mod tests {
         let promise_state = promise_states
             .get_mut(promise_state_id)
             .expect("promise state exists");
-        *promise_state =
-            PromiseState::Waiting(vec![Continuation::capture(frame(0), 3, RegisterId(0))]);
+        *promise_state = PromiseState::Waiting(vec![PromiseWaiter::Await(Continuation::capture(
+            frame(0),
+            3,
+            RegisterId(0),
+        ))]);
 
         let mut runtime = RuntimeState {
             ready: VecDeque::new(),
             promise_states,
+            select_states: SelectStates::new(),
             effect_counter: EffectNumber(0),
         };
 
@@ -303,5 +339,125 @@ mod tests {
             exception.details,
             PromiseValue::Ready(TestReadyValue::Int(41))
         );
+    }
+
+    fn runtime_state(
+        promise_states: PromiseStates<&'static str, usize, TestValue>,
+    ) -> RuntimeState<&'static str, usize, TestValue> {
+        RuntimeState {
+            ready: VecDeque::new(),
+            promise_states,
+            select_states: SelectStates::new(),
+            effect_counter: EffectNumber(0),
+        }
+    }
+
+    #[test]
+    fn resolve_promise_claims_the_select_and_delivers_to_the_arm() {
+        let mut promise_states = PromiseStates::<&'static str, usize, TestValue>::new();
+        let source = promise_states.prepare();
+
+        let mut select_states = SelectStates::new();
+        let handle = select_states.insert(Continuation::capture_select(frame(0)));
+
+        *promise_states.get_mut(source).expect("source exists") =
+            PromiseState::Waiting(vec![PromiseWaiter::Select(handle.arm(RegisterId(1), 7))]);
+
+        let mut runtime = RuntimeState {
+            ready: VecDeque::new(),
+            promise_states,
+            select_states,
+            effect_counter: EffectNumber(0),
+        };
+
+        runtime
+            .resolve_promise(source, PromiseValue::Ready(TestReadyValue::Int(41)))
+            .expect("source promise should resolve");
+
+        let resumed = runtime.ready.pop_front().expect("claimed frame is resumed");
+        assert_eq!(resumed.state, 7);
+        assert_eq!(
+            resumed.regs.get(RegisterId(1)),
+            Some(&PromiseValue::Ready(TestReadyValue::Int(41)))
+        );
+        assert!(resumed.exception.is_none());
+    }
+
+    #[test]
+    fn reject_promise_claims_the_select_and_raises_at_the_arm() {
+        let mut promise_states = PromiseStates::<&'static str, usize, TestValue>::new();
+        let source = promise_states.prepare();
+
+        let mut select_states = SelectStates::new();
+        let handle = select_states.insert(Continuation::capture_select(frame(0)));
+
+        *promise_states.get_mut(source).expect("source exists") =
+            PromiseState::Waiting(vec![PromiseWaiter::Select(handle.arm(RegisterId(1), 7))]);
+
+        let mut runtime = RuntimeState {
+            ready: VecDeque::new(),
+            promise_states,
+            select_states,
+            effect_counter: EffectNumber(0),
+        };
+
+        runtime
+            .reject_promise(
+                source,
+                Exception {
+                    type_id: "ValueError".to_owned(),
+                    details: PromiseValue::Ready(TestReadyValue::Int(41)),
+                },
+            )
+            .expect("source promise should reject");
+
+        let resumed = runtime.ready.pop_front().expect("claimed frame is resumed");
+        assert_eq!(resumed.state, 7);
+        let Some(exception) = resumed.exception else {
+            panic!("claimed frame should carry the raised exception");
+        };
+        assert_eq!(exception.type_id, "ValueError");
+    }
+
+    #[test]
+    fn losing_select_arm_is_inert_and_other_waiters_still_notify() {
+        let mut promise_states = PromiseStates::<&'static str, usize, TestValue>::new();
+        let winner_source = promise_states.prepare();
+        let loser_source = promise_states.prepare();
+
+        let mut select_states = SelectStates::new();
+        let handle = select_states.insert(Continuation::capture_select(frame(0)));
+
+        *promise_states
+            .get_mut(winner_source)
+            .expect("winner source exists") =
+            PromiseState::Waiting(vec![PromiseWaiter::Select(handle.arm(RegisterId(0), 3))]);
+        *promise_states
+            .get_mut(loser_source)
+            .expect("loser source exists") = PromiseState::Waiting(vec![
+            PromiseWaiter::Select(handle.arm(RegisterId(1), 5)),
+            PromiseWaiter::Await(continuation(RegisterId(0), 9)),
+        ]);
+
+        let mut runtime = runtime_state(promise_states);
+        runtime.select_states = select_states;
+
+        runtime
+            .resolve_promise(winner_source, PromiseValue::Ready(TestReadyValue::Int(1)))
+            .expect("winner source should resolve");
+
+        let claimed = runtime.ready.pop_front().expect("claimed frame is resumed");
+        assert_eq!(claimed.state, 3);
+        assert!(runtime.ready.is_empty());
+
+        // The loser arm finds the select already claimed and is inert;
+        // the source's other waiters are still notified.
+        runtime
+            .resolve_promise(loser_source, PromiseValue::Ready(TestReadyValue::Int(2)))
+            .expect("loser source should resolve");
+
+        let resumed = runtime.ready.pop_front().expect("plain waiter is resumed");
+        assert_eq!(resumed.state, 9);
+        assert!(runtime.ready.is_empty(), "the losing arm must not resume");
     }
 }
