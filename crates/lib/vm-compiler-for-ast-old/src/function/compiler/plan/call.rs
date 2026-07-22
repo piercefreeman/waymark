@@ -1,7 +1,7 @@
 //! Call planning.
 
 use nonempty_collections::{IntoNonEmptyIterator as _, NESlice, NEVec, NonEmptyIterator as _};
-use waymark_vm_ast_old::{ActionCall, Call, Expr, FunctionCall, Kwarg, Spanned};
+use waymark_vm_ast_old::{ActionCall, Call, Expr, FunctionCall, Kwarg, PolicyBracket, Spanned};
 use waymark_vm_bytecode_core::FunctionId;
 use waymark_vm_compiler_for_ast_old_core::lowering;
 
@@ -28,6 +28,12 @@ pub struct ActionCallPlan<'a, ActionRef> {
 
     /// Keyword arguments forwarded to the action.
     kwargs: &'a [Kwarg],
+
+    /// The source action name for wrapper generation and diagnostics.
+    action_name: &'a str,
+
+    /// The policy brackets attached to this call site.
+    policies: &'a [PolicyBracket],
 }
 
 /// A normalized call plan for either a function call or an action call.
@@ -129,12 +135,20 @@ impl<'a, ActionRef> ActionCallPlan<'a, ActionRef> {
         Ok(Self {
             action_ref,
             kwargs: &call.kwargs,
+            action_name: &call.action_name,
+            policies: &call.policies,
         })
     }
 
-    /// Returns the lowered action reference and original keyword arguments.
-    pub fn into_parts(self) -> (ActionRef, &'a [Kwarg]) {
-        (self.action_ref, self.kwargs)
+    /// Returns the lowered action reference, the original keyword arguments,
+    /// the source action name, and the policy brackets of this call site.
+    pub fn into_parts(self) -> (ActionRef, &'a [Kwarg], &'a str, &'a [PolicyBracket]) {
+        (
+            self.action_ref,
+            self.kwargs,
+            self.action_name,
+            self.policies,
+        )
     }
 }
 
@@ -376,10 +390,12 @@ mod tests {
         let call = action_call("notify", Vec::new());
         let planned_call = ActionCallPlan::lower::<TestSpec, TestLowering, ()>(&call)
             .expect("supported action should lower");
-        let (action_ref, kwargs) = planned_call.into_parts();
+        let (action_ref, kwargs, action_name, policies) = planned_call.into_parts();
 
         assert!(matches!(action_ref, TestActionRef(name) if name == "notify"));
         assert!(kwargs.is_empty());
+        assert_eq!(action_name, "notify");
+        assert!(policies.is_empty());
     }
 
     #[test]
