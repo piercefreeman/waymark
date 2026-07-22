@@ -240,6 +240,20 @@ pub enum PureSet<Spec: self::Spec> {
         /// The dictionary entries to read in source order.
         entries: Vec<DictEntry<Spec::RegisterId>>,
     },
+
+    /// Build an exception value from a type id and a details payload.
+    MakeException {
+        /// The register to store the resulting exception at.
+        dst: Spec::RegisterId,
+
+        /// The register containing the exception's type identifier.
+        ///
+        /// Must hold a string value.
+        type_id: Spec::RegisterId,
+
+        /// The register containing the exception's details payload.
+        details: Spec::RegisterId,
+    },
 }
 
 impl core::fmt::Display for BinaryOpKind {

@@ -220,6 +220,20 @@ impl waymark_vm_interpreter_pureset::value::MakeDict for TestReadyValue {
     }
 }
 
+impl waymark_vm_interpreter_pureset::value::AsExceptionTypeId for TestReadyValue {
+    fn as_exception_type_id(
+        &self,
+    ) -> Result<&str, waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError> {
+        Err(waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError::UnsupportedTypeIdType)
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::MakeException for TestReadyValue {
+    fn make_exception(type_id: String, details: Self::RootValue) -> Self {
+        Self::Exception(Box::new(Exception { type_id, details }))
+    }
+}
+
 impl waymark_vm_interpreter_pureset::value::Length for TestReadyValue {
     type Length = usize;
 
@@ -514,6 +528,23 @@ impl waymark_vm_interpreter_pureset::value::MakeDict for TestValue {
     {
         let _ = entries;
         Err(waymark_vm_interpreter_pureset::value::MakeDictError::NotDictable)
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::AsExceptionTypeId for TestValue {
+    fn as_exception_type_id(
+        &self,
+    ) -> Result<&str, waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError> {
+        let value = self.require_ready_ref().map_err(|_| {
+            waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError::UnsupportedTypeIdType
+        })?;
+        value.as_exception_type_id()
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::MakeException for TestValue {
+    fn make_exception(type_id: String, details: Self::RootValue) -> Self {
+        Self::Ready(TestReadyValue::make_exception(type_id, details))
     }
 }
 
