@@ -47,13 +47,6 @@ pub enum Unsupported {
         count: NonZeroUsize,
     },
 
-    /// A retry policy bracket is not compiled yet.
-    #[error("retry policy on action `{action_name}` is not supported by the compiler yet")]
-    RetryPolicy {
-        /// The action the policy is attached to.
-        action_name: String,
-    },
-
     /// A parallel expression assignment shape cannot be represented directly.
     #[error(
         "parallel expression with {call_count} calls and {target_count} assignment targets is not supported: {reason}"
