@@ -182,6 +182,8 @@ mod tests {
     use waymark_vm_instructions_pureset::PureSet;
     use waymark_vm_runtime_core::RegisterId;
 
+    use crate::function::extras::ExtraFunctions;
+
     use crate::function::compiler::{
         CompilerContextMut,
         bytecode::emitter::FunctionEmitter,
@@ -247,6 +249,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
         let source_local = local_frame
             .declare_input(&mut flow_state, "source".to_owned())
             .expect("source input should declare");
@@ -257,6 +260,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 ),
                 0,

@@ -120,12 +120,20 @@ where
     Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
 {
     let function_table = function::table::FunctionTable::build(program)?;
+    let mut extra_functions = function::extras::ExtraFunctions::new(program.functions.len());
     let mut functions = TypedVec::with_capacity(program.functions.len());
 
     for function in &program.functions {
-        let compiler =
-            function::compiler::FunctionCompiler::<Spec, Lowering>::new(&function_table, function)?;
+        let compiler = function::compiler::FunctionCompiler::<Spec, Lowering>::new(
+            &function_table,
+            &mut extra_functions,
+            function,
+        )?;
         functions.push(compiler.compile(function)?);
+    }
+
+    for extra_function in extra_functions.finish() {
+        functions.push(extra_function);
     }
 
     let executable = waymark_vm_bytecode::Executable { functions };
