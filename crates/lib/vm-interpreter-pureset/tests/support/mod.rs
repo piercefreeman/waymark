@@ -42,6 +42,10 @@ pub enum TestValue {
     Text(&'static str),
     List(Vec<TestValue>),
     Dict(BTreeMap<String, TestValue>),
+    Exception {
+        type_id: String,
+        details: Box<TestValue>,
+    },
     /// Test-only sentinel for values that should be rejected by pureset
     /// operations without coupling these tests to promise-specific runtime
     /// behavior.
@@ -84,6 +88,7 @@ fn is_truthy(value: &TestValue) -> bool {
         TestValue::Text(value) => !value.is_empty(),
         TestValue::List(items) => !items.is_empty(),
         TestValue::Dict(entries) => !entries.is_empty(),
+        TestValue::Exception { .. } => true,
         TestValue::Unusable => unreachable!("unusable values are not scalar"),
         TestValue::OverflowLength => true,
     }
@@ -184,6 +189,7 @@ impl waymark_vm_interpreter_pureset::value::AsDictKey for TestValue {
             | TestValue::Bool(_)
             | TestValue::List(_)
             | TestValue::Dict(_)
+            | TestValue::Exception { .. }
             | TestValue::Unusable
             | TestValue::OverflowLength => {
                 Err(waymark_vm_interpreter_pureset::value::AsDictKeyError::UnsupportedKeyType)
@@ -206,6 +212,34 @@ impl waymark_vm_interpreter_pureset::value::MakeDict for TestValue {
         }
 
         Ok(Self::Dict(dict))
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::AsExceptionTypeId for TestValue {
+    fn as_exception_type_id(
+        &self,
+    ) -> Result<&str, waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError> {
+        match self {
+            TestValue::Text(value) => Ok(value),
+            TestValue::Int(_)
+            | TestValue::Bool(_)
+            | TestValue::List(_)
+            | TestValue::Dict(_)
+            | TestValue::Exception { .. }
+            | TestValue::Unusable
+            | TestValue::OverflowLength => Err(
+                waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError::UnsupportedTypeIdType,
+            ),
+        }
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::MakeException for TestValue {
+    fn make_exception(type_id: String, details: Self) -> Self {
+        Self::Exception {
+            type_id,
+            details: Box::new(details),
+        }
     }
 }
 
@@ -238,7 +272,7 @@ impl waymark_vm_interpreter_pureset::value::Length for TestValue {
                 Err(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
             }
             Self::OverflowLength => Ok(TestLength::Overflow),
-            Self::Int(_) | Self::Bool(_) => {
+            Self::Int(_) | Self::Bool(_) | Self::Exception { .. } => {
                 Err(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
             }
         }

@@ -133,6 +133,28 @@ where
                 let dict = Value::make_dict(resolved_entries).map_err(Error::MakeDict)?;
                 frame.regs.set(*dst, dict);
             }
+            waymark_vm_instructions_pureset::PureSet::MakeException {
+                dst,
+                type_id,
+                details,
+            } => {
+                let type_id_value = frame
+                    .regs
+                    .get(*type_id)
+                    .ok_or(Error::MissingExceptionTypeId { register: *type_id })?;
+                let type_id_value = type_id_value
+                    .as_exception_type_id()
+                    .map_err(|source| Error::UnusableExceptionTypeId { source })?
+                    .to_owned();
+                let details_value = frame
+                    .regs
+                    .get(*details)
+                    .ok_or(Error::MissingExceptionDetails { register: *details })?
+                    .capture_copy();
+
+                let exception = Value::make_exception(type_id_value, details_value);
+                frame.regs.set(*dst, exception);
+            }
         }
 
         Ok(ExecutionOutcome::Continue(frame))
