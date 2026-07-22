@@ -230,7 +230,7 @@ where
                                 ExecutionOutcome::ExitFrame
                             }
                             PromiseState::Settled(SettledPromiseState::Rejected(exception)) => {
-                                Continuation::<_, _, _, ()>::immediate_raise_exception(
+                                Continuation::immediate_raise_exception(
                                     &mut frame,
                                     *resume,
                                     exception.clone(),
@@ -238,8 +238,10 @@ where
                                 state.ready.push_back(frame);
                                 ExecutionOutcome::ExitFrame
                             }
-                            PromiseState::Waiting(continuations) => {
-                                continuations.push(Continuation::capture(frame, *resume, *dst));
+                            PromiseState::Waiting(waiters) => {
+                                waiters.push(waymark_vm_runtime_core::PromiseWaiter::Await(
+                                    Continuation::capture(frame, *resume, *dst),
+                                ));
                                 ExecutionOutcome::ExitFrame
                             }
                         });
