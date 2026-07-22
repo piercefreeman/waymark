@@ -1,31 +1,11 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: bytecode for python/tests/fixtures_policy/integration_crash_recovery.py
+expression: "bytecode for python/tests/fixtures_policy/integration_crash_recovery.py [compilation error]"
 ---
-fn main(input: [], output: []):
-    a = @integration_crash_recovery.step_one(value="start") [timeout: 2s]
-    b = @integration_crash_recovery.step_two(value=a) [timeout: 2s]
-    c = @integration_crash_recovery.step_three(value=b) [timeout: 2s]
-    d = @integration_crash_recovery.step_four(value=c) [timeout: 2s]
-    return d
----
-f0: [5 registers]
-  s0:
-    PureSet(LoadConst { dst: r1, value: String("start") })
-    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("step_one"), args: [r1], resume: s1 })
-  s1:
-    CoreSet(Await { dst: r0, src: r0, resume: s2 })
-  s2:
-    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("step_two"), args: [r0], resume: s3 })
-  s3:
-    CoreSet(Await { dst: r2, src: r2, resume: s4 })
-  s4:
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("step_three"), args: [r2], resume: s5 })
-  s5:
-    CoreSet(Await { dst: r3, src: r3, resume: s6 })
-  s6:
-    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("step_four"), args: [r3], resume: s7 })
-  s7:
-    CoreSet(Await { dst: r4, src: r4, resume: s8 })
-  s8:
-    CoreSet(Return { src: r4 })
+FunctionCompiler(
+    Unsupported(
+        TimeoutPolicy {
+            action_name: "step_one",
+        },
+    ),
+)
