@@ -207,18 +207,40 @@ where
     }
 
     /// Starts an action call into the given promise register.
+    ///
+    /// A policy-annotated call site starts a generated wrapper function
+    /// holding the policy machinery instead of the raw action call; the
+    /// wrapper's call promise takes the action promise's place.
     pub fn compile_action_call_start(
         &mut self,
         call: ActionCallPlanFor<'_, Spec>,
         dst: &Marked<RegisterHandle, PromiseMarker>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let (action_ref, kwargs) = call.into_parts();
+        let (action_ref, kwargs, action_name, policies) = call.into_parts();
         let args = compile_expr_registers(
             kwargs,
             |kwarg| &kwarg.value,
             |arg| self.compile_expr(arg, ResultTarget::Allocate),
         )?;
         let arg_registers = args.iter().map(RegisterHandle::register).collect();
+
+        if !policies.is_empty() {
+            let wrapper_function_id = super::wrapper_fn::create(
+                self.context.extra_fns,
+                action_name,
+                action_ref,
+                kwargs.len(),
+                policies,
+            )?;
+
+            self.context
+                .emitter
+                .emit_call(dst.marked(), wrapper_function_id, arg_registers);
+
+            drop(args);
+
+            return Ok(());
+        }
 
         let resume_state = self.reserve_state();
 
