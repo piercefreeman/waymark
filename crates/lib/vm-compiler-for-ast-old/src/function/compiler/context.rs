@@ -2,6 +2,7 @@
 
 use crate::function::{
     compiler::{FlowState, FunctionEmitter, LocalFrame},
+    extras::ExtraFunctions,
     table::FunctionTable,
 };
 
@@ -21,6 +22,9 @@ where
 
     /// Local-variable and register-allocation state.
     pub local_frame: &'borrow mut LocalFrame,
+
+    /// Program-wide extra functions introduced during lowering.
+    pub extra_fns: &'borrow mut ExtraFunctions<Spec>,
 
     /// Current definite-initialization state.
     pub flow_state: FlowStateRef,
@@ -44,6 +48,7 @@ where
         function_table: &'table FunctionTable,
         emitter: &'borrow mut FunctionEmitter<Spec>,
         local_frame: &'borrow mut LocalFrame,
+        extra_fns: &'borrow mut ExtraFunctions<Spec>,
         flow_state: &'borrow mut FlowState,
     ) -> Self {
         Self {
@@ -51,6 +56,7 @@ where
             function_table,
             emitter,
             local_frame,
+            extra_fns,
             flow_state,
         }
     }
@@ -62,6 +68,7 @@ where
             function_table: self.function_table,
             emitter: &mut *self.emitter,
             local_frame: &mut *self.local_frame,
+            extra_fns: &mut *self.extra_fns,
             flow_state: &mut *self.flow_state,
         }
     }
@@ -73,6 +80,7 @@ where
             function_table: self.function_table,
             emitter: &mut *self.emitter,
             local_frame: &mut *self.local_frame,
+            extra_fns: &mut *self.extra_fns,
             flow_state: &*self.flow_state,
         }
     }
@@ -85,6 +93,7 @@ where
             function_table: self.function_table,
             emitter: self.emitter,
             local_frame: self.local_frame,
+            extra_fns: self.extra_fns,
             flow_state: &*self.flow_state,
         }
     }
