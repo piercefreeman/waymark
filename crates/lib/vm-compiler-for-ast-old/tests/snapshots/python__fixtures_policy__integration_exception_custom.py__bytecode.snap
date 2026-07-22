@@ -1,11 +1,54 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_policy/integration_exception_custom.py [compilation error]"
+expression: bytecode for python/tests/fixtures_policy/integration_exception_custom.py
 ---
-FunctionCompiler(
-    Unsupported(
-        RetryPolicy {
-            action_name: "explode_custom",
-        },
-    ),
-)
+fn main(input: [], output: []):
+    try:
+        number = @integration_exception_custom.provide_value()
+        @integration_exception_custom.explode_custom(value=number) [retry: 0]
+    except CustomError:
+        result = @integration_exception_custom.cleanup(label="custom_fallback")
+    return result
+---
+f0: [3 registers]
+  s0:
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["CustomError"], exception_dst: None }] })
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("provide_value"), args: [], resume: s3 })
+  s1:
+    CoreSet(Return { src: r2 })
+  s2:
+    PureSet(LoadConst { dst: r1, value: String("custom_fallback") })
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("cleanup"), args: [r1], resume: s6 })
+  s3:
+    CoreSet(Await { dst: r0, src: r0, resume: s4 })
+  s4:
+    CoreSet(Call { dst: r1, function_id: f1, args: [r0] })
+    CoreSet(Await { dst: r1, src: r1, resume: s5 })
+  s5:
+    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Jump { target_state: s1 })
+  s6:
+    CoreSet(Await { dst: r2, src: r2, resume: s7 })
+  s7:
+    CoreSet(Jump { target_state: s1 })
+f1: [8 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: Int(0) })
+    PureSet(LoadConst { dst: r2, value: Int(1) })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }] })
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("explode_custom"), args: [r0], resume: s4 })
+  s2:
+    PureSet(LoadConst { dst: r6, value: Int(0) })
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r7, a: r1, b: r6 } })
+    CoreSet(JumpIf { target_state: s3, cond: r7 })
+    CoreSet(Raise { src: r3 })
+  s3:
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
+    CoreSet(Jump { target_state: s1 })
+  s4:
+    CoreSet(Await { dst: r5, src: r4, resume: s5 })
+  s5:
+    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Return { src: r5 })
