@@ -4,8 +4,8 @@ expression: "bytecode for python/tests/fixtures_policy/policy_variations.py [com
 ---
 FunctionCompiler(
     Unsupported(
-        TimeoutPolicy {
-            action_name: "action_with_timeout_int",
+        RetryPolicy {
+            action_name: "action_with_retry_backoff",
         },
     ),
 )
