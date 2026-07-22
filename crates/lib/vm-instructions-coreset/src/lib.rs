@@ -68,6 +68,23 @@ pub enum CoreSet<Spec: self::Spec> {
         resume: Spec::StateId,
     },
 
+    /// Suspend the execution until the first of several promises settles,
+    /// resuming through that promise's arm.
+    ///
+    /// The arms are scanned in the listed order: an arm whose source holds
+    /// a ready value or an already-settled promise is taken immediately.
+    /// Otherwise the frame is kept aside and resumed - exactly once - by
+    /// whichever arm settles first. Either settlement kind takes an arm
+    /// the same way: a resolution delivers the value to the arm's `dst`,
+    /// a rejection raises - resuming from the arm's `resume` state either
+    /// way. The losing arms are inert.
+    Select {
+        /// The arms to select over.
+        ///
+        /// Must not be empty.
+        arms: Vec<SelectArm<Spec::RegisterId, Spec::StateId>>,
+    },
+
     /// Push one exception-handler block as the new innermost active scope.
     PushExceptionHandlers {
         /// Handlers to activate for subsequent execution in this frame.
@@ -108,4 +125,18 @@ pub enum CoreSet<Spec: self::Spec> {
         /// The register in the current from to take the return value from.
         src: Spec::RegisterId,
     },
+}
+
+/// One arm of a [`CoreSet::Select`] instruction.
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SelectArm<RegisterId, StateId> {
+    /// The register containing the promise this arm watches.
+    pub src: RegisterId,
+
+    /// The register to store this arm's resolved value at.
+    pub dst: RegisterId,
+
+    /// Resume from this state when this arm is taken.
+    pub resume: StateId,
 }
