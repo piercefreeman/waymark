@@ -24,7 +24,7 @@ waymark-worker-core = { workspace = true }
 waymark-worker-process-pool = { workspace = true }
 waymark-worker-process-spec = { workspace = true }
 waymark-worker-python = { workspace = true }
-waymark-worker-remote-bringup = { workspace = true }
+waymark-worker-python-bringup = { workspace = true }
 waymark-worker-remote-pool = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 

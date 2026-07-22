@@ -2,20 +2,22 @@
 
 #![warn(missing_docs)]
 
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
 mod config;
+mod spec_factory;
 
 pub use config::Config;
+pub use spec_factory::{resolve, ResolveError, SpecFactory};
 
 /// Python worker process spec.
-// TODO: rewrite to fully cache effective values, like workdir, as constructor.
+#[derive(Clone, Debug)]
 pub struct Spec {
     /// The address of the bridge server to connect the worker to.
     pub bridge_server_addr: std::net::SocketAddr,
 
-    /// The worker config.
-    pub config: Config,
+    /// The params for preparing the spec.
+    pub factory: SpecFactory,
 }
 
 impl waymark_worker_process_spec::Spec for Spec {
@@ -23,70 +25,15 @@ impl waymark_worker_process_spec::Spec for Spec {
         &self,
         reservation_id: waymark_worker_reservation::Id,
     ) -> waymark_worker_process::SpawnParams {
-        // Determine working directory and module paths
-        let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python");
-        let working_dir = if package_root.is_dir() {
-            Some(package_root.clone())
-        } else {
-            None
-        };
+        let command =
+            spec_factory::build_command(&self.factory, self.bridge_server_addr, reservation_id);
 
-        // Build PYTHONPATH with all necessary directories
-        let mut module_paths = Vec::new();
-        if let Some(root) = working_dir.as_ref() {
-            module_paths.push(root.clone());
-            let src_dir = root.join("src");
-            if src_dir.exists() {
-                module_paths.push(src_dir);
-            }
-            let proto_dir = root.join("proto");
-            if proto_dir.exists() {
-                module_paths.push(proto_dir);
-            }
-        }
-        module_paths.extend(self.config.extra_python_paths.clone());
-
-        let joined_python_path = module_paths
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(":");
-
-        let python_path = match std::env::var("PYTHONPATH") {
-            Ok(existing) if !existing.is_empty() => format!("{existing}:{joined_python_path}"),
-            _ => joined_python_path,
-        };
-
-        tracing::info!(python_path = %python_path, ?reservation_id, "configured python path for worker");
-
-        // Build the command
-        let mut command = tokio::process::Command::new(&self.config.script_path);
-        command.args(&self.config.script_args);
-        command
-            .arg("--bridge")
-            .arg(self.bridge_server_addr.to_string())
-            .arg("--worker-id")
-            .arg(reservation_id.to_string());
-
-        // Add user modules
-        for module in &self.config.user_modules {
-            command.arg("--user-module").arg(module);
-        }
-
-        command.env("PYTHONPATH", python_path);
-
-        if let Some(dir) = working_dir {
-            tracing::info!(?dir, "using package root for worker process");
-            command.current_dir(dir);
-        } else {
-            // TODO: move this fallible initialization outside of this impl.
-            let cwd = std::env::current_dir().expect("failed to resolve current directory");
-            tracing::info!(
-                ?cwd,
-                "package root missing, using current directory for worker process"
-            );
-            command.current_dir(cwd);
-        }
+        tracing::info!(
+            ?reservation_id,
+            working_dir = %self.factory.working_dir.display(),
+            python_path = %self.factory.python_path,
+            "prepared python worker spawn params"
+        );
 
         waymark_worker_process::SpawnParams {
             command,
@@ -98,5 +45,43 @@ impl waymark_worker_process_spec::Spec for Spec {
                 process_kill_timeout: Duration::from_secs(10),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use waymark_worker_process_spec::Spec as _;
+
+    #[tokio::test]
+    async fn spawn_params_assembles_expected_command() {
+        let config = Config::new()
+            .with_script(PathBuf::from("python3"), vec![])
+            .with_user_module("mod_a");
+        let factory = crate::resolve(config)
+            .await
+            .expect("resolve should succeed");
+        let spec = Spec {
+            bridge_server_addr: "127.0.0.1:9000".parse().expect("addr"),
+            factory,
+        };
+
+        let params = spec.prepare_spawn_params(waymark_worker_reservation::Id::from(42));
+        let std_command = params.command.as_std();
+
+        assert_eq!(std_command.get_program(), "python3");
+
+        let args: Vec<String> = std_command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert!(args.contains(&"--bridge".to_string()));
+        assert!(args.contains(&"127.0.0.1:9000".to_string()));
+        assert!(args.contains(&"--user-module".to_string()));
+        assert!(args.contains(&"mod_a".to_string()));
+
+        // Default lifecycle timeouts flow through unchanged.
+        assert_eq!(params.wait_for_playload_timeout, Duration::from_secs(15));
     }
 }

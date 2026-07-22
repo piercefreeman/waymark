@@ -454,13 +454,10 @@ async fn setup_worker_pool(
             repo_root.join("tests/integration_tests"),
         ]);
 
-    let (pool, task) = waymark_worker_remote_bringup::start(
+    let (pool, task) = waymark_worker_python_bringup::start(
         shutdown_token,
         None,
-        |bridge_server_addr| waymark_worker_python::Spec {
-            bridge_server_addr,
-            config,
-        },
+        config,
         worker_count,
         None,
         10.try_into().unwrap(),

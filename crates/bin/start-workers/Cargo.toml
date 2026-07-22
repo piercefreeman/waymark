@@ -14,7 +14,7 @@ waymark-prometheus-exporter-bringup = { workspace = true }
 waymark-tokio-metrics-bringup = { workspace = true }
 waymark-webapp-bringup = { workspace = true }
 waymark-worker-python = { workspace = true }
-waymark-worker-remote-bringup = { workspace = true }
+waymark-worker-python-bringup = { workspace = true }
 waymark-worker-remote-pool = { workspace = true }
 waymark-worker-status-reporter = { workspace = true }
 

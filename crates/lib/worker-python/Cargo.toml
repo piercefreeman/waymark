@@ -9,5 +9,9 @@ waymark-worker-process = { workspace = true }
 waymark-worker-process-spec = { workspace = true }
 waymark-worker-reservation = { workspace = true }
 
-tokio = { workspace = true, features = ["process"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["process", "rt"] }
 tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

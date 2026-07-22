@@ -96,16 +96,10 @@ async fn main() -> Result<()> {
     if !config.user_modules.is_empty() {
         worker_config = worker_config.with_user_modules(config.user_modules.clone());
     }
-
-    let worker_process_spec_builder = |bridge_server_addr| waymark_worker_python::Spec {
-        bridge_server_addr,
-        config: worker_config,
-    };
-
-    let (process_pool, bridge_task) = waymark_worker_remote_bringup::start(
+    let (process_pool, bridge_task) = waymark_worker_python_bringup::start(
         shutdown_token.clone(),
         Some(config.worker_grpc_addr),
-        worker_process_spec_builder,
+        worker_config,
         config.worker_count,
         config.max_action_lifecycle,
         config.concurrent_per_worker,
