@@ -6,8 +6,8 @@ use waymark_vm_instructions_pureset::{
     BinaryOpKind as BinaryOperationKind, UnaryOpKind as UnaryOperationKind,
 };
 use waymark_vm_interpreter_pureset::value::{
-    AsDictKeyError, BinaryOperationError, DotOperationError, FromLengthError, IndexOperationError,
-    LengthError, MakeDictError, UnaryOperationError,
+    AsDictKeyError, AsExceptionTypeIdError, BinaryOperationError, DotOperationError,
+    FromLengthError, IndexOperationError, LengthError, MakeDictError, UnaryOperationError,
 };
 
 use crate::{ReadyValue, ReadyValue as RV, Value, pythonic};
@@ -366,6 +366,30 @@ impl waymark_vm_interpreter_pureset::value::MakeDict for ReadyValue {
         }
 
         Ok(Self::Dict(dict))
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::AsExceptionTypeId for ReadyValue {
+    fn as_exception_type_id(&self) -> Result<&str, AsExceptionTypeIdError> {
+        match self {
+            Self::String(value) => Ok(value),
+            Self::Int(_)
+            | Self::Float(_)
+            | Self::Bool(_)
+            | Self::None
+            | Self::List(_)
+            | Self::Dict(_)
+            | Self::Exception(_) => Err(AsExceptionTypeIdError::UnsupportedTypeIdType),
+        }
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::MakeException for ReadyValue {
+    fn make_exception(type_id: String, details: Self::RootValue) -> Self {
+        Self::Exception(Box::new(waymark_vm_runtime_exception::Exception {
+            type_id,
+            details,
+        }))
     }
 }
 

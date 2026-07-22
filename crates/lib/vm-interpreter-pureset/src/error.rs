@@ -151,6 +151,28 @@ pub enum Error {
         register: RegisterId,
     },
 
+    /// A `MakeException` instruction referenced an unset type id register.
+    #[error("exception type id in register {register:?} is not initialized")]
+    MissingExceptionTypeId {
+        /// The register that was read.
+        register: RegisterId,
+    },
+
+    /// A `MakeException` instruction referenced an unusable type id value.
+    #[error("exception type id is unusable: {source}")]
+    UnusableExceptionTypeId {
+        /// The underlying representation error.
+        #[source]
+        source: crate::value::AsExceptionTypeIdError,
+    },
+
+    /// A `MakeException` instruction referenced an unset details register.
+    #[error("exception details in register {register:?} is not initialized")]
+    MissingExceptionDetails {
+        /// The register that was read.
+        register: RegisterId,
+    },
+
     /// An `Index` instruction referenced an unset object register.
     #[error("index object in register {register:?} is not initialized")]
     MissingIndexObject {

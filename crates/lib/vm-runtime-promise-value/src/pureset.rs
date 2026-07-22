@@ -97,6 +97,29 @@ where
     }
 }
 
+impl<T> waymark_vm_interpreter_pureset::value::AsExceptionTypeId for PromiseValue<T>
+where
+    T: waymark_vm_interpreter_pureset::value::AsExceptionTypeId,
+{
+    fn as_exception_type_id(
+        &self,
+    ) -> Result<&str, waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError> {
+        let value = self.require_ready_ref().map_err(|_| {
+            waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError::UnsupportedTypeIdType
+        })?;
+        value.as_exception_type_id()
+    }
+}
+
+impl<T> waymark_vm_interpreter_pureset::value::MakeException for PromiseValue<T>
+where
+    T: waymark_vm_interpreter_pureset::value::MakeException,
+{
+    fn make_exception(type_id: String, details: Self::RootValue) -> Self {
+        Self::Ready(T::make_exception(type_id, details))
+    }
+}
+
 impl<T> waymark_vm_interpreter_pureset::value::Length for PromiseValue<T>
 where
     T: waymark_vm_interpreter_pureset::value::Length,
