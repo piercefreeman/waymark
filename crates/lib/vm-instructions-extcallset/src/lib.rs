@@ -67,5 +67,9 @@ pub enum ExtCallSet<Spec: self::Spec> {
 
         /// The state to resume the execution from after starting the sleep.
         resume: Spec::StateId,
+
+        /// When true, execution modes that fast-forward sleeps must let
+        /// this one elapse in full.
+        unskippable: bool,
     },
 }

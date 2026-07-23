@@ -128,6 +128,7 @@ async fn effect_handler_records_sleep() {
     let effect = Effect::Sleep {
         promise_state_id: PromiseStateId(0),
         duration: NonZeroDuration::try_from(std::time::Duration::from_nanos(1)).unwrap(),
+        skip_allowed: true,
     };
 
     let effect_number = EffectNumber(0);
