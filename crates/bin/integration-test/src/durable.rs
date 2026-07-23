@@ -149,6 +149,7 @@ fn durable_execution_config() -> waymark_execution_bringup::Config<uuid::Uuid> {
         pinning_ttl: Duration::from_secs(15).try_into().unwrap(),
         pinning_heartbeat: Duration::from_secs(5).try_into().unwrap(),
         pinning_fencing_margin: Duration::from_secs(1).try_into().unwrap(),
+        workload_poll_rate_limit: 1000.try_into().unwrap(),
         sleep_poll_interval: Duration::from_millis(250).try_into().unwrap(),
         vm_retention: Duration::from_secs(60).try_into().unwrap(),
         vm_sweep_interval: Duration::from_secs(10).try_into().unwrap(),

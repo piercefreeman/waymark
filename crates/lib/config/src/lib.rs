@@ -3,7 +3,7 @@
 mod parse;
 
 use std::net::SocketAddr;
-use std::num::{NonZeroU64, NonZeroUsize};
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::time::Duration;
 
 use waymark_garbage_collector_config::GarbageCollectorConfig;
@@ -27,6 +27,7 @@ pub struct WorkerConfig {
     pub lock_ttl: NonZeroDuration,
     pub lock_heartbeat: NonZeroDuration,
     pub pinning_fencing_margin: NonZeroDuration,
+    pub workload_poll_rate_limit: NonZeroU32,
     pub action_effect_reconciler_lock_ttl: NonZeroDuration,
     pub action_effect_reconciler_lock_heartbeat: NonZeroDuration,
     pub evict_sleep_threshold: NonZeroDuration,
@@ -79,6 +80,9 @@ impl WorkerConfig {
 
         let FromMillis(pinning_fencing_margin) =
             envfury::or_parse("WAYMARK_PINNING_FENCING_MARGIN_MS", "1000")?;
+
+        let workload_poll_rate_limit =
+            envfury::or_parse("WAYMARK_WORKLOAD_POLL_RATE_LIMIT", "1000")?;
 
         let FromMillis(action_effect_reconciler_lock_ttl) =
             envfury::or_parse("WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_TTL_MS", "15000")?;
@@ -160,6 +164,7 @@ impl WorkerConfig {
             lock_ttl,
             lock_heartbeat,
             pinning_fencing_margin,
+            workload_poll_rate_limit,
             action_effect_reconciler_lock_ttl,
             action_effect_reconciler_lock_heartbeat,
             evict_sleep_threshold,

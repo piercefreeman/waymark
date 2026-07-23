@@ -11,7 +11,7 @@ use waymark_workload_pinning_core::UnpinMode;
 
 use crate::test_utils::helpers::{
     long_heartbeat, short_heartbeat, test_fencing_margin, test_max_concurrent, test_node_id,
-    test_pinning, test_pinning_ttl, test_unpin_retry_interval,
+    test_pinning, test_pinning_ttl, test_poll_rate_limit, test_unpin_retry_interval,
 };
 use crate::test_utils::mock::{MockBackend, MockError};
 use crate::{Params, PinnedHandle, run};
@@ -38,6 +38,7 @@ async fn run_exits_on_cancellation() {
         pinned_tx,
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
+        poll_rate_limit: test_poll_rate_limit(),
         pinning_heartbeat: short_heartbeat(),
         unpin_retry_interval: test_unpin_retry_interval(),
         pinning_fencing_margin: test_fencing_margin(),
@@ -94,6 +95,7 @@ async fn run_propagates_poll_error() {
         pinned_tx,
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
+        poll_rate_limit: test_poll_rate_limit(),
         pinning_heartbeat: short_heartbeat(),
         unpin_retry_interval: test_unpin_retry_interval(),
         pinning_fencing_margin: test_fencing_margin(),
@@ -174,6 +176,7 @@ async fn maintenance_drains_after_poll_error() {
             pinned_tx,
             max_pinned: test_max_concurrent(),
             pinning_ttl: test_pinning_ttl(),
+            poll_rate_limit: test_poll_rate_limit(),
             pinning_heartbeat: short_heartbeat(),
             unpin_retry_interval: test_unpin_retry_interval(),
             pinning_fencing_margin: test_fencing_margin(),
@@ -294,6 +297,7 @@ async fn maintenance_heartbeats_after_poll_is_dead() {
             pinned_tx,
             max_pinned: test_max_concurrent(),
             pinning_ttl: test_pinning_ttl(),
+            poll_rate_limit: test_poll_rate_limit(),
             pinning_heartbeat: NonZeroDuration::new(heartbeat).unwrap(),
             unpin_retry_interval: test_unpin_retry_interval(),
             pinning_fencing_margin: test_fencing_margin(),
@@ -360,6 +364,7 @@ async fn cleanup_unpins_remaining_workloads_on_force_shutdown() {
         pinned_tx,
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
+        poll_rate_limit: test_poll_rate_limit(),
         pinning_heartbeat: long_heartbeat(),
         unpin_retry_interval: test_unpin_retry_interval(),
         pinning_fencing_margin: test_fencing_margin(),
@@ -456,6 +461,7 @@ async fn cleanup_reports_unpin_error() {
         pinned_tx,
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
+        poll_rate_limit: test_poll_rate_limit(),
         pinning_heartbeat: short_heartbeat(),
         unpin_retry_interval: test_unpin_retry_interval(),
         pinning_fencing_margin: test_fencing_margin(),
@@ -546,6 +552,7 @@ async fn unpin_park_flows_end_to_end() {
             pinned_tx,
             max_pinned: test_max_concurrent(),
             pinning_ttl: test_pinning_ttl(),
+            poll_rate_limit: test_poll_rate_limit(),
             pinning_heartbeat: short_heartbeat(),
             unpin_retry_interval: test_unpin_retry_interval(),
             pinning_fencing_margin: test_fencing_margin(),

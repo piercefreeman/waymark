@@ -158,6 +158,7 @@ async fn main() -> Result<()> {
         pinning_ttl: config.lock_ttl,
         pinning_heartbeat: config.lock_heartbeat,
         pinning_fencing_margin: config.pinning_fencing_margin,
+        workload_poll_rate_limit: config.workload_poll_rate_limit,
         sleep_poll_interval: config.sleep_poll_interval,
         vm_retention: config.vm_retention,
         vm_sweep_interval: config.vm_sweep_interval,
