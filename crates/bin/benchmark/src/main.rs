@@ -1,4 +1,5 @@
-//! Benchmark CLI for running mixed IR workloads against Postgres.
+//! Benchmark CLI for running mixed IR workloads against Postgres through
+//! the durable VM execution subsystem.
 
 use std::collections::HashMap;
 use std::env;
@@ -13,27 +14,27 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use waymark_backend_postgres::PostgresBackend;
-use waymark_core_backend::QueuedInstance;
-use waymark_ids::{InstanceId, LockId, WorkflowVersionId};
-use waymark_secret_string::{SecretStr, SecretString};
-use waymark_support_integration::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
-use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
-
-use waymark_dag_builder::convert_to_dag;
-use waymark_ir_conversions::literal_from_json_value;
+use waymark_convert_core::Convert;
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
-use waymark_runloop::{RunLoop, RunLoopConfig};
-use waymark_runner_state::RunnerState;
+use waymark_secret_string::{SecretStr, SecretString};
 use waymark_smoke_sources::{
     build_control_flow_program, build_parallel_spread_program, build_program,
     build_try_except_program, build_while_loop_program,
 };
+use waymark_support_integration::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
 use waymark_worker_core::WorkerPoolError;
 use waymark_worker_inline::{ActionCallable, InlineWorkerPool};
 
 const DEFAULT_DSN: &SecretStr = LOCAL_POSTGRES_DSN;
-const DEFAULT_MAX_CONCURRENT_INSTANCES: NonZeroUsize = NonZeroUsize::new(500).unwrap();
+const DEFAULT_MAX_PINNED: NonZeroUsize = NonZeroUsize::new(500).unwrap();
+
+/// How often to poll the recorded execution results while draining.
+const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// How long the drain may go without recording a single new execution
+/// result before the benchmark declares a stall and aborts.
+const DRAIN_STALL_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Parser, Debug)]
 #[command(
@@ -45,8 +46,6 @@ struct BenchmarkArgs {
     count: NonZeroUsize,
     #[arg(long, default_value_t = 5)]
     base: i64,
-    #[arg(long, default_value_t = 250.try_into().unwrap())]
-    batch_size: NonZeroUsize,
     #[arg(long, default_value = DEFAULT_DSN.expose_secret())]
     dsn: SecretString,
     #[arg(long, default_value_t = false)]
@@ -88,21 +87,18 @@ fn action_registry() -> HashMap<String, ActionCallable> {
     actions
 }
 
-#[derive(Clone)]
 struct BenchmarkCase {
-    dag: Arc<waymark_dag::DAG>,
-    inputs: HashMap<String, Value>,
-    program_proto: Vec<u8>,
+    program: waymark_vm_ast_old::Program,
+    inputs: HashMap<String, waymark_system_vm::Value>,
     ir_hash: String,
 }
 
 fn build_cases(base: i64) -> HashMap<String, BenchmarkCase> {
-    let smoke_program = build_program();
     let mut cases = HashMap::new();
     let entries: Vec<(&str, ir::Program, HashMap<String, Value>)> = vec![
         (
             "smoke",
-            smoke_program,
+            build_program(),
             HashMap::from([("base".to_string(), Value::Number(base.into()))]),
         ),
         (
@@ -133,13 +129,20 @@ fn build_cases(base: i64) -> HashMap<String, BenchmarkCase> {
     for (name, program, inputs) in entries {
         let program_proto = program.encode_to_vec();
         let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
-        let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
+        let program = waymark_vm_ast_old_proto::convert(program).expect("convert IR to VM AST");
+        let inputs = inputs
+            .into_iter()
+            .map(|(name, value)| {
+                let value: waymark_system_vm::Value =
+                    waymark_vm_value_convert_json::Converter::convert(value);
+                (name, value)
+            })
+            .collect();
         cases.insert(
             name.to_string(),
             BenchmarkCase {
-                dag,
+                program,
                 inputs,
-                program_proto,
                 ir_hash,
             },
         );
@@ -147,87 +150,83 @@ fn build_cases(base: i64) -> HashMap<String, BenchmarkCase> {
     cases
 }
 
-fn build_instance(case: &BenchmarkCase, workflow_version_id: WorkflowVersionId) -> QueuedInstance {
-    let mut state = RunnerState::from_dag(Arc::clone(&case.dag));
-    for (name, value) in &case.inputs {
-        let expr = literal_from_json_value(value);
-        let label = format!("input {name} = {value}");
-        let _ = state
-            .record_assignment(vec![name.clone()], &expr, None, Some(label))
-            .expect("record assignment");
-    }
-    let entry = case
-        .dag
-        .entry_node
-        .clone()
-        .expect("DAG entry node not found");
-    let entry_exec = state
-        .queue_template_node(&entry, None)
-        .expect("queue entry node");
-    QueuedInstance {
-        workflow_version_id,
-        schedule_id: None,
-        entry_node: entry_exec.node_id,
-        graph: state.graph,
-        action_results: HashMap::new(),
-        instance_id: InstanceId::new_uuid_v4(),
-        scheduled_at: None,
-    }
+struct CompiledCase {
+    executable_id: waymark_ids::WorkflowVersionId,
+    executable: Arc<waymark_system_vm::Executable>,
+    metadata: waymark_vm_compiler_for_ast_old_core::Metadata,
 }
 
-async fn queue_benchmark_instances(
-    backend: &PostgresBackend,
+async fn register_benchmark_vms(
+    executables: &waymark_workflow_service_vm_executables::ExecutablesService<
+        PostgresBackend,
+        waymark_vm_codec_rmp::RmpCodec,
+        waymark_system_vm::Spec,
+        waymark_system_vm::Lowering,
+    >,
+    registration: &waymark_workflow_service_vm_runtimes::RegistrationService<
+        PostgresBackend,
+        waymark_vm_codec_rmp::RmpCodec,
+    >,
     cases: &HashMap<String, BenchmarkCase>,
     count_per_case: NonZeroUsize,
-    batch_size: NonZeroUsize,
 ) -> usize {
-    let mut version_ids = HashMap::new();
+    let mut compiled = HashMap::new();
     for (name, case) in cases {
-        let registration = WorkflowRegistration {
-            workflow_name: name.clone(),
-            workflow_version: case.ir_hash.clone(),
-            ir_hash: case.ir_hash.clone(),
-            program_proto: case.program_proto.clone(),
-            concurrent: false,
-        };
-        let version_id = backend
-            .upsert_workflow_version(&registration)
+        match executables
+            .compile_and_store(name, &case.ir_hash, &case.program)
             .await
-            .expect("register workflow version");
-        version_ids.insert(name.clone(), version_id);
+        {
+            Ok((executable_id, executable, metadata)) => {
+                compiled.insert(
+                    name.clone(),
+                    CompiledCase {
+                        executable_id,
+                        executable: Arc::new(executable),
+                        metadata,
+                    },
+                );
+            }
+            Err(err) => {
+                eprintln!("Skipping IR job '{name}': compilation failed: {err}");
+            }
+        }
     }
 
     let mut case_names = Vec::new();
-    for name in cases.keys() {
+    for name in compiled.keys() {
         for _ in 0..count_per_case.get() {
             case_names.push(name.clone());
         }
     }
     case_names.shuffle(&mut rand::rng());
 
-    let mut queued = 0;
-    let mut batch = Vec::new();
-    for name in case_names {
-        let case = cases.get(&name).expect("case");
-        let version_id = *version_ids.get(&name).expect("workflow version");
-        batch.push(build_instance(case, version_id));
-        if batch.len() >= batch_size.get() {
-            backend
-                .queue_instances(&batch)
-                .await
-                .expect("queue instances");
-            queued += batch.len();
-            batch.clear();
-        }
-    }
-    if !batch.is_empty() {
-        backend
-            .queue_instances(&batch)
+    for name in &case_names {
+        let case = cases.get(name).expect("case");
+        let compiled_case = compiled.get(name).expect("compiled case");
+
+        let call_spec = waymark_vm_runtime_builder::builder(&compiled_case.metadata)
+            .first_fn()
+            .expect("select entry function")
+            .args(case.inputs.clone())
+            .expect("match entry function arguments");
+        let runtime = waymark_system_vm::Runtime::with_custom_entrypoint(
+            waymark_system_vm::Interpreter::default(),
+            Arc::clone(&compiled_case.executable),
+            call_spec,
+        )
+        .expect("create VM runtime");
+
+        registration
+            .register_vm(
+                waymark_ids::InstanceId::new_uuid_v4(),
+                compiled_case.executable_id,
+                |serializer| runtime.snapshot(serializer),
+            )
             .await
-            .expect("queue instances");
-        queued += batch.len();
+            .expect("register vm");
     }
-    queued
+
+    case_names.len()
 }
 
 fn format_query_counts(counts: HashMap<String, usize>) -> String {
@@ -288,6 +287,13 @@ async fn drop_benchmark_tables(pool: &PgPool) {
             runner_instances_done,
             runner_graph_updates,
             workflow_versions,
+            action_call_completions,
+            action_call_requests,
+            sleep_requests,
+            vm_executables,
+            vm_runtime_snapshots,
+            runnable_workloads,
+            vm_execution_results,
             _sqlx_migrations
         CASCADE
         "#,
@@ -295,6 +301,73 @@ async fn drop_benchmark_tables(pool: &PgPool) {
     .execute(pool)
     .await
     .expect("drop benchmark tables");
+
+    // The migrations also create trigger functions; they survive the table
+    // drops and would fail the re-run with "function already exists".
+    sqlx::query(
+        r#"
+        DROP FUNCTION IF EXISTS
+            action_call_requests_remove_on_completion,
+            vm_runtime_snapshots_cleanup_on_delete
+        CASCADE
+        "#,
+    )
+    .execute(pool)
+    .await
+    .expect("drop benchmark trigger functions");
+}
+
+fn durable_execution_config(
+    max_pinned: NonZeroUsize,
+) -> waymark_execution_bringup::Config<uuid::Uuid> {
+    waymark_execution_bringup::Config {
+        node_id: uuid::Uuid::new_v4(),
+        // Generous lock/pinning windows: at benchmark load the renewal and
+        // refresh heartbeats lag behind their default 15s TTLs, and a lapsed
+        // lock gets relocked at revive — the renewal loop then breaches its
+        // fence (`HeldElsewhere`) and shuts the whole subsystem down.
+        action_effect_reconciler_lock_ttl: Duration::from_secs(120).try_into().unwrap(),
+        action_effect_reconciler_lock_heartbeat: Duration::from_secs(15).try_into().unwrap(),
+        max_pinned,
+        pinning_ttl: Duration::from_secs(120).try_into().unwrap(),
+        pinning_heartbeat: Duration::from_secs(15).try_into().unwrap(),
+        pinning_fencing_margin: Duration::from_secs(5).try_into().unwrap(),
+        sleep_poll_interval: Duration::from_millis(250).try_into().unwrap(),
+        vm_retention: Duration::from_secs(60).try_into().unwrap(),
+        vm_sweep_interval: Duration::from_secs(10).try_into().unwrap(),
+        executable_retention: Duration::from_secs(300).try_into().unwrap(),
+        executable_sweep_interval: Duration::from_secs(60).try_into().unwrap(),
+    }
+}
+
+async fn shutdown_execution(handles: waymark_execution_bringup::Handles) {
+    let waymark_execution_bringup::Handles {
+        pinning_manager,
+        execution_driver,
+        executable_sweeper,
+        vm_sweeper,
+        durable_action_completions_writer,
+        durable_action_completions_poller,
+        durable_action_completions_acker,
+        durable_sleeps_poller,
+        durable_sleeps_acker,
+        action_effect_reconciler_lock_renewal,
+    } = handles;
+
+    let _ = tokio::time::timeout(Duration::from_secs(5), pinning_manager).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), execution_driver).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), executable_sweeper).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), vm_sweeper).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), durable_action_completions_writer).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), durable_action_completions_poller).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), durable_action_completions_acker).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), durable_sleeps_poller).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), durable_sleeps_acker).await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        action_effect_reconciler_lock_renewal,
+    )
+    .await;
 }
 
 struct BenchmarkStats {
@@ -307,10 +380,8 @@ struct BenchmarkStats {
 async fn run_benchmark(
     count_per_case: NonZeroUsize,
     base: i64,
-    batch_size: NonZeroUsize,
     dsn: &SecretStr,
-    max_concurrent_instances: NonZeroUsize,
-    executor_shards: NonZeroUsize,
+    max_pinned: NonZeroUsize,
 ) -> BenchmarkStats {
     let cases = build_cases(base);
     if dsn.expose_secret() == LOCAL_POSTGRES_DSN.expose_secret() {
@@ -326,31 +397,67 @@ async fn run_benchmark(
         .await
         .expect("run migrations");
     let backend = PostgresBackend::new(pool);
-    backend.clear_all().await.expect("clear all");
-    let total = queue_benchmark_instances(&backend, &cases, count_per_case, batch_size).await;
-    println!("Queued {total} instances across {} IR jobs", cases.len());
+    let codec = waymark_vm_codec_rmp::RmpCodec;
+    let executables =
+        waymark_workflow_service_vm_executables::ExecutablesService::new(backend.clone(), codec);
+    let registration =
+        waymark_workflow_service_vm_runtimes::RegistrationService::new(backend.clone(), codec);
 
-    let worker_pool = InlineWorkerPool::new(action_registry());
-    let runloop = RunLoop::new(
-        worker_pool,
-        backend.clone(),
-        RunLoopConfig {
-            max_concurrent_instances,
-            executor_shards,
-            instance_done_batch_size: None,
-            poll_interval: Some(Duration::from_secs_f64(0.05).try_into().unwrap()),
-            persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
-            lock_uuid: LockId::new_uuid_v4(),
-            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
-            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
-            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
-            skip_sleep: false,
-            active_instance_gauge: None,
-        },
+    let queue_start = Instant::now();
+    let total = register_benchmark_vms(&executables, &registration, &cases, count_per_case).await;
+    println!(
+        "Queued {total} instances across {} IR jobs in {:.2?}",
+        cases.len(),
+        queue_start.elapsed(),
     );
+
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
+    let force_shutdown_token = tokio_util::sync::CancellationToken::new();
+    // The subsystem's internal loops cancel this token when any of them
+    // fails (e.g. a lock fence breach) — watched below so the drain loop
+    // fails loudly instead of waiting forever on a dead subsystem.
+    let subsystem_token = shutdown_token.child_token();
     let start = Instant::now();
-    runloop.run().await.expect("runloop");
+    let execution_handles = waymark_execution_bringup::start(
+        durable_execution_config(max_pinned),
+        Arc::new(backend.clone()),
+        InlineWorkerPool::new(action_registry()),
+        subsystem_token.clone(),
+        force_shutdown_token.child_token(),
+    )
+    .await
+    .expect("start execution subsystem");
+
+    let mut last_progress = (0i64, Instant::now());
+    loop {
+        let done: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM vm_execution_results")
+            .fetch_one(backend.pool())
+            .await
+            .expect("count recorded execution results");
+        if done as usize >= total {
+            break;
+        }
+        if subsystem_token.is_cancelled() {
+            panic!("execution subsystem shut down after draining only {done} of {total} instances");
+        }
+        if done > last_progress.0 {
+            last_progress = (done, Instant::now());
+        } else if last_progress.1.elapsed() > DRAIN_STALL_TIMEOUT {
+            panic!(
+                "drain stalled: no new execution results for {}s at {done} of {total} instances",
+                DRAIN_STALL_TIMEOUT.as_secs(),
+            );
+        }
+        tokio::time::sleep(DRAIN_POLL_INTERVAL).await;
+    }
     let elapsed = start.elapsed();
+
+    // Nothing is draining anymore — force the pinning manager out of its
+    // drain loop along with the graceful stop.
+    shutdown_token.cancel();
+    force_shutdown_token.cancel();
+    shutdown_execution(execution_handles).await;
+
     BenchmarkStats {
         elapsed,
         query_counts: backend.query_counts(),
@@ -358,18 +465,11 @@ async fn run_benchmark(
     }
 }
 
-fn benchmark_max_concurrent() -> NonZeroUsize {
+fn benchmark_max_pinned() -> NonZeroUsize {
     env::var("WAYMARK_MAX_CONCURRENT_INSTANCES")
         .ok()
         .and_then(|value| value.trim().parse::<NonZeroUsize>().ok())
-        .unwrap_or(DEFAULT_MAX_CONCURRENT_INSTANCES)
-}
-
-fn benchmark_executor_shards() -> NonZeroUsize {
-    env::var("WAYMARK_EXECUTOR_SHARDS")
-        .ok()
-        .and_then(|value| value.trim().parse::<NonZeroUsize>().ok())
-        .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(1.try_into().unwrap()))
+        .unwrap_or(DEFAULT_MAX_PINNED)
 }
 
 fn main() {
@@ -379,21 +479,14 @@ fn main() {
             console: args.observe,
             trace_path: args.trace.clone(),
         });
+    } else {
+        waymark_fn_main_common::init().expect("tracing setup");
     }
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
     let _span = tracing::info_span!("benchmark_main").entered();
-    let max_concurrent_instances = benchmark_max_concurrent();
-    let executor_shards = benchmark_executor_shards();
-    println!("max_concurrent_instances = {max_concurrent_instances}");
-    println!("executor_shards = {executor_shards}");
-    let stats = runtime.block_on(run_benchmark(
-        args.count,
-        args.base,
-        args.batch_size,
-        &args.dsn,
-        max_concurrent_instances,
-        executor_shards,
-    ));
+    let max_pinned = benchmark_max_pinned();
+    println!("max_pinned = {max_pinned}");
+    let stats = runtime.block_on(run_benchmark(args.count, args.base, &args.dsn, max_pinned));
     println!("Benchmark completed in {:.2?}", stats.elapsed);
     println!("{}", format_query_counts(stats.query_counts));
     println!("{}", format_batch_size_counts(stats.batch_counts));
