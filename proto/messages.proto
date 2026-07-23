@@ -44,6 +44,9 @@ message ActionDispatch {
   optional uint32 max_retries = 8;
   optional uint32 attempt_number = 9;
   optional string dispatch_token = 10;  // UUID for result correlation
+
+  // Opaque server correlation metadata; workers echo it untouched
+  bytes metadata = 11;
 }
 
 // Worker -> Server: result of action execution
@@ -56,6 +59,7 @@ message ActionResult {
   optional string dispatch_token = 6;
   optional string error_type = 7;    // Exception type if success=false
   optional string error_message = 8; // Exception message if success=false
+  bytes metadata = 9;                // Opaque server correlation metadata echoed from the dispatch
 }
 
 // Worker -> Server: acknowledgment of message receipt

@@ -173,6 +173,7 @@ impl Executor {
                 timeout_seconds,
                 attempt_number,
                 dispatch_token: Uuid::new_v4(),
+                metadata: Vec::new(),
             });
             self.inflight.insert(action.node_id);
         }

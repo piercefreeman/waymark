@@ -4269,11 +4269,30 @@ dependencies = [
  "thiserror",
  "waymark-action-core",
  "waymark-action-runtime-core",
+ "waymark-action-runtime-metadata",
  "waymark-extcall-reconciler-core",
  "waymark-vm-driver-core",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
 ]
+
+[[package]]
+name = "waymark-action-runtime-completions-router"
+version = "0.1.0"
+dependencies = [
+ "dashmap 6.2.1",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "waymark-action-runtime-completions-router-core",
+ "waymark-action-runtime-core",
+ "waymark-ids",
+]
+
+[[package]]
+name = "waymark-action-runtime-completions-router-core"
+version = "0.1.0"
 
 [[package]]
 name = "waymark-action-runtime-convert"
@@ -4297,27 +4316,41 @@ version = "0.1.0"
 dependencies = [
  "nonempty-collections",
  "waymark-action-core",
- "waymark-vm-runtime-effect",
  "waymark-vm-runtime-exception",
+]
+
+[[package]]
+name = "waymark-action-runtime-metadata"
+version = "0.1.0"
+dependencies = [
+ "waymark-action-runtime-completions-router-core",
+ "waymark-action-runtime-metadata-codec",
+ "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
 ]
+
+[[package]]
+name = "waymark-action-runtime-metadata-codec"
+version = "0.1.0"
 
 [[package]]
 name = "waymark-action-runtime-worker-pool"
 version = "0.1.0"
 dependencies = [
- "dashmap 6.2.1",
  "nonempty-collections",
+ "serde_json",
  "thiserror",
  "tokio",
  "tracing",
  "uuid",
+ "waymark-action-core",
  "waymark-action-runtime-convert",
  "waymark-action-runtime-core",
+ "waymark-action-runtime-metadata",
+ "waymark-action-runtime-metadata-codec",
  "waymark-convert-core",
  "waymark-ids",
- "waymark-vm-runtime-effect",
- "waymark-vm-runtime-promise-core",
+ "waymark-runner-executor-core",
  "waymark-vm-value",
  "waymark-vm-value-convert-core",
  "waymark-worker-core",
@@ -4328,16 +4361,17 @@ name = "waymark-action-runtime-worker-stream"
 version = "0.1.0"
 dependencies = [
  "nonempty-collections",
+ "thiserror",
  "tokio",
  "tonic 0.11.0",
  "tracing",
  "waymark-action-core",
  "waymark-action-runtime-convert",
  "waymark-action-runtime-core",
+ "waymark-action-runtime-metadata",
+ "waymark-action-runtime-metadata-codec",
  "waymark-convert-core",
  "waymark-proto",
- "waymark-vm-runtime-effect",
- "waymark-vm-runtime-promise-core",
  "waymark-vm-value",
 ]
 
@@ -4631,6 +4665,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "waymark-action-reconciler",
+ "waymark-action-runtime-completions-router",
  "waymark-action-runtime-worker-pool",
  "waymark-execution-driver",
  "waymark-extcall-reconciler",
@@ -4679,6 +4714,7 @@ dependencies = [
  "waymark-action-core",
  "waymark-action-reconciler",
  "waymark-action-runtime-core",
+ "waymark-action-runtime-metadata",
  "waymark-extcall-reconciler-core",
  "waymark-nonzero-duration",
  "waymark-sleep-reconciler",
@@ -4768,6 +4804,7 @@ dependencies = [
  "sqlx",
  "thiserror",
  "uuid",
+ "waymark-action-runtime-metadata-codec",
 ]
 
 [[package]]
@@ -5400,11 +5437,11 @@ dependencies = [
  "tonic 0.11.0",
  "tracing",
  "waymark-action-reconciler",
+ "waymark-action-runtime-metadata",
  "waymark-action-runtime-worker-stream",
  "waymark-convert-core",
  "waymark-extcall-reconciler",
  "waymark-fullset-effect-handler",
- "waymark-ids",
  "waymark-proto",
  "waymark-sleep-reconciler",
  "waymark-system-vm",

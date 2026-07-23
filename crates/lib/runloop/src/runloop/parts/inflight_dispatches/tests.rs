@@ -119,6 +119,7 @@ fn timeout_is_prepended_before_existing_completions() {
         attempt_number: 1,
         dispatch_token: Uuid::new_v4(),
         result: UncheckedExecutionResult(serde_json::json!(42)),
+        metadata: Vec::new(),
     };
     harness.completions.push(existing);
 

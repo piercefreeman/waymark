@@ -237,6 +237,9 @@ pub struct ActionDispatchPayload {
 
     /// Dispatch token for correlation
     pub dispatch_token: Uuid,
+
+    /// Opaque server correlation metadata; echoed back on the result.
+    pub metadata: Vec<u8>,
 }
 
 impl Sender {
@@ -300,6 +303,7 @@ impl Sender {
             max_retries: Some(dispatch.max_retries),
             attempt_number: Some(dispatch.attempt_number),
             dispatch_token: Some(dispatch.dispatch_token.to_string()),
+            metadata: dispatch.metadata.clone(),
         };
 
         let envelope = proto::Envelope {
@@ -399,6 +403,7 @@ mod tests {
             max_retries: 3,
             attempt_number: 1,
             dispatch_token,
+            metadata: Vec::new(),
         }
     }
 

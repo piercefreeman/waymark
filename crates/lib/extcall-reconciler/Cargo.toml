@@ -20,6 +20,7 @@ tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 [dev-dependencies]
 waymark-action-reconciler = { workspace = true }
 waymark-action-runtime-core = { workspace = true }
+waymark-action-runtime-metadata = { workspace = true }
 waymark-sleep-reconciler = { workspace = true }
 waymark-vm-value = { workspace = true }
 

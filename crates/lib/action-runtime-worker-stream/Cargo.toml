@@ -8,16 +8,20 @@ publish.workspace = true
 waymark-action-core = { workspace = true }
 waymark-action-runtime-convert = { workspace = true }
 waymark-action-runtime-core = { workspace = true }
+waymark-action-runtime-metadata = { workspace = true }
+waymark-action-runtime-metadata-codec = { workspace = true }
 waymark-convert-core = { workspace = true }
 waymark-proto = { workspace = true }
-waymark-vm-runtime-effect = { workspace = true }
-waymark-vm-runtime-promise-core = { workspace = true }
 waymark-vm-value = { workspace = true }
 
 nonempty-collections = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 tonic = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lib]
 doctest = false

@@ -19,6 +19,7 @@ pub struct ActionRequest {
     pub timeout_seconds: u32,
     pub attempt_number: u32,
     pub dispatch_token: Uuid,
+    pub metadata: Vec<u8>,
 }
 
 /// Completed action result emitted by the worker pool.
@@ -29,6 +30,7 @@ pub struct ActionCompletion {
     pub attempt_number: u32,
     pub dispatch_token: Uuid,
     pub result: UncheckedExecutionResult,
+    pub metadata: Vec<u8>,
 }
 
 #[derive(Debug, thiserror::Error)]

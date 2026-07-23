@@ -78,6 +78,7 @@ pub fn handle(params: Params<'_>) {
                 },
             )
             .into_unchecked(),
+            metadata: Vec::new(),
         });
     }
 
