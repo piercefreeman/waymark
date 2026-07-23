@@ -352,9 +352,63 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
         .await
         .map_err(Self::Error::Sqlx)?;
 
-        let renewals = rows
-            .iter()
-            .map(|row| {
+        let mut renewals = Vec::with_capacity(rows.len());
+        let mut unrenewed_but_present = Vec::new();
+        for row in &rows {
+            let promise_state_id: i64 = row.get("promise_state_id");
+            let key = ActionCallRequestKey {
+                vm_id: row.get("vm_id"),
+                promise_state_id: PromiseStateId(
+                    usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
+                ),
+            };
+            if row.get::<bool, _>("renewed") {
+                renewals.push(RequestLockRenewal {
+                    key,
+                    status: RenewalStatus::Renewed,
+                });
+            } else if row.get::<bool, _>("present") {
+                unrenewed_but_present.push(key);
+            } else {
+                renewals.push(RequestLockRenewal {
+                    key,
+                    status: RenewalStatus::Missing,
+                });
+            }
+        }
+
+        // `present` above comes from the renewal statement's snapshot,
+        // which may predate a concurrent completion's row removal — the
+        // update then skips the deleted row while the snapshot still shows
+        // it, which must NOT read as another owner taking the lock.
+        // Classify these keys from a fresh read instead: gone means the
+        // completion won (`Missing`), still ours means the extension went
+        // unconfirmed this pass (`Unconfirmed`), and only a different
+        // owner on the current row is a real `HeldElsewhere`.
+        if let Some(unverified) = NESlice::try_from_slice(&unrenewed_but_present) {
+            let columns = key_columns(unverified.iter()).map_err(Self::Error::OutOfRange)?;
+
+            Self::count_query(&self.query_counts, "select:action_call_requests_verify");
+            let verify_rows = sqlx::query(
+                r#"
+                SELECT i.vm_id, i.promise_state_id,
+                       (r.vm_id IS NOT NULL) AS present,
+                       r.locked_by
+                FROM UNNEST($1::uuid[], $2::bigint[]) AS i(vm_id, promise_state_id)
+                LEFT JOIN action_call_requests r
+                    ON r.vm_id = i.vm_id AND r.promise_state_id = i.promise_state_id
+                "#,
+            )
+            .bind(&columns.vm_ids)
+            .bind(&columns.promise_state_ids)
+            .fetch_all(&self.pool)
+            .timed(crate::query_timing_histogram!(
+                "select:action_call_requests_verify"
+            ))
+            .await
+            .map_err(Self::Error::Sqlx)?;
+
+            for row in &verify_rows {
                 let promise_state_id: i64 = row.get("promise_state_id");
                 let key = ActionCallRequestKey {
                     vm_id: row.get("vm_id"),
@@ -362,16 +416,20 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
                         usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
                     ),
                 };
-                let status = if row.get::<bool, _>("renewed") {
-                    RenewalStatus::Renewed
-                } else if row.get::<bool, _>("present") {
-                    RenewalStatus::HeldElsewhere
-                } else {
+                let status = if !row.get::<bool, _>("present") {
                     RenewalStatus::Missing
+                } else {
+                    match row.get::<Option<uuid::Uuid>, _>("locked_by") {
+                        Some(locked_by) if locked_by == lock.owner => RenewalStatus::Unconfirmed,
+                        // A row we no longer own — relocked by another
+                        // owner, or unlocked and up for redelivery by
+                        // anyone. Either way our authorization is gone.
+                        Some(_) | None => RenewalStatus::HeldElsewhere,
+                    }
                 };
-                Ok(RequestLockRenewal { key, status })
-            })
-            .collect::<Result<Vec<_>, Self::Error>>()?;
+                renewals.push(RequestLockRenewal { key, status });
+            }
+        }
 
         Ok(NEVec::try_from_vec(renewals)
             .expect("the input keys are non-empty and each yields one row"))

@@ -93,8 +93,11 @@ where
 /// Tracked locks leave peacefully only via
 /// [`RenewalStatus::Missing`] — the row is gone because its completion
 /// was durably recorded (or the VM was purged).  [`RenewalStatus::HeldElsewhere`]
-/// is a breach ([`Error::HeldElsewhere`]): under an intact fence another
-/// owner cannot take an unexpired lock, and our attempt is still running.
+/// is a breach ([`Error::HeldElsewhere`]): the backend reports it only
+/// from a verified current read, and under an intact fence another owner
+/// cannot take an unexpired lock while our attempt is still running.
+/// [`RenewalStatus::Unconfirmed`] keeps the lock tracked with its
+/// existing fence deadline — the next heartbeat retries the extension.
 ///
 /// Renewal call failures are logged and retried at the next heartbeat —
 /// they only matter once they push a lock to its fence (keep the
@@ -196,6 +199,12 @@ where
                         }
                         RenewalStatus::HeldElsewhere => {
                             held_elsewhere.push(key);
+                        }
+                        RenewalStatus::Unconfirmed => {
+                            // Still ours, but this pass could not confirm
+                            // the extension — the existing fence deadline
+                            // stands and the next heartbeat retries.
+                            tracing::debug!(?key, "lock renewal unconfirmed; retrying");
                         }
                     }
                 }

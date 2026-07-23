@@ -8,16 +8,12 @@ pub fn durable_execution_config(
 ) -> waymark_execution_bringup::Config<uuid::Uuid> {
     waymark_execution_bringup::Config {
         node_id: uuid::Uuid::new_v4(),
-        // Generous lock/pinning windows: at benchmark load the renewal and
-        // refresh heartbeats lag behind their default 15s TTLs, and a lapsed
-        // lock gets relocked at revive — the renewal loop then breaches its
-        // fence (`HeldElsewhere`) and shuts the whole subsystem down.
-        action_effect_reconciler_lock_ttl: Duration::from_secs(120).try_into().unwrap(),
-        action_effect_reconciler_lock_heartbeat: Duration::from_secs(15).try_into().unwrap(),
+        action_effect_reconciler_lock_ttl: Duration::from_secs(15).try_into().unwrap(),
+        action_effect_reconciler_lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
         max_pinned,
-        pinning_ttl: Duration::from_secs(120).try_into().unwrap(),
-        pinning_heartbeat: Duration::from_secs(15).try_into().unwrap(),
-        pinning_fencing_margin: Duration::from_secs(5).try_into().unwrap(),
+        pinning_ttl: Duration::from_secs(15).try_into().unwrap(),
+        pinning_heartbeat: Duration::from_secs(5).try_into().unwrap(),
+        pinning_fencing_margin: Duration::from_secs(1).try_into().unwrap(),
         workload_poll_rate_limit: 1000.try_into().unwrap(),
         sleep_poll_interval: Duration::from_millis(250).try_into().unwrap(),
         vm_retention: Duration::from_secs(60).try_into().unwrap(),
