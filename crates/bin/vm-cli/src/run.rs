@@ -116,11 +116,13 @@ pub async fn run(
                         waymark_vm_interpreter_extcallset::Effect::Sleep {
                             promise_state_id,
                             duration,
+                            skip_allowed,
                         } => {
                             tracing::info!(
                                 effect_number = %emitted_effect.number,
                                 ?promise_state_id,
                                 ?duration,
+                                skip_allowed,
                                 "sleep received"
                             );
 

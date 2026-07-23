@@ -21,8 +21,9 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 ///
 /// `SleepValueProvider` supplies the value elapsed sleeps resolve with.
 ///
-/// Set `skip_sleep` to true to force all sleeps to resolve immediately
-/// (useful for testing and debugging).
+/// Set `skip_sleep` to true to force skip-allowed sleeps to resolve
+/// immediately (useful for testing and debugging); sleeps recorded with
+/// `skip_allowed: false` elapse in full regardless.
 pub fn new<SleepValueProvider>(skip_sleep: bool) -> (Handler, Poller<SleepValueProvider>) {
     let (tx, rx) = mpsc::unbounded_channel();
     let recorded = Arc::new(std::sync::Mutex::new(RecordedSleeps::new()));
@@ -55,8 +56,8 @@ pub struct Handler {
     /// Channel to the poller.
     pub tx: mpsc::UnboundedSender<(PromiseStateId, Instant)>,
 
-    /// When true, sleep deadlines are set to now (immediate) instead of
-    /// now + duration, effectively skipping all sleeps.
+    /// When true, skip-allowed sleep deadlines are set to now (immediate)
+    /// instead of now + duration, effectively skipping those sleeps.
     pub skip_sleep: bool,
 
     /// Promises with an outstanding recorded sleep — used to ignore
@@ -71,7 +72,12 @@ impl Handler {
     /// outstanding — not yet settled and acknowledged — any re-record for
     /// the same promise is ignored and the first recorded deadline stands;
     /// re-emitted sleep effects must not walk the deadline forward.
-    pub fn record(&self, promise_state_id: PromiseStateId, duration: NonZeroDuration) {
+    pub fn record(
+        &self,
+        promise_state_id: PromiseStateId,
+        duration: NonZeroDuration,
+        skip_allowed: bool,
+    ) {
         let newly_recorded = self
             .recorded
             .lock()
@@ -81,7 +87,7 @@ impl Handler {
             tracing::debug!(?promise_state_id, "sleep already recorded, ignoring");
             return;
         }
-        let deadline = if self.skip_sleep {
+        let deadline = if self.skip_sleep && skip_allowed {
             Instant::now()
         } else {
             Instant::now() + duration.get()
@@ -90,6 +96,7 @@ impl Handler {
             ?promise_state_id,
             ?deadline,
             skip_sleep = self.skip_sleep,
+            skip_allowed,
             "recording sleep"
         );
         let _ = self.tx.send((promise_state_id, deadline));
@@ -107,8 +114,9 @@ impl waymark_extcall_reconciler_core::SleepEffectHandler for Handler {
         _effect_number: waymark_vm_runtime_effect::EffectNumber,
         promise_state_id: PromiseStateId,
         duration: NonZeroDuration,
+        skip_allowed: bool,
     ) -> Result<(), Self::Error> {
-        self.record(promise_state_id, duration);
+        self.record(promise_state_id, duration, skip_allowed);
         Ok(())
     }
 }

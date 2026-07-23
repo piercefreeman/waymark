@@ -43,6 +43,9 @@ where
         effect_number: EffectNumber,
         promise_state_id: PromiseStateId,
         duration: NonZeroDuration,
+        // Durable execution always lets sleeps elapse in full, so the
+        // skip permission is vacuously honored.
+        _skip_allowed: bool,
     ) -> Result<(), Self::Error> {
         let wake_at = chrono::Utc::now()
             + chrono::Duration::from_std(duration.get()).unwrap_or(chrono::Duration::MAX);

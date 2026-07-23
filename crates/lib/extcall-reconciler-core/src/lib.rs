@@ -59,11 +59,15 @@ pub trait SleepEffectHandler {
     type Error: std::fmt::Debug;
 
     /// Record a sleep deadline for the given promise.
+    ///
+    /// When `skip_allowed` is false, the sleep's duration is load-bearing
+    /// and the handler must not settle the sleep early.
     fn record_sleep(
         &mut self,
         effect_number: EffectNumber,
         promise_state_id: PromiseStateId,
         duration: NonZeroDuration,
+        skip_allowed: bool,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
 }
 

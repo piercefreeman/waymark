@@ -145,17 +145,22 @@ where
     }
 
     /// Emits a sleep instruction that resumes at `resume`.
+    ///
+    /// Pass `unskippable: true` for sleeps whose duration is load-bearing —
+    /// execution modes that fast-forward sleeps must let them elapse in full.
     pub fn emit_sleep(
         &mut self,
         dst: Marked<RegisterId, PromiseMarker>,
         duration: RegisterId,
         resume: StateId,
+        unskippable: bool,
     ) {
         self.emit(
             waymark_vm_instructions_extcallset::ExtCallSet::Sleep {
                 dst: *dst,
                 duration,
                 resume,
+                unskippable,
             }
             .into(),
         );

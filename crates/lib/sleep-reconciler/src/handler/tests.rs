@@ -23,7 +23,7 @@ async fn records_the_absolute_wake_deadline() {
     let duration = NonZeroDuration::try_from(Duration::from_secs(60)).unwrap();
     let before = chrono::Utc::now();
     handler
-        .record_sleep(EffectNumber(7), PromiseStateId(3), duration)
+        .record_sleep(EffectNumber(7), PromiseStateId(3), duration, true)
         .await
         .expect("record");
     let after = chrono::Utc::now();
@@ -56,7 +56,7 @@ async fn record_errors_propagate() {
 
     let duration = NonZeroDuration::try_from(Duration::from_secs(1)).unwrap();
     handler
-        .record_sleep(EffectNumber(0), PromiseStateId(0), duration)
+        .record_sleep(EffectNumber(0), PromiseStateId(0), duration, true)
         .await
         .expect_err("backend failure surfaces");
     assert!(backend.inner.recorded.lock().unwrap().is_empty());
