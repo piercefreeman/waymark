@@ -130,6 +130,7 @@ waymark-vm-interpreter-fullset = { path = "crates/lib/vm-interpreter-fullset" }
 waymark-vm-interpreter-pureset = { path = "crates/lib/vm-interpreter-pureset" }
 waymark-vm-interpreter-utils = { path = "crates/lib/vm-interpreter-utils" }
 waymark-vm-runtime = { path = "crates/lib/vm-runtime" }
+waymark-vm-runtime-builder = { path = "crates/lib/vm-runtime-builder" }
 waymark-vm-runtime-callspec = { path = "crates/lib/vm-runtime-callspec" }
 waymark-vm-runtime-core = { path = "crates/lib/vm-runtime-core" }
 waymark-vm-runtime-effect = { path = "crates/lib/vm-runtime-effect" }

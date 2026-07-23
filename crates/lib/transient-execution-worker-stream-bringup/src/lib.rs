@@ -18,39 +18,77 @@ use waymark_proto::messages as proto;
 // Runtime setup
 // ---------------------------------------------------------------------------
 
+/// Errors that can occur in [`setup_runtime`].
+#[derive(Debug, thiserror::Error)]
+pub enum SetupRuntimeError {
+    /// Decoding the registration's IR program failed.
+    #[error("decode IR: {0}")]
+    DecodeIr(#[source] prost::DecodeError),
+
+    /// Converting the IR program into the old AST failed.
+    #[error("convert IR to AST: {0}")]
+    ConvertIrToAst(#[source] waymark_vm_ast_old_proto::ConvertError),
+
+    /// Compiling the AST program into an executable failed.
+    #[error("compile: {0}")]
+    Compile(
+        #[source]
+        waymark_vm_compiler_for_ast_old::CompileErrorFor<
+            waymark_system_vm::Spec,
+            waymark_system_vm::Lowering,
+        >,
+    ),
+
+    /// Converting the initial context into entry-function arguments failed.
+    #[error("convert initial context: {0}")]
+    ConvertInitialContext(
+        #[source] waymark_workflow_initialization_convert_proto::MissingInitialContextError,
+    ),
+
+    /// The entry function was not found in the executable.
+    #[error("invalid entrypoint: {0}")]
+    Entrypoint(
+        #[source] waymark_vm_runtime::FunctionNotFoundError<waymark_vm_bytecode_core::FunctionId>,
+    ),
+}
+
 /// Compile a [`proto::WorkflowRegistration`] into a ready-to-run
 /// [`waymark_system_vm::Runtime`], entirely in memory, without any database
 /// backend.
 ///
 /// The entry function (function 0, the first function in source order)
-/// receives its arguments from [`proto::WorkflowRegistration::initial_context`]
-/// when present.  Each keyword argument is mapped to a positional argument
-/// by matching the entry function's input names.
-pub async fn setup_runtime(
+/// receives its arguments from
+/// [`proto::WorkflowRegistration::initial_context`] when present.  Each
+/// keyword argument is mapped to a positional argument by matching the
+/// entry function's input names; absent inputs are filled with
+/// [`waymark_system_vm::ReadyValue::None`].  Providing no `initial_context`
+/// at all while the entry function expects inputs is an error.
+pub fn setup_runtime(
     registration: &waymark_proto::messages::WorkflowRegistration,
-) -> Result<waymark_system_vm::Runtime, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<waymark_system_vm::Runtime, SetupRuntimeError> {
     let ir_program = waymark_proto::ast::Program::decode(&registration.ir[..])
-        .map_err(|err| anyhow::anyhow!("decode IR: {err}"))?;
-    let ast_program = waymark_vm_ast_old_proto::convert(ir_program)
-        .map_err(|err| anyhow::anyhow!("convert IR to AST: {err}"))?;
+        .map_err(SetupRuntimeError::DecodeIr)?;
+    let ast_program =
+        waymark_vm_ast_old_proto::convert(ir_program).map_err(SetupRuntimeError::ConvertIrToAst)?;
 
     let (executable, metadata) = waymark_vm_compiler_for_ast_old::compile_with_metadata::<
         waymark_system_vm::Spec,
         waymark_system_vm::Lowering,
     >(&ast_program)
-    .map_err(|err| anyhow::anyhow!("compile: {err}"))?;
-
+    .map_err(SetupRuntimeError::Compile)?;
     let executable = std::sync::Arc::new(executable);
-    let interpreter = waymark_system_vm::Interpreter::default();
 
     let call_spec =
         waymark_workflow_initialization_convert_proto::InitialContextConverter::try_convert((
             registration.initial_context.as_ref(),
             &metadata,
-        ))?;
+        ))
+        .map_err(SetupRuntimeError::ConvertInitialContext)?;
 
+    let interpreter = waymark_system_vm::Interpreter::default();
     let runtime =
-        waymark_system_vm::Runtime::with_custom_entrypoint(interpreter, executable, call_spec)?;
+        waymark_system_vm::Runtime::with_custom_entrypoint(interpreter, executable, call_spec)
+            .map_err(SetupRuntimeError::Entrypoint)?;
     Ok(runtime)
 }
 
