@@ -110,6 +110,44 @@ enum RangeLoop<'expr> {
     },
 }
 
+impl<'expr> RangeLoop<'expr> {
+    /// Validates a `range(...)` call and classifies its argument shape.
+    fn classify<Spec, Lowering>(call: &'expr FunctionCall) -> Result<Self, ErrorFor<Spec, Lowering>>
+    where
+        Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
+        Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
+    {
+        let function = builtin_call_name(call, "range");
+
+        if !call.kwargs.is_empty() {
+            return Err(Unsupported::FunctionCall {
+                name: function,
+                reason: UnsupportedFunctionCall::KeywordArguments,
+            }
+            .into());
+        }
+
+        match call.args.as_slice() {
+            [] => Err(Error::FunctionArityMismatch {
+                function,
+                expected: 1,
+                actual: 0,
+            }),
+            [end] => Ok(Self::Positive { start: None, end }),
+            [start, end] => Ok(Self::Positive {
+                start: Some(start),
+                end,
+            }),
+            [start, end, step] => Ok(Self::Stepped { start, end, step }),
+            _ => Err(Error::FunctionArityMismatch {
+                function,
+                expected: 3,
+                actual: call.args.len(),
+            }),
+        }
+    }
+}
+
 /// Persistent registers from indexed spread fan-out that the join can reuse.
 #[derive(Clone, Copy)]
 struct IndexedSpreadJoinRegisters {
@@ -154,40 +192,10 @@ impl<'expr> ResolvedForLoop<'expr> {
         Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
         Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
     {
-        let function = builtin_call_name(call, "range");
-
-        if !call.kwargs.is_empty() {
-            return Err(Unsupported::FunctionCall {
-                name: function,
-                reason: UnsupportedFunctionCall::KeywordArguments,
-            }
-            .into());
-        }
-
-        let range = match call.args.as_slice() {
-            [] => {
-                return Err(Error::FunctionArityMismatch {
-                    function,
-                    expected: 1,
-                    actual: 0,
-                });
-            }
-            [end] => RangeLoop::Positive { start: None, end },
-            [start, end] => RangeLoop::Positive {
-                start: Some(start),
-                end,
-            },
-            [start, end, step] => RangeLoop::Stepped { start, end, step },
-            _ => {
-                return Err(Error::FunctionArityMismatch {
-                    function,
-                    expected: 3,
-                    actual: call.args.len(),
-                });
-            }
-        };
-
-        Ok(Self::Range { range, binding })
+        Ok(Self::Range {
+            range: RangeLoop::classify::<Spec, Lowering>(call)?,
+            binding,
+        })
     }
 
     /// Validates and classifies an `enumerate(...)` call.
@@ -589,6 +597,117 @@ where
         )
     }
 
+    /// Compiles a value-position `range(...)` call by materializing its
+    /// values into a freshly-built list in `result_register`.
+    pub fn compile_range_values(
+        &mut self,
+        call: &FunctionCall,
+        result_register: RegisterId,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let range = RangeLoop::classify::<Spec, Lowering>(call)?;
+
+        self.context
+            .emitter
+            .emit_make_list(result_register, Vec::new());
+
+        match range {
+            RangeLoop::Positive { start, end } => {
+                self.compile_positive_range_values(start, end, result_register)
+            }
+            RangeLoop::Stepped { start, end, step } => {
+                self.compile_stepped_range_values(start, end, step, result_register)
+            }
+        }
+    }
+
+    /// Materializes `range(stop)` or `range(start, stop)` into a list.
+    fn compile_positive_range_values(
+        &mut self,
+        start: Option<&Spanned<Expr>>,
+        end: &Spanned<Expr>,
+        result_register: RegisterId,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let current_register = self.context.local_frame.allocate_register();
+        match start {
+            Some(start) => self.compile_expr_into_register(start, current_register)?,
+            None => self.emit_int_literal_into_register(current_register, 0)?,
+        }
+
+        let end_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(end, end_register)?;
+
+        let empty_body = self.empty_block(end);
+        let exception_handler_depth = self.exception_handler_depth;
+
+        self.compile_loop_skeleton(
+            &empty_body,
+            |compiler, for_loop| {
+                compiler.emit_compare_and_branch(
+                    BinaryOpKind::Lt,
+                    current_register,
+                    end_register,
+                    for_loop.body_state(),
+                    for_loop
+                        .loop_scope(exception_handler_depth)
+                        .target(LoopControlKind::Break),
+                );
+                Ok(())
+            },
+            |compiler| {
+                compiler.append_list_item(result_register, current_register);
+                Ok(())
+            },
+            |compiler| compiler.emit_add_assign_immediate(current_register, 1),
+        )
+    }
+
+    /// Materializes `range(start, stop, step)` into a list.
+    fn compile_stepped_range_values(
+        &mut self,
+        start: &Spanned<Expr>,
+        end: &Spanned<Expr>,
+        step: &Spanned<Expr>,
+        result_register: RegisterId,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let current_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(start, current_register)?;
+
+        let end_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(end, end_register)?;
+
+        let step_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(step, step_register)?;
+
+        let empty_body = self.empty_block(step);
+        let exception_handler_depth = self.exception_handler_depth;
+
+        self.compile_loop_skeleton(
+            &empty_body,
+            |compiler, for_loop| {
+                compiler.emit_stepped_range_condition(
+                    for_loop,
+                    current_register,
+                    end_register,
+                    step_register,
+                    exception_handler_depth,
+                )
+            },
+            |compiler| {
+                compiler.append_list_item(result_register, current_register);
+                Ok(())
+            },
+            |compiler| {
+                compiler.context.emitter.emit_binary(
+                    BinaryOpKind::Add,
+                    current_register,
+                    current_register,
+                    step_register,
+                );
+                Ok(())
+            },
+        )
+    }
+
     /// Compiles a spread over `range(stop)` or `range(start, stop)`.
     fn compile_positive_range_spread(
         &mut self,
@@ -787,59 +906,13 @@ where
         self.compile_loop_skeleton(
             &empty_body,
             |compiler, for_loop| {
-                let break_target = for_loop
-                    .loop_scope(exception_handler_depth)
-                    .target(LoopControlKind::Break);
-                let incoming_flow = for_loop.condition_flow();
-
-                let positive_condition_state = compiler.new_state();
-                let negative_condition_state = compiler.new_state();
-
-                let zero_register = compiler.compile_temporary_int_literal(0)?;
-                let positive_register = compiler.context.local_frame.allocate_temporary_register();
-                compiler.context.emitter.emit_binary(
-                    BinaryOpKind::Gt,
-                    positive_register.register(),
-                    step_register,
-                    zero_register.register(),
-                );
-                compiler
-                    .context
-                    .emitter
-                    .emit_jump_if(positive_condition_state, positive_register.register());
-
-                let negative_register = compiler.context.local_frame.allocate_temporary_register();
-                compiler.context.emitter.emit_binary(
-                    BinaryOpKind::Lt,
-                    negative_register.register(),
-                    step_register,
-                    zero_register.register(),
-                );
-                compiler
-                    .context
-                    .emitter
-                    .emit_jump_if(negative_condition_state, negative_register.register());
-                compiler.context.emitter.emit_jump(break_target);
-
-                compiler.switch_to_with_flow(positive_condition_state, incoming_flow.clone());
-                compiler.emit_compare_and_branch(
-                    BinaryOpKind::Lt,
+                compiler.emit_stepped_range_condition(
+                    for_loop,
                     current_register,
                     end_register,
-                    for_loop.body_state(),
-                    break_target,
-                );
-
-                compiler.switch_to_with_flow(negative_condition_state, incoming_flow);
-                compiler.emit_compare_and_branch(
-                    BinaryOpKind::Gt,
-                    current_register,
-                    end_register,
-                    for_loop.body_state(),
-                    break_target,
-                );
-
-                Ok(())
+                    step_register,
+                    exception_handler_depth,
+                )
             },
             |compiler| {
                 compiler.compile_spread_fanout_iteration(
@@ -962,6 +1035,72 @@ where
 
         let (exit_state, exit_flow) = for_loop.finish();
         self.switch_to_with_flow(exit_state, exit_flow);
+
+        Ok(())
+    }
+
+    /// Emits the sign-classified `range(start, end, step)` loop condition:
+    /// the condition state routes on `sign(step)` to a `current < end` or
+    /// `current > end` bound check (or breaks on a zero step). See
+    /// [`Self::compile_stepped_range_loop`] for the full semantics
+    /// discussion.
+    fn emit_stepped_range_condition(
+        &mut self,
+        for_loop: &ForLoopPlan,
+        current_register: RegisterId,
+        end_register: RegisterId,
+        step_register: RegisterId,
+        exception_handler_depth: usize,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let break_target = for_loop
+            .loop_scope(exception_handler_depth)
+            .target(LoopControlKind::Break);
+        let incoming_flow = for_loop.condition_flow();
+
+        let positive_condition_state = self.new_state();
+        let negative_condition_state = self.new_state();
+
+        let zero_register = self.compile_temporary_int_literal(0)?;
+        let positive_register = self.context.local_frame.allocate_temporary_register();
+        self.context.emitter.emit_binary(
+            BinaryOpKind::Gt,
+            positive_register.register(),
+            step_register,
+            zero_register.register(),
+        );
+        self.context
+            .emitter
+            .emit_jump_if(positive_condition_state, positive_register.register());
+
+        let negative_register = self.context.local_frame.allocate_temporary_register();
+        self.context.emitter.emit_binary(
+            BinaryOpKind::Lt,
+            negative_register.register(),
+            step_register,
+            zero_register.register(),
+        );
+        self.context
+            .emitter
+            .emit_jump_if(negative_condition_state, negative_register.register());
+        self.context.emitter.emit_jump(break_target);
+
+        self.switch_to_with_flow(positive_condition_state, incoming_flow.clone());
+        self.emit_compare_and_branch(
+            BinaryOpKind::Lt,
+            current_register,
+            end_register,
+            for_loop.body_state(),
+            break_target,
+        );
+
+        self.switch_to_with_flow(negative_condition_state, incoming_flow);
+        self.emit_compare_and_branch(
+            BinaryOpKind::Gt,
+            current_register,
+            end_register,
+            for_loop.body_state(),
+            break_target,
+        );
 
         Ok(())
     }
