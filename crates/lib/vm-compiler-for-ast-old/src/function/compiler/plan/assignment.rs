@@ -57,6 +57,15 @@ where
         /// Validated parallel-assignment plan.
         assignment: ParallelAssignmentPlan<'a, Spec>,
     },
+
+    /// A multi-target assignment unpacking a sequence-valued expression.
+    Unpack {
+        /// Assignment targets in declaration order.
+        targets: Vec<Marked<LocalSlot, AssignmentTargetMarker>>,
+
+        /// Expression evaluated once and unpacked into the targets by index.
+        value: &'a Spanned<Expr>,
+    },
 }
 
 impl<'a, Spec> AssignmentStatementPlan<'a, Spec>
@@ -102,19 +111,19 @@ where
             });
         }
 
-        if targets.len().get() != 1 {
-            return Err(super::plan::Unsupported::AssignmentTargetCount {
-                count: targets.len(),
-            }
-            .into());
-        }
-
         if let Expr::SpreadExpr {
             collection,
             loop_var,
             action,
         } = &value.value
         {
+            if targets.len().get() != 1 {
+                return Err(super::plan::Unsupported::AssignmentTargetCount {
+                    count: targets.len(),
+                }
+                .into());
+            }
+
             return Ok(Self::Spread {
                 target: resolve_target(&targets[0]),
                 collection,
@@ -123,8 +132,18 @@ where
             });
         }
 
-        Ok(Self::Direct {
-            target: resolve_target(&targets[0]),
+        if targets.len().get() == 1 {
+            return Ok(Self::Direct {
+                target: resolve_target(&targets[0]),
+                value,
+            });
+        }
+
+        Ok(Self::Unpack {
+            targets: targets
+                .iter()
+                .map(|target| resolve_target(target))
+                .collect(),
             value,
         })
     }
@@ -193,6 +212,9 @@ mod tests {
             }
             AssignmentStatementPlan::SpreadDiscard { .. } => {
                 panic!("literal assignments should not build discard spread plans")
+            }
+            AssignmentStatementPlan::Unpack { .. } => {
+                panic!("single-target assignments should not build unpack plans")
             }
         }
     }
@@ -316,6 +338,9 @@ mod tests {
             AssignmentStatementPlan::SpreadDiscard { .. } => {
                 panic!("parallel expressions should not build discard spread plans")
             }
+            AssignmentStatementPlan::Unpack { .. } => {
+                panic!("parallel expressions should not build unpack plans")
+            }
         }
     }
 
@@ -372,6 +397,9 @@ mod tests {
             AssignmentStatementPlan::Parallel { .. } => {
                 panic!("discard spread should not build a parallel plan")
             }
+            AssignmentStatementPlan::Unpack { .. } => {
+                panic!("discard spread should not build an unpack plan")
+            }
         }
     }
 
@@ -422,19 +450,60 @@ mod tests {
             AssignmentStatementPlan::SpreadDiscard { .. } => {
                 panic!("targeted spread expressions should not build discard plans")
             }
+            AssignmentStatementPlan::Unpack { .. } => {
+                panic!("targeted spread expressions should not build unpack plans")
+            }
         }
     }
 
     #[test]
-    fn direct_assignment_rejects_multiple_targets() {
+    fn multi_target_assignment_builds_unpack_plan() {
         let function_table = build_function_table();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let targets = vec!["left".to_owned(), "right".to_owned()];
+        let value = variable("pair");
+
+        let plan = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(
+            &targets,
+            &value,
+            &function_table,
+            |target| {
+                Marked::<LocalSlot, AssignmentTargetMarker>::get_or_declare(
+                    &mut local_frame,
+                    &mut flow_state,
+                    target,
+                )
+            },
+        )
+        .expect("multi-target assignment should build");
+
+        match plan {
+            AssignmentStatementPlan::Unpack { targets, value } => {
+                assert_eq!(targets.len(), 2);
+                assert_eq!(targets[0].register(), RegisterId(0));
+                assert_eq!(targets[1].register(), RegisterId(1));
+                assert!(matches!(value.value, Expr::Variable { ref name } if name == "pair"));
+            }
+            other => panic!("multi-target assignments should build unpack plans, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn spread_assignment_rejects_multiple_targets() {
+        let function_table = build_function_table();
+        let value = spread_expr(
+            variable("items"),
+            "item",
+            action_call("double", vec![("value", variable("item"))]),
+        );
         let error = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(
             &["left".to_owned(), "right".to_owned()],
-            &int(1),
+            &value,
             &function_table,
-            |_| panic!("multiple non-parallel targets should fail before resolution"),
+            |_| panic!("multi-target spreads should fail before resolution"),
         )
-        .expect_err("multiple targets should fail");
+        .expect_err("multi-target spreads should fail");
 
         assert!(matches!(
             error,
