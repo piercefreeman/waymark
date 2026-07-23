@@ -245,9 +245,13 @@ where
     // to a subsystem-wide shutdown instead of stranding in-flight promises
     // silently.
     let writer_params = waymark_action_completions_reconciler::writer::Params {
-        provider: waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::new(
-            worker_pool.clone(),
-        ),
+        provider: waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::<
+            _,
+            waymark_action_runtime_metadata::WithVmId<
+                waymark_ids::InstanceId,
+                waymark_action_runtime_metadata::ActionCallCorrelation,
+            >,
+        >::new(worker_pool.clone()),
         backend: Arc::clone(&backend),
         codec: Arc::clone(&codec),
     };
@@ -407,9 +411,13 @@ where
         let held_locks_tx = held_locks_tx.clone();
         move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
             let action_call_requester =
-                waymark_action_runtime_worker_pool::WorkerPoolActionRequester {
-                    pool: worker_pool.clone(),
+                waymark_action_runtime_worker_pool::WorkerPoolActionRequester::new(
+                    worker_pool.clone(),
+                );
+            let action_call_requester =
+                waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester {
                     vm_id: *vm_id,
+                    action_call_requester,
                 };
 
             let action_handler = waymark_action_effect_reconciler::EffectHandler {
@@ -469,9 +477,13 @@ where
         lock_time_to_live: action_effect_reconciler_lock_ttl,
         held_locks_tx: held_locks_tx.clone(),
         requester_provider: move |vm_id: &waymark_ids::InstanceId| {
-            waymark_action_runtime_worker_pool::WorkerPoolActionRequester {
-                pool: requests_factory_worker_pool.clone(),
+            let action_call_requester =
+                waymark_action_runtime_worker_pool::WorkerPoolActionRequester::new(
+                    requests_factory_worker_pool.clone(),
+                );
+            waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester {
                 vm_id: *vm_id,
+                action_call_requester,
             }
         },
     };
