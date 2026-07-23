@@ -1,31 +1,15 @@
 //! CLI smoke check for Python worker components.
 
-use std::collections::{HashMap, VecDeque};
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::Arc;
 
-use anyhow::{Result, anyhow};
 use clap::Parser;
-use prost::Message;
-use serde_json::Value;
-use sha2::{Digest, Sha256};
-use waymark_backend_memory::MemoryBackend;
-use waymark_core_backend::QueuedInstance;
-use waymark_ids::{InstanceId, LockId};
-use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
-
-use waymark_dag_builder::convert_to_dag;
-use waymark_dag_viz::render_dag_image;
-use waymark_ir_conversions::literal_from_json_value;
-use waymark_ir_format::format_program;
-use waymark_proto::ast as ir;
-use waymark_runloop::{RunLoop, RunLoopConfig};
-use waymark_runner_state::RunnerState;
 use waymark_smoke_sources::{
     build_control_flow_program, build_parallel_spread_program, build_program,
     build_try_except_program, build_while_loop_program,
 };
+use waymark_system_vm::{ReadyValue, Value};
+use waymark_worker_core::BaseWorkerPool as _;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -37,140 +21,59 @@ struct SmokeArgs {
     base: i64,
 }
 
-fn list_examples() -> Vec<&'static str> {
-    let mut names = vec![
-        "control_flow",
-        "parallel_spread",
-        "try_except",
-        "while_loop",
-    ];
-    names.sort();
-    names
-}
-
-#[derive(Clone)]
 struct SmokeCase {
     name: String,
-    program: ir::Program,
+    program: waymark_vm_ast_old::Program,
     inputs: HashMap<String, Value>,
 }
 
-fn slugify(name: &str) -> String {
-    name.chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
-async fn run_program_smoke<Spec>(
-    case: &SmokeCase,
-    worker_pool: Arc<waymark_worker_remote_pool::RemoteWorkerPool<Spec>>,
-) -> Result<()>
+async fn run_program_smoke<Pool>(case: &SmokeCase, worker_pool: Pool) -> Result<(), anyhow::Error>
 where
-    Spec: waymark_worker_process_spec::Spec + Send + Sync + 'static,
+    Pool: waymark_worker_core::BaseWorkerPool + Clone + Send + Sync + 'static,
 {
-    println!("\nIR program ({})", case.name);
-    println!("{}", format_program(&case.program));
-    println!("IR inputs ({}): {:?}", case.name, case.inputs);
-    let program_proto = case.program.encode_to_vec();
-    let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
-    let dag = Arc::new(convert_to_dag(&case.program).map_err(|err| anyhow!(err.to_string()))?);
-    let slug = slugify(&case.name);
-    let output_path = PathBuf::from(format!("dag_smoke_{slug}.png"));
-    let output_path =
-        render_dag_image(&dag, &output_path).map_err(|err| anyhow!(err.to_string()))?;
-    println!(
-        "DAG image ({}) written to {}",
-        case.name,
-        output_path.display()
-    );
+    println!("\nAST program ({})", case.name);
+    println!("{}", waymark_vm_ast_old_fmt::display(&case.program));
+    println!("Inputs ({}): {:?}", case.name, case.inputs);
 
-    let mut state = RunnerState::from_dag(Arc::clone(&dag));
-    let queue = Arc::new(Mutex::new(VecDeque::new()));
-    let backend = MemoryBackend::with_queue(queue.clone());
-    let workflow_version_id = backend
-        .upsert_workflow_version(&WorkflowRegistration {
-            workflow_name: case.name.clone(),
-            workflow_version: ir_hash.clone(),
-            ir_hash,
-            program_proto,
-            concurrent: false,
-        })
-        .await
-        .map_err(|err| anyhow!(err.to_string()))?;
-    for (name, value) in &case.inputs {
-        let expr = literal_from_json_value(value);
-        let label = format!("input {name} = {value}");
-        let _ = state
-            .record_assignment(vec![name.clone()], &expr, None, Some(label))
-            .expect("record assignment");
-    }
+    let runtime =
+        waymark_transient_execution_bringup::setup_runtime(&case.program, case.inputs.clone())?;
 
-    let entry_node = dag
-        .entry_node
-        .clone()
-        .ok_or_else(|| anyhow!("DAG entry node not found"))?;
-    let entry_exec = state
-        .queue_template_node(&entry_node, None)
-        .map_err(|err| anyhow!(err.0))?;
-
-    let runloop = RunLoop::<waymark_worker_remote_pool::RemoteWorkerPool<Spec>, _, _>::new(
+    let waymark_transient_execution_bringup::Execution {
+        workflow_outcome_rx,
+        driver_handle,
+    } = waymark_transient_execution_worker_pool_bringup::execute(
+        runtime,
         worker_pool,
-        backend.clone(),
-        RunLoopConfig {
-            max_concurrent_instances: 25.try_into().unwrap(),
-            executor_shards: 1.try_into().unwrap(),
-            instance_done_batch_size: None,
-            poll_interval: Some(Duration::from_secs_f64(0.05).try_into().unwrap()),
-            persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
-            lock_uuid: LockId::new_uuid_v4(),
-            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
-            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
-            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
-            skip_sleep: false,
-            active_instance_gauge: None,
-        },
+        false,
+        tokio_util::sync::CancellationToken::new(),
     );
-    queue.lock().expect("queue lock").push_back(QueuedInstance {
-        workflow_version_id,
-        schedule_id: None,
-        entry_node: entry_exec.node_id,
-        graph: state.graph,
-        action_results: HashMap::new(),
-        instance_id: InstanceId::new_uuid_v4(),
-        scheduled_at: None,
-    });
-    runloop
-        .run()
-        .await
-        .map_err(|err| anyhow!(err.to_string()))?;
-    let instances_done = backend.instances_done();
-    let done = instances_done.last();
-    if let Some(done) = done {
-        println!(
-            "Runner output: result={:?} error={:?}",
-            done.result, done.error
-        );
-    } else {
-        println!("Runner output: no completed instance found");
-    }
+
+    let workflow_outcome = workflow_outcome_rx.await;
+
+    // The driver terminates right after delivering the workflow outcome —
+    // including on success — so join it unconditionally for its exit report.
+    let Err(driver_exit) = driver_handle.await;
+    tracing::debug!(?driver_exit, "vm driver exited");
+
+    let workflow_outcome = workflow_outcome
+        .map_err(|_recv_error| anyhow::anyhow!("vm driver exited without a workflow outcome"))?;
+
+    println!("Workflow outcome ({}): {:?}", case.name, workflow_outcome);
     Ok(())
 }
 
 async fn run_smoke(base: i64) -> i32 {
-    let config =
-        waymark_worker_python::Config::new().with_user_module("tests.fixtures.test_actions");
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
+
+    let worker_config = waymark_worker_python::Config::new()
+        .with_user_module("tests.fixtures.test_actions")
+        .with_python_paths(vec![repo_root().join("python")]);
 
     let result = waymark_worker_remote_bringup::start(
-        Default::default(),
+        shutdown_token.clone(),
         None,
         |bridge_server_addr| waymark_worker_python::Spec {
-            config,
+            config: worker_config,
             bridge_server_addr,
         },
         2.try_into().unwrap(),
@@ -179,23 +82,24 @@ async fn run_smoke(base: i64) -> i32 {
     )
     .await;
 
-    let (process_pool, bridge_server_task) = match result {
+    let (process_pool, mut bridge_server_task) = match result {
         Ok(val) => val,
         Err(err) => {
             println!("Failed to start python worker pool: {err}");
             return 1;
         }
     };
-    let worker_pool = waymark_worker_remote_pool::RemoteWorkerPool::new(process_pool);
-    let worker_pool = Arc::new(worker_pool);
+    let worker_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
+        process_pool,
+    ));
+    if let Err(err) = worker_pool.launch().await {
+        println!("Failed to launch python worker pool: {err}");
+        return 1;
+    }
 
     let mut cases = Vec::new();
-    cases.push(SmokeCase {
-        name: "smoke".to_string(),
-        program: build_program(),
-        inputs: HashMap::from([("base".to_string(), Value::Number(base.into()))]),
-    });
     let examples = vec![
+        ("smoke", Ok(build_program())),
         ("control_flow", build_control_flow_program()),
         ("parallel_spread", build_parallel_spread_program()),
         ("try_except", build_try_except_program()),
@@ -209,14 +113,32 @@ async fn run_smoke(base: i64) -> i32 {
                 continue;
             }
         };
+        let program = match waymark_vm_ast_old_proto::convert(program) {
+            Ok(value) => value,
+            Err(err) => {
+                println!("Failed to convert {name} program to the AST: {err}");
+                continue;
+            }
+        };
         let inputs = match name {
-            "control_flow" => HashMap::from([("base".to_string(), Value::Number(2.into()))]),
-            "parallel_spread" => HashMap::from([("base".to_string(), Value::Number(3.into()))]),
+            "smoke" => HashMap::from([("base".to_string(), Value::Ready(ReadyValue::Int(base)))]),
+            "control_flow" => {
+                HashMap::from([("base".to_string(), Value::Ready(ReadyValue::Int(2)))])
+            }
+            "parallel_spread" => {
+                HashMap::from([("base".to_string(), Value::Ready(ReadyValue::Int(3)))])
+            }
             "try_except" => HashMap::from([(
                 "values".to_string(),
-                Value::Array(vec![1.into(), 2.into(), 3.into()]),
+                Value::Ready(ReadyValue::List(vec![
+                    Value::Ready(ReadyValue::Int(1)),
+                    Value::Ready(ReadyValue::Int(2)),
+                    Value::Ready(ReadyValue::Int(3)),
+                ])),
             )]),
-            "while_loop" => HashMap::from([("limit".to_string(), Value::Number(6.into()))]),
+            "while_loop" => {
+                HashMap::from([("limit".to_string(), Value::Ready(ReadyValue::Int(6)))])
+            }
             _ => HashMap::new(),
         };
         cases.push(SmokeCase {
@@ -228,21 +150,36 @@ async fn run_smoke(base: i64) -> i32 {
 
     let mut failures = 0;
     for case in &cases {
-        if let Err(err) = run_program_smoke(case, worker_pool.clone()).await {
+        if let Err(err) = run_program_smoke(case, Arc::clone(&worker_pool)).await {
             failures += 1;
             println!("Smoke case '{}' failed: {}", case.name, err);
         }
     }
 
-    bridge_server_task.abort();
-    let _ = bridge_server_task.await;
+    shutdown_token.cancel();
+    let bridge_server_shutdown =
+        tokio::time::timeout(std::time::Duration::from_secs(5), &mut bridge_server_task).await;
+    if bridge_server_shutdown.is_err() {
+        tracing::warn!("bridge server did not stop in time, aborting it");
+        bridge_server_task.abort();
+        let _ = bridge_server_task.await;
+    }
 
     if let Err(err) = worker_pool.shutdown_arc().await {
         println!("Failed to shut down worker pool: {err}");
     }
 
-    println!("Examples available: {:?}", list_examples());
     if failures > 0 { 1 } else { 0 }
+}
+
+/// The workspace root, resolved from this crate's manifest directory
+/// (`crates/bin/smoke`).
+fn repo_root() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .expect("the manifest dir has a workspace root three levels up")
+        .to_path_buf()
 }
 
 pub fn main() {
