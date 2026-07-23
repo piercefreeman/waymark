@@ -1,27 +1,52 @@
 use std::{num::NonZeroUsize, sync::Arc};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use prost::Message as _;
 use sha2::{Digest as _, Sha256};
 use waymark_backend_postgres::PostgresBackend;
-use waymark_dag::DAG;
-use waymark_dag_builder::convert_to_dag;
 use waymark_ids::WorkflowVersionId;
 use waymark_ir_parser::parse_program;
-use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
 const DEFAULT_WORKFLOW_NAME: &str = "waymark_soak_timeout_mix_v1";
+
+/// The workflow services the soak harness submits VMs through.
+pub struct SoakServices {
+    pub executables: waymark_workflow_service_vm_executables::ExecutablesService<
+        PostgresBackend,
+        waymark_vm_codec_rmp::RmpCodec,
+        waymark_system_vm::Spec,
+        waymark_system_vm::Lowering,
+    >,
+    pub registration: waymark_workflow_service_vm_runtimes::RegistrationService<
+        PostgresBackend,
+        waymark_vm_codec_rmp::RmpCodec,
+    >,
+}
+
+pub fn soak_services(backend: &PostgresBackend) -> SoakServices {
+    let codec = waymark_vm_codec_rmp::RmpCodec;
+    SoakServices {
+        executables: waymark_workflow_service_vm_executables::ExecutablesService::new(
+            backend.clone(),
+            codec,
+        ),
+        registration: waymark_workflow_service_vm_runtimes::RegistrationService::new(
+            backend.clone(),
+            codec,
+        ),
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct RegisteredWorkflow {
     pub workflow_name: String,
     pub workflow_version_id: WorkflowVersionId,
-    pub dag: Arc<DAG>,
-    pub entry_template_id: String,
+    pub executable: Arc<waymark_system_vm::Executable>,
+    pub metadata: waymark_vm_compiler_for_ast_old_core::Metadata,
 }
 
 pub async fn register_workflow(
-    backend: &PostgresBackend,
+    services: &SoakServices,
     timeout_seconds: u32,
     actions_per_workflow: NonZeroUsize,
     user_module: &str,
@@ -31,28 +56,20 @@ pub async fn register_workflow(
     let program = parse_program(source.trim()).map_err(|err| anyhow!(err.to_string()))?;
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
-    let dag = Arc::new(convert_to_dag(&program).map_err(|err| anyhow!(err.to_string()))?);
-    let entry_template_id = dag
-        .entry_node
-        .clone()
-        .ok_or_else(|| anyhow!("compiled workflow has no entry node"))?;
+    let program = waymark_vm_ast_old_proto::convert(program)
+        .map_err(|err| anyhow!("convert soak workflow to the VM AST: {err}"))?;
 
-    let workflow_version_id = backend
-        .upsert_workflow_version(&WorkflowRegistration {
-            workflow_name: DEFAULT_WORKFLOW_NAME.to_string(),
-            workflow_version: ir_hash.clone(),
-            ir_hash,
-            program_proto,
-            concurrent: false,
-        })
+    let (workflow_version_id, executable, metadata) = services
+        .executables
+        .compile_and_store(DEFAULT_WORKFLOW_NAME, &ir_hash, &program)
         .await
-        .context("upsert soak workflow version")?;
+        .map_err(|err| anyhow!("compile and store soak workflow: {err}"))?;
 
     Ok(RegisteredWorkflow {
         workflow_name: DEFAULT_WORKFLOW_NAME.to_string(),
         workflow_version_id,
-        dag,
-        entry_template_id,
+        executable: Arc::new(executable),
+        metadata,
     })
 }
 

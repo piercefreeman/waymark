@@ -5,34 +5,36 @@ use sqlx::PgPool;
 use sqlx::prelude::*;
 use uuid::Uuid;
 
+/// Snapshot of the runnable-workloads backlog and cumulative completions.
+///
+/// `ready` counts rows eligible for pinning (unpinned, or pinning expired);
+/// `pinned_expired` rows are therefore also counted as `ready`.
 #[derive(Debug, Clone, Serialize, FromRow)]
-pub struct QueueSnapshot {
+pub struct WorkloadSnapshot {
     pub total: i64,
     pub ready: i64,
-    pub future: i64,
-    pub locked_live: i64,
-    pub locked_expired: i64,
-    pub oldest_ready_at: Option<DateTime<Utc>>,
-    pub oldest_scheduled_at: Option<DateTime<Utc>>,
+    pub pinned_live: i64,
+    pub pinned_expired: i64,
+    pub workflows_completed: i64,
+    pub oldest_ready_updated_at: Option<DateTime<Utc>>,
 }
 
-pub async fn fetch_queue_snapshot(pool: &PgPool) -> Result<QueueSnapshot> {
-    let row = sqlx::query_as::<_, QueueSnapshot>(
+pub async fn fetch_workload_snapshot(pool: &PgPool) -> Result<WorkloadSnapshot> {
+    let row = sqlx::query_as::<_, WorkloadSnapshot>(
         r#"
         SELECT
             COUNT(*)::bigint AS total,
-            COUNT(*) FILTER (WHERE scheduled_at <= NOW())::bigint AS ready,
-            COUNT(*) FILTER (WHERE scheduled_at > NOW())::bigint AS future,
-            COUNT(*) FILTER (WHERE lock_uuid IS NOT NULL AND lock_expires_at > NOW())::bigint AS locked_live,
-            COUNT(*) FILTER (WHERE lock_uuid IS NOT NULL AND (lock_expires_at IS NULL OR lock_expires_at <= NOW()))::bigint AS locked_expired,
-            MIN(CASE WHEN scheduled_at <= NOW() THEN scheduled_at END) AS oldest_ready_at,
-            MIN(scheduled_at) AS oldest_scheduled_at
-        FROM queued_instances
+            COUNT(*) FILTER (WHERE node_id IS NULL OR expires_at <= NOW())::bigint AS ready,
+            COUNT(*) FILTER (WHERE node_id IS NOT NULL AND expires_at > NOW())::bigint AS pinned_live,
+            COUNT(*) FILTER (WHERE node_id IS NOT NULL AND expires_at <= NOW())::bigint AS pinned_expired,
+            (SELECT COUNT(*)::bigint FROM vm_execution_results) AS workflows_completed,
+            MIN(updated_at) FILTER (WHERE node_id IS NULL OR expires_at <= NOW()) AS oldest_ready_updated_at
+        FROM runnable_workloads
         "#,
     )
     .fetch_one(pool)
     .await
-    .context("fetch queue snapshot")?;
+    .context("fetch workload snapshot")?;
 
     Ok(row)
 }
@@ -82,24 +84,24 @@ pub async fn fetch_latest_worker_status(pool: &PgPool) -> Result<Option<WorkerSt
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
-pub struct LockOwnerRow {
-    pub lock_uuid: Option<Uuid>,
+pub struct PinningOwnerRow {
+    pub node_id: Option<Uuid>,
     pub rows: i64,
-    pub oldest_scheduled_at: Option<DateTime<Utc>>,
-    pub newest_scheduled_at: Option<DateTime<Utc>>,
+    pub oldest_updated_at: Option<DateTime<Utc>>,
+    pub newest_updated_at: Option<DateTime<Utc>>,
 }
 
-pub async fn fetch_lock_owners(pool: &PgPool, limit: i64) -> Result<Vec<LockOwnerRow>> {
-    let rows = sqlx::query_as::<_, LockOwnerRow>(
+pub async fn fetch_pinning_owners(pool: &PgPool, limit: i64) -> Result<Vec<PinningOwnerRow>> {
+    let rows = sqlx::query_as::<_, PinningOwnerRow>(
         r#"
         SELECT
-            lock_uuid,
+            node_id,
             COUNT(*)::bigint AS rows,
-            MIN(scheduled_at) AS oldest_scheduled_at,
-            MAX(scheduled_at) AS newest_scheduled_at
-        FROM queued_instances
-        WHERE lock_uuid IS NOT NULL
-        GROUP BY lock_uuid
+            MIN(updated_at) AS oldest_updated_at,
+            MAX(updated_at) AS newest_updated_at
+        FROM runnable_workloads
+        WHERE node_id IS NOT NULL
+        GROUP BY node_id
         ORDER BY rows DESC
         LIMIT $1
         "#,
@@ -107,31 +109,96 @@ pub async fn fetch_lock_owners(pool: &PgPool, limit: i64) -> Result<Vec<LockOwne
     .bind(limit)
     .fetch_all(pool)
     .await
-    .context("fetch lock owners")?;
+    .context("fetch pinning owners")?;
 
     Ok(rows)
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
-pub struct StaleLockRow {
-    pub instance_id: Uuid,
-    pub lock_uuid: Option<Uuid>,
+pub struct ExpiredPinningRow {
+    pub workload_id: Uuid,
+    pub node_id: Option<Uuid>,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
+}
+
+pub async fn fetch_expired_pinnings(pool: &PgPool, limit: i64) -> Result<Vec<ExpiredPinningRow>> {
+    let rows = sqlx::query_as::<_, ExpiredPinningRow>(
+        r#"
+        SELECT
+            workload_id,
+            node_id,
+            expires_at,
+            updated_at
+        FROM runnable_workloads
+        WHERE node_id IS NOT NULL
+        ORDER BY expires_at ASC NULLS FIRST
+        LIMIT $1
+        "#,
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("fetch expired pinnings")?;
+
+    Ok(rows)
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct ActionCallRequestLockOwnerRow {
+    pub locked_by: Option<Uuid>,
+    pub rows: i64,
+    pub oldest_created_at: Option<DateTime<Utc>>,
+    pub newest_created_at: Option<DateTime<Utc>>,
+}
+
+pub async fn fetch_action_call_request_lock_owners(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<ActionCallRequestLockOwnerRow>> {
+    let rows = sqlx::query_as::<_, ActionCallRequestLockOwnerRow>(
+        r#"
+        SELECT
+            locked_by,
+            COUNT(*)::bigint AS rows,
+            MIN(created_at) AS oldest_created_at,
+            MAX(created_at) AS newest_created_at
+        FROM action_call_requests
+        GROUP BY locked_by
+        ORDER BY rows DESC
+        LIMIT $1
+        "#,
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .context("fetch action-call request lock owners")?;
+
+    Ok(rows)
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct StaleActionCallRequestRow {
+    pub vm_id: Uuid,
+    pub promise_state_id: i64,
+    pub locked_by: Option<Uuid>,
     pub lock_expires_at: Option<DateTime<Utc>>,
-    pub scheduled_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
 }
 
-pub async fn fetch_stale_locks(pool: &PgPool, limit: i64) -> Result<Vec<StaleLockRow>> {
-    let rows = sqlx::query_as::<_, StaleLockRow>(
+pub async fn fetch_stale_action_call_request_locks(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<StaleActionCallRequestRow>> {
+    let rows = sqlx::query_as::<_, StaleActionCallRequestRow>(
         r#"
         SELECT
-            instance_id,
-            lock_uuid,
+            vm_id,
+            promise_state_id,
+            locked_by,
             lock_expires_at,
-            scheduled_at,
             created_at
-        FROM queued_instances
-        WHERE lock_uuid IS NOT NULL
+        FROM action_call_requests
         ORDER BY lock_expires_at ASC NULLS FIRST
         LIMIT $1
         "#,
@@ -139,7 +206,7 @@ pub async fn fetch_stale_locks(pool: &PgPool, limit: i64) -> Result<Vec<StaleLoc
     .bind(limit)
     .fetch_all(pool)
     .await
-    .context("fetch stale locks")?;
+    .context("fetch stale action-call request locks")?;
 
     Ok(rows)
 }
