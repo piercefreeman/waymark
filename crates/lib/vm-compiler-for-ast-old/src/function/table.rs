@@ -17,13 +17,13 @@ pub enum Error {
 }
 
 /// Resolved metadata for a known function.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct KnownFunction {
     /// Function id assigned from source order.
     pub id: FunctionId,
 
-    /// Number of positional inputs the function accepts.
-    pub arity: usize,
+    /// Declared input names in positional order.
+    pub inputs: Vec<String>,
 }
 
 /// Lookup table from function names to their resolved metadata.
@@ -41,7 +41,7 @@ impl FunctionTable {
             let name = function.value.name.clone();
             let known = KnownFunction {
                 id: FunctionId(index),
-                arity: function.value.io.value.inputs.len(),
+                inputs: function.value.io.value.inputs.clone(),
             };
 
             if by_name.insert(name.clone(), known).is_some() {
@@ -53,8 +53,8 @@ impl FunctionTable {
     }
 
     /// Looks up a function by name.
-    pub fn get(&self, name: &str) -> Option<KnownFunction> {
-        self.by_name.get(name).copied()
+    pub fn get(&self, name: &str) -> Option<&KnownFunction> {
+        self.by_name.get(name)
     }
 }
 
@@ -77,9 +77,9 @@ mod tests {
         let child = table.get("child").expect("child function should exist");
 
         assert_eq!(main.id, FunctionId(0));
-        assert_eq!(main.arity, 0);
+        assert_eq!(main.inputs, Vec::<String>::new());
         assert_eq!(child.id, FunctionId(1));
-        assert_eq!(child.arity, 2);
+        assert_eq!(child.inputs, vec!["left".to_owned(), "right".to_owned()]);
         assert!(table.get("missing").is_none());
     }
 
