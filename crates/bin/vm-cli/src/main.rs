@@ -1,6 +1,5 @@
 use clap::Parser as _;
 
-mod integration;
 mod run;
 
 mod sample {
@@ -31,25 +30,30 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
 async fn bytecode_sample() -> Result<(), waymark_fn_main_common::Error> {
     let executable = sample::bytecode::executable();
 
-    let value = run(executable).await;
+    let interpreter = waymark_system_vm::Interpreter::default();
+    let runtime = waymark_system_vm::Runtime::with_conventional_entrypoint(
+        interpreter,
+        std::sync::Arc::new(executable),
+    )?;
 
-    let expected = (42 + 5) * 2;
+    let workflow_outcome = run(runtime).await?;
 
-    tracing::info!(?value, ?expected, "program complete");
+    let expected = (21 * 2 + 5) * 2;
+    tracing::info!(?workflow_outcome, ?expected, "program complete");
     Ok(())
 }
 
 async fn ast_old_sample() -> Result<(), waymark_fn_main_common::Error> {
     let program = sample::ast_old::program();
 
-    let executable =
-        waymark_vm_compiler_for_ast_old::compile::<_, integration::SampleLowering>(&program)?;
+    let runtime = waymark_transient_execution_bringup::setup_runtime(
+        &program,
+        std::collections::HashMap::new(),
+    )?;
 
-    let value = run(executable).await;
+    let workflow_outcome = run(runtime).await?;
 
     let expected = (2 + 3) * 2;
-
-    tracing::info!(?value, ?expected, "program complete");
-
+    tracing::info!(?workflow_outcome, ?expected, "program complete");
     Ok(())
 }

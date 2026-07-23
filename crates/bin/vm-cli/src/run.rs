@@ -1,164 +1,78 @@
-use crate::integration;
-use waymark_vm_codec_rmp::RmpCodec;
-use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
+use waymark_worker_core::BaseWorkerPool as _;
 
-#[derive(Debug, thiserror::Error)]
-pub enum RunError {
-    #[error("the program entrypoint is invalid: {0}")]
-    InvalidEntryPoint(
-        waymark_vm_runtime::FunctionNotFoundError<waymark_vm_bytecode_core::FunctionId>,
-    ),
+/// Run the runtime over a freshly spawned Python worker pool and return
+/// the workflow outcome.
+pub async fn run(
+    runtime: waymark_system_vm::Runtime,
+) -> Result<
+    waymark_workflow_completion_core::Outcome<waymark_system_vm::ReadyValue>,
+    waymark_fn_main_common::Error,
+> {
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
 
-    #[error("the runtime task has crashed before completing")]
-    RuntimeTaskCrashed,
+    let worker_config = waymark_worker_python::Config::new()
+        .with_user_module("tests.fixtures.test_actions")
+        .with_python_paths(vec![repo_root().join("python")]);
+    let (process_pool, mut bridge_server_task) = waymark_worker_remote_bringup::start(
+        shutdown_token.clone(),
+        None,
+        |bridge_server_addr| waymark_worker_python::Spec {
+            bridge_server_addr,
+            config: worker_config,
+        },
+        1.try_into().expect("worker count is nonzero"),
+        None,
+        10.try_into().expect("concurrency is nonzero"),
+    )
+    .await?;
 
-    #[error("execution completed with an unhandled exception: {}", .0.type_id)]
-    UnhandledException(waymark_vm_runtime_exception::Exception<integration::SampleReadyValue>),
+    let worker_pool = std::sync::Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
+        process_pool,
+    ));
+    worker_pool.launch().await?;
+
+    let waymark_transient_execution_bringup::Execution {
+        workflow_outcome_rx,
+        driver_handle,
+    } = waymark_transient_execution_worker_pool_bringup::execute(
+        runtime,
+        std::sync::Arc::clone(&worker_pool),
+        false,
+        tokio_util::sync::CancellationToken::new(),
+    );
+
+    let workflow_outcome = workflow_outcome_rx.await;
+
+    // The driver terminates right after delivering the workflow outcome —
+    // including on success — so join it unconditionally for its exit report.
+    let Err(driver_exit) = driver_handle.await;
+    tracing::debug!(?driver_exit, "vm driver exited");
+
+    let workflow_outcome = workflow_outcome.map_err(|_recv_error| {
+        waymark_fn_main_common::Error::msg(
+            "vm driver exited without delivering the workflow outcome",
+        )
+    })?;
+
+    shutdown_token.cancel();
+    let bridge_server_shutdown =
+        tokio::time::timeout(std::time::Duration::from_secs(5), &mut bridge_server_task).await;
+    if bridge_server_shutdown.is_err() {
+        tracing::warn!("bridge server did not stop in time, aborting it");
+        bridge_server_task.abort();
+        let _ = bridge_server_task.await;
+    }
+    worker_pool.shutdown_arc().await?;
+
+    Ok(workflow_outcome)
 }
 
-pub async fn run(
-    executable: integration::Executable,
-) -> Result<integration::SampleReadyValue, RunError> {
-    let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::<
-        integration::SampleSpec,
-        integration::Executable,
-        integration::SampleValue,
-    >::default();
-
-    let runtime =
-        waymark_vm_runtime::Runtime::with_conventional_entrypoint(interpreter, executable)
-            .map_err(RunError::InvalidEntryPoint)?;
-
-    let (effects_tx, mut effects_rx) = tokio::sync::mpsc::channel(1);
-    let (promise_resolutions_tx, promise_resolutions_rx) =
-        tokio::sync::mpsc::channel::<PromiseSettlement<integration::SampleReadyValue, ()>>(1);
-
-    let mut tasks = tokio::task::JoinSet::new();
-
-    tasks.spawn({
-        let params = waymark_vm_driver::Params {
-            runtime,
-            effector: (effects_tx, promise_resolutions_rx),
-            persister: (),
-            codec: RmpCodec,
-            cancel: Default::default(),
-        };
-        async move {
-            let Err(error) = waymark_vm_driver::run(params).await;
-            tracing::info!(?error, "vm driver terminated");
-        }
-    });
-
-    let (completion_tx, completion_rx) = tokio::sync::oneshot::channel::<
-        Result<
-            integration::SampleReadyValue,
-            waymark_vm_runtime_exception::Exception<integration::SampleReadyValue>,
-        >,
-    >();
-
-    tasks.spawn({
-        async move {
-            loop {
-                let Some(emitted_effect) = effects_rx.recv().await else {
-                    break;
-                };
-
-                match emitted_effect.effect {
-                    waymark_vm_interpreter_fullset::Effect::CoreSet(effect) => match effect {
-                        waymark_vm_interpreter_coreset::Effect::Complete(value) => {
-                            completion_tx.send(Ok(value)).unwrap();
-                            break;
-                        }
-                        waymark_vm_interpreter_coreset::Effect::UnhandledException(exception) => {
-                            completion_tx.send(Err(exception)).unwrap();
-                            break;
-                        }
-                    },
-                    waymark_vm_interpreter_fullset::Effect::ExtCallSet(effect) => match effect {
-                        waymark_vm_interpreter_extcallset::Effect::ActionCall {
-                            promise_state_id,
-                            action_ref,
-                            args,
-                        } => {
-                            tracing::info!(
-                                effect_number = %emitted_effect.number,
-                                ?action_ref,
-                                ?promise_state_id,
-                                ?args,
-                                "extcall received"
-                            );
-
-                            tokio::spawn({
-                                let promise_resolutions_tx = promise_resolutions_tx.clone();
-                                async move {
-                                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
-                                    let value = integration::SampleReadyValue::Int(42);
-                                    tracing::info!(
-                                        effect_number = %emitted_effect.number,
-                                        ?action_ref,
-                                        ?promise_state_id,
-                                        ?args,
-                                        ?value,
-                                        "resolving extcall"
-                                    );
-                                    promise_resolutions_tx
-                                        .send(PromiseSettlement {
-                                            promise_state_id,
-                                            resolution: PromiseResolution::Resolved(value),
-                                            ack: (),
-                                        })
-                                        .await
-                                        .unwrap();
-                                }
-                            });
-                        }
-                        waymark_vm_interpreter_extcallset::Effect::Sleep {
-                            promise_state_id,
-                            duration,
-                            skip_allowed,
-                        } => {
-                            tracing::info!(
-                                effect_number = %emitted_effect.number,
-                                ?promise_state_id,
-                                ?duration,
-                                skip_allowed,
-                                "sleep received"
-                            );
-
-                            tokio::spawn({
-                                let promise_resolutions_tx = promise_resolutions_tx.clone();
-                                async move {
-                                    tokio::time::sleep(duration.get()).await;
-
-                                    let value = integration::SampleReadyValue::None;
-                                    tracing::info!(
-                                        effect_number = %emitted_effect.number,
-                                        ?promise_state_id,
-                                        ?value,
-                                        "resolving sleep"
-                                    );
-                                    promise_resolutions_tx
-                                        .send(PromiseSettlement {
-                                            promise_state_id,
-                                            resolution: PromiseResolution::Resolved(value),
-                                            ack: (),
-                                        })
-                                        .await
-                                        .unwrap();
-                                }
-                            });
-                        }
-                    },
-                }
-            }
-        }
-    });
-
-    let result = completion_rx
-        .await
-        .map_err(|_| RunError::RuntimeTaskCrashed)?;
-    let value = result.map_err(RunError::UnhandledException)?;
-
-    Ok(value)
+/// The workspace root, resolved from this crate's manifest directory
+/// (`crates/bin/vm-cli`).
+fn repo_root() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(3)
+        .expect("the manifest dir has a workspace root three levels up")
+        .to_path_buf()
 }
