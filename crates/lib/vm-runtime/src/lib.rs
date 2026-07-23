@@ -31,15 +31,7 @@ where
     state: RuntimeState<Executable::FunctionId, Executable::StateId, Value>,
 }
 
-/// A specification of a VM function call.
-#[derive(Debug, Clone)]
-pub struct CallSpec<FunctionId, Arg> {
-    /// A function to call.
-    pub func: FunctionId,
-
-    /// A list of arguments to pass to the function.
-    pub args: Vec<Arg>,
-}
+pub use waymark_vm_runtime_callspec::CallSpec;
 
 /// An error returned when to such function id is defined in the executable.
 #[derive(Debug, thiserror::Error)]
