@@ -2,68 +2,59 @@
 //!
 //! For each curated fixture case:
 //! 1. Ask a Python helper for ground-truth inline execution and compiled IR.
-//! 2. Execute that IR through Rust runtime backends.
-//! 3. Assert backend output matches inline Python output.
+//! 2. Execute that IR through the VM over a Python worker pool — transiently
+//!    (in-memory, no persistence) and durably (postgres-backed snapshots,
+//!    action calls, and sleeps via the execution subsystem).
+//! 3. Assert the VM workflow outcome matches inline Python output.
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::Row;
-use waymark_ids::{InstanceId, LockId, WorkflowVersionId};
-use waymark_runner_executor_core::{ExecutionException, ExecutionSuccess};
-use waymark_secret_string::SecretString;
-
-use waymark_backend_memory::MemoryBackend;
-use waymark_backend_postgres::PostgresBackend;
-use waymark_core_backend::{CoreBackend, QueuedInstance};
-use waymark_dag::DAG;
-use waymark_dag_builder::convert_to_dag;
-use waymark_ir_conversions::literal_from_json_value;
+use waymark_convert_core::{Convert, TryConvert};
 use waymark_proto::ast as ir;
-use waymark_runloop::{RunLoop, RunLoopConfig};
-use waymark_runner_state::RunnerState;
+use waymark_secret_string::SecretString;
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
-use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
+use waymark_worker_core::BaseWorkerPool as _;
 
 #[derive(Parser, Debug)]
 #[command(name = "integration_test")]
 struct Args {
-    /// Comma-separated backend list. Supported: in-memory,postgres.
-    #[arg(long, default_value = "in-memory,postgres")]
-    backends: String,
+    /// Comma-separated execution mode list. Supported: transient,durable.
+    #[arg(long, default_value = "transient,durable")]
+    modes: String,
 
     /// Optional fixture case IDs to run.
     #[arg(long = "case")]
     cases: Vec<String>,
 
-    /// Number of Python workers for backend execution.
+    /// Number of Python workers for VM execution.
     #[arg(long, default_value_t = 2.try_into().unwrap())]
     worker_count: NonZeroUsize,
 
-    /// Timeout per backend execution, in seconds.
+    /// Timeout per case execution, in seconds.
     #[arg(long, default_value_t = 120)]
     timeout_seconds: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum BackendKind {
-    InMemory,
-    Postgres,
+enum ExecutionMode {
+    Transient,
+    Durable,
 }
 
-impl BackendKind {
+impl ExecutionMode {
     fn label(self) -> &'static str {
         match self {
-            Self::InMemory => "in-memory",
-            Self::Postgres => "postgres",
+            Self::Transient => "transient",
+            Self::Durable => "durable",
         }
     }
 }
@@ -161,8 +152,6 @@ const CASES: &[FixtureCase] = &[
 struct HelperRegistration {
     workflow_name: String,
     workflow_version: String,
-    ir_hash: String,
-    concurrent: bool,
     ir_bytes: Vec<u8>,
 }
 
@@ -172,14 +161,13 @@ struct HelperOutput {
     registration: HelperRegistration,
 }
 
-#[derive(Clone, Debug)]
 struct PreparedCase {
     case: FixtureCase,
-    kwargs: HashMap<String, Value>,
+    workflow_name: String,
+    workflow_version: String,
+    inputs: HashMap<String, waymark_system_vm::Value>,
     expected: CaseOutcome,
-    registration: WorkflowRegistration,
-    program: ir::Program,
-    dag: Arc<DAG>,
+    program: waymark_vm_ast_old::Program,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -188,12 +176,15 @@ struct CaseOutcome {
     value: Value,
 }
 
+type PythonWorkerPool =
+    Arc<waymark_worker_remote_pool::RemoteWorkerPool<waymark_worker_python::Spec>>;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     waymark_fn_main_common::init()?;
 
     let args = Args::parse();
-    let backend_kinds = parse_backends(&args.backends)?;
+    let modes = parse_modes(&args.modes)?;
     let selected_cases = select_cases(&args.cases)?;
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let timeout = Duration::from_secs(args.timeout_seconds);
@@ -201,8 +192,6 @@ async fn main() -> Result<()> {
     if selected_cases.is_empty() {
         bail!("no fixture cases selected");
     }
-
-    let shutdown_token = tokio_util::sync::CancellationToken::new();
 
     let mut prepared_cases = Vec::new();
     for case in selected_cases {
@@ -214,78 +203,33 @@ async fn main() -> Result<()> {
         })?);
     }
 
-    let maybe_postgres_backend = if backend_kinds.contains(&BackendKind::Postgres) {
-        Some(connect_postgres_backend().await?)
-    } else {
-        None
-    };
-
-    let (worker_process_pool, bridge_server_task) = setup_worker_pool(
-        shutdown_token.clone(),
-        &repo_root,
-        &prepared_cases,
-        args.worker_count,
-    )
-    .await
-    .context("start integration worker pool")?;
-
-    let worker_process_pool = Arc::new(worker_process_pool);
-    let worker_pool =
-        waymark_worker_remote_pool::RemoteWorkerPool::new(Arc::clone(&worker_process_pool));
-    let worker_pool = Arc::new(worker_pool);
-
     let mut failures = Vec::new();
     let mut comparisons = 0usize;
 
-    for prepared in &prepared_cases {
-        for backend_kind in &backend_kinds {
-            let actual = match backend_kind {
-                BackendKind::InMemory => {
-                    run_case_in_memory(prepared, worker_pool.clone(), timeout).await?
-                }
-                BackendKind::Postgres => {
-                    let backend = maybe_postgres_backend
-                        .as_ref()
-                        .context("postgres backend requested but not initialized")?;
-                    run_case_postgres(prepared, backend, worker_pool.clone(), timeout).await?
-                }
-            };
-            comparisons += 1;
-
-            let mismatch = if prepared.case.id == "timeout" {
-                validate_timeout_outcome(&actual)
-            } else if actual != prepared.expected {
-                Some(format!(
-                    "expected={}\nactual={}",
-                    serde_json::to_string(&prepared.expected).expect("serialize expected"),
-                    serde_json::to_string(&actual).expect("serialize actual"),
-                ))
-            } else {
-                None
-            };
-
-            if let Some(mismatch) = mismatch {
-                failures.push(format!(
-                    "case={} backend={}\n{}",
-                    prepared.case.id,
-                    backend_kind.label(),
-                    mismatch,
-                ));
+    for mode in &modes {
+        let mode_failures = match mode {
+            ExecutionMode::Transient => {
+                run_transient_mode(&repo_root, &prepared_cases, args.worker_count, timeout).await
+            }
+            ExecutionMode::Durable => {
+                run_durable_mode(&repo_root, &prepared_cases, args.worker_count, timeout).await
             }
         }
-    }
-    bridge_server_task.abort();
-    let _ = bridge_server_task.await;
+        .with_context(|| format!("run {} execution mode", mode.label()))?;
 
-    if let Err(err) = worker_pool.shutdown_arc().await {
-        eprintln!("failed to shutdown worker pool: {err}");
+        comparisons += prepared_cases.len();
+        failures.extend(
+            mode_failures
+                .into_iter()
+                .map(|failure| format!("mode={}\n{}", mode.label(), failure)),
+        );
     }
 
     if !failures.is_empty() {
         eprintln!(
             "fixture integration parity failed: {} mismatches across {} comparisons",
             failures.len(),
-            comparisons
+            comparisons,
         );
         for failure in failures {
             eprintln!(
@@ -297,15 +241,15 @@ async fn main() -> Result<()> {
     }
 
     println!(
-        "fixture integration parity passed: {} cases across {} backend comparisons",
+        "fixture integration parity passed: {} cases across {} mode comparisons",
         prepared_cases.len(),
-        comparisons
+        comparisons,
     );
 
     Ok(())
 }
 
-fn parse_backends(raw: &str) -> Result<Vec<BackendKind>> {
+fn parse_modes(raw: &str) -> Result<Vec<ExecutionMode>> {
     let mut parsed = Vec::new();
     for item in raw.split(',') {
         let trimmed = item.trim();
@@ -313,14 +257,14 @@ fn parse_backends(raw: &str) -> Result<Vec<BackendKind>> {
             continue;
         }
         match trimmed {
-            "in-memory" => parsed.push(BackendKind::InMemory),
-            "postgres" => parsed.push(BackendKind::Postgres),
-            other => bail!("unsupported backend '{other}'"),
+            "transient" => parsed.push(ExecutionMode::Transient),
+            "durable" => parsed.push(ExecutionMode::Durable),
+            other => bail!("unsupported execution mode '{other}'"),
         }
     }
 
     if parsed.is_empty() {
-        bail!("no backends requested")
+        bail!("no execution modes requested")
     }
 
     Ok(parsed)
@@ -356,9 +300,8 @@ fn helper_python(repo_root: &Path) -> Result<PathBuf> {
 fn prepare_case(repo_root: &Path, case: FixtureCase) -> Result<PreparedCase> {
     let kwargs_value: Value = serde_json::from_str(case.kwargs_json)
         .with_context(|| format!("parse kwargs JSON for case '{}'", case.id))?;
-    let kwargs = match kwargs_value {
-        Value::Object(map) => map.into_iter().collect::<HashMap<String, Value>>(),
-        _ => bail!("case '{}' kwargs JSON must be an object", case.id),
+    let Value::Object(kwargs) = kwargs_value else {
+        bail!("case '{}' kwargs JSON must be an object", case.id)
     };
 
     let helper = run_python_helper(repo_root, &case)?;
@@ -370,26 +313,27 @@ fn prepare_case(repo_root: &Path, case: FixtureCase) -> Result<PreparedCase> {
                 case.id, case.workflow_class
             )
         })?;
+    let program = waymark_vm_ast_old_proto::convert(program).with_context(|| {
+        format!(
+            "convert IR to the VM AST for case '{}' ({})",
+            case.id, case.workflow_class
+        )
+    })?;
 
-    let dag = Arc::new(
-        convert_to_dag(&program).map_err(|err| anyhow!("convert DAG for {}: {}", case.id, err))?,
-    );
-
-    let registration = WorkflowRegistration {
-        workflow_name: helper.registration.workflow_name,
-        workflow_version: helper.registration.workflow_version,
-        ir_hash: helper.registration.ir_hash,
-        program_proto: helper.registration.ir_bytes,
-        concurrent: helper.registration.concurrent,
-    };
+    let mut inputs = HashMap::new();
+    for (name, value) in kwargs {
+        let value: waymark_system_vm::Value =
+            waymark_vm_value_convert_json::Converter::convert(value);
+        inputs.insert(name, value);
+    }
 
     Ok(PreparedCase {
         case,
-        kwargs,
+        workflow_name: helper.registration.workflow_name,
+        workflow_version: helper.registration.workflow_version,
+        inputs,
         expected: canonicalize_outcome(helper.expected),
-        registration,
         program,
-        dag,
     })
 }
 
@@ -430,15 +374,16 @@ fn run_python_helper(repo_root: &Path, case: &FixtureCase) -> Result<HelperOutpu
         .with_context(|| format!("parse python helper JSON payload for case '{}'", case.id))
 }
 
+// ---------------------------------------------------------------------------
+// Worker pool lifecycle (shared by both modes)
+// ---------------------------------------------------------------------------
+
 async fn setup_worker_pool(
     shutdown_token: tokio_util::sync::CancellationToken,
     repo_root: &Path,
     cases: &[PreparedCase],
     worker_count: NonZeroUsize,
-) -> Result<(
-    waymark_worker_process_pool::Pool<waymark_worker_python::Spec>,
-    tokio::task::JoinHandle<()>,
-)> {
+) -> Result<(PythonWorkerPool, tokio::task::JoinHandle<()>)> {
     let mut modules = cases
         .iter()
         .map(|prepared| prepared.case.module_name.to_string())
@@ -454,7 +399,7 @@ async fn setup_worker_pool(
             repo_root.join("tests/integration_tests"),
         ]);
 
-    let (pool, task) = waymark_worker_remote_bringup::start(
+    let (process_pool, bridge_server_task) = waymark_worker_remote_bringup::start(
         shutdown_token,
         None,
         |bridge_server_addr| waymark_worker_python::Spec {
@@ -468,10 +413,147 @@ async fn setup_worker_pool(
     .await
     .context("create remote worker pool")?;
 
-    Ok((pool, task))
+    let worker_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
+        process_pool,
+    ));
+
+    Ok((worker_pool, bridge_server_task))
 }
 
-async fn connect_postgres_backend() -> Result<PostgresBackend> {
+async fn teardown_worker_pool(
+    shutdown_token: tokio_util::sync::CancellationToken,
+    mut bridge_server_task: tokio::task::JoinHandle<()>,
+    worker_pool: PythonWorkerPool,
+) {
+    shutdown_token.cancel();
+    let bridge_server_shutdown =
+        tokio::time::timeout(Duration::from_secs(5), &mut bridge_server_task).await;
+    if bridge_server_shutdown.is_err() {
+        tracing::warn!("bridge server did not stop in time, aborting it");
+        bridge_server_task.abort();
+        let _ = bridge_server_task.await;
+    }
+
+    if let Err(err) = worker_pool.shutdown_arc().await {
+        eprintln!("failed to shutdown worker pool: {err}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Transient execution mode
+// ---------------------------------------------------------------------------
+
+async fn run_transient_mode(
+    repo_root: &Path,
+    prepared_cases: &[PreparedCase],
+    worker_count: NonZeroUsize,
+    timeout: Duration,
+) -> Result<Vec<String>> {
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
+    let (worker_pool, bridge_server_task) = setup_worker_pool(
+        shutdown_token.clone(),
+        repo_root,
+        prepared_cases,
+        worker_count,
+    )
+    .await
+    .context("start transient worker pool")?;
+    worker_pool
+        .launch()
+        .await
+        .context("launch transient worker pool")?;
+
+    let mut failures = Vec::new();
+    for prepared in prepared_cases {
+        let actual = run_case_transient(prepared, Arc::clone(&worker_pool), timeout).await;
+        if let Some(mismatch) = check_case_outcome(prepared, actual) {
+            failures.push(mismatch);
+        }
+    }
+
+    teardown_worker_pool(shutdown_token, bridge_server_task, worker_pool).await;
+
+    Ok(failures)
+}
+
+async fn run_case_transient(
+    prepared: &PreparedCase,
+    worker_pool: PythonWorkerPool,
+    timeout: Duration,
+) -> Result<CaseOutcome> {
+    let runtime = waymark_transient_execution_bringup::setup_runtime(
+        &prepared.program,
+        prepared.inputs.clone(),
+    )
+    .with_context(|| format!("set up VM runtime for case '{}'", prepared.case.id))?;
+
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let waymark_transient_execution_bringup::Execution {
+        workflow_outcome_rx,
+        driver_handle,
+    } = waymark_transient_execution_worker_pool_bringup::execute(
+        runtime,
+        worker_pool,
+        false,
+        cancel.clone(),
+    );
+
+    let workflow_outcome = match tokio::time::timeout(timeout, workflow_outcome_rx).await {
+        Ok(received) => received,
+        Err(_elapsed) => {
+            cancel.cancel();
+            let Err(driver_exit) = driver_handle.await;
+            tracing::debug!(?driver_exit, "vm driver exited after cancellation");
+            bail!(
+                "case '{}' timed out after {}s",
+                prepared.case.id,
+                timeout.as_secs()
+            )
+        }
+    };
+
+    // The driver terminates right after delivering the workflow outcome —
+    // including on success — so join it unconditionally for its exit report.
+    let Err(driver_exit) = driver_handle.await;
+    tracing::debug!(?driver_exit, "vm driver exited");
+
+    let workflow_outcome = workflow_outcome.map_err(|_recv_error| {
+        anyhow!(
+            "vm driver exited without delivering a workflow outcome for case '{}'",
+            prepared.case.id
+        )
+    })?;
+
+    Ok(canonicalize_outcome(outcome_from_vm(workflow_outcome)?))
+}
+
+// ---------------------------------------------------------------------------
+// Durable execution mode
+// ---------------------------------------------------------------------------
+
+/// The postgres-backed services the durable mode drives directly: workflow
+/// submission (compile + register) and outcome polling. Execution itself is
+/// carried by the execution subsystem spawned in [`run_durable_mode`].
+struct DurableStack {
+    backend: waymark_backend_postgres::PostgresBackend,
+    executables: waymark_workflow_service_vm_executables::ExecutablesService<
+        waymark_backend_postgres::PostgresBackend,
+        waymark_vm_codec_rmp::RmpCodec,
+        waymark_system_vm::Spec,
+        waymark_system_vm::Lowering,
+    >,
+    registration: waymark_workflow_service_vm_runtimes::RegistrationService<
+        waymark_backend_postgres::PostgresBackend,
+        waymark_vm_codec_rmp::RmpCodec,
+    >,
+    outcome_polling: waymark_workflow_service_vm_runtimes::OutcomePollingService<
+        waymark_backend_postgres::PostgresBackend,
+        waymark_vm_codec_rmp::RmpCodec,
+        waymark_system_vm::ReadyValue,
+    >,
+}
+
+async fn connect_durable_stack() -> Result<DurableStack> {
     let dsn = std::env::var("WAYMARK_DATABASE_URL")
         .map(SecretString::from)
         .unwrap_or_else(|_| SecretString::from(LOCAL_POSTGRES_DSN));
@@ -488,251 +570,251 @@ async fn connect_postgres_backend() -> Result<PostgresBackend> {
     waymark_backend_postgres_migrations::run(&pool)
         .await
         .context("run postgres migrations for integration runner")?;
-    Ok(PostgresBackend::new(pool))
+
+    // Reset the durable-VM tables so stale runnable workloads from prior
+    // (crashed) runs cannot be revived into this run's execution subsystem.
+    sqlx::query(
+        r#"
+        TRUNCATE action_call_completions,
+                 action_call_requests,
+                 sleep_requests,
+                 vm_executables,
+                 vm_runtime_snapshots,
+                 runnable_workloads,
+                 vm_execution_results
+        RESTART IDENTITY CASCADE
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .context("truncate durable-VM tables")?;
+
+    let backend = waymark_backend_postgres::PostgresBackend::new(pool);
+    let codec = waymark_vm_codec_rmp::RmpCodec;
+
+    Ok(DurableStack {
+        executables: waymark_workflow_service_vm_executables::ExecutablesService::new(
+            backend.clone(),
+            codec,
+        ),
+        registration: waymark_workflow_service_vm_runtimes::RegistrationService::new(
+            backend.clone(),
+            codec,
+        ),
+        outcome_polling: waymark_workflow_service_vm_runtimes::OutcomePollingService::new(
+            backend.clone(),
+            codec,
+        ),
+        backend,
+    })
 }
 
-async fn run_case_in_memory<Spec>(
-    prepared: &PreparedCase,
-    worker_pool: Arc<waymark_worker_remote_pool::RemoteWorkerPool<Spec>>,
+fn durable_execution_config() -> waymark_execution_bringup::Config<uuid::Uuid> {
+    waymark_execution_bringup::Config {
+        node_id: uuid::Uuid::new_v4(),
+        action_effect_reconciler_lock_ttl: Duration::from_secs(15).try_into().unwrap(),
+        action_effect_reconciler_lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
+        max_pinned: 16.try_into().unwrap(),
+        pinning_ttl: Duration::from_secs(15).try_into().unwrap(),
+        pinning_heartbeat: Duration::from_secs(5).try_into().unwrap(),
+        pinning_fencing_margin: Duration::from_secs(1).try_into().unwrap(),
+        sleep_poll_interval: Duration::from_millis(250).try_into().unwrap(),
+        vm_retention: Duration::from_secs(60).try_into().unwrap(),
+        vm_sweep_interval: Duration::from_secs(10).try_into().unwrap(),
+        executable_retention: Duration::from_secs(300).try_into().unwrap(),
+        executable_sweep_interval: Duration::from_secs(60).try_into().unwrap(),
+    }
+}
+
+async fn run_durable_mode(
+    repo_root: &Path,
+    prepared_cases: &[PreparedCase],
+    worker_count: NonZeroUsize,
     timeout: Duration,
-) -> Result<CaseOutcome>
-where
-    Spec: waymark_worker_process_spec::Spec + Send + Sync + 'static,
-    waymark_worker_remote_pool::RemoteWorkerPool<Spec>: waymark_worker_core::BaseWorkerPool,
-{
-    let queue = Arc::new(Mutex::new(VecDeque::new()));
-    let backend = MemoryBackend::with_queue(queue);
+) -> Result<Vec<String>> {
+    let stack = connect_durable_stack().await?;
 
-    let workflow_version_id =
-        WorkflowRegistryBackend::upsert_workflow_version(&backend, &prepared.registration)
-            .await
-            .map_err(|err| anyhow!(err.to_string()))
-            .context("register workflow version in memory backend")?;
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
+    let force_shutdown_token = tokio_util::sync::CancellationToken::new();
+    let (worker_pool, bridge_server_task) = setup_worker_pool(
+        shutdown_token.clone(),
+        repo_root,
+        prepared_cases,
+        worker_count,
+    )
+    .await
+    .context("start durable worker pool")?;
 
-    let instance_id = InstanceId::new_uuid_v4();
-    let queued = build_queued_instance(
-        instance_id,
-        workflow_version_id,
-        Arc::clone(&prepared.dag),
-        &prepared.kwargs,
-    )?;
+    // The execution subsystem launches the worker pool itself.
+    let execution_handles = waymark_execution_bringup::start(
+        durable_execution_config(),
+        Arc::new(stack.backend.clone()),
+        Arc::clone(&worker_pool),
+        shutdown_token.child_token(),
+        force_shutdown_token.child_token(),
+    )
+    .await
+    .context("start durable execution subsystem")?;
 
-    CoreBackend::queue_instances(&backend, &[queued])
+    let mut failures = Vec::new();
+    for prepared in prepared_cases {
+        let actual = run_case_durable(prepared, &stack, timeout).await;
+        if let Some(mismatch) = check_case_outcome(prepared, actual) {
+            failures.push(mismatch);
+        }
+    }
+
+    // Every outcome has been received, so nothing is draining — force the
+    // pinning manager out of its drain loop along with the graceful stop.
+    shutdown_token.cancel();
+    force_shutdown_token.cancel();
+    shutdown_execution(execution_handles).await;
+    teardown_worker_pool(shutdown_token, bridge_server_task, worker_pool).await;
+
+    Ok(failures)
+}
+
+async fn shutdown_execution(handles: waymark_execution_bringup::Handles) {
+    let waymark_execution_bringup::Handles {
+        pinning_manager,
+        execution_driver,
+        executable_sweeper,
+        vm_sweeper,
+        durable_action_completions_writer,
+        durable_action_completions_poller,
+        durable_action_completions_acker,
+        durable_sleeps_poller,
+        durable_sleeps_acker,
+        action_effect_reconciler_lock_renewal,
+    } = handles;
+
+    let _ = tokio::time::timeout(Duration::from_secs(5), pinning_manager).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), execution_driver).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), executable_sweeper).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), vm_sweeper).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), durable_action_completions_writer).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), durable_action_completions_poller).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), durable_action_completions_acker).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), durable_sleeps_poller).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), durable_sleeps_acker).await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        action_effect_reconciler_lock_renewal,
+    )
+    .await;
+}
+
+async fn run_case_durable(
+    prepared: &PreparedCase,
+    stack: &DurableStack,
+    timeout: Duration,
+) -> Result<CaseOutcome> {
+    let (executable_id, executable, metadata) = stack
+        .executables
+        .compile_and_store(
+            &prepared.workflow_name,
+            &prepared.workflow_version,
+            &prepared.program,
+        )
         .await
-        .map_err(|err| anyhow!(err.to_string()))
-        .context("queue in-memory instance")?;
-
-    run_runloop(worker_pool, backend.clone(), timeout).await?;
-
-    let done = backend
-        .instances_done()
-        .into_iter()
-        .find(|candidate| candidate.executor_id == instance_id)
-        .with_context(|| {
-            format!(
-                "missing completed in-memory instance for case '{}'",
+        .map_err(|err| {
+            anyhow!(
+                "compile and store executable for case '{}': {err}",
                 prepared.case.id
             )
         })?;
 
-    Ok(canonicalize_outcome(outcome_from_payload(
-        &prepared.program,
-        done.result,
-        done.error,
-    )))
-}
-
-async fn run_case_postgres<Spec>(
-    prepared: &PreparedCase,
-    backend: &PostgresBackend,
-    worker_pool: Arc<waymark_worker_remote_pool::RemoteWorkerPool<Spec>>,
-    timeout: Duration,
-) -> Result<CaseOutcome>
-where
-    Spec: waymark_worker_process_spec::Spec + Send + Sync + 'static,
-    waymark_worker_remote_pool::RemoteWorkerPool<Spec>: waymark_worker_core::BaseWorkerPool,
-{
-    backend
-        .clear_all()
-        .await
-        .map_err(|err| anyhow!(err.to_string()))
-        .context("clear postgres runner tables")?;
-
-    let workflow_version_id =
-        WorkflowRegistryBackend::upsert_workflow_version(backend, &prepared.registration)
-            .await
-            .map_err(|err| anyhow!(err.to_string()))
-            .context("register workflow version in postgres backend")?;
-
-    let instance_id = InstanceId::new_uuid_v4();
-    let queued = build_queued_instance(
-        instance_id,
-        workflow_version_id,
-        Arc::clone(&prepared.dag),
-        &prepared.kwargs,
-    )?;
-
-    CoreBackend::queue_instances(backend, &[queued])
-        .await
-        .map_err(|err| anyhow!(err.to_string()))
-        .context("queue postgres instance")?;
-
-    run_runloop(worker_pool, backend.clone(), timeout).await?;
-
-    let row = sqlx::query("SELECT result, error FROM runner_instances WHERE instance_id = $1")
-        .bind(instance_id)
-        .fetch_optional(backend.pool())
-        .await
-        .context("fetch postgres instance outcome row")?
-        .with_context(|| {
-            format!(
-                "missing runner_instances row for case '{}' instance {}",
-                prepared.case.id, instance_id
+    let call_spec = waymark_vm_runtime_builder::builder(&metadata)
+        .first_fn()
+        .map_err(|err| {
+            anyhow!(
+                "select entry function for case '{}': {err}",
+                prepared.case.id
+            )
+        })?
+        .args(prepared.inputs.clone())
+        .map_err(|err| {
+            anyhow!(
+                "match entry function arguments for case '{}': {err}",
+                prepared.case.id
             )
         })?;
 
-    let result_payload: Option<Vec<u8>> = row.get("result");
-    let error_payload: Option<Vec<u8>> = row.get("error");
+    let runtime = waymark_system_vm::Runtime::with_custom_entrypoint(
+        waymark_system_vm::Interpreter::default(),
+        Arc::new(executable),
+        call_spec,
+    )
+    .map_err(|err| anyhow!("create VM runtime for case '{}': {err}", prepared.case.id))?;
 
-    let result = result_payload
-        .as_deref()
-        .map(rmp_serde::from_slice::<Value>)
-        .transpose()
-        .context("decode postgres result payload")?;
-    let result = result.map(ExecutionSuccess);
-    let error = error_payload
-        .as_deref()
-        .map(rmp_serde::from_slice::<Value>)
-        .transpose()
-        .context("decode postgres error payload")?;
-    let error = error.map(ExecutionException);
-
-    Ok(canonicalize_outcome(outcome_from_payload(
-        &prepared.program,
-        result,
-        error,
-    )))
-}
-
-async fn run_runloop<Backend, Spec>(
-    worker_pool: Arc<waymark_worker_remote_pool::RemoteWorkerPool<Spec>>,
-    backend: Backend,
-    timeout: Duration,
-) -> Result<()>
-where
-    Backend: CoreBackend + WorkflowRegistryBackend + Clone + Send + Sync + 'static,
-    <Backend as CoreBackend>::PollQueuedInstancesError: Send + Sync + 'static,
-    <Backend as CoreBackend>::PollQueuedInstancesError: core::error::Error,
-    Spec: waymark_worker_process_spec::Spec + Send + Sync + 'static,
-    waymark_worker_remote_pool::RemoteWorkerPool<Spec>: waymark_worker_core::BaseWorkerPool,
-{
-    let runloop = RunLoop::<waymark_worker_remote_pool::RemoteWorkerPool<Spec>, _, _>::new(
-        worker_pool,
-        backend,
-        RunLoopConfig {
-            max_concurrent_instances: 16.try_into().unwrap(),
-            executor_shards: 1.try_into().unwrap(),
-            instance_done_batch_size: Some(16.try_into().unwrap()),
-            poll_interval: Some(Duration::from_millis(10).try_into().unwrap()),
-            persistence_interval: Some(Duration::from_millis(20).try_into().unwrap()),
-            lock_uuid: LockId::new_uuid_v4(),
-            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
-            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
-            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
-            skip_sleep: false,
-            active_instance_gauge: None,
-        },
-    );
-
-    tokio::time::timeout(timeout, runloop.run())
+    let vm_id = waymark_ids::InstanceId::new_uuid_v4();
+    stack
+        .registration
+        .register_vm(vm_id, executable_id, |serializer| {
+            runtime.snapshot(serializer)
+        })
         .await
-        .with_context(|| format!("runloop timed out after {}s", timeout.as_secs()))??;
+        .map_err(|err| anyhow!("register VM for case '{}': {err}", prepared.case.id))?;
 
-    Ok(())
+    let workflow_outcome = tokio::time::timeout(
+        timeout,
+        stack
+            .outcome_polling
+            .wait_for_outcome(&vm_id, Duration::from_millis(100)),
+    )
+    .await
+    .map_err(|_elapsed| {
+        anyhow!(
+            "case '{}' timed out after {}s",
+            prepared.case.id,
+            timeout.as_secs()
+        )
+    })?
+    .map_err(|err| anyhow!("wait for outcome of case '{}': {err}", prepared.case.id))?;
+
+    Ok(canonicalize_outcome(outcome_from_vm(workflow_outcome)?))
 }
 
-fn build_queued_instance(
-    instance_id: InstanceId,
-    workflow_version_id: WorkflowVersionId,
-    dag: Arc<DAG>,
-    kwargs: &HashMap<String, Value>,
-) -> Result<QueuedInstance> {
-    let mut state = RunnerState::from_dag(Arc::clone(&dag));
+// ---------------------------------------------------------------------------
+// Outcome comparison
+// ---------------------------------------------------------------------------
 
-    for (name, value) in kwargs {
-        let expr = literal_from_json_value(value);
-        let label = format!("input {name} = {value}");
-        let _ = state
-            .record_assignment(vec![name.clone()], &expr, None, Some(label))
-            .map_err(|err| anyhow!(err.0))?;
-    }
-
-    let entry_template = dag
-        .entry_node
-        .clone()
-        .ok_or_else(|| anyhow!("DAG entry node not found"))?;
-    let entry_exec = state
-        .queue_template_node(&entry_template, None)
-        .map_err(|err| anyhow!(err.0))?;
-
-    Ok(QueuedInstance {
-        workflow_version_id,
-        schedule_id: None,
-        entry_node: entry_exec.node_id,
-        graph: state.graph,
-        action_results: HashMap::new(),
-        instance_id,
-        scheduled_at: None,
-    })
-}
-
-fn outcome_from_payload(
-    program: &ir::Program,
-    result: Option<ExecutionSuccess>,
-    error: Option<ExecutionException>,
-) -> CaseOutcome {
-    if let Some(error) = error {
-        return CaseOutcome {
-            status: "error".to_string(),
-            value: error.0,
-        };
-    }
-
-    let raw_result = result.map(|result| result.0).unwrap_or(Value::Null);
-    CaseOutcome {
-        status: "ok".to_string(),
-        value: normalize_runtime_result(program, raw_result),
-    }
-}
-
-fn normalize_runtime_result(program: &ir::Program, result: Value) -> Value {
-    let Value::Object(map) = result else {
-        return result;
+fn check_case_outcome(prepared: &PreparedCase, actual: Result<CaseOutcome>) -> Option<String> {
+    let mismatch = match actual {
+        Ok(actual) if prepared.case.id == "timeout" => validate_timeout_outcome(&actual),
+        Ok(actual) if actual != prepared.expected => Some(format!(
+            "expected={}\nactual={}",
+            serde_json::to_string(&prepared.expected).expect("serialize expected"),
+            serde_json::to_string(&actual).expect("serialize actual"),
+        )),
+        Ok(_actual) => None,
+        Err(err) => Some(format!("execution error: {err:#}")),
     };
 
-    let Some(main_fn) = program.functions.first() else {
-        return Value::Object(map);
-    };
+    mismatch.map(|mismatch| format!("case={}\n{}", prepared.case.id, mismatch))
+}
 
-    if let Some(io) = &main_fn.io {
-        for output_name in &io.outputs {
-            if let Some(value) = map.get(output_name) {
-                return value.clone();
-            }
+fn outcome_from_vm(
+    outcome: waymark_workflow_completion_core::Outcome<waymark_system_vm::ReadyValue>,
+) -> Result<CaseOutcome> {
+    match outcome {
+        waymark_workflow_completion_core::Outcome::Completion(value) => {
+            let value: Value = waymark_vm_value_convert_json::Converter::try_convert(value)
+                .context("convert workflow completion value to JSON")?;
+            Ok(CaseOutcome {
+                status: "ok".to_string(),
+                value,
+            })
+        }
+        waymark_workflow_completion_core::Outcome::Exception(exception) => {
+            let value: Value = waymark_vm_value_convert_json::Converter::try_convert(exception)
+                .context("convert workflow exception to JSON")?;
+            Ok(CaseOutcome {
+                status: "error".to_string(),
+                value,
+            })
         }
     }
-
-    if let Some(value) = map.get("result") {
-        return value.clone();
-    }
-
-    if map.len() == 1
-        && let Some(value) = map.values().next()
-    {
-        return value.clone();
-    }
-
-    Value::Object(map)
 }
 
 fn canonicalize_outcome(outcome: CaseOutcome) -> CaseOutcome {
@@ -761,22 +843,6 @@ fn validate_timeout_outcome(actual: &CaseOutcome) -> Option<String> {
     if error_type != Some("ActionTimeout") {
         return Some(format!(
             "expected error type ActionTimeout\nactual={}",
-            serde_json::to_string(actual).expect("serialize actual")
-        ));
-    }
-
-    let timeout_seconds = payload.get("timeout_seconds").and_then(Value::as_i64);
-    if timeout_seconds != Some(1) {
-        return Some(format!(
-            "expected timeout_seconds=1\nactual={}",
-            serde_json::to_string(actual).expect("serialize actual")
-        ));
-    }
-
-    let attempt = payload.get("attempt").and_then(Value::as_i64);
-    if attempt != Some(1) {
-        return Some(format!(
-            "expected attempt=1\nactual={}",
             serde_json::to_string(actual).expect("serialize actual")
         ));
     }

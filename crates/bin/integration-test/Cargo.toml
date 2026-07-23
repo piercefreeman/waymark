@@ -5,35 +5,38 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
-waymark-backend-memory = { workspace = true }
 waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
-waymark-core-backend = { workspace = true }
-waymark-dag = { workspace = true }
-waymark-dag-builder = { workspace = true }
+waymark-convert-core = { workspace = true }
+waymark-execution-bringup = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
-waymark-ir-conversions = { workspace = true }
 waymark-proto = { workspace = true }
-waymark-runloop = { workspace = true }
-waymark-runner-executor-core = { workspace = true }
-waymark-runner-state = { workspace = true }
 waymark-secret-string = { workspace = true }
 waymark-support-integration = { workspace = true }
+waymark-system-vm = { workspace = true }
+waymark-transient-execution-bringup = { workspace = true }
+waymark-transient-execution-worker-pool-bringup = { workspace = true }
+waymark-vm-ast-old = { workspace = true }
+waymark-vm-ast-old-proto = { workspace = true }
+waymark-vm-codec-rmp = { workspace = true }
+waymark-vm-runtime-builder = { workspace = true }
+waymark-vm-value-convert-json = { workspace = true }
 waymark-worker-core = { workspace = true }
-waymark-worker-process-pool = { workspace = true }
-waymark-worker-process-spec = { workspace = true }
 waymark-worker-python = { workspace = true }
 waymark-worker-remote-bringup = { workspace = true }
 waymark-worker-remote-pool = { workspace = true }
-waymark-workflow-registry-backend = { workspace = true }
+waymark-workflow-completion-core = { workspace = true }
+waymark-workflow-service-vm-executables = { workspace = true }
+waymark-workflow-service-vm-runtimes = { workspace = true }
 
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 prost = { workspace = true }
-rmp-serde = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tokio-util = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
