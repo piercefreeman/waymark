@@ -1,12 +1,25 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_workflow/workflow_helper_async.py [compilation error]"
+expression: bytecode for python/tests/fixtures_workflow/workflow_helper_async.py
 ---
-FunctionCompiler(
-    Unsupported(
-        FunctionCall {
-            name: "run_internal",
-            reason: KeywordArguments,
-        },
-    ),
-)
+fn main(input: [value], output: []):
+    result = run_internal(value=value)
+    return result
+
+fn run_internal(input: [value], output: []):
+    _return_tmp = @workflow_helper_async.increment(value=value)
+    return _return_tmp
+---
+f0: [2 registers]
+  s0:
+    CoreSet(Call { dst: r1, function_id: f1, args: [r0] })
+    CoreSet(Await { dst: r1, src: r1, resume: s1 })
+  s1:
+    CoreSet(Return { src: r1 })
+f1: [2 registers]
+  s0:
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("increment"), args: [r0], resume: s1 })
+  s1:
+    CoreSet(Await { dst: r1, src: r1, resume: s2 })
+  s2:
+    CoreSet(Return { src: r1 })

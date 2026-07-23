@@ -1,12 +1,45 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_workflow/workflow_helper_positional.py [compilation error]"
+expression: bytecode for python/tests/fixtures_workflow/workflow_helper_positional.py
 ---
-FunctionCompiler(
-    Unsupported(
-        FunctionCall {
-            name: "multiply",
-            reason: KeywordArguments,
-        },
-    ),
-)
+fn main(input: [], output: []):
+    value = @workflow_helper_positional.get_value()
+    sum_result = add(value, 10)
+    product = multiply(sum_result, 2, z=3)
+    return product
+
+fn add(input: [a, b], output: []):
+    "Helper that adds two numbers."
+    return a + b
+
+fn multiply(input: [x, y, z], output: []):
+    "Helper that multiplies three numbers."
+    return x * y * z
+---
+f0: [5 registers]
+  s0:
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("get_value"), args: [], resume: s1 })
+  s1:
+    CoreSet(Await { dst: r0, src: r0, resume: s2 })
+  s2:
+    PureSet(LoadConst { dst: r2, value: Int(10) })
+    CoreSet(Call { dst: r1, function_id: f1, args: [r0, r2] })
+    CoreSet(Await { dst: r1, src: r1, resume: s3 })
+  s3:
+    PureSet(LoadConst { dst: r2, value: Int(2) })
+    PureSet(LoadConst { dst: r4, value: Int(3) })
+    CoreSet(Call { dst: r3, function_id: f2, args: [r1, r2, r4] })
+    CoreSet(Await { dst: r3, src: r3, resume: s4 })
+  s4:
+    CoreSet(Return { src: r3 })
+f1: [3 registers]
+  s0:
+    PureSet(LoadConst { dst: r2, value: String("Helper that adds two numbers.") })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r2, a: r0, b: r1 } })
+    CoreSet(Return { src: r2 })
+f2: [5 registers]
+  s0:
+    PureSet(LoadConst { dst: r3, value: String("Helper that multiplies three numbers.") })
+    PureSet(Binary { kind: Mul, op: BinaryOp { dst: r3, a: r0, b: r1 } })
+    PureSet(Binary { kind: Mul, op: BinaryOp { dst: r4, a: r3, b: r2 } })
+    CoreSet(Return { src: r4 })

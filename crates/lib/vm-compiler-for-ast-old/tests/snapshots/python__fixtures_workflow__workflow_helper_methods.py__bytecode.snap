@@ -1,12 +1,49 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_workflow/workflow_helper_methods.py [compilation error]"
+expression: bytecode for python/tests/fixtures_workflow/workflow_helper_methods.py
 ---
-FunctionCompiler(
-    Unsupported(
-        FunctionCall {
-            name: "compute_multiplier",
-            reason: KeywordArguments,
-        },
-    ),
-)
+fn main(input: [key, base, factor], output: []):
+    data = @workflow_helper_methods.fetch_data(key=key)
+    multiplier = compute_multiplier(base=base, factor=factor)
+    processed = @workflow_helper_methods.process_data(data=data, multiplier=multiplier)
+    result = format_result(value=processed)
+    return result
+
+fn compute_multiplier(input: [base, factor], output: []):
+    "Pure Python helper - computes a value synchronously."
+    return base * factor
+
+fn format_result(input: [value], output: []):
+    "Pure Python helper - formats the final result."
+    return "[RESULT: " + value + "]"
+---
+f0: [7 registers]
+  s0:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("fetch_data"), args: [r0], resume: s1 })
+  s1:
+    CoreSet(Await { dst: r3, src: r3, resume: s2 })
+  s2:
+    CoreSet(Call { dst: r4, function_id: f1, args: [r1, r2] })
+    CoreSet(Await { dst: r4, src: r4, resume: s3 })
+  s3:
+    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("process_data"), args: [r3, r4], resume: s4 })
+  s4:
+    CoreSet(Await { dst: r5, src: r5, resume: s5 })
+  s5:
+    CoreSet(Call { dst: r6, function_id: f2, args: [r5] })
+    CoreSet(Await { dst: r6, src: r6, resume: s6 })
+  s6:
+    CoreSet(Return { src: r6 })
+f1: [3 registers]
+  s0:
+    PureSet(LoadConst { dst: r2, value: String("Pure Python helper - computes a value synchronously.") })
+    PureSet(Binary { kind: Mul, op: BinaryOp { dst: r2, a: r0, b: r1 } })
+    CoreSet(Return { src: r2 })
+f2: [4 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: String("Pure Python helper - formats the final result.") })
+    PureSet(LoadConst { dst: r1, value: String("[RESULT: ") })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r2, a: r1, b: r0 } })
+    PureSet(LoadConst { dst: r1, value: String("]") })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r3, a: r2, b: r1 } })
+    CoreSet(Return { src: r3 })

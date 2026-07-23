@@ -11,13 +11,17 @@ use crate::function::table::FunctionTable;
 use super::Unsupported;
 
 /// A validated user-function call with a resolved callee id.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FunctionCallPlan<'a> {
     /// Callee id resolved from the function table.
     function_id: FunctionId,
 
-    /// Positional argument expressions in source order.
-    args: &'a [Spanned<Expr>],
+    /// Argument expressions in source order: positional first, then the
+    /// keyword argument values as written.
+    args: Vec<&'a Spanned<Expr>>,
+
+    /// For each callee input slot, the index into `args` that binds it.
+    input_bindings: Vec<usize>,
 }
 
 /// A validated action call with a lowered action reference.
@@ -57,8 +61,7 @@ pub type CallPlanFor<'a, Spec> =
 /// Reasons a function-call shape cannot be represented by this compiler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedFunctionCall {
-    /// The call supplied keyword arguments, but compiled function calls are
-    /// positional only.
+    /// A built-in call form received keyword arguments it does not accept.
     KeywordArguments,
 
     /// The call targeted a global built-in rather than a user-defined function.
@@ -71,14 +74,6 @@ impl<'a> FunctionCallPlan<'a> {
         call: &'a FunctionCall,
         function_table: &FunctionTable,
     ) -> Result<Self, Error<LiteralLoweringError, ActionLoweringError>> {
-        if !call.kwargs.is_empty() {
-            return Err(Unsupported::FunctionCall {
-                name: call.name.clone(),
-                reason: UnsupportedFunctionCall::KeywordArguments,
-            }
-            .into());
-        }
-
         if call.global_function.is_some() {
             return Err(Unsupported::FunctionCall {
                 name: call.name.clone(),
@@ -93,28 +88,70 @@ impl<'a> FunctionCallPlan<'a> {
                 name: call.name.clone(),
             })?;
 
-        if call.args.len() != known.arity {
+        let expected = known.inputs.len();
+        let actual = call.args.len() + call.kwargs.len();
+        if actual != expected {
             return Err(Error::FunctionArityMismatch {
                 function: call.name.clone(),
-                expected: known.arity,
-                actual: call.args.len(),
+                expected,
+                actual,
             });
         }
 
+        // Positional arguments bind the leading input slots; keyword
+        // arguments bind the remaining slots by declared input name. The
+        // argument count parity above plus the per-slot collision check
+        // below make the binding exhaustive.
+        let mut slot_bindings: Vec<Option<usize>> = vec![None; expected];
+        let mut args = Vec::with_capacity(actual);
+        for (slot_binding, arg) in slot_bindings.iter_mut().zip(&call.args) {
+            *slot_binding = Some(args.len());
+            args.push(arg);
+        }
+        for kwarg in &call.kwargs {
+            let input_index = known
+                .inputs
+                .iter()
+                .position(|input| input == &kwarg.name)
+                .ok_or_else(|| Error::UnknownKeywordArgument {
+                    function: call.name.clone(),
+                    keyword: kwarg.name.clone(),
+                })?;
+            if slot_bindings[input_index].is_some() {
+                return Err(Error::DuplicateFunctionArgument {
+                    function: call.name.clone(),
+                    input: kwarg.name.clone(),
+                });
+            }
+            slot_bindings[input_index] = Some(args.len());
+            args.push(&kwarg.value);
+        }
+        let input_bindings = slot_bindings
+            .into_iter()
+            .map(|slot_binding| slot_binding.expect("argument count parity fills every input slot"))
+            .collect();
+
         Ok(Self {
             function_id: known.id,
-            args: &call.args,
+            args,
+            input_bindings,
         })
     }
 
     /// Returns the resolved callee id.
-    pub fn function_id(self) -> FunctionId {
+    pub fn function_id(&self) -> FunctionId {
         self.function_id
     }
 
-    /// Returns the positional arguments for the call.
-    pub fn args(self) -> &'a [Spanned<Expr>] {
-        self.args
+    /// Returns the argument expressions in source order.
+    pub fn args(&self) -> &[&'a Spanned<Expr>] {
+        &self.args
+    }
+
+    /// Returns, for each callee input slot, the index into
+    /// [`Self::args`] that binds it.
+    pub fn input_bindings(&self) -> &[usize] {
+        &self.input_bindings
     }
 }
 
@@ -285,22 +322,129 @@ mod tests {
         assert!(matches!(error, Error::UnknownFunction { name } if name == "missing"));
     }
 
+    /// Function table with a two-input callee for keyword-binding tests.
+    fn build_pair_function_table() -> crate::function::table::FunctionTable {
+        let program =
+            waymark_vm_ast_old_helpers::program(vec![waymark_vm_ast_old_helpers::function(
+                "pair",
+                &["left", "right"],
+                vec![],
+            )]);
+        crate::function::table::FunctionTable::build(&program).expect("function table should build")
+    }
+
+    fn kwarg(name: &str, value: Spanned<Expr>) -> Kwarg {
+        Kwarg {
+            name: name.to_owned(),
+            value,
+        }
+    }
+
+    fn literal_int(expr: &Spanned<Expr>) -> i64 {
+        match &expr.value {
+            waymark_vm_ast_old::Expr::Literal {
+                value: Literal::Int(value),
+            } => *value,
+            other => panic!("unexpected argument expression {other:?}"),
+        }
+    }
+
     #[test]
-    fn rejects_function_calls_with_kwargs() {
-        let function_table = build_function_table();
-        let mut call = function_call("child", vec![int(1)]);
-        call.kwargs.push(Kwarg {
-            name: "value".to_owned(),
-            value: int(2),
-        });
+    fn binds_keyword_arguments_by_declared_input_order() {
+        let function_table = build_pair_function_table();
+        let mut call = function_call("pair", Vec::new());
+        call.kwargs.push(kwarg("right", int(2)));
+        call.kwargs.push(kwarg("left", int(1)));
+
+        let plan = FunctionCallPlan::build::<(), ()>(&call, &function_table)
+            .expect("keyword arguments should bind");
+
+        // Source order is preserved for the argument expressions...
+        let args: Vec<i64> = plan.args().iter().map(|arg| literal_int(arg)).collect();
+        assert_eq!(args, vec![2, 1]);
+        // ...while the input bindings map them to the declared input order.
+        assert_eq!(plan.input_bindings(), &[1, 0]);
+    }
+
+    #[test]
+    fn binds_mixed_positional_and_keyword_arguments() {
+        let function_table = build_pair_function_table();
+        let mut call = function_call("pair", vec![int(1)]);
+        call.kwargs.push(kwarg("right", int(2)));
+
+        let plan = FunctionCallPlan::build::<(), ()>(&call, &function_table)
+            .expect("mixed arguments should bind");
+
+        let args: Vec<i64> = plan.args().iter().map(|arg| literal_int(arg)).collect();
+        assert_eq!(args, vec![1, 2]);
+        assert_eq!(plan.input_bindings(), &[0, 1]);
+    }
+
+    #[test]
+    fn rejects_unknown_keyword_arguments() {
+        let function_table = build_pair_function_table();
+        let mut call = function_call("pair", vec![int(1)]);
+        call.kwargs.push(kwarg("missing", int(2)));
 
         let error = FunctionCallPlan::build::<(), ()>(&call, &function_table)
-            .expect_err("kwargs should be rejected");
+            .expect_err("unknown keyword arguments should be rejected");
 
         assert!(matches!(
             error,
-            Error::Unsupported(Unsupported::FunctionCall { name, reason })
-                if name == "child" && reason == UnsupportedFunctionCall::KeywordArguments
+            Error::UnknownKeywordArgument { function, keyword }
+                if function == "pair" && keyword == "missing"
+        ));
+    }
+
+    #[test]
+    fn rejects_keyword_argument_rebinding_a_positional_slot() {
+        let function_table = build_pair_function_table();
+        let mut call = function_call("pair", vec![int(1)]);
+        call.kwargs.push(kwarg("left", int(2)));
+
+        let error = FunctionCallPlan::build::<(), ()>(&call, &function_table)
+            .expect_err("rebinding a positionally-filled input should be rejected");
+
+        assert!(matches!(
+            error,
+            Error::DuplicateFunctionArgument { function, input }
+                if function == "pair" && input == "left"
+        ));
+    }
+
+    #[test]
+    fn rejects_duplicate_keyword_arguments() {
+        let function_table = build_pair_function_table();
+        let mut call = function_call("pair", Vec::new());
+        call.kwargs.push(kwarg("left", int(1)));
+        call.kwargs.push(kwarg("left", int(2)));
+
+        let error = FunctionCallPlan::build::<(), ()>(&call, &function_table)
+            .expect_err("duplicate keyword arguments should be rejected");
+
+        assert!(matches!(
+            error,
+            Error::DuplicateFunctionArgument { function, input }
+                if function == "pair" && input == "left"
+        ));
+    }
+
+    #[test]
+    fn counts_keyword_arguments_toward_arity() {
+        let function_table = build_pair_function_table();
+        let mut call = function_call("pair", Vec::new());
+        call.kwargs.push(kwarg("left", int(1)));
+
+        let error = FunctionCallPlan::build::<(), ()>(&call, &function_table)
+            .expect_err("missing arguments should be rejected");
+
+        assert!(matches!(
+            error,
+            Error::FunctionArityMismatch {
+                function,
+                expected,
+                actual,
+            } if function == "pair" && expected == 2 && actual == 1
         ));
     }
 
