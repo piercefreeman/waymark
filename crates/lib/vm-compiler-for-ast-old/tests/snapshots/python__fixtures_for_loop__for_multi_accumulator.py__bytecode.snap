@@ -1,11 +1,66 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_for_loop/for_multi_accumulator.py [compilation error]"
+expression: bytecode for python/tests/fixtures_for_loop/for_multi_accumulator.py
 ---
-FunctionCompiler(
-    Unsupported(
-        AssignmentTargetCount {
-            count: 2,
-        },
-    ),
-)
+fn main(input: [items], output: []):
+    valid_items = []
+    invalid_items = []
+    for item in items:
+        is_valid, processed = @for_multi_accumulator.multi_accum_classify_item(item=item)
+        if is_valid:
+            valid_items = valid_items + [processed]
+        else:
+            invalid_items = invalid_items + [processed]
+    return {"valid": valid_items, "invalid": invalid_items}
+---
+f0: [20 registers]
+  s0:
+    PureSet(MakeList { dst: r1, items: [] })
+    PureSet(MakeList { dst: r2, items: [] })
+    PureSet(Copy { dst: r3, src: r0 })
+    PureSet(LoadConst { dst: r4, value: Int(0) })
+    PureSet(Length { dst: r5, src: r3 })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r4, b: r5 } })
+    CoreSet(JumpIf { target_state: s2, cond: r6 })
+    CoreSet(Jump { target_state: s4 })
+  s2:
+    PureSet(Index { dst: r6, object: r3, index: r4 })
+    PureSet(Copy { dst: r7, src: r6 })
+    ExtCallSet(ActionCall { dst: r6, action_ref: TestActionRef("multi_accum_classify_item"), args: [r7], resume: s5 })
+  s3:
+    PureSet(LoadConst { dst: r6, value: Int(1) })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r4, a: r4, b: r6 } })
+    CoreSet(Jump { target_state: s1 })
+  s4:
+    PureSet(LoadConst { dst: r6, value: String("valid") })
+    PureSet(LoadConst { dst: r18, value: String("invalid") })
+    PureSet(MakeDict { dst: r19, entries: [DictEntry { key: r6, value: r1 }, DictEntry { key: r18, value: r2 }] })
+    CoreSet(Return { src: r19 })
+  s5:
+    CoreSet(Await { dst: r6, src: r6, resume: s6 })
+  s6:
+    PureSet(Length { dst: r10, src: r6 })
+    PureSet(LoadConst { dst: r11, value: Int(2) })
+    PureSet(Binary { kind: Eq, op: BinaryOp { dst: r12, a: r10, b: r11 } })
+    CoreSet(JumpIf { target_state: s7, cond: r12 })
+    PureSet(LoadConst { dst: r13, value: String("ValueError") })
+    PureSet(LoadConst { dst: r14, value: None })
+    PureSet(MakeException { dst: r15, type_id: r13, details: r14 })
+    CoreSet(Raise { src: r15 })
+  s7:
+    PureSet(LoadConst { dst: r16, value: Int(0) })
+    PureSet(Index { dst: r8, object: r6, index: r16 })
+    PureSet(LoadConst { dst: r17, value: Int(1) })
+    PureSet(Index { dst: r9, object: r6, index: r17 })
+    CoreSet(JumpIf { target_state: s9, cond: r8 })
+    PureSet(MakeList { dst: r6, items: [r9] })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r2, a: r2, b: r6 } })
+    CoreSet(Jump { target_state: s8 })
+  s8:
+    CoreSet(Jump { target_state: s3 })
+  s9:
+    PureSet(MakeList { dst: r6, items: [r9] })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r6 } })
+    CoreSet(Jump { target_state: s8 })

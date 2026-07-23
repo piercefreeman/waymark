@@ -40,8 +40,8 @@ pub enum Unsupported {
     #[error("assignment with no targets is only supported for spread expressions")]
     AssignmentNoTargets,
 
-    /// Multiple assignment targets are not supported by the current VM subset.
-    #[error("assignment with {count} targets is not supported by the compiler yet")]
+    /// Spread assignments bind exactly one target.
+    #[error("spread assignment with {count} targets is not supported")]
     AssignmentTargetCount {
         /// The number of assignment targets.
         count: NonZeroUsize,
