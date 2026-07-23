@@ -619,8 +619,10 @@ fn compiles_sleep_statements_into_resumable_sleep_effects() {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::Sleep {
             promise_state_id,
             duration,
+            skip_allowed,
         }) => {
             assert_eq!(duration, NonZeroDuration::from_secs(2).unwrap());
+            assert!(skip_allowed);
             promise_state_id
         }
         other => panic!("unexpected first runtime effect: {other:?}"),

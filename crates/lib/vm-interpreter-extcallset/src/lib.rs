@@ -49,6 +49,10 @@ pub enum Effect<ActionRef, ActionCallArgument> {
 
         /// Requested sleep duration.
         duration: NonZeroDuration,
+
+        /// When false, the sleep's duration is load-bearing and the
+        /// handler must not settle the sleep early.
+        skip_allowed: bool,
     },
 }
 
@@ -131,6 +135,7 @@ where
                 dst,
                 duration,
                 resume,
+                unskippable,
             } => {
                 let value = &frame.regs[*duration];
 
@@ -143,6 +148,7 @@ where
                 Ok(ExecutionOutcome::ExitFrameWithEffect(Effect::Sleep {
                     promise_state_id,
                     duration,
+                    skip_allowed: !unskippable,
                 }))
             }
         }

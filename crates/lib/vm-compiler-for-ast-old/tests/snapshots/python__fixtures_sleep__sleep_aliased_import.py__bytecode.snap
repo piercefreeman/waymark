@@ -15,7 +15,7 @@ f0: [4 registers]
     CoreSet(Await { dst: r0, src: r0, resume: s2 })
   s2:
     PureSet(LoadConst { dst: r2, value: Int(3) })
-    ExtCallSet(Sleep { dst: r1, duration: r2, resume: s3 })
+    ExtCallSet(Sleep { dst: r1, duration: r2, resume: s3, unskippable: false })
   s3:
     CoreSet(Await { dst: r1, src: r1, resume: s4 })
   s4:

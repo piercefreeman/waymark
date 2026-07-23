@@ -243,9 +243,12 @@ where
 
         let resume_state = self.reserve_state();
 
-        self.context
-            .emitter
-            .emit_sleep(dst.marked(), duration_register.register(), resume_state);
+        self.context.emitter.emit_sleep(
+            dst.marked(),
+            duration_register.register(),
+            resume_state,
+            false,
+        );
 
         self.context.emitter.switch_to(resume_state);
 
@@ -767,9 +770,11 @@ mod tests {
                 dst,
                 duration,
                 resume,
+                unskippable,
             })) if *dst == RegisterId(0)
                 && *duration == RegisterId(1)
                 && *resume == StateId(1)
+                && !unskippable
         ));
         assert!(start_instructions.next().is_none());
 

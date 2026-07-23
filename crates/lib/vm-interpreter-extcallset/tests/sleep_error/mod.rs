@@ -20,6 +20,7 @@ fn runtime_surfaces_invalid_sleep_duration_errors_from_the_interpreter() {
                     dst: RegisterId(1),
                     duration: RegisterId(0),
                     resume: StateId(1),
+                    unskippable: false,
                 }
                 .into(),
             ]],
