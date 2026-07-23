@@ -27,7 +27,8 @@ pub struct FuzzArgs {
     pub seed: Option<u64>,
 }
 
-/// Run randomized workflow fuzz cases end-to-end through parse, DAG conversion, and runloop.
+/// Run randomized workflow fuzz cases end-to-end through parse, VM
+/// compilation, and transient execution.
 pub async fn run(args: FuzzArgs) -> Result<()> {
     let seed = args.seed.unwrap_or_else(seed_from_clock);
     let total = args.cases.max(1);

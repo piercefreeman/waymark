@@ -1,26 +1,14 @@
 //! Execution harness for generated fuzz cases.
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
-use prost::Message;
-use serde_json::Value;
-use sha2::{Digest, Sha256};
-use waymark_backend_memory::MemoryBackend;
-use waymark_core_backend::QueuedInstance;
-use waymark_ids::{InstanceId, LockId, WorkflowVersionId};
-use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
-
-use super::generator::GeneratedCase;
-use waymark_dag_builder::convert_to_dag;
+use anyhow::{Result, bail};
 use waymark_ir_parser::parse_program;
-use waymark_proto::ast as ir;
-use waymark_runloop::{RunLoop, RunLoopConfig};
-use waymark_runner_state::RunnerState;
 use waymark_worker_core::WorkerPoolError;
 use waymark_worker_inline::{ActionCallable, InlineWorkerPool};
+
+use super::generator::GeneratedCase;
 
 pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
     let program = parse_program(case.source.trim()).map_err(|err| {
@@ -30,65 +18,70 @@ pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
         )
     })?;
 
-    let dag = Arc::new(convert_to_dag(&program).map_err(|err| {
+    let program = waymark_vm_ast_old_proto::convert(program).map_err(|err| {
         anyhow::anyhow!(
-            "case {case_index} failed to convert DAG: {err}\n--- program ---\n{}",
+            "case {case_index} failed to convert to the VM AST: {err}\n--- program ---\n{}",
             case.source
         )
-    })?);
+    })?;
 
-    let queue = Arc::new(Mutex::new(VecDeque::new()));
-    let backend = MemoryBackend::with_queue(queue.clone());
-    let workflow_version_id = register_workflow(case_index, &backend, &program).await?;
-    let instance_id = InstanceId::new_uuid_v4();
-    let queued = build_instance(instance_id, workflow_version_id, dag, case.base_input)?;
-    queue
-        .lock()
-        .expect("fuzz queue lock poisoned")
-        .push_back(queued);
+    let inputs = HashMap::from([(
+        "base".to_string(),
+        waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::Int(case.base_input)),
+    )]);
+
+    let runtime =
+        waymark_transient_execution_bringup::setup_runtime(&program, inputs).map_err(|err| {
+            anyhow::anyhow!(
+                "case {case_index} failed to compile: {err}\n--- program ---\n{}",
+                case.source
+            )
+        })?;
 
     let worker_pool = InlineWorkerPool::new(action_registry());
-    let runloop = RunLoop::new(
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let waymark_transient_execution_bringup::Execution {
+        workflow_outcome_rx,
+        driver_handle,
+    } = waymark_transient_execution_worker_pool_bringup::execute(
+        runtime,
         worker_pool,
-        backend.clone(),
-        RunLoopConfig {
-            max_concurrent_instances: 8.try_into().unwrap(),
-            executor_shards: 1.try_into().unwrap(),
-            instance_done_batch_size: None,
-            poll_interval: Some(Duration::from_millis(5).try_into().unwrap()),
-            persistence_interval: Some(Duration::from_millis(20).try_into().unwrap()),
-            lock_uuid: LockId::new_uuid_v4(),
-            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
-            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
-            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
-            skip_sleep: false,
-            active_instance_gauge: None,
-        },
+        false,
+        cancel.clone(),
     );
 
-    tokio::time::timeout(Duration::from_secs(5), runloop.run())
-        .await
-        .context("runloop timed out")?
-        .map_err(|err| anyhow::anyhow!(err.to_string()))?;
+    let workflow_outcome =
+        match tokio::time::timeout(Duration::from_secs(5), workflow_outcome_rx).await {
+            Ok(received) => received,
+            Err(_elapsed) => {
+                cancel.cancel();
+                let Err(driver_exit) = driver_handle.await;
+                tracing::debug!(?driver_exit, "vm driver exited after cancellation");
+                bail!(
+                    "case {case_index} timed out\n--- program ---\n{}",
+                    case.source
+                )
+            }
+        };
 
-    let done = backend
-        .instances_done()
-        .into_iter()
-        .find(|entry| entry.executor_id == instance_id)
-        .ok_or_else(|| anyhow::anyhow!("case {case_index} produced no completed instance"))?;
+    // The driver terminates right after delivering the workflow outcome —
+    // including on success — so join it unconditionally for its exit report.
+    let Err(driver_exit) = driver_handle.await;
+    tracing::debug!(?driver_exit, "vm driver exited");
 
-    if let Some(error) = done.error {
-        bail!(
-            "case {case_index} completed with error: {}\n--- program ---\n{}",
-            error.0,
+    let workflow_outcome = workflow_outcome.map_err(|_recv_error| {
+        anyhow::anyhow!(
+            "case {case_index}: vm driver exited without delivering a workflow outcome\n--- program ---\n{}",
             case.source
-        );
-    }
-    if done.result.is_none() {
-        bail!(
-            "case {case_index} completed without result payload\n--- program ---\n{}",
+        )
+    })?;
+
+    match workflow_outcome {
+        waymark_workflow_completion_core::Outcome::Completion(_value) => {}
+        waymark_workflow_completion_core::Outcome::Exception(exception) => bail!(
+            "case {case_index} completed with an exception: {exception:?}\n--- program ---\n{}",
             case.source
-        );
+        ),
     }
 
     if (case_index + 1).is_multiple_of(10) {
@@ -98,100 +91,43 @@ pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
     Ok(())
 }
 
-async fn register_workflow(
-    case_index: usize,
-    backend: &MemoryBackend,
-    program: &ir::Program,
-) -> Result<WorkflowVersionId> {
-    let program_proto = program.encode_to_vec();
-    let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
-    backend
-        .upsert_workflow_version(&WorkflowRegistration {
-            workflow_name: format!("fuzz_case_{case_index}"),
-            workflow_version: ir_hash.clone(),
-            ir_hash,
-            program_proto,
-            concurrent: false,
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err.to_string()))
-}
-
-fn build_instance(
-    instance_id: InstanceId,
-    workflow_version_id: WorkflowVersionId,
-    dag: Arc<waymark_dag::DAG>,
-    base: i64,
-) -> Result<QueuedInstance> {
-    let mut state = RunnerState::from_dag(Arc::clone(&dag));
-    state
-        .record_assignment(
-            vec!["base".to_string()],
-            &literal_int(base),
-            None,
-            Some(format!("input base = {base}")),
-        )
-        .map_err(|err| anyhow::anyhow!(err.0))?;
-
-    let entry_template = dag
-        .entry_node
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("DAG entry node not found"))?;
-    let entry_exec = state
-        .queue_template_node(&entry_template, None)
-        .map_err(|err| anyhow::anyhow!(err.0))?;
-
-    Ok(QueuedInstance {
-        workflow_version_id,
-        schedule_id: None,
-        entry_node: entry_exec.node_id,
-        graph: state.graph,
-        action_results: HashMap::new(),
-        instance_id,
-        scheduled_at: None,
-    })
-}
-
-fn literal_int(value: i64) -> ir::Expr {
-    ir::Expr {
-        kind: Some(ir::expr::Kind::Literal(ir::Literal {
-            value: Some(ir::literal::Value::IntValue(value)),
-        })),
-        span: None,
-    }
-}
-
 fn action_registry() -> HashMap<String, ActionCallable> {
     let mut actions: HashMap<String, ActionCallable> = HashMap::new();
     actions.insert(
         "inc".to_string(),
-        Arc::new(|kwargs| Box::pin(action_inc(kwargs))),
+        std::sync::Arc::new(|kwargs| Box::pin(action_inc(kwargs))),
     );
     actions.insert(
         "double".to_string(),
-        Arc::new(|kwargs| Box::pin(action_double(kwargs))),
+        std::sync::Arc::new(|kwargs| Box::pin(action_double(kwargs))),
     );
     actions.insert(
         "sum".to_string(),
-        Arc::new(|kwargs| Box::pin(action_sum(kwargs))),
+        std::sync::Arc::new(|kwargs| Box::pin(action_sum(kwargs))),
     );
     actions
 }
 
-async fn action_inc(kwargs: HashMap<String, Value>) -> Result<Value, WorkerPoolError> {
+async fn action_inc(
+    kwargs: HashMap<String, serde_json::Value>,
+) -> Result<serde_json::Value, WorkerPoolError> {
     let value = get_i64(&kwargs, "value")?;
-    Ok(Value::Number((value + 1).into()))
+    Ok(serde_json::Value::Number((value + 1).into()))
 }
 
-async fn action_double(kwargs: HashMap<String, Value>) -> Result<Value, WorkerPoolError> {
+async fn action_double(
+    kwargs: HashMap<String, serde_json::Value>,
+) -> Result<serde_json::Value, WorkerPoolError> {
     let value = get_i64(&kwargs, "value")?;
-    Ok(Value::Number((value * 2).into()))
+    Ok(serde_json::Value::Number((value * 2).into()))
 }
 
-async fn action_sum(kwargs: HashMap<String, Value>) -> Result<Value, WorkerPoolError> {
+async fn action_sum(
+    kwargs: HashMap<String, serde_json::Value>,
+) -> Result<serde_json::Value, WorkerPoolError> {
     let values = kwargs
         .get("values")
-        .and_then(Value::as_array)
+        .and_then(serde_json::Value::as_array)
         .ok_or_else(|| WorkerPoolError::new("ActionError", "sum expects array input"))?;
     let mut total = 0i64;
     for item in values {
@@ -200,12 +136,12 @@ async fn action_sum(kwargs: HashMap<String, Value>) -> Result<Value, WorkerPoolE
             .ok_or_else(|| WorkerPoolError::new("ActionError", "sum expects integer elements"))?;
         total += value;
     }
-    Ok(Value::Number(total.into()))
+    Ok(serde_json::Value::Number(total.into()))
 }
 
-fn get_i64(kwargs: &HashMap<String, Value>, key: &str) -> Result<i64, WorkerPoolError> {
+fn get_i64(kwargs: &HashMap<String, serde_json::Value>, key: &str) -> Result<i64, WorkerPoolError> {
     kwargs
         .get(key)
-        .and_then(Value::as_i64)
+        .and_then(serde_json::Value::as_i64)
         .ok_or_else(|| WorkerPoolError::new("ActionError", format!("missing integer '{key}'")))
 }
