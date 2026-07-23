@@ -1,5 +1,5 @@
 [package]
-name = "waymark-transient-execution-bringup"
+name = "waymark-transient-execution-worker-stream-bringup"
 edition = "2024"
 version.workspace = true
 publish.workspace = true

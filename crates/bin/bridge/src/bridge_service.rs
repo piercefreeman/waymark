@@ -189,14 +189,18 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             }
         };
 
-        let runtime = waymark_transient_execution_bringup::setup_runtime(&registration)
-            .await
-            .map_err(|err| Status::internal(format!("setup runtime: {err}")))?;
+        let runtime =
+            waymark_transient_execution_worker_stream_bringup::setup_runtime(&registration)
+                .await
+                .map_err(|err| Status::internal(format!("setup runtime: {err}")))?;
 
-        let waymark_transient_execution_bringup::ExecuteChannels {
+        let waymark_transient_execution_worker_stream_bringup::ExecuteChannels {
             out_rx,
             action_result_tx,
-        } = waymark_transient_execution_bringup::execute(runtime, first_msg.skip_sleep);
+        } = waymark_transient_execution_worker_stream_bringup::execute(
+            runtime,
+            first_msg.skip_sleep,
+        );
 
         // Feed ActionResult messages from the gRPC input stream into the
         // execution's action-result channel.
