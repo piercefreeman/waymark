@@ -13,7 +13,7 @@ waymark-ids = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-secret-string = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
-waymark-transient-execution-bringup = { workspace = true }
+waymark-transient-execution-worker-stream-bringup = { workspace = true }
 waymark-vm-ast-old-proto = { workspace = true }
 waymark-vm-codec-rmp = { workspace = true }
 waymark-vm-executable = { workspace = true }

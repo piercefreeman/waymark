@@ -93,7 +93,7 @@ waymark-timed = { path = "crates/lib/timed" }
 waymark-timed-channel = { path = "crates/lib/timed-channel" }
 waymark-timed-future = { path = "crates/lib/timed-future" }
 waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
-waymark-transient-execution-bringup = { path = "crates/lib/transient-execution-bringup" }
+waymark-transient-execution-worker-stream-bringup = { path = "crates/lib/transient-execution-worker-stream-bringup" }
 waymark-transient-sleep-reconciler = { path = "crates/lib/transient-sleep-reconciler" }
 waymark-typed-vec-serde = { path = "crates/lib/typed-vec-serde" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
