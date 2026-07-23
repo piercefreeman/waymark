@@ -27,6 +27,7 @@ pub struct WorkerConfig {
     pub lock_ttl: NonZeroDuration,
     pub lock_heartbeat: NonZeroDuration,
     pub pinning_fencing_margin: NonZeroDuration,
+    pub workload_poll_interval: NonZeroDuration,
     pub action_effect_reconciler_lock_ttl: NonZeroDuration,
     pub action_effect_reconciler_lock_heartbeat: NonZeroDuration,
     pub evict_sleep_threshold: NonZeroDuration,
@@ -79,6 +80,11 @@ impl WorkerConfig {
 
         let FromMillis(pinning_fencing_margin) =
             envfury::or_parse("WAYMARK_PINNING_FENCING_MARGIN_MS", "1000")?;
+
+        // 1ms default: low enough that even a same-host poll query round
+        // trip takes longer, so it only floors the spin without pacing it.
+        let FromNanos(workload_poll_interval) =
+            envfury::or_parse("WAYMARK_WORKLOAD_POLL_INTERVAL_NS", "1000000")?;
 
         let FromMillis(action_effect_reconciler_lock_ttl) =
             envfury::or_parse("WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_TTL_MS", "15000")?;
@@ -160,6 +166,7 @@ impl WorkerConfig {
             lock_ttl,
             lock_heartbeat,
             pinning_fencing_margin,
+            workload_poll_interval,
             action_effect_reconciler_lock_ttl,
             action_effect_reconciler_lock_heartbeat,
             evict_sleep_threshold,

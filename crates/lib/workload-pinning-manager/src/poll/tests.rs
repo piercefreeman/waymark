@@ -7,7 +7,9 @@ use nonempty_collections::nev;
 use tokio_util::sync::CancellationToken;
 
 use super::{PollParams, poll_and_pin, run_poll_loop};
-use crate::test_utils::helpers::{test_max_concurrent, test_node_id, test_pinning_ttl};
+use crate::test_utils::helpers::{
+    test_max_concurrent, test_node_id, test_pinning_ttl, test_poll_interval,
+};
 use crate::test_utils::mock::MockBackend;
 
 #[tokio::test]
@@ -116,6 +118,7 @@ async fn poll_loop_continues_when_count_channel_closes() {
             shutdown_token: CancellationToken::new(),
             max_pinned: test_max_concurrent(),
             pinning_ttl: test_pinning_ttl(),
+            poll_interval: test_poll_interval(),
         }),
     )
     .await;
@@ -164,6 +167,7 @@ async fn poll_loop_exits_on_pinned_receiver_closed() {
         shutdown_token: CancellationToken::new(),
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
+        poll_interval: test_poll_interval(),
     })
     .await;
 

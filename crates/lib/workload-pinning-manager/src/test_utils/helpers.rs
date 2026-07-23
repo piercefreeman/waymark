@@ -9,6 +9,10 @@ pub(crate) fn test_pinning_ttl() -> NonZeroDuration {
     NonZeroDuration::new(Duration::from_secs(30)).unwrap()
 }
 
+pub(crate) fn test_poll_interval() -> NonZeroDuration {
+    NonZeroDuration::new(Duration::from_millis(1)).unwrap()
+}
+
 pub(crate) fn test_max_concurrent() -> NonZeroUsize {
     NonZeroUsize::new(3).unwrap()
 }

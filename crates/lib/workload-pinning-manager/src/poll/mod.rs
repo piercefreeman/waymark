@@ -33,6 +33,7 @@ where
     pub shutdown_token: CancellationToken,
     pub max_pinned: NonZeroUsize,
     pub pinning_ttl: NonZeroDuration,
+    pub poll_interval: NonZeroDuration,
 }
 
 pub(super) async fn run_poll_loop<Backend>(
@@ -56,6 +57,7 @@ where
         shutdown_token,
         max_pinned,
         pinning_ttl,
+        poll_interval: _,
     } = params;
 
     let mut current_count = 0usize;

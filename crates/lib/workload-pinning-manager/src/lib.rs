@@ -69,6 +69,13 @@ where
     /// How long a pinning lasts before it needs to be refreshed.
     pub pinning_ttl: NonZeroDuration,
 
+    /// Minimum interval between unpinned-workload poll queries.
+    ///
+    /// Polling is a spin by design; this is only a floor on how tight it
+    /// can get, and is expected to be set low enough that a single poll
+    /// query round trip — even to a colocated store — takes longer.
+    pub poll_interval: NonZeroDuration,
+
     /// How often to refresh pinnings on active workloads.
     pub pinning_heartbeat: NonZeroDuration,
 
@@ -115,6 +122,7 @@ where
         pinned_tx,
         max_pinned,
         pinning_ttl,
+        poll_interval,
         pinning_heartbeat,
         unpin_retry_interval,
         pinning_fencing_margin,
@@ -154,6 +162,7 @@ where
         shutdown_token: poll_shutdown.clone(),
         max_pinned,
         pinning_ttl,
+        poll_interval,
     });
 
     let maintenance_future = maintenance::run_maintenance_loop(maintenance::MaintainParams {
