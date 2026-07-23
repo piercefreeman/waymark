@@ -13,13 +13,19 @@ waymark-fullset-effect-handler = { workspace = true }
 waymark-sleep-compat = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
 waymark-transient-sleep-reconciler = { workspace = true }
+waymark-vm-ast-old = { workspace = true }
+waymark-vm-bytecode-core = { workspace = true }
 waymark-vm-codec-rmp = { workspace = true }
+waymark-vm-compiler-for-ast-old = { workspace = true }
 waymark-vm-driver = { workspace = true }
 waymark-vm-driver-core = { workspace = true, features = ["tokio"] }
 waymark-vm-driver-thread = { workspace = true }
+waymark-vm-runtime = { workspace = true }
+waymark-vm-runtime-builder = { workspace = true }
 waymark-workflow-completion-core = { workspace = true }
 waymark-workflow-completion-direct = { workspace = true }
 
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 tokio-util = { workspace = true }
 

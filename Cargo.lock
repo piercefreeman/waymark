@@ -5542,6 +5542,7 @@ dependencies = [
 name = "waymark-transient-execution-bringup"
 version = "0.1.0"
 dependencies = [
+ "thiserror",
  "tokio",
  "tokio-util",
  "waymark-action-runtime-core",
@@ -5552,10 +5553,15 @@ dependencies = [
  "waymark-sleep-compat",
  "waymark-system-vm",
  "waymark-transient-sleep-reconciler",
+ "waymark-vm-ast-old",
+ "waymark-vm-bytecode-core",
  "waymark-vm-codec-rmp",
+ "waymark-vm-compiler-for-ast-old",
  "waymark-vm-driver",
  "waymark-vm-driver-core",
  "waymark-vm-driver-thread",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-builder",
  "waymark-workflow-completion-core",
  "waymark-workflow-completion-direct",
 ]
@@ -5564,8 +5570,8 @@ dependencies = [
 name = "waymark-transient-execution-worker-stream-bringup"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "prost 0.12.6",
+ "thiserror",
  "tokio",
  "tokio-util",
  "tonic 0.11.0",
@@ -5577,7 +5583,9 @@ dependencies = [
  "waymark-system-vm",
  "waymark-transient-execution-bringup",
  "waymark-vm-ast-old-proto",
+ "waymark-vm-bytecode-core",
  "waymark-vm-compiler-for-ast-old",
+ "waymark-vm-runtime",
  "waymark-workflow-completion-convert-proto",
  "waymark-workflow-completion-core",
  "waymark-workflow-initialization-convert-proto",

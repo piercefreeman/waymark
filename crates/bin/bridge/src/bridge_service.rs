@@ -191,7 +191,6 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
 
         let runtime =
             waymark_transient_execution_worker_stream_bringup::setup_runtime(&registration)
-                .await
                 .map_err(|err| Status::internal(format!("setup runtime: {err}")))?;
 
         let waymark_transient_execution_worker_stream_bringup::ExecuteChannels {

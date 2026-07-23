@@ -12,13 +12,15 @@ waymark-proto = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
 waymark-transient-execution-bringup = { workspace = true }
 waymark-vm-ast-old-proto = { workspace = true }
+waymark-vm-bytecode-core = { workspace = true }
 waymark-vm-compiler-for-ast-old = { workspace = true }
+waymark-vm-runtime = { workspace = true }
 waymark-workflow-completion-convert-proto = { workspace = true }
 waymark-workflow-completion-core = { workspace = true }
 waymark-workflow-initialization-convert-proto = { workspace = true }
 
-anyhow = { workspace = true }
 prost = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "macros", "rt"] }
 tokio-util = { workspace = true }
 tonic = { workspace = true }

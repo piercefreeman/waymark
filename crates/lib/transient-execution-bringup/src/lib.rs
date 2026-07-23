@@ -26,6 +26,69 @@ impl SnapshotPersister for NoopPersister {
 }
 
 // ---------------------------------------------------------------------------
+// Runtime setup
+// ---------------------------------------------------------------------------
+
+/// Errors that can occur in [`setup_runtime`].
+#[derive(Debug, thiserror::Error)]
+pub enum SetupRuntimeError {
+    /// Compiling the AST program into an executable failed.
+    #[error("compile: {0}")]
+    Compile(
+        #[source]
+        waymark_vm_compiler_for_ast_old::CompileErrorFor<
+            waymark_system_vm::Spec,
+            waymark_system_vm::Lowering,
+        >,
+    ),
+
+    /// Selecting the entry function failed.
+    #[error("select entry function: {0}")]
+    SelectEntryFunction(#[source] waymark_vm_runtime_builder::NoFunctionsError),
+
+    /// Matching the entry function arguments failed.
+    #[error("match entry function arguments: {0}")]
+    MatchArguments(#[source] waymark_vm_runtime_builder::MissingArgumentsError),
+
+    /// The entry function was not found in the executable.
+    #[error("invalid entrypoint: {0}")]
+    Entrypoint(
+        #[source] waymark_vm_runtime::FunctionNotFoundError<waymark_vm_bytecode_core::FunctionId>,
+    ),
+}
+
+/// Compile a [`waymark_vm_ast_old::Program`] into a ready-to-run
+/// [`waymark_system_vm::Runtime`], entirely in memory, without any database
+/// backend.
+///
+/// The entry function (function 0, the first function in source order)
+/// receives its arguments from `arguments`, matched by input name; every
+/// input name must be present.
+pub fn setup_runtime(
+    program: &waymark_vm_ast_old::Program,
+    arguments: std::collections::HashMap<String, waymark_system_vm::Value>,
+) -> Result<waymark_system_vm::Runtime, SetupRuntimeError> {
+    let (executable, metadata) = waymark_vm_compiler_for_ast_old::compile_with_metadata::<
+        waymark_system_vm::Spec,
+        waymark_system_vm::Lowering,
+    >(program)
+    .map_err(SetupRuntimeError::Compile)?;
+    let executable = std::sync::Arc::new(executable);
+
+    let call_spec = waymark_vm_runtime_builder::builder(&metadata)
+        .first_fn()
+        .map_err(SetupRuntimeError::SelectEntryFunction)?
+        .args(arguments)
+        .map_err(SetupRuntimeError::MatchArguments)?;
+
+    let interpreter = waymark_system_vm::Interpreter::default();
+    let runtime =
+        waymark_system_vm::Runtime::with_custom_entrypoint(interpreter, executable, call_spec)
+            .map_err(SetupRuntimeError::Entrypoint)?;
+    Ok(runtime)
+}
+
+// ---------------------------------------------------------------------------
 // Execution bringup
 // ---------------------------------------------------------------------------
 
