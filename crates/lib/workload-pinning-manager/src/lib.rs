@@ -20,7 +20,7 @@ pub use self::outcome::*;
 pub use self::pinned_handle::*;
 pub use self::poll::*;
 
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Arc;
 
 use nonempty_collections::NEVec;
@@ -69,6 +69,9 @@ where
     /// How long a pinning lasts before it needs to be refreshed.
     pub pinning_ttl: NonZeroDuration,
 
+    /// Maximum number of unpinned-workload poll queries per second.
+    pub poll_rate_limit: NonZeroU32,
+
     /// How often to refresh pinnings on active workloads.
     pub pinning_heartbeat: NonZeroDuration,
 
@@ -115,6 +118,7 @@ where
         pinned_tx,
         max_pinned,
         pinning_ttl,
+        poll_rate_limit,
         pinning_heartbeat,
         unpin_retry_interval,
         pinning_fencing_margin,
@@ -154,6 +158,7 @@ where
         shutdown_token: poll_shutdown.clone(),
         max_pinned,
         pinning_ttl,
+        poll_rate_limit,
     });
 
     let maintenance_future = maintenance::run_maintenance_loop(maintenance::MaintainParams {

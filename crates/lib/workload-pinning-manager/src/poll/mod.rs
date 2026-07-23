@@ -4,7 +4,7 @@ mod error;
 
 pub use self::error::*;
 
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -33,6 +33,7 @@ where
     pub shutdown_token: CancellationToken,
     pub max_pinned: NonZeroUsize,
     pub pinning_ttl: NonZeroDuration,
+    pub poll_rate_limit: NonZeroU32,
 }
 
 pub(super) async fn run_poll_loop<Backend>(
@@ -56,6 +57,7 @@ where
         shutdown_token,
         max_pinned,
         pinning_ttl,
+        poll_rate_limit: _,
     } = params;
 
     let mut current_count = 0usize;
