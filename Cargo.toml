@@ -32,7 +32,6 @@ waymark-core-backend-metadata = { path = "crates/lib/core-backend-metadata" }
 waymark-dag = { path = "crates/lib/dag" }
 waymark-dag-builder = { path = "crates/lib/dag-builder" }
 waymark-dag-validator = { path = "crates/lib/dag-validator" }
-waymark-dag-viz = { path = "crates/lib/dag-viz" }
 waymark-execution-bringup = { path = "crates/lib/execution-bringup" }
 waymark-execution-driver = { path = "crates/lib/execution-driver" }
 waymark-extcall-reconciler = { path = "crates/lib/extcall-reconciler" }
@@ -44,7 +43,6 @@ waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backe
 waymark-garbage-collector-config = { path = "crates/lib/garbage-collector-config" }
 waymark-ids = { path = "crates/lib/ids" }
 waymark-ir-conversions = { path = "crates/lib/ir-conversions" }
-waymark-ir-format = { path = "crates/lib/ir-format" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
 waymark-managed-process = { path = "crates/lib/managed-process" }
 waymark-message-conversions = { path = "crates/lib/message-conversions" }
