@@ -1,0 +1,17 @@
+[package]
+name = "waymark-transient-execution-worker-pool-bringup"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-action-runtime-metadata = { workspace = true }
+waymark-action-runtime-worker-pool = { workspace = true }
+waymark-system-vm = { workspace = true, features = ["serde"] }
+waymark-transient-execution-bringup = { workspace = true }
+waymark-worker-core = { workspace = true }
+
+tokio-util = { workspace = true }
+
+[lib]
+doctest = false

@@ -5567,6 +5567,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-transient-execution-worker-pool-bringup"
+version = "0.1.0"
+dependencies = [
+ "tokio-util",
+ "waymark-action-runtime-metadata",
+ "waymark-action-runtime-worker-pool",
+ "waymark-system-vm",
+ "waymark-transient-execution-bringup",
+ "waymark-worker-core",
+]
+
+[[package]]
 name = "waymark-transient-execution-worker-stream-bringup"
 version = "0.1.0"
 dependencies = [
