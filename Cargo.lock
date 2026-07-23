@@ -5539,6 +5539,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-transient-execution-bringup"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tokio-util",
+ "waymark-action-runtime-core",
+ "waymark-action-runtime-metadata",
+ "waymark-extcall-reconciler",
+ "waymark-extcall-reconciler-action-compat",
+ "waymark-fullset-effect-handler",
+ "waymark-sleep-compat",
+ "waymark-system-vm",
+ "waymark-transient-sleep-reconciler",
+ "waymark-vm-codec-rmp",
+ "waymark-vm-driver",
+ "waymark-vm-driver-core",
+ "waymark-vm-driver-thread",
+ "waymark-workflow-completion-core",
+ "waymark-workflow-completion-direct",
+]
+
+[[package]]
 name = "waymark-transient-execution-worker-stream-bringup"
 version = "0.1.0"
 dependencies = [
@@ -5551,22 +5573,13 @@ dependencies = [
  "waymark-action-runtime-metadata",
  "waymark-action-runtime-worker-stream",
  "waymark-convert-core",
- "waymark-extcall-reconciler",
- "waymark-extcall-reconciler-action-compat",
- "waymark-fullset-effect-handler",
  "waymark-proto",
- "waymark-sleep-compat",
  "waymark-system-vm",
- "waymark-transient-sleep-reconciler",
+ "waymark-transient-execution-bringup",
  "waymark-vm-ast-old-proto",
- "waymark-vm-codec-rmp",
  "waymark-vm-compiler-for-ast-old",
- "waymark-vm-driver",
- "waymark-vm-driver-core",
- "waymark-vm-driver-thread",
  "waymark-workflow-completion-convert-proto",
  "waymark-workflow-completion-core",
- "waymark-workflow-completion-direct",
  "waymark-workflow-initialization-convert-proto",
 ]
 
