@@ -18,9 +18,11 @@ pub struct PromiseSettlement<Value, Ack> {
 
     /// Opaque acknowledgement handle.
     ///
-    /// Call [`PromiseSettlementAck::acknowledge_settlement`] after the
-    /// settlement has been applied *and* the resulting VM state has been
-    /// persisted, so the settler can reclaim resources or confirm delivery.
+    /// [`acknowledge_promise_settlement`](PromiseSettlementAck::acknowledge_promise_settlement)
+    /// is called after the settlement has been applied *and* the resulting
+    /// VM state has been persisted, so the settler can reclaim resources or
+    /// confirm delivery. Dropping this handle without acknowledging is a
+    /// negative acknowledgement (Nack) — see [`PromiseSettlementAck`].
     pub ack: Ack,
 }
 
@@ -76,11 +78,43 @@ pub trait PromiseSettler {
 /// Acknowledges that a promise settlement has been durably consumed.
 ///
 /// After the driver applies a settlement and persists the resulting VM
-/// state it calls [`acknowledge_promise_settlement`] on each
-/// [`PromiseSettlement::ack`] in the batch.  This lets the settler
+/// state it calls [`acknowledge_promise_settlement`](PromiseSettlementAck::acknowledge_promise_settlement)
+/// on each [`PromiseSettlement::ack`] in the batch.  This lets the settler
 /// reclaim resources, notify upstream systems, or confirm delivery.
+///
+/// # Acknowledgement is synchronous but may defer its work
+///
+/// [`acknowledge_promise_settlement`](PromiseSettlementAck::acknowledge_promise_settlement)
+/// is deliberately **synchronous** and must not block the driver: it runs
+/// on the driver's hot path between snapshot persistence and the next VM
+/// step, and the VM must not wait on any upstream acknowledgement I/O.
+///
+/// Implementations that need to perform work (e.g. deleting a queue row or
+/// notifying an upstream system) must **defer** it — hand the work off to a
+/// background task, channel, or batch — and return immediately. Deferral is
+/// safe because settlement delivery is idempotent: if a deferred
+/// acknowledgement is lost, the settlement is simply redelivered and applied
+/// again, and repeating an already-applied resolution is a no-op that can be
+/// safely ignored (see [`PromiseSettler`]'s cancellation contract).
+///
+/// # Dropping without acknowledging is a Nack
+///
+/// The ack handle carries **negative acknowledgement on `Drop`**: if an
+/// [`Ack`](PromiseSettlement::ack) is dropped without
+/// [`acknowledge_promise_settlement`](PromiseSettlementAck::acknowledge_promise_settlement)
+/// having been called, that signals the settlement was *not* durably
+/// consumed and must be redelivered. The core relies on this — the driver
+/// only calls `acknowledge_promise_settlement` after the resulting VM state
+/// has been persisted, so an ack dropped on any earlier error or
+/// cancellation path correctly Nacks the settlement. Implementations that
+/// want Nack-on-failure semantics should encode them in the ack's `Drop`
+/// impl (e.g. leave the queue row in place unless explicitly acknowledged).
 pub trait PromiseSettlementAck {
     /// Acknowledge that the settlement has been durably applied.
+    ///
+    /// Must not block: defer any real work to the background. See the
+    /// [trait docs](PromiseSettlementAck) for the deferral and Drop-Nack
+    /// contract.
     fn acknowledge_promise_settlement(self);
 }
 
