@@ -6015,6 +6015,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-runtime-builder"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "thiserror",
+ "waymark-vm-compiler-metadata",
+ "waymark-vm-runtime-callspec",
+]
+
+[[package]]
 name = "waymark-vm-runtime-callspec"
 version = "0.1.0"
 
