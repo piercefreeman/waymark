@@ -17,10 +17,12 @@ struct DiagnosticBundle {
     generated_at: DateTime<Utc>,
     workflow_name: String,
     workflow_version_id: WorkflowVersionId,
-    queue_snapshot: data::QueueSnapshot,
+    workload_snapshot: data::WorkloadSnapshot,
     worker_status: Option<data::WorkerStatusSnapshot>,
-    lock_owners: QueryCapture<data::LockOwnerRow>,
-    stale_locks: QueryCapture<data::StaleLockRow>,
+    pinning_owners: QueryCapture<data::PinningOwnerRow>,
+    expired_pinnings: QueryCapture<data::ExpiredPinningRow>,
+    action_call_request_lock_owners: QueryCapture<data::ActionCallRequestLockOwnerRow>,
+    stale_action_call_request_locks: QueryCapture<data::StaleActionCallRequestRow>,
     pg_stat_activity: QueryCapture<data::ActivityRow>,
     pg_stat_statements: QueryCapture<data::PgStatStatementRow>,
     worker_log_tail: QueryCapture<String>,
@@ -53,11 +55,16 @@ pub async fn capture_diagnostics(
     worker_log_path: Option<&Path>,
     run_dir: &Path,
 ) -> Result<PathBuf> {
-    let queue_snapshot = data::fetch_queue_snapshot(pool).await?;
+    let workload_snapshot = data::fetch_workload_snapshot(pool).await?;
     let worker_status = data::fetch_latest_worker_status(pool).await?;
 
-    let lock_owners = capture_query(data::fetch_lock_owners(pool, args.pg_stat_limit).await);
-    let stale_locks = capture_query(data::fetch_stale_locks(pool, args.pg_stat_limit).await);
+    let pinning_owners = capture_query(data::fetch_pinning_owners(pool, args.pg_stat_limit).await);
+    let expired_pinnings =
+        capture_query(data::fetch_expired_pinnings(pool, args.pg_stat_limit).await);
+    let action_call_request_lock_owners =
+        capture_query(data::fetch_action_call_request_lock_owners(pool, args.pg_stat_limit).await);
+    let stale_action_call_request_locks =
+        capture_query(data::fetch_stale_action_call_request_locks(pool, args.pg_stat_limit).await);
     let pg_stat_activity =
         capture_query(data::fetch_pg_stat_activity(pool, args.pg_stat_limit).await);
     let pg_stat_statements =
@@ -84,10 +91,12 @@ pub async fn capture_diagnostics(
         generated_at: Utc::now(),
         workflow_name: workflow.workflow_name.clone(),
         workflow_version_id: workflow.workflow_version_id,
-        queue_snapshot,
+        workload_snapshot,
         worker_status,
-        lock_owners,
-        stale_locks,
+        pinning_owners,
+        expired_pinnings,
+        action_call_request_lock_owners,
+        stale_action_call_request_locks,
         pg_stat_activity,
         pg_stat_statements,
         worker_log_tail,
