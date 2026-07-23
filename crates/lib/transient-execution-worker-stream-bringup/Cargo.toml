@@ -8,22 +8,13 @@ publish.workspace = true
 waymark-action-runtime-metadata = { workspace = true }
 waymark-action-runtime-worker-stream = { workspace = true }
 waymark-convert-core = { workspace = true }
-waymark-extcall-reconciler = { workspace = true }
-waymark-extcall-reconciler-action-compat = { workspace = true }
-waymark-fullset-effect-handler = { workspace = true }
 waymark-proto = { workspace = true }
-waymark-sleep-compat = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
-waymark-transient-sleep-reconciler = { workspace = true }
+waymark-transient-execution-bringup = { workspace = true }
 waymark-vm-ast-old-proto = { workspace = true }
-waymark-vm-codec-rmp = { workspace = true }
 waymark-vm-compiler-for-ast-old = { workspace = true }
-waymark-vm-driver = { workspace = true }
-waymark-vm-driver-core = { workspace = true, features = ["tokio"] }
-waymark-vm-driver-thread = { workspace = true }
 waymark-workflow-completion-convert-proto = { workspace = true }
 waymark-workflow-completion-core = { workspace = true }
-waymark-workflow-completion-direct = { workspace = true }
 waymark-workflow-initialization-convert-proto = { workspace = true }
 
 anyhow = { workspace = true }
