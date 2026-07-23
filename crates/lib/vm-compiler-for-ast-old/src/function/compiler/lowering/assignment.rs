@@ -95,6 +95,9 @@ where
             AssignmentStatementPlan::Unpack { targets, value } => {
                 self.compile_unpack_assignment(targets, value)?;
             }
+            AssignmentStatementPlan::RangeValues { target, call } => {
+                self.compile_range_values_assignment(target, call)?;
+            }
         }
 
         Ok(())
@@ -199,6 +202,30 @@ where
             target.mark_initialized(self.context.flow_state);
         }
 
+        Ok(())
+    }
+
+    /// Compiles a `range(...)` assignment into a materialized value list.
+    ///
+    /// The list accumulates in a fresh register and is copied into the
+    /// target only after the loop, so the range bounds may read the
+    /// target's previous value.
+    fn compile_range_values_assignment(
+        &mut self,
+        target: Marked<LocalSlot, AssignmentTargetMarker>,
+        call: &waymark_vm_ast_old::FunctionCall,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let accumulator_register = self.context.local_frame.allocate_register();
+        self.for_loop_compiler()
+            .compile_range_values(call, accumulator_register)?;
+
+        if accumulator_register != target.register() {
+            self.context
+                .emitter
+                .emit_copy(target.register(), accumulator_register);
+        }
+
+        target.mark_initialized(self.context.flow_state);
         Ok(())
     }
 
@@ -376,6 +403,74 @@ mod tests {
                 if *dst == RegisterId(1) && *src == RegisterId(0)
         ));
         assert!(instructions.next().is_none());
+    }
+
+    #[test]
+    fn range_assignments_materialize_a_value_list() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
+        local_frame
+            .declare_input(&mut flow_state, "stop".to_owned())
+            .expect("stop input should declare");
+
+        {
+            let mut assignments = AssignmentCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
+                    &function_table,
+                    &mut emitter,
+                    &mut local_frame,
+                    &mut extra_fns,
+                    &mut flow_state,
+                ),
+                0,
+            );
+
+            let mut call =
+                waymark_vm_ast_old_helpers::function_call("range", vec![variable("stop")]);
+            call.global_function = Some(waymark_vm_ast_old::GlobalFunction::Range);
+            let value =
+                waymark_vm_ast_old_helpers::spanned(waymark_vm_ast_old::Expr::FunctionCall {
+                    call,
+                });
+
+            assignments
+                .compile_statement(&["values".to_owned()], &value)
+                .expect("range assignment should compile");
+        }
+
+        assert!(
+            local_frame
+                .resolve_initialized_local("values", &flow_state)
+                .is_some()
+        );
+
+        let function = waymark_vm_bytecode::Function {
+            states: emitter.finish(),
+            num_regs: local_frame.num_registers(),
+        };
+        insta::assert_snapshot!(waymark_vm_bytecode_fmt::display(&function).to_string(), @r"
+        s0:
+          PureSet(MakeList { dst: r2, items: [] })
+          PureSet(LoadConst { dst: r3, value: Int(0) })
+          PureSet(Copy { dst: r4, src: r0 })
+          CoreSet(Jump { target_state: s1 })
+        s1:
+          PureSet(Binary { kind: Lt, op: BinaryOp { dst: r5, a: r3, b: r4 } })
+          CoreSet(JumpIf { target_state: s2, cond: r5 })
+          CoreSet(Jump { target_state: s4 })
+        s2:
+          PureSet(ListAppend { dst: r2, list: r2, item: r3 })
+          CoreSet(Jump { target_state: s3 })
+        s3:
+          PureSet(LoadConst { dst: r5, value: Int(1) })
+          PureSet(Binary { kind: Add, op: BinaryOp { dst: r3, a: r3, b: r5 } })
+          CoreSet(Jump { target_state: s1 })
+        s4:
+          PureSet(Copy { dst: r1, src: r2 })
+        ");
     }
 
     #[test]
