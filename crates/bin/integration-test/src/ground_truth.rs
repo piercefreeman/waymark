@@ -6,7 +6,6 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
-use serde_json::Value;
 use waymark_convert_core::Convert;
 use waymark_proto::ast as ir;
 
@@ -36,9 +35,9 @@ pub struct PreparedCase {
 }
 
 pub fn prepare_case(repo_root: &Path, case: FixtureCase) -> Result<PreparedCase> {
-    let kwargs_value: Value = serde_json::from_str(case.kwargs_json)
+    let kwargs_value: serde_json::Value = serde_json::from_str(case.kwargs_json)
         .with_context(|| format!("parse kwargs JSON for case '{}'", case.id))?;
-    let Value::Object(kwargs) = kwargs_value else {
+    let serde_json::Value::Object(kwargs) = kwargs_value else {
         bail!("case '{}' kwargs JSON must be an object", case.id)
     };
 
