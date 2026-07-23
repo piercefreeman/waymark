@@ -5,27 +5,23 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
-waymark-backend-memory = { workspace = true }
-waymark-core-backend = { workspace = true }
-waymark-dag = { workspace = true }
-waymark-dag-builder = { workspace = true }
 waymark-fn-main-common = { workspace = true }
-waymark-ids = { workspace = true }
 waymark-ir-parser = { workspace = true }
-waymark-proto = { workspace = true }
-waymark-runloop = { workspace = true }
-waymark-runner-state = { workspace = true }
+waymark-system-vm = { workspace = true }
+waymark-transient-execution-bringup = { workspace = true }
+waymark-transient-execution-worker-pool-bringup = { workspace = true }
+waymark-vm-ast-old-proto = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-worker-inline = { workspace = true }
-waymark-workflow-registry-backend = { workspace = true }
+waymark-workflow-completion-core = { workspace = true }
 
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 proptest = { workspace = true }
-prost = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
 
 [lib]
 test = false
