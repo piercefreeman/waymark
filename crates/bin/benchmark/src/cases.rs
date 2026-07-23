@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 
 use prost::Message;
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 use waymark_convert_core::Convert;
 use waymark_proto::ast as ir;
@@ -20,34 +19,34 @@ pub struct BenchmarkCase {
 
 pub fn build_cases(base: i64) -> HashMap<String, BenchmarkCase> {
     let mut cases = HashMap::new();
-    let entries: Vec<(&str, ir::Program, HashMap<String, Value>)> = vec![
+    let entries: Vec<(&str, ir::Program, HashMap<String, serde_json::Value>)> = vec![
         (
             "smoke",
             build_program(),
-            HashMap::from([("base".to_string(), Value::Number(base.into()))]),
+            HashMap::from([("base".to_string(), serde_json::Value::Number(base.into()))]),
         ),
         (
             "control_flow",
             build_control_flow_program().expect("control_flow program"),
-            HashMap::from([("base".to_string(), Value::Number(2.into()))]),
+            HashMap::from([("base".to_string(), serde_json::Value::Number(2.into()))]),
         ),
         (
             "parallel_spread",
             build_parallel_spread_program().expect("parallel_spread program"),
-            HashMap::from([("base".to_string(), Value::Number(3.into()))]),
+            HashMap::from([("base".to_string(), serde_json::Value::Number(3.into()))]),
         ),
         (
             "try_except",
             build_try_except_program().expect("try_except program"),
             HashMap::from([(
                 "values".to_string(),
-                Value::Array(vec![1.into(), 2.into(), 3.into()]),
+                serde_json::Value::Array(vec![1.into(), 2.into(), 3.into()]),
             )]),
         ),
         (
             "while_loop",
             build_while_loop_program().expect("while_loop program"),
-            HashMap::from([("limit".to_string(), Value::Number(6.into()))]),
+            HashMap::from([("limit".to_string(), serde_json::Value::Number(6.into()))]),
         ),
     ];
 
