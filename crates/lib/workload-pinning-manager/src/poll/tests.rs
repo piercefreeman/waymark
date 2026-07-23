@@ -6,6 +6,8 @@ use mockall::predicate;
 use nonempty_collections::nev;
 use tokio_util::sync::CancellationToken;
 
+use waymark_nonzero_duration::NonZeroDuration;
+
 use super::{PollParams, poll_and_pin, run_poll_loop};
 use crate::test_utils::helpers::{
     test_max_concurrent, test_node_id, test_pinning_ttl, test_poll_interval,
@@ -84,6 +86,54 @@ async fn poll_and_pin_propagates_error() {
     .await;
 
     assert!(result.is_err());
+}
+
+/// The poll loop must not spin: with an always-empty poll result, the
+/// number of poll queries stays bounded by the configured poll interval.
+#[tokio::test(start_paused = true)]
+async fn poll_loop_respects_the_poll_interval() {
+    let poll_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let poll_counter = Arc::clone(&poll_count);
+
+    let mut backend = MockBackend::new();
+    backend.expect_poll_unpinned().returning(move |_, _, _| {
+        poll_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(std::future::ready(Ok(None)))
+    });
+    let backend = Arc::new(backend);
+
+    let (_pinned_tx, _pinned_rx) = tokio::sync::mpsc::channel(1);
+    let (_evict_tx, _evict_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (_batch_tx, _batch_rx) = tokio::sync::mpsc::channel(1);
+    let (_count_tx, count_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(1),
+        run_poll_loop(PollParams {
+            backend,
+            node_id: test_node_id(),
+            pinned_tx: _pinned_tx,
+            evict_tx: _evict_tx,
+            batch_tx: _batch_tx,
+            count_rx,
+            shutdown_token: CancellationToken::new(),
+            max_pinned: test_max_concurrent(),
+            pinning_ttl: test_pinning_ttl(),
+            poll_interval: NonZeroDuration::new(Duration::from_millis(10)).unwrap(),
+        }),
+    )
+    .await;
+    assert!(result.is_err(), "poll loop should keep running");
+
+    // One virtual second at a 10ms poll interval: the paused clock makes
+    // the run deterministic — ticks at t=0..=1000ms give exactly 101
+    // polls; the range only hedges against tokio reordering same-instant
+    // timers.
+    let polls = poll_count.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(
+        (100..=101).contains(&polls),
+        "expected one poll per interval tick, got {polls}"
+    );
 }
 
 /// Dropping all count_tx senders must not cause the poll loop to exit —
