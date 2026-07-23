@@ -59,13 +59,25 @@ async fn main() -> Result<()> {
 
     let backend = PostgresBackend::new(pool.clone());
     if !args.keep_existing_data {
-        info!("clearing runner data before soak run");
-        backend.clear_all().await.context("clear runner tables")?;
-        sqlx::query("DELETE FROM worker_status")
-            .execute(&pool)
-            .await
-            .context("clear worker_status")?;
+        info!("clearing durable-VM and worker-status data before soak run");
+        sqlx::query(
+            r#"
+            TRUNCATE action_call_completions,
+                     action_call_requests,
+                     sleep_requests,
+                     vm_executables,
+                     vm_runtime_snapshots,
+                     runnable_workloads,
+                     vm_execution_results,
+                     worker_status
+            RESTART IDENTITY CASCADE
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .context("clear durable-VM tables")?;
     }
+    let services = setup_workflows::soak_services(&backend);
 
     let mut worker = if args.skip_worker_launch {
         None
@@ -87,7 +99,7 @@ async fn main() -> Result<()> {
     }
 
     let workflow = match setup_workflows::register_workflow(
-        &backend,
+        &services,
         args.timeout_seconds,
         args.actions_per_workflow,
         &args.user_module,
@@ -117,7 +129,7 @@ async fn main() -> Result<()> {
         "soak throughput target"
     );
 
-    let run_result = flow::run_soak_loop(&args, &backend, &pool, &workflow, &mut worker).await;
+    let run_result = flow::run_soak_loop(&args, &services, &pool, &workflow, &mut worker).await;
     let (reason, samples) = match run_result {
         Ok(result) => result,
         Err(err) => {

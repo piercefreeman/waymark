@@ -12,14 +12,11 @@ use rand::{Rng, SeedableRng};
 use serde::Serialize;
 use sqlx::PgPool;
 use tracing::{info, warn};
-use waymark_backend_postgres::PostgresBackend;
-use waymark_core_backend::QueuedInstance;
 use waymark_ids::InstanceId;
 use waymark_nonzero_duration::NonZeroDuration;
-use waymark_proto::ast as ir;
-use waymark_runner_state::RunnerState;
 
 use crate::data;
+use crate::setup_workflows::{RegisteredWorkflow, SoakServices};
 
 const MAX_SAMPLE_HISTORY: usize = 20_000;
 
@@ -41,11 +38,11 @@ impl TerminationReason {
 #[derive(Debug, Clone, Serialize)]
 pub struct HealthSample {
     pub at: DateTime<Utc>,
-    pub queued_total: i64,
-    pub queued_ready: i64,
-    pub queued_future: i64,
-    pub queued_locked_live: i64,
-    pub queued_locked_expired: i64,
+    pub runnable_total: i64,
+    pub runnable_ready: i64,
+    pub pinned_live: i64,
+    pub pinned_expired: i64,
+    pub workflows_completed: i64,
     pub queued_this_tick: usize,
     pub actions_per_sec: Option<f64>,
     pub throughput_per_min: Option<f64>,
@@ -60,9 +57,9 @@ pub struct HealthSample {
 
 pub async fn run_soak_loop(
     args: &crate::cli::SoakArgs,
-    backend: &PostgresBackend,
+    services: &SoakServices,
     pool: &PgPool,
-    workflow: &crate::setup_workflows::RegisteredWorkflow,
+    workflow: &RegisteredWorkflow,
     worker: &mut Option<crate::setup_workers::WorkerProcess>,
 ) -> Result<(TerminationReason, VecDeque<HealthSample>)> {
     let seed = args.seed.unwrap_or_else(rand::random);
@@ -101,13 +98,13 @@ pub async fn run_soak_loop(
             ));
         }
 
-        let queue_snapshot = data::fetch_queue_snapshot(pool).await?;
+        let workload_snapshot = data::fetch_workload_snapshot(pool).await?;
         let worker_status = data::fetch_latest_worker_status(pool).await?;
 
         let mut requested = queue_rate.for_delta(elapsed);
 
-        if queue_snapshot.ready < args.target_ready_queue {
-            let deficit = (args.target_ready_queue - queue_snapshot.ready) as u128;
+        if workload_snapshot.ready < args.target_ready_queue {
+            let deficit = (args.target_ready_queue - workload_snapshot.ready) as u128;
             requested = requested.saturating_add(deficit.min(args.max_top_up_per_tick.get()));
         }
 
@@ -116,7 +113,7 @@ pub async fn run_soak_loop(
         let requested: usize = requested.try_into().unwrap_or(usize::MAX);
 
         let queued_this_tick = if requested > 0 {
-            queue_instances(backend, workflow, args, requested, &mut rng).await?
+            register_instances(services, workflow, args, requested, &mut rng).await?
         } else {
             0
         };
@@ -133,7 +130,7 @@ pub async fn run_soak_loop(
 
         let stalled = should_count_stall(
             args,
-            &queue_snapshot,
+            &workload_snapshot,
             worker_status.as_ref(),
             status_age_secs,
             last_action_age_secs,
@@ -147,11 +144,11 @@ pub async fn run_soak_loop(
 
         let sample = HealthSample {
             at: now,
-            queued_total: queue_snapshot.total,
-            queued_ready: queue_snapshot.ready,
-            queued_future: queue_snapshot.future,
-            queued_locked_live: queue_snapshot.locked_live,
-            queued_locked_expired: queue_snapshot.locked_expired,
+            runnable_total: workload_snapshot.total,
+            runnable_ready: workload_snapshot.ready,
+            pinned_live: workload_snapshot.pinned_live,
+            pinned_expired: workload_snapshot.pinned_expired,
+            workflows_completed: workload_snapshot.workflows_completed,
             queued_this_tick,
             actions_per_sec: worker_status.as_ref().map(|value| value.actions_per_sec),
             throughput_per_min: worker_status.as_ref().map(|value| value.throughput_per_min),
@@ -178,8 +175,11 @@ pub async fn run_soak_loop(
                 previous_total_completed = Some(status.total_completed);
                 info!(
                     elapsed_secs = start.elapsed().as_secs_f64(),
-                    queued_total = queue_snapshot.total,
-                    ready_queue = queue_snapshot.ready,
+                    runnable_total = workload_snapshot.total,
+                    ready_queue = workload_snapshot.ready,
+                    pinned_live = workload_snapshot.pinned_live,
+                    pinned_expired = workload_snapshot.pinned_expired,
+                    workflows_completed = workload_snapshot.workflows_completed,
                     queued_this_tick,
                     actions_per_sec = status.actions_per_sec,
                     total_completed = status.total_completed,
@@ -194,7 +194,7 @@ pub async fn run_soak_loop(
             }
             None => {
                 warn!(
-                    ready_queue = queue_snapshot.ready,
+                    ready_queue = workload_snapshot.ready,
                     queued_this_tick, zero_streak, "soak tick without worker_status row"
                 );
             }
@@ -205,7 +205,7 @@ pub async fn run_soak_loop(
                 "actions/sec <= {:.4} for {} consecutive samples while ready queue={} (threshold={})",
                 args.issue_actions_per_sec_threshold,
                 zero_streak,
-                queue_snapshot.ready,
+                workload_snapshot.ready,
                 args.issue_min_ready_queue
             );
             return Ok((TerminationReason::IssueDetected(detail), samples));
@@ -221,12 +221,12 @@ pub async fn run_soak_loop(
 
 fn should_count_stall(
     args: &crate::cli::SoakArgs,
-    queue_snapshot: &data::QueueSnapshot,
+    workload_snapshot: &data::WorkloadSnapshot,
     worker_status: Option<&data::WorkerStatusSnapshot>,
     status_age_secs: Option<i64>,
     last_action_age_secs: Option<i64>,
 ) -> bool {
-    if queue_snapshot.ready < args.issue_min_ready_queue {
+    if workload_snapshot.ready < args.issue_min_ready_queue {
         return false;
     }
 
@@ -247,36 +247,41 @@ fn should_count_stall(
     status.total_in_flight == 0 || last_action_age > args.issue_last_action_stale_secs
 }
 
-async fn queue_instances(
-    backend: &PostgresBackend,
-    workflow: &crate::setup_workflows::RegisteredWorkflow,
+async fn register_instances(
+    services: &SoakServices,
+    workflow: &RegisteredWorkflow,
     args: &crate::cli::SoakArgs,
     count: usize,
     rng: &mut StdRng,
 ) -> Result<usize> {
-    let mut queued_total = 0usize;
-    let mut remaining = count;
+    for _ in 0..count {
+        let item = sample_work_item(args, rng);
+        let inputs = build_instance_inputs(&item)?;
 
-    while remaining > 0 {
-        let take = remaining.min(args.queue_batch_size.get());
-        let mut instances = Vec::with_capacity(take);
+        let call_spec = waymark_vm_runtime_builder::builder(&workflow.metadata)
+            .first_fn()
+            .map_err(|err| anyhow!("select soak entry function: {err}"))?
+            .args(inputs)
+            .map_err(|err| anyhow!("match soak entry function arguments: {err}"))?;
+        let runtime = waymark_system_vm::Runtime::with_custom_entrypoint(
+            waymark_system_vm::Interpreter::default(),
+            Arc::clone(&workflow.executable),
+            call_spec,
+        )
+        .map_err(|err| anyhow!("create soak VM runtime: {err}"))?;
 
-        for _ in 0..take {
-            let item = sample_work_item(args, rng);
-            let instance = build_instance(workflow, item)?;
-            instances.push(instance);
-        }
-
-        backend
-            .queue_instances(&instances)
+        services
+            .registration
+            .register_vm(
+                InstanceId::new_uuid_v4(),
+                workflow.workflow_version_id,
+                |serializer| runtime.snapshot(serializer),
+            )
             .await
-            .context("queue soak instances")?;
-
-        queued_total += take;
-        remaining -= take;
+            .map_err(|err| anyhow!("register soak VM: {err}"))?;
     }
 
-    Ok(queued_total)
+    Ok(count)
 }
 
 #[derive(Debug, Clone)]
@@ -347,11 +352,7 @@ fn jitter_payload(base_payload: i64, rng: &mut StdRng) -> i64 {
     rng.random_range(lower..=upper)
 }
 
-fn build_instance(
-    workflow: &crate::setup_workflows::RegisteredWorkflow,
-    item: WorkItem,
-) -> Result<QueuedInstance> {
-    let mut state = RunnerState::from_dag(Arc::clone(&workflow.dag));
+fn build_instance_inputs(item: &WorkItem) -> Result<HashMap<String, waymark_system_vm::Value>> {
     if item.step_delays_ms.len() != item.step_should_fail.len()
         || item.step_delays_ms.len() != item.step_payload_bytes.len()
         || item.step_delays_ms.len() != item.step_include_payload.len()
@@ -359,6 +360,7 @@ fn build_instance(
         bail!("step input vectors are not aligned");
     }
 
+    let mut inputs = HashMap::with_capacity(item.step_delays_ms.len() * 4);
     for (step, (((delay_ms, should_fail), payload_bytes), include_payload)) in item
         .step_delays_ms
         .iter()
@@ -368,69 +370,23 @@ fn build_instance(
         .enumerate()
     {
         let idx = step + 1;
-        state
-            .record_assignment(
-                vec![format!("delay_ms_{idx}")],
-                &literal_int(*delay_ms),
-                None,
-                Some(format!("input delay_ms_{idx} = {delay_ms}")),
-            )
-            .map_err(|err| anyhow!(err.0))?;
-        state
-            .record_assignment(
-                vec![format!("should_fail_{idx}")],
-                &literal_bool(*should_fail),
-                None,
-                Some(format!("input should_fail_{idx} = {should_fail}")),
-            )
-            .map_err(|err| anyhow!(err.0))?;
-        state
-            .record_assignment(
-                vec![format!("payload_bytes_{idx}")],
-                &literal_int(*payload_bytes),
-                None,
-                Some(format!("input payload_bytes_{idx} = {payload_bytes}")),
-            )
-            .map_err(|err| anyhow!(err.0))?;
-        state
-            .record_assignment(
-                vec![format!("include_payload_{idx}")],
-                &literal_bool(*include_payload),
-                None,
-                Some(format!("input include_payload_{idx} = {include_payload}")),
-            )
-            .map_err(|err| anyhow!(err.0))?;
+        inputs.insert(
+            format!("delay_ms_{idx}"),
+            waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::Int(*delay_ms)),
+        );
+        inputs.insert(
+            format!("should_fail_{idx}"),
+            waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::Bool(*should_fail)),
+        );
+        inputs.insert(
+            format!("payload_bytes_{idx}"),
+            waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::Int(*payload_bytes)),
+        );
+        inputs.insert(
+            format!("include_payload_{idx}"),
+            waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::Bool(*include_payload)),
+        );
     }
 
-    let entry_node = state
-        .queue_template_node(&workflow.entry_template_id, None)
-        .map_err(|err| anyhow!(err.0))?;
-
-    Ok(QueuedInstance {
-        workflow_version_id: workflow.workflow_version_id,
-        schedule_id: None,
-        entry_node: entry_node.node_id,
-        graph: state.graph,
-        action_results: HashMap::new(),
-        instance_id: InstanceId::new_uuid_v4(),
-        scheduled_at: None,
-    })
-}
-
-fn literal_int(value: i64) -> ir::Expr {
-    ir::Expr {
-        kind: Some(ir::expr::Kind::Literal(ir::Literal {
-            value: Some(ir::literal::Value::IntValue(value)),
-        })),
-        span: None,
-    }
-}
-
-fn literal_bool(value: bool) -> ir::Expr {
-    ir::Expr {
-        kind: Some(ir::expr::Kind::Literal(ir::Literal {
-            value: Some(ir::literal::Value::BoolValue(value)),
-        })),
-        span: None,
-    }
+    Ok(inputs)
 }
