@@ -134,6 +134,51 @@ async fn locks_taken_by_another_owner_breach_the_fence() {
     assert_eq!(keys.into_iter().collect::<Vec<_>>(), vec![key(1)]);
 }
 
+/// Unconfirmed renewals keep the lock tracked with its existing fence
+/// deadline: no breach, no pruning — the next heartbeat retries, and a
+/// later confirmed renewal pushes the deadline out again.
+#[tokio::test]
+async fn unconfirmed_renewals_are_retried_within_the_fence() {
+    let backend = Arc::new(MockBackend::default());
+    seed_locked_row(&backend, key(1), 7);
+    *backend.report_unconfirmed_renewals.lock().unwrap() = true;
+
+    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
+    held_locks_tx.send(held(key(1))).unwrap();
+
+    let renewal = tokio::spawn(run(params(
+        &backend,
+        Duration::from_secs(60),
+        held_locks_rx,
+    )));
+
+    // Several unconfirmed passes: the lock stays tracked, nothing breaches.
+    while *backend.renew_calls.lock().unwrap() < 3 {
+        tokio::time::sleep(HEARTBEAT).await;
+    }
+
+    // Recovery: a confirmed renewal pushes the expiry out.
+    *backend.report_unconfirmed_renewals.lock().unwrap() = false;
+    let recovered_calls = *backend.renew_calls.lock().unwrap() + 1;
+    while *backend.renew_calls.lock().unwrap() < recovered_calls {
+        tokio::time::sleep(HEARTBEAT).await;
+    }
+    {
+        let rows = backend.rows.lock().unwrap();
+        let renewed_expiry = rows[&key(1)].lock_expires_at.expect("locked");
+        assert!(renewed_expiry > Utc::now() + chrono::Duration::seconds(30));
+    }
+
+    // And the loop still drains peacefully.
+    drop(held_locks_tx);
+    backend.rows.lock().unwrap().remove(&key(1));
+    tokio::time::timeout(Duration::from_secs(5), renewal)
+        .await
+        .expect("renewal loop drains once all tracked locks are gone")
+        .expect("renewal loop task")
+        .expect("no breach: unconfirmed renewals stay within the fence");
+}
+
 #[tokio::test]
 async fn renewal_failures_within_the_fence_are_survived() {
     let backend = Arc::new(MockBackend::default());
