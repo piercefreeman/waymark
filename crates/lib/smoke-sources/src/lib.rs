@@ -55,13 +55,6 @@ fn main(input: [base], output: [final]):
 "#;
 
 const TRY_EXCEPT_SOURCE: &str = r#"
-fn risky(input: [numerator, denominator], output: [result]):
-    try:
-        result = numerator / denominator
-    except ZeroDivisionError as err:
-        result = 0
-    return result
-
 fn main(input: [values], output: [total]):
     total = 0
     for item in values:
@@ -69,6 +62,13 @@ fn main(input: [values], output: [total]):
         part = risky(numerator=item, denominator=denom)
         total = total + part
     return total
+
+fn risky(input: [numerator, denominator], output: [result]):
+    try:
+        result = numerator / denominator
+    except ZeroDivisionError as err:
+        result = 0
+    return result
 "#;
 
 const WHILE_LOOP_SOURCE: &str = r#"
