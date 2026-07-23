@@ -6,6 +6,7 @@ pub use self::error::*;
 
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::Utc;
 use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
@@ -57,12 +58,18 @@ where
         shutdown_token,
         max_pinned,
         pinning_ttl,
-        poll_rate_limit: _,
+        poll_rate_limit,
     } = params;
 
     let mut current_count = 0usize;
     let shutdown = shutdown_token.child_token().cancelled_owned();
     let mut shutdown = std::pin::pin!(shutdown);
+
+    // Caps the poll-query frequency: without it an empty poll result loops
+    // straight back into the next query, hammering the store whenever every
+    // runnable workload is already pinned.
+    let mut poll_ticker = tokio::time::interval(Duration::from_secs(1) / poll_rate_limit.get());
+    poll_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         let available = max_pinned.get().saturating_sub(current_count);
@@ -75,19 +82,30 @@ where
                 Some(updated) = count_rx.recv() => {
                     current_count = updated;
                 }
-                result = poll_and_dispatch(
-                    &*backend,
-                    node_id.clone(),
-                    max_items,
-                    pinning_ttl,
-                    &batch_tx,
-                    &pinned_tx,
-                    &evict_tx,
-                ) => {
-                    match result {
-                        Ok(Some(count)) => current_count = count,
-                        Ok(None) => { /* no workloads — count unchanged */ }
-                        Err(error) => break Err(error),
+                _ = poll_ticker.tick() => {
+                    // Count updates no longer race a poll that has begun:
+                    // once the query pins rows, only shutdown may abandon
+                    // it before the pinned batch is handed to maintenance.
+                    tokio::select! {
+                        _ = &mut shutdown => {
+                            info!("poll loop shutting down");
+                            break Ok(());
+                        }
+                        result = poll_and_dispatch(
+                            &*backend,
+                            node_id.clone(),
+                            max_items,
+                            pinning_ttl,
+                            &batch_tx,
+                            &pinned_tx,
+                            &evict_tx,
+                        ) => {
+                            match result {
+                                Ok(Some(count)) => current_count = count,
+                                Ok(None) => { /* no workloads — count unchanged */ }
+                                Err(error) => break Err(error),
+                            }
+                        }
                     }
                 }
             }
