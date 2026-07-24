@@ -23,6 +23,8 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use tracing::Instrument as _;
+
 /// Error from [`SpawningFactory::produce`].
 #[derive(Debug, thiserror::Error)]
 pub enum SpawningError<LoadError, ExecutableProviderError, DeserializeError>
@@ -230,9 +232,6 @@ where
             backend: Arc::clone(&self.backend),
         };
 
-        let span = tracing::info_span!("drive_runtime", ?key);
-        let _guard = span.enter();
-
         let spawned = spawner::spawn(
             Arc::clone(&self.codec),
             runtime,
@@ -240,6 +239,7 @@ where
             snapshotter,
             vec![Box::new(executable_handle)],
         )
+        .instrument(tracing::info_span!("drive_runtime", ?key))
         .await;
 
         Ok(Arc::new(spawned))
