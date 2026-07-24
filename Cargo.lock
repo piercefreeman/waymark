@@ -4524,6 +4524,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-batcher"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "waymark-nonzero-duration",
+]
+
+[[package]]
 name = "waymark-benchmark"
 version = "0.1.0"
 dependencies = [
