@@ -54,6 +54,7 @@ export interface CompileWorkflowOptions {
 }
 
 export interface CompiledWorkflow {
+  readonly actions: readonly CompiledActionReference[];
   readonly bytes: Buffer;
   readonly hash: string;
   readonly moduleId: string;
@@ -61,11 +62,13 @@ export interface CompiledWorkflow {
   readonly workflowName: string;
 }
 
-interface ActionDefinition {
+export interface CompiledActionReference {
   readonly actionName: string;
   readonly moduleName: string;
   readonly parameterNames: readonly string[];
 }
+
+type ActionDefinition = CompiledActionReference;
 
 export class WorkflowCompileError extends Error {
   readonly filePath: string;
@@ -1389,8 +1392,17 @@ export async function compileWorkflow(
     ],
   };
   const bytes = Buffer.from(Program.encode(program).finish());
+  const actionReferences = new Map<string, CompiledActionReference>();
+  for (const action of actions.values()) {
+    actionReferences.set(`${action.moduleName}:${action.actionName}`, action);
+  }
 
   return {
+    actions: [...actionReferences.values()].sort((left, right) =>
+      `${left.moduleName}:${left.actionName}`.localeCompare(
+        `${right.moduleName}:${right.actionName}`,
+      ),
+    ),
     bytes,
     hash: createHash("sha256").update(bytes).digest("hex"),
     moduleId: moduleIdentifier(options.filePath, options.projectRoot),
