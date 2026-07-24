@@ -42,3 +42,9 @@ export {
   encodeWorkflowValue,
   type WorkflowValue,
 } from "./values.js";
+export {
+  loadActionManifest,
+  runNodeWorker,
+  runNodeWorkerConnection,
+  type RunNodeWorkerOptions,
+} from "./worker.js";

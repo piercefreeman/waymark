@@ -6,6 +6,9 @@
   "engines": {
     "node": ">=20.9"
   },
+  "bin": {
+    "waymark-worker-node": "./dist/worker-cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -14,10 +17,15 @@
     "./internal": {
       "types": "./dist/internal/index.d.ts",
       "import": "./dist/internal/index.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "import": "./dist/worker.js"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/*.test.*"
   ],
   "scripts": {
     "build": "tsc",
