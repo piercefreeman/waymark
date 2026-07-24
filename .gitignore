@@ -80,6 +80,7 @@ docs/_build/
 # PyBuilder
 .pybuilder/
 target/
+node_modules/
 
 # Jupyter Notebook
 .ipynb_checkpoints
