@@ -11,13 +11,18 @@ pub struct SnapshotAdapter<VmId, Backend> {
 
 impl<VmId, Backend> waymark_vm_driver_core::SnapshotPersister for SnapshotAdapter<VmId, Backend>
 where
-    Backend: waymark_state_vm_runtimes_backend::StoreSnapshot<VmId = VmId> + Send + Sync,
-    <Backend as waymark_state_vm_runtimes_backend::StoreSnapshot>::Error: std::fmt::Debug,
+    Backend: waymark_state_vm_runtimes_backend::StoreSnapshots<VmId = VmId> + Send + Sync,
+    <Backend as waymark_state_vm_runtimes_backend::StoreSnapshots>::Error: std::fmt::Debug,
     VmId: Sync,
 {
-    type Error = <Backend as waymark_state_vm_runtimes_backend::StoreSnapshot>::Error;
+    type Error = <Backend as waymark_state_vm_runtimes_backend::StoreSnapshots>::Error;
 
     async fn persist_snapshot<'a>(&'a self, data: &'a [u8]) -> Result<(), Self::Error> {
-        self.backend.store_snapshot(&self.vm_id, data).await
+        self.backend
+            .store_snapshots(&[waymark_state_vm_runtimes_backend::StoreSnapshotsItem {
+                vm_id: &self.vm_id,
+                snapshot: data,
+            }])
+            .await
     }
 }
