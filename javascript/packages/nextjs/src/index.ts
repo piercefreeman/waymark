@@ -1,6 +1,14 @@
 export { action, isAction, type Action } from "./action.js";
 export { createWorkflowClient } from "./bridge.js";
 export {
+  compileWorkflow,
+  WorkflowCompileError,
+  type CompiledWorkflow,
+  type CompileWorkflowOptions,
+  type ModuleResolver,
+  type ResolvedModule,
+} from "./compiler.js";
+export {
   Workflow,
   type ActionPolicies,
   type Duration,
