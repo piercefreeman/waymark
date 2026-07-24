@@ -20,36 +20,47 @@ impl waymark_state_vm_runtimes_backend::HasExecutableId for PostgresBackend {
     type ExecutableId = WorkflowVersionId;
 }
 
-impl waymark_state_vm_runtimes_backend::StoreSnapshot for PostgresBackend {
-    type Error = error::StoreSnapshotError;
+impl waymark_state_vm_runtimes_backend::StoreSnapshots for PostgresBackend {
+    type Error = error::StoreSnapshotsError;
 
     #[obs]
     #[function_name::named]
-    async fn store_snapshot<'a>(
+    async fn store_snapshots<'a>(
         &'a self,
-        vm_id: &'a InstanceId,
-        data: &'a [u8],
+        snapshots: &'a [waymark_state_vm_runtimes_backend::StoreSnapshotsItem<'a, InstanceId>],
     ) -> Result<(), Self::Error> {
         Self::count_query(&self.query_counts, "update:vm_runtime_snapshots_snapshot");
-        let result = sqlx::query(
+        Self::count_batch_size(
+            &self.batch_size_counts,
+            "update:vm_runtime_snapshots_snapshot",
+            snapshots.len(),
+        );
+
+        let mut vm_ids = Vec::with_capacity(snapshots.len());
+        let mut blobs: Vec<&[u8]> = Vec::with_capacity(snapshots.len());
+        for item in snapshots {
+            vm_ids.push(*item.vm_id);
+            blobs.push(item.snapshot);
+        }
+
+        // Missing rows (VM already completed/deleted) simply match nothing —
+        // a benign no-op, so `rows_affected` is not inspected.
+        sqlx::query(
             r#"
-            UPDATE vm_runtime_snapshots
-            SET snapshot = $2, updated_at = NOW()
-            WHERE vm_id = $1
+            UPDATE vm_runtime_snapshots AS s
+            SET snapshot = b.snapshot, updated_at = NOW()
+            FROM UNNEST($1::uuid[], $2::bytea[]) AS b(vm_id, snapshot)
+            WHERE s.vm_id = b.vm_id
             "#,
         )
-        .bind(vm_id)
-        .bind(data)
+        .bind(&vm_ids)
+        .bind(&blobs)
         .execute(&self.pool)
         .timed(crate::query_timing_histogram!(
             "update:vm_runtime_snapshots_snapshot"
         ))
         .await
-        .map_err(error::StoreSnapshotError::Sqlx)?;
-
-        if result.rows_affected() == 0 {
-            return Err(error::StoreSnapshotError::NotRegistered(*vm_id));
-        }
+        .map_err(error::StoreSnapshotsError::Sqlx)?;
 
         Ok(())
     }

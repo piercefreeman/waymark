@@ -1,17 +1,11 @@
 //! Error types for the state-vm-runtimes postgres backend.
 
-/// Error returned by [`super::PostgresBackend`] when storing a VM snapshot.
+/// Error returned by [`super::PostgresBackend`] when storing VM snapshots.
 #[derive(Debug, thiserror::Error)]
-pub enum StoreSnapshotError {
+pub enum StoreSnapshotsError {
     /// The underlying database operation failed.
     #[error("sqlx: {0}")]
     Sqlx(#[source] sqlx::Error),
-
-    /// The VM has not been registered yet. Register it via
-    /// [`waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntime::register_vm_runtime`]
-    /// first.
-    #[error("vm runtime not registered: {0}")]
-    NotRegistered(waymark_ids::InstanceId),
 }
 
 /// Error returned by [`super::PostgresBackend`] when loading a VM snapshot

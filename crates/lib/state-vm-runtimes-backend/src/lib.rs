@@ -15,18 +15,38 @@ pub trait HasExecutableId {
     type ExecutableId;
 }
 
-/// Persist a snapshot for a VM.
-///
-/// Called from a driver thread — implementations may block.
-pub trait StoreSnapshot: HasVmId {
+/// One VM's snapshot to persist, passed to [`StoreSnapshots::store_snapshots`].
+#[derive(Debug)]
+pub struct StoreSnapshotsItem<'a, VmId> {
+    /// The VM whose snapshot this is.
+    pub vm_id: &'a VmId,
+
+    /// The serialized snapshot bytes.
+    pub snapshot: &'a [u8],
+}
+
+// Both fields are references, so the item is copyable for any `VmId` — no
+// `VmId: Copy`/`Clone` bound, unlike what `derive` would impose.
+impl<VmId> Clone for StoreSnapshotsItem<'_, VmId> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<VmId> Copy for StoreSnapshotsItem<'_, VmId> {}
+
+/// Persist snapshots for VMs in a batch.
+pub trait StoreSnapshots: HasVmId {
     /// Error type for store operations.
     type Error: std::fmt::Debug;
 
-    /// Persist a snapshot for the given VM.
-    fn store_snapshot<'a>(
+    /// Persist the given snapshots in one batch.
+    ///
+    /// A VM whose row is gone (already completed or deleted) is a benign
+    /// no-op; the batch as a whole succeeds or fails.
+    fn store_snapshots<'a>(
         &'a self,
-        vm_id: &'a Self::VmId,
-        data: &'a [u8],
+        snapshots: &'a [StoreSnapshotsItem<'a, Self::VmId>],
     ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a;
 }
 
@@ -59,8 +79,8 @@ pub trait LoadForRevive: HasVmId + HasExecutableId {
 
 /// Convenience trait: a backend that supports both store and load.
 ///
-/// Blanket-implemented for any type that implements both [`StoreSnapshot`]
+/// Blanket-implemented for any type that implements both [`StoreSnapshots`]
 /// and [`LoadForRevive`].
-pub trait VmRuntimesStateBackend: StoreSnapshot + LoadForRevive {}
+pub trait VmRuntimesStateBackend: StoreSnapshots + LoadForRevive {}
 
-impl<T> VmRuntimesStateBackend for T where T: StoreSnapshot + LoadForRevive {}
+impl<T> VmRuntimesStateBackend for T where T: StoreSnapshots + LoadForRevive {}
