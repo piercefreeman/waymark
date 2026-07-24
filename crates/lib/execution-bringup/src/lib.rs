@@ -55,8 +55,14 @@ pub struct Handles {
     /// Join handle for the VM state sweeper.
     pub vm_sweeper: tokio::task::JoinHandle<()>,
 
-    /// Join handle for the completion poll-and-route background task.
-    pub poll_route: tokio::task::JoinHandle<()>,
+    /// Join handle for the durable action-call completions writer.
+    pub durable_action_completions_writer: tokio::task::JoinHandle<()>,
+
+    /// Join handle for the durable action-call completions demand poller.
+    pub durable_action_completions_poller: tokio::task::JoinHandle<()>,
+
+    /// Join handle for the durable action-call completions acker.
+    pub durable_action_completions_acker: tokio::task::JoinHandle<()>,
 }
 
 /// Start the execution subsystem.
@@ -104,6 +110,16 @@ where
     Backend: waymark_state_vm_executables_backend::HasExecutableId<
             ExecutableId = waymark_ids::WorkflowVersionId,
         >,
+    Backend: waymark_action_completions_reconciler_backend::RecordCompletions,
+    Backend: waymark_action_completions_reconciler_backend::PollCompletions,
+    Backend: waymark_action_completions_reconciler_backend::AckCompletions,
+    Backend: waymark_action_completions_reconciler_backend::HasVmId<VmId = waymark_ids::InstanceId>,
+    <Backend as waymark_action_completions_reconciler_backend::RecordCompletions>::Error:
+        Send + 'static,
+    <Backend as waymark_action_completions_reconciler_backend::PollCompletions>::Error:
+        Send + 'static,
+    <Backend as waymark_action_completions_reconciler_backend::AckCompletions>::Error:
+        Send + 'static,
     Backend: waymark_workflow_completion_backend::RecordCompletion,
     Backend: waymark_workflow_completion_backend::RecordException,
     Backend: waymark_workflow_completion_backend::HasVmId<
@@ -162,38 +178,75 @@ where
         shutdown_token.child_token(),
     );
 
-    // Routed completions provider — polls the pool (via a direct provider
-    // that stamps each completion with its owning VM id) and demultiplexes
-    // completions into per-VM channels so each VM only receives its own
-    // results.
-    let mut router = waymark_action_runtime_completions_router::RoutedCompletionsProvider::new(
-        waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::new(
+    // Durable action-call completions pipeline (not to be confused with
+    // workflow completions) — action-call completions are recorded durably
+    // as they arrive from the worker pool and removed only once their
+    // promise settlements have been durably applied.  Three background loops, each
+    // holding a drop guard on the subsystem shutdown token: these are the
+    // only path completions take to reach VMs, so any loop dying escalates
+    // to a subsystem-wide shutdown instead of stranding in-flight promises
+    // silently.
+    let writer_params = waymark_action_completions_reconciler::writer::Params {
+        provider: waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::new(
             worker_pool.clone(),
         ),
-    );
-    let registrar = router.registrar();
-
-    // Background task: poll the pool and route completions to VMs.
-    //
-    // This is the only path completions take to reach VMs, so if this task
-    // stops while the subsystem is still running, every VM with an in-flight
-    // action stalls waiting on a completion that can never be routed. The
-    // drop guard escalates any exit — completions source failure, panic —
-    // into a subsystem-wide shutdown instead of parking silently.
-    let poll_route_handle = tokio::spawn({
+        backend: Arc::clone(&backend),
+        codec: Arc::clone(&codec),
+    };
+    let durable_action_completions_writer_handle = tokio::spawn({
         let shutdown = shutdown_token.child_token();
         let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
             let _shutdown_guard = shutdown_guard;
-            loop {
-                tokio::select! {
-                    _ = shutdown.cancelled() => break,
-                    result = router.poll_and_route() => {
-                        if let Err(error) = result {
-                            tracing::error!(?error, "completions source failed, stopping poll router and shutting down");
-                            break;
-                        }
-                    }
+            tokio::select! {
+                _ = shutdown.cancelled() => {}
+                result = waymark_action_completions_reconciler::writer::run(writer_params) => {
+                    let Err(error) = result;
+                    tracing::error!(
+                        ?error,
+                        "durable action-call completions writer failed, shutting down"
+                    );
+                }
+            }
+        }
+    });
+
+    let (ack_tx, ack_rx) = tokio::sync::mpsc::unbounded_channel();
+    let acker_params = waymark_action_completions_reconciler::acker::Params {
+        backend: Arc::clone(&backend),
+        ack_rx,
+    };
+    let durable_action_completions_acker_handle = tokio::spawn({
+        let shutdown = shutdown_token.child_token();
+        let shutdown_guard = shutdown_token.clone().drop_guard();
+        async move {
+            let _shutdown_guard = shutdown_guard;
+            tokio::select! {
+                _ = shutdown.cancelled() => {}
+                () = waymark_action_completions_reconciler::acker::run(acker_params) => {}
+            }
+        }
+    });
+
+    let (registrar, poller_state) = waymark_action_completions_reconciler::poller::state(ack_tx);
+    let poller_params = waymark_action_completions_reconciler::poller::Params {
+        backend: Arc::clone(&backend),
+        codec: Arc::clone(&codec),
+        state: poller_state,
+    };
+    let durable_action_completions_poller_handle = tokio::spawn({
+        let shutdown = shutdown_token.child_token();
+        let shutdown_guard = shutdown_token.clone().drop_guard();
+        async move {
+            let _shutdown_guard = shutdown_guard;
+            tokio::select! {
+                _ = shutdown.cancelled() => {}
+                result = waymark_action_completions_reconciler::poller::run(poller_params) => {
+                    let Err(error) = result;
+                    tracing::error!(
+                        ?error,
+                        "durable action-call completions demand poller failed, shutting down"
+                    );
                 }
             }
         }
@@ -210,17 +263,15 @@ where
                     vm_id: *vm_id,
                 };
 
-            let action_call_complations_provider = registrar.register(*vm_id);
+            let action_handler =
+                waymark_extcall_reconciler_action_compat::EffectHandler::new(action_call_requester);
+            let action_settler = registrar.subscribe(*vm_id);
 
-            let (action_handler, action_poller) = waymark_action_reconciler::new(
-                action_call_requester,
-                action_call_complations_provider,
-            );
             let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);
             let (extcall_handler, extcall_settler) = waymark_extcall_reconciler::new(
                 action_handler,
                 sleep_handler,
-                action_poller,
+                action_settler,
                 sleep_poller,
             );
             let completion_handler = waymark_workflow_completion::EffectHandler::new(
@@ -289,7 +340,9 @@ where
         execution_driver,
         executable_sweeper: executable_sweeper_handle,
         vm_sweeper: vm_runtimes_sweeper_handle,
-        poll_route: poll_route_handle,
+        durable_action_completions_writer: durable_action_completions_writer_handle,
+        durable_action_completions_poller: durable_action_completions_poller_handle,
+        durable_action_completions_acker: durable_action_completions_acker_handle,
     })
 }
 

@@ -1,5 +1,6 @@
 //! Postgres backend for persisting runner state and action results.
 
+mod action_call_completions;
 mod codec;
 mod core;
 mod macros;

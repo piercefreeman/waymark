@@ -5,6 +5,7 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
+waymark-action-completions-reconciler-backend = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-backends-core = { workspace = true }
 waymark-core-backend = { workspace = true }
@@ -27,6 +28,8 @@ waymark-secret-string = { workspace = true }
 waymark-state-vm-executables-backend = { workspace = true }
 waymark-state-vm-runtimes-backend = { workspace = true }
 waymark-timed-future = { workspace = true }
+waymark-vm-runtime-effect = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
 waymark-webapp-backend = { workspace = true }
 waymark-webapp-core = { workspace = true }
 waymark-worker-status-backend = { workspace = true }

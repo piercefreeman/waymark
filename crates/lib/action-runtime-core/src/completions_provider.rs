@@ -1,6 +1,7 @@
 use nonempty_collections::NEVec;
 
 /// The outcome of a completed action call — either a value or an exception.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ActionCallOutcome<Value> {
     /// The action completed successfully with this value.
     Value(Value),

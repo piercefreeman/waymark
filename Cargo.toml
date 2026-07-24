@@ -7,10 +7,9 @@ version = "0.1.0"
 publish = false
 
 [workspace.dependencies]
+waymark-action-completions-reconciler = { path = "crates/lib/action-completions-reconciler" }
+waymark-action-completions-reconciler-backend = { path = "crates/lib/action-completions-reconciler-backend" }
 waymark-action-core = { path = "crates/lib/action-core" }
-waymark-action-reconciler = { path = "crates/lib/action-reconciler" }
-waymark-action-runtime-completions-router = { path = "crates/lib/action-runtime-completions-router" }
-waymark-action-runtime-completions-router-core = { path = "crates/lib/action-runtime-completions-router-core" }
 waymark-action-runtime-convert = { path = "crates/lib/action-runtime-convert" }
 waymark-action-runtime-core = { path = "crates/lib/action-runtime-core" }
 waymark-action-runtime-metadata = { path = "crates/lib/action-runtime-metadata" }
@@ -34,6 +33,7 @@ waymark-dag-viz = { path = "crates/lib/dag-viz" }
 waymark-execution-bringup = { path = "crates/lib/execution-bringup" }
 waymark-execution-driver = { path = "crates/lib/execution-driver" }
 waymark-extcall-reconciler = { path = "crates/lib/extcall-reconciler" }
+waymark-extcall-reconciler-action-compat = { path = "crates/lib/extcall-reconciler-action-compat" }
 waymark-extcall-reconciler-core = { path = "crates/lib/extcall-reconciler-core" }
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-fullset-effect-handler = { path = "crates/lib/fullset-effect-handler" }
