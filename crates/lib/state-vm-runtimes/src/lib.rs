@@ -104,10 +104,10 @@ impl<Backend, Codec, ExecutableProvider, InterpreterProvider, EffectorProvider, 
 where
     Backend: waymark_state_vm_runtimes_backend::HasVmId,
     Backend::VmId: Hash + Eq + Clone + Send + Sync + core::fmt::Debug + 'static,
-    Backend: waymark_state_vm_runtimes_backend::StoreSnapshot,
+    Backend: waymark_state_vm_runtimes_backend::StoreSnapshots,
     Backend: waymark_state_vm_runtimes_backend::LoadForRevive,
     Backend: Send + Sync + 'static,
-    <Backend as waymark_state_vm_runtimes_backend::StoreSnapshot>::Error:
+    <Backend as waymark_state_vm_runtimes_backend::StoreSnapshots>::Error:
         std::fmt::Debug + Send + 'static,
     <Backend as waymark_state_vm_runtimes_backend::LoadForRevive>::Error:
         std::fmt::Debug + Send + 'static,

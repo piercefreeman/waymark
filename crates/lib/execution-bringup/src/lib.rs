@@ -137,7 +137,7 @@ where
     Backend: waymark_state_vm_runtimes_backend::HasVmId<VmId = waymark_ids::InstanceId>,
     <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId:
         Eq + Hash + Clone + Send + Sync + core::fmt::Debug + 'static,
-    Backend: waymark_state_vm_runtimes_backend::StoreSnapshot,
+    Backend: waymark_state_vm_runtimes_backend::StoreSnapshots,
     Backend: waymark_state_vm_runtimes_backend::LoadForRevive,
     Backend: waymark_state_vm_runtimes_backend::HasExecutableId<
             ExecutableId = waymark_ids::WorkflowVersionId,
@@ -185,7 +185,7 @@ where
     <Backend as waymark_workload_pinning_backend::PollUnpinnedWorkloads>::Error: Send,
     <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error: Send,
     <Backend as waymark_workload_pinning_backend::UnpinWorkloads>::Error: Send,
-    <Backend as waymark_state_vm_runtimes_backend::StoreSnapshot>::Error: Send + 'static,
+    <Backend as waymark_state_vm_runtimes_backend::StoreSnapshots>::Error: Send + 'static,
     <Backend as waymark_state_vm_runtimes_backend::LoadForRevive>::Error: Send + 'static,
     <Backend as waymark_workflow_completion_backend::RecordCompletion>::Error: Send + 'static,
     <Backend as waymark_workflow_completion_backend::RecordException>::Error: Send + 'static,
