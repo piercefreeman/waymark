@@ -1,7 +1,7 @@
 //! Command-line interface and environment knobs for the benchmark.
 
 use std::env;
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 
 use clap::Parser;
 use waymark_secret_string::{SecretStr, SecretString};
@@ -9,6 +9,7 @@ use waymark_support_integration::LOCAL_POSTGRES_DSN;
 
 const DEFAULT_DSN: &SecretStr = LOCAL_POSTGRES_DSN;
 const DEFAULT_MAX_PINNED: NonZeroUsize = NonZeroUsize::new(500).unwrap();
+const DEFAULT_DB_POOL_SIZE: NonZeroU32 = NonZeroU32::new(10).unwrap();
 
 #[derive(Parser, Debug)]
 #[command(
@@ -33,4 +34,11 @@ pub fn benchmark_max_pinned() -> NonZeroUsize {
         .ok()
         .and_then(|value| value.trim().parse::<NonZeroUsize>().ok())
         .unwrap_or(DEFAULT_MAX_PINNED)
+}
+
+pub fn benchmark_db_pool_size() -> NonZeroU32 {
+    env::var("WAYMARK_DB_POOL_SIZE")
+        .ok()
+        .and_then(|value| value.trim().parse::<NonZeroU32>().ok())
+        .unwrap_or(DEFAULT_DB_POOL_SIZE)
 }
