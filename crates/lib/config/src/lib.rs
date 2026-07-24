@@ -28,6 +28,8 @@ pub struct WorkerConfig {
     pub lock_heartbeat: NonZeroDuration,
     pub pinning_fencing_margin: NonZeroDuration,
     pub workload_poll_interval: NonZeroDuration,
+    pub snapshot_batch_max: NonZeroUsize,
+    pub snapshot_batch_delay: NonZeroDuration,
     pub action_effect_reconciler_lock_ttl: NonZeroDuration,
     pub action_effect_reconciler_lock_heartbeat: NonZeroDuration,
     pub evict_sleep_threshold: NonZeroDuration,
@@ -85,6 +87,11 @@ impl WorkerConfig {
         // trip takes longer, so it only floors the spin without pacing it.
         let FromNanos(workload_poll_interval) =
             envfury::or_parse("WAYMARK_WORKLOAD_POLL_INTERVAL_NS", "1000000")?;
+
+        let snapshot_batch_max = envfury::or_parse("WAYMARK_SNAPSHOT_BATCH_MAX", "256")?;
+
+        let FromMillis(snapshot_batch_delay) =
+            envfury::or_parse("WAYMARK_SNAPSHOT_BATCH_DELAY_MS", "5")?;
 
         let FromMillis(action_effect_reconciler_lock_ttl) =
             envfury::or_parse("WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_TTL_MS", "15000")?;
@@ -167,6 +174,8 @@ impl WorkerConfig {
             lock_heartbeat,
             pinning_fencing_margin,
             workload_poll_interval,
+            snapshot_batch_max,
+            snapshot_batch_delay,
             action_effect_reconciler_lock_ttl,
             action_effect_reconciler_lock_heartbeat,
             evict_sleep_threshold,
