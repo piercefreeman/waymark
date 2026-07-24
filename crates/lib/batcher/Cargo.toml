@@ -1,0 +1,15 @@
+[package]
+name = "waymark-batcher"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-nonzero-duration = { workspace = true }
+
+nonempty-collections = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util", "time"] }
