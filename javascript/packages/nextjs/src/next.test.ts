@@ -48,7 +48,7 @@ test("Next adapter delegates resolution and ESM bundling to the bundler", async 
     "/workspace/.next/waymark/onboard.actions.mjs",
   );
   assert.equal(bundles.length, 1);
-  assert.match(bundles[0]?.source ?? "", /from "\.\/app\/actions\.ts"/);
+  assert.match(bundles[0]?.source ?? "", /from "\.\.\/app\/actions\.ts"/);
   assert.match(bundles[0]?.source ?? "", /createActionManifest/);
   assert.equal(
     bundles[0]?.filePath,

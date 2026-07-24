@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { isAction, type Action } from "./action.js";
 import type { CompiledActionReference } from "./compiler.js";
 
@@ -43,6 +45,7 @@ export function createActionManifest(
 
 export function createActionManifestSource(
   actions: readonly CompiledActionReference[],
+  entryModuleId = "actions.mjs",
 ): string {
   const ordered = [...actions].sort((left, right) =>
     actionManifestKey(left.moduleName, left.actionName).localeCompare(
@@ -50,9 +53,11 @@ export function createActionManifestSource(
     ),
   );
   const imports = ordered.map((entry, index) => {
-    const specifier = entry.moduleName.startsWith(".")
-      ? entry.moduleName
-      : `./${entry.moduleName}`;
+    const relative = path.posix.relative(
+      path.posix.dirname(entryModuleId),
+      entry.moduleName,
+    );
+    const specifier = relative.startsWith(".") ? relative : `./${relative}`;
     return `import { ${entry.actionName} as action${index} } from ${JSON.stringify(specifier)};`;
   });
   const entries = ordered.map(

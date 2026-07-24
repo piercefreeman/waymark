@@ -62,13 +62,13 @@ export async function compileNextWorkflow(
     source: options.source,
     workflowName: options.workflowName,
   });
+  const entryModuleId = path.posix.join(
+    ".waymark",
+    `${workflow.workflowName}.actions.mjs`,
+  );
   const bundle = await options.adapter.bundleEsm({
-    filePath: path.join(
-      options.projectRoot,
-      ".waymark",
-      `${workflow.workflowName}.actions.mjs`,
-    ),
-    source: createActionManifestSource(workflow.actions),
+    filePath: path.join(options.projectRoot, entryModuleId),
+    source: createActionManifestSource(workflow.actions, entryModuleId),
   });
   return { actionBundlePath: bundle.path, workflow };
 }

@@ -36,5 +36,23 @@ tokio = { workspace = true, features = ["sync", "macros", "rt"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 
+[dev-dependencies]
+waymark-action-core = { workspace = true }
+waymark-backend-postgres = { workspace = true }
+waymark-ir-parser = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-runner-executor-core = { workspace = true }
+waymark-support-test = { workspace = true }
+waymark-vm-ast-old-proto = { workspace = true }
+waymark-workflow-completion-core = { workspace = true }
+waymark-workflow-service-vm-executables = { workspace = true }
+waymark-workflow-service-vm-runtimes = { workspace = true }
+
+nonempty-collections = { workspace = true }
+serde_json = { workspace = true }
+serial_test = { workspace = true }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+
 [lib]
 doctest = false
