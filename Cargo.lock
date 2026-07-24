@@ -4553,6 +4553,7 @@ dependencies = [
  "waymark-execution-bringup",
  "waymark-fn-main-common",
  "waymark-ids",
+ "waymark-nonzero-duration",
  "waymark-observability",
  "waymark-observability-setup",
  "waymark-proto",
@@ -4724,6 +4725,7 @@ name = "waymark-execution-bringup"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "nonempty-collections",
  "tokio",
  "tokio-util",
  "tracing",
@@ -4734,6 +4736,7 @@ dependencies = [
  "waymark-action-runtime-metadata",
  "waymark-action-runtime-metadata-compat",
  "waymark-action-runtime-worker-pool",
+ "waymark-batcher",
  "waymark-execution-driver",
  "waymark-extcall-reconciler",
  "waymark-fullset-effect-handler",
@@ -5421,6 +5424,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "waymark-batcher",
  "waymark-state-manager",
  "waymark-state-manager-core",
  "waymark-state-vm-runtimes-backend",

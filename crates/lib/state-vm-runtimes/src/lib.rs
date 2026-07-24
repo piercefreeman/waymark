@@ -16,7 +16,9 @@ mod once_receiver;
 mod snapshot_adapter;
 mod spawner;
 
-pub use self::snapshot_adapter::SnapshotAdapter;
+pub use self::snapshot_adapter::{
+    SnapshotAdapter, SnapshotBatchError, SnapshotJob, SnapshotOutcome,
+};
 pub use self::spawner::{ErrorFor, Evicted, Spawned};
 
 use std::hash::Hash;
@@ -53,12 +55,19 @@ pub struct SpawningFactory<
     InterpreterProvider,
     EffectorProvider,
     Value,
-> {
+> where
+    Backend: waymark_state_vm_runtimes_backend::HasVmId,
+{
     backend: Arc<Backend>,
     codec: Arc<Codec>,
     executable_provider: ExecutableProvider,
     interpreter_provider: InterpreterProvider,
     effector_provider: EffectorProvider,
+    /// Shared batcher that coalesces snapshot writes across all VMs.
+    snapshot_batcher: waymark_batcher::BatcherHandle<
+        snapshot_adapter::SnapshotJob<Backend::VmId>,
+        snapshot_adapter::SnapshotOutcome,
+    >,
     _phantom_data: PhantomData<Value>,
 }
 
@@ -71,6 +80,8 @@ impl<Backend, Codec, ExecutableProvider, InterpreterProvider, EffectorProvider, 
         EffectorProvider,
         Value,
     >
+where
+    Backend: waymark_state_vm_runtimes_backend::HasVmId,
 {
     /// Create a new spawning factory.
     pub fn new(
@@ -79,6 +90,10 @@ impl<Backend, Codec, ExecutableProvider, InterpreterProvider, EffectorProvider, 
         executable_provider: ExecutableProvider,
         interpreter_provider: InterpreterProvider,
         effector_provider: EffectorProvider,
+        snapshot_batcher: waymark_batcher::BatcherHandle<
+            snapshot_adapter::SnapshotJob<Backend::VmId>,
+            snapshot_adapter::SnapshotOutcome,
+        >,
     ) -> Self {
         Self {
             backend,
@@ -86,6 +101,7 @@ impl<Backend, Codec, ExecutableProvider, InterpreterProvider, EffectorProvider, 
             executable_provider,
             interpreter_provider,
             effector_provider,
+            snapshot_batcher,
             _phantom_data: PhantomData,
         }
     }
@@ -104,11 +120,8 @@ impl<Backend, Codec, ExecutableProvider, InterpreterProvider, EffectorProvider, 
 where
     Backend: waymark_state_vm_runtimes_backend::HasVmId,
     Backend::VmId: Hash + Eq + Clone + Send + Sync + core::fmt::Debug + 'static,
-    Backend: waymark_state_vm_runtimes_backend::StoreSnapshots,
     Backend: waymark_state_vm_runtimes_backend::LoadForRevive,
     Backend: Send + Sync + 'static,
-    <Backend as waymark_state_vm_runtimes_backend::StoreSnapshots>::Error:
-        std::fmt::Debug + Send + 'static,
     <Backend as waymark_state_vm_runtimes_backend::LoadForRevive>::Error:
         std::fmt::Debug + Send + 'static,
     Codec: waymark_vm_codec_core::SerializerProvider<Ok = ()>,
@@ -186,7 +199,7 @@ where
             ErrorFor<
                 InterpreterProvider::Interpreter,
                 Codec,
-                SnapshotAdapter<Backend::VmId, Backend>,
+                SnapshotAdapter<Backend::VmId>,
                 EffectorProvider::Effector,
             >,
         >,
@@ -229,7 +242,7 @@ where
 
         let snapshotter = snapshot_adapter::SnapshotAdapter {
             vm_id: key.clone(),
-            backend: Arc::clone(&self.backend),
+            batcher: self.snapshot_batcher.clone(),
         };
 
         let spawned = spawner::spawn(

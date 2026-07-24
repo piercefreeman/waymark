@@ -12,6 +12,7 @@ waymark-action-effect-reconciler-backend = { workspace = true }
 waymark-action-runtime-metadata = { workspace = true }
 waymark-action-runtime-metadata-compat = { workspace = true }
 waymark-action-runtime-worker-pool = { workspace = true }
+waymark-batcher = { workspace = true }
 waymark-execution-driver = { workspace = true }
 waymark-extcall-reconciler = { workspace = true }
 waymark-fullset-effect-handler = { workspace = true }
@@ -36,6 +37,7 @@ waymark-workload-pinning-backend = { workspace = true }
 waymark-workload-pinning-manager = { workspace = true }
 
 chrono = { workspace = true }
+nonempty-collections = { workspace = true }
 tokio = { workspace = true, features = ["sync", "macros", "rt"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
