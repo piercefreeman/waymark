@@ -5306,6 +5306,7 @@ dependencies = [
  "waymark-prometheus-exporter-bringup",
  "waymark-tokio-metrics-bringup",
  "waymark-webapp-bringup",
+ "waymark-worker-javascript",
  "waymark-worker-python",
  "waymark-worker-remote-bringup",
  "waymark-worker-remote-pool",
@@ -6167,6 +6168,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-worker-javascript"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "waymark-action-core",
+ "waymark-worker-process",
+ "waymark-worker-process-spec",
+ "waymark-worker-reservation",
+]
+
+[[package]]
 name = "waymark-worker-message-protocol"
 version = "0.1.0"
 dependencies = [
@@ -6298,6 +6310,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "waymark-action-core",
  "waymark-managed-process",
  "waymark-message-conversions",
  "waymark-proto",

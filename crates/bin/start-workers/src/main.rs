@@ -1,10 +1,10 @@
-//! Start Workers - Runs the core runloop with Python worker pool.
+//! Start Workers - Runs the VM execution subsystem with action worker pools.
 //!
 //! This binary starts the worker infrastructure:
 //! - Connects to the database
 //! - Starts the WorkerBridge gRPC server for worker connections
-//! - Spawns a pool of Python workers
-//! - Runs the core runloop to process queued workflow instances
+//! - Spawns Python workers and, when configured, JavaScript workers
+//! - Runs the VM execution subsystem for queued workflow instances
 //! - Optionally starts the scheduler and web dashboard
 //!
 //! Configuration is via environment variables:
@@ -13,6 +13,10 @@
 //! - WAYMARK_USER_MODULE: Python module(s) to preload (comma-separated)
 //! - WAYMARK_WORKER_COUNT: Number of workers (default: num_cpus)
 //! - WAYMARK_CONCURRENT_PER_WORKER: Max concurrent actions per worker (default: 10)
+//! - WAYMARK_JAVASCRIPT_WORKER_COUNT: JavaScript worker count (enables JavaScript)
+//! - WAYMARK_JAVASCRIPT_ACTION_BUNDLE: Generated ESM action bundle
+//! - WAYMARK_JAVASCRIPT_WORKER_GRPC_ADDR: JavaScript bridge address
+//! - WAYMARK_JAVASCRIPT_WORKER_COMMAND: Node worker command
 //! - WAYMARK_POLL_INTERVAL_MS: Poll interval for queued instances (default: 100)
 //! - WAYMARK_MAX_CONCURRENT_INSTANCES: Max workflow instances held concurrently (default: 500)
 //! - WAYMARK_EXECUTOR_SHARDS: Executor shard thread count (default: num_cpus)
@@ -62,6 +66,10 @@ async fn main() -> Result<()> {
         worker_count = config.worker_count,
         concurrent_per_worker = config.concurrent_per_worker,
         user_modules = ?config.user_modules,
+        javascript_worker_count = config
+            .javascript_worker
+            .as_ref()
+            .map(|worker| worker.worker_count.get()),
         "starting worker infrastructure"
     );
 
@@ -91,7 +99,7 @@ async fn main() -> Result<()> {
     waymark_backend_postgres_migrations::run(&pool).await?;
     let backend = PostgresBackend::new(pool);
 
-    // Start the worker pool (bridge + python workers).
+    // Start the Python worker pool.
     let mut worker_config = waymark_worker_python::Config::new();
     if !config.user_modules.is_empty() {
         worker_config = worker_config.with_user_modules(config.user_modules.clone());
@@ -102,7 +110,7 @@ async fn main() -> Result<()> {
         config: worker_config,
     };
 
-    let (process_pool, bridge_task) = waymark_worker_remote_bringup::start(
+    let (python_process_pool, python_bridge_task) = waymark_worker_remote_bringup::start(
         shutdown_token.clone(),
         Some(config.worker_grpc_addr),
         worker_process_spec_builder,
@@ -112,7 +120,40 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    let process_pool = Arc::new(process_pool);
+    let python_process_pool = Arc::new(python_process_pool);
+
+    // JavaScript is opt-in: both count and generated bundle are required.
+    let (javascript_process_pool, javascript_bridge_task) =
+        if let Some(javascript_worker) = &config.javascript_worker {
+            let worker_config =
+                waymark_worker_javascript::Config::new(javascript_worker.action_bundle.clone())
+                    .with_command(javascript_worker.command.clone());
+            let (pool, bridge_task) = waymark_worker_remote_bringup::start(
+                shutdown_token.clone(),
+                Some(javascript_worker.grpc_addr),
+                |bridge_server_addr| waymark_worker_javascript::Spec {
+                    bridge_server_addr,
+                    config: worker_config,
+                },
+                javascript_worker.worker_count,
+                config.max_action_lifecycle,
+                config.concurrent_per_worker,
+            )
+            .await?;
+            (Some(Arc::new(pool)), Some(bridge_task))
+        } else {
+            (None, None)
+        };
+
+    let python_remote_pool =
+        waymark_worker_remote_pool::RemoteWorkerPool::new(python_process_pool.clone());
+    let javascript_remote_pool = javascript_process_pool
+        .as_ref()
+        .map(|pool| waymark_worker_remote_pool::RemoteWorkerPool::new(pool.clone()));
+    let runtime_pool = Arc::new(waymark_worker_remote_pool::RuntimeWorkerPool::new(
+        python_remote_pool,
+        javascript_remote_pool,
+    ));
 
     // Start the webapp server.
     let webapp_backend = Arc::new(backend.clone());
@@ -130,7 +171,7 @@ async fn main() -> Result<()> {
     let status_reporter_handle = tokio::spawn(waymark_worker_status_reporter::run(
         pool_id,
         backend.clone(),
-        process_pool.clone(),
+        runtime_pool.clone(),
         active_instance_gauge.clone(),
         config.profile_interval,
         shutdown_token.clone().cancelled_owned(),
@@ -161,13 +202,10 @@ async fn main() -> Result<()> {
         executable_retention: config.executable_retention,
         executable_sweep_interval: config.executable_sweep_interval,
     };
-    let remote_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
-        process_pool.clone(),
-    ));
     let execution_handles = waymark_execution_bringup::start(
         bringup_config,
         Arc::new(backend.clone()),
-        remote_pool,
+        runtime_pool.clone(),
         shutdown_token.child_token(),
         force_shutdown_token.child_token(),
     )
@@ -199,11 +237,20 @@ async fn main() -> Result<()> {
         execution_handles.action_effect_reconciler_lock_renewal,
     )
     .await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), bridge_task).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), python_bridge_task).await;
+    if let Some(javascript_bridge_task) = javascript_bridge_task {
+        let _ = tokio::time::timeout(Duration::from_secs(5), javascript_bridge_task).await;
+    }
     let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
 
-    if let Err(err) = process_pool.shutdown_arc().await {
-        warn!(error = %err, "worker pool shutdown failed");
+    drop(runtime_pool);
+    if let Err(err) = python_process_pool.shutdown_arc().await {
+        warn!(error = %err, "Python worker pool shutdown failed");
+    }
+    if let Some(javascript_process_pool) = javascript_process_pool
+        && let Err(err) = javascript_process_pool.shutdown_arc().await
+    {
+        warn!(error = %err, "JavaScript worker pool shutdown failed");
     }
 
     if let Some(webapp_handle) = maybe_webapp_handle {
