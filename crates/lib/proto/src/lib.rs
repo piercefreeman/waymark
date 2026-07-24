@@ -7,6 +7,12 @@ pub const GRPC_MAX_MESSAGE_SIZE_BYTES: usize = 25 * 1024 * 1024;
 pub use prost_types;
 
 /// Re-export generated protobuf types
+pub mod action {
+    // Shared action contract types
+    tonic::include_proto!("waymark.action");
+}
+
+/// Worker bridge and workflow service messages.
 pub mod messages {
     // Messages for worker bridge communication
     tonic::include_proto!("waymark.messages");

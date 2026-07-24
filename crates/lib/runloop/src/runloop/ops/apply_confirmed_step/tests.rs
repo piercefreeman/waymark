@@ -83,6 +83,7 @@ async fn records_action_dispatch() {
     let step = shard::Step {
         executor_id,
         actions: vec![ActionRequest {
+            runtime: waymark_action_core::ActionRuntime::Python,
             executor_id,
             execution_id,
             action_name: "my_action".to_string(),
@@ -137,6 +138,7 @@ async fn queue_error_is_returned() {
     let step = shard::Step {
         executor_id,
         actions: vec![ActionRequest {
+            runtime: waymark_action_core::ActionRuntime::Python,
             executor_id,
             execution_id,
             action_name: "failing_action".to_string(),
@@ -176,6 +178,7 @@ async fn timeout_sets_deadline() {
     let step = shard::Step {
         executor_id,
         actions: vec![ActionRequest {
+            runtime: waymark_action_core::ActionRuntime::Python,
             executor_id,
             execution_id,
             action_name: "timed_action".to_string(),

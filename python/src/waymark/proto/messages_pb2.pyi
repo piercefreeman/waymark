@@ -14,6 +14,8 @@ import google.protobuf.internal.enum_type_wrapper
 import google.protobuf.message
 import google.protobuf.struct_pb2
 
+from . import action_pb2
+
 if sys.version_info >= (3, 10):
     import typing as typing_extensions
 else:
@@ -169,6 +171,7 @@ class ActionDispatch(google.protobuf.message.Message):
     ATTEMPT_NUMBER_FIELD_NUMBER: builtins.int
     DISPATCH_TOKEN_FIELD_NUMBER: builtins.int
     METADATA_FIELD_NUMBER: builtins.int
+    RUNTIME_FIELD_NUMBER: builtins.int
     action_id: builtins.str
     """Unique action identifier"""
     instance_id: builtins.str
@@ -180,7 +183,7 @@ class ActionDispatch(google.protobuf.message.Message):
     Name of the action function to call
     """
     module_name: builtins.str
-    """Python module containing the action"""
+    """Module containing the action"""
     timeout_seconds: builtins.int
     """Execution policies"""
     max_retries: builtins.int
@@ -189,6 +192,7 @@ class ActionDispatch(google.protobuf.message.Message):
     """UUID for result correlation"""
     metadata: builtins.bytes
     """Opaque server correlation metadata; workers echo it untouched"""
+    runtime: action_pb2.ActionRuntime.ValueType
     @property
     def kwargs(self) -> Global___WorkflowArguments:
         """Keyword arguments for the action"""
@@ -207,6 +211,7 @@ class ActionDispatch(google.protobuf.message.Message):
         attempt_number: builtins.int | None = ...,
         dispatch_token: builtins.str | None = ...,
         metadata: builtins.bytes = ...,
+        runtime: action_pb2.ActionRuntime.ValueType = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -260,6 +265,8 @@ class ActionDispatch(google.protobuf.message.Message):
             b"metadata",
             "module_name",
             b"module_name",
+            "runtime",
+            b"runtime",
             "sequence",
             b"sequence",
             "timeout_seconds",
@@ -419,13 +426,18 @@ class WorkerHello(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     WORKER_ID_FIELD_NUMBER: builtins.int
+    RUNTIME_FIELD_NUMBER: builtins.int
     worker_id: builtins.int
+    runtime: action_pb2.ActionRuntime.ValueType
     def __init__(
         self,
         *,
         worker_id: builtins.int = ...,
+        runtime: action_pb2.ActionRuntime.ValueType = ...,
     ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["worker_id", b"worker_id"]) -> None: ...
+    def ClearField(
+        self, field_name: typing.Literal["runtime", b"runtime", "worker_id", b"worker_id"]
+    ) -> None: ...
 
 Global___WorkerHello: typing_extensions.TypeAlias = WorkerHello
 

@@ -5039,6 +5039,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+ "waymark-action-core",
  "waymark-backend-fault-injection",
  "waymark-backend-memory",
  "waymark-backends-core",
@@ -5538,6 +5539,9 @@ dependencies = [
 [[package]]
 name = "waymark-vm-ast-old"
 version = "0.1.0"
+dependencies = [
+ "waymark-action-core",
+]
 
 [[package]]
 name = "waymark-vm-ast-old-fmt"
@@ -5553,6 +5557,7 @@ dependencies = [
 name = "waymark-vm-ast-old-helpers"
 version = "0.1.0"
 dependencies = [
+ "waymark-action-core",
  "waymark-vm-ast-old",
 ]
 
@@ -5561,6 +5566,7 @@ name = "waymark-vm-ast-old-proto"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "waymark-action-core",
  "waymark-proto",
  "waymark-vm-ast-old",
 ]
@@ -6143,6 +6149,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "uuid",
+ "waymark-action-core",
  "waymark-ids",
  "waymark-runner-executor-core",
 ]
@@ -6168,6 +6175,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "waymark-action-core",
  "waymark-proto",
  "waymark-worker-metrics",
 ]
@@ -6201,6 +6209,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "waymark-action-core",
  "waymark-managed-process",
  "waymark-worker-message-protocol",
  "waymark-worker-metrics",
@@ -6214,6 +6223,7 @@ dependencies = [
 name = "waymark-worker-process-spec"
 version = "0.1.0"
 dependencies = [
+ "waymark-action-core",
  "waymark-worker-process",
  "waymark-worker-reservation",
 ]
@@ -6224,6 +6234,7 @@ version = "0.1.0"
 dependencies = [
  "tokio",
  "tracing",
+ "waymark-action-core",
  "waymark-worker-process",
  "waymark-worker-process-spec",
  "waymark-worker-reservation",
@@ -6238,6 +6249,7 @@ dependencies = [
  "tokio-util",
  "tonic 0.11.0",
  "tracing",
+ "waymark-action-core",
  "waymark-proto",
  "waymark-worker-message-protocol",
  "waymark-worker-remote-bridge-service",
@@ -6257,6 +6269,7 @@ dependencies = [
  "tonic 0.11.0",
  "tracing",
  "tracing-futures",
+ "waymark-action-core",
  "waymark-proto",
  "waymark-worker-message-protocol",
  "waymark-worker-reservation",

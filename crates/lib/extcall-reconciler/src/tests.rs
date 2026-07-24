@@ -88,6 +88,7 @@ async fn effect_handler_dispatches_action_call() {
     let effect = Effect::ActionCall {
         promise_state_id: PromiseStateId(0),
         action_ref: waymark_action_core::ActionRef {
+            runtime: waymark_action_core::ActionRuntime::Python,
             action_name: "test".into(),
             module_name: None,
             call_args: vec!["arg".into()],

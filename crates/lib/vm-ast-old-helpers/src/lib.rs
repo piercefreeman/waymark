@@ -70,6 +70,7 @@ pub fn return_stmt(value: Option<Spanned<Expr>>) -> Spanned<Statement> {
 pub fn action_stmt(name: &str) -> Spanned<Statement> {
     spanned(Statement::ActionCall {
         call: ActionCall {
+            runtime: waymark_action_core::ActionRuntime::Python,
             action_name: name.to_owned(),
             kwargs: Vec::new(),
             policies: Vec::new(),
@@ -251,6 +252,7 @@ pub fn enumerate_expr(iterable: Spanned<Expr>) -> Spanned<Expr> {
 
 pub fn action_call(name: &str, kwargs: Vec<(&str, Spanned<Expr>)>) -> ActionCall {
     ActionCall {
+        runtime: waymark_action_core::ActionRuntime::Python,
         action_name: name.to_owned(),
         kwargs: kwargs
             .into_iter()
@@ -281,6 +283,7 @@ pub fn module_action_call(
     policies: Vec<PolicyBracket>,
 ) -> ActionCall {
     ActionCall {
+        runtime: waymark_action_core::ActionRuntime::Python,
         action_name: name.to_owned(),
         kwargs,
         policies,

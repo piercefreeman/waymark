@@ -10,6 +10,7 @@ from typing import Any, Dict, get_type_hints
 
 from pydantic import BaseModel
 
+from waymark.proto import action_pb2
 from waymark.proto import messages_pb2 as pb2
 
 from .dependencies import provide_dependencies
@@ -66,6 +67,14 @@ async def execute_action(dispatch: pb2.ActionDispatch) -> ActionExecutionResult:
     Returns:
         The result of executing the action.
     """
+    if dispatch.runtime != action_pb2.ACTION_RUNTIME_PYTHON:
+        return ActionExecutionResult(
+            result=None,
+            exception=RuntimeError(
+                f"Python worker cannot execute action runtime {dispatch.runtime}"
+            ),
+        )
+
     action_name = dispatch.action_name
     module_name = dispatch.module_name
 

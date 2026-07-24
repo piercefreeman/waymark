@@ -165,6 +165,7 @@ impl Executor {
                 }
             })?;
             actions.push(ActionRequest {
+                runtime: waymark_action_core::ActionRuntime::Python,
                 executor_id: self.executor_id,
                 execution_id: action.node_id,
                 action_name: action_spec.action_name,

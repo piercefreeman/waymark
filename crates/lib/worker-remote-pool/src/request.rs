@@ -23,6 +23,7 @@ pub fn to_dispatch_payload(
     request: ActionRequest,
 ) -> Result<ActionDispatchPayload, ActionCompletion> {
     let ActionRequest {
+        runtime,
         executor_id,
         execution_id,
         action_name,
@@ -49,6 +50,7 @@ pub fn to_dispatch_payload(
     };
 
     let dispatch = ActionDispatchPayload {
+        runtime,
         action_id: execution_id.to_string(),
         instance_id: executor_id.to_string(),
         sequence: 0,

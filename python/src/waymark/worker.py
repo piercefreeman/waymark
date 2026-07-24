@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator, cast
 import grpc
 
 from waymark.actions import serialize_error_payload, serialize_result_payload
+from waymark.proto import action_pb2
 from waymark.proto import messages_pb2 as pb2
 from waymark.proto import messages_pb2_grpc as pb2_grpc
 
@@ -51,7 +52,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 async def _outgoing_stream(
     queue: "asyncio.Queue[pb2.Envelope]", worker_id: int
 ) -> AsyncIterator[pb2.Envelope]:
-    hello = pb2.WorkerHello(worker_id=worker_id)
+    hello = pb2.WorkerHello(
+        worker_id=worker_id,
+        runtime=action_pb2.ACTION_RUNTIME_PYTHON,
+    )
     envelope = pb2.Envelope(
         delivery_id=0,
         partition_id=0,

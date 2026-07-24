@@ -19,6 +19,7 @@ from collections.abc import Iterator
 from enum import Enum
 from typing import List, Optional
 
+from waymark.proto import action_pb2
 from waymark.proto import ast_pb2 as ir
 
 # Global variable for test_global_statement_raises_error test
@@ -1046,6 +1047,7 @@ class TestActionCallExtraction:
         assert "action_kwargs" in action.module_name, (
             f"Expected module name to contain 'action_kwargs', got '{action.module_name}'"
         )
+        assert action.runtime == action_pb2.ACTION_RUNTIME_PYTHON
 
     def test_action_with_mixed_positional_and_keyword_args(self) -> None:
         """Test: Mix of positional and keyword args are all converted to kwargs."""

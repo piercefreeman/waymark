@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from waymark import bridge
 from waymark.actions import action, serialize_result_payload
+from waymark.proto import action_pb2
 from waymark.proto import ast_pb2 as ir
 from waymark.proto import messages_pb2 as pb2
 from waymark.serialization import arguments_to_kwargs
@@ -242,6 +243,7 @@ def test_workflow_ir_includes_module_name() -> None:
 
     # We should have at least 2 action calls (fetch_identifier, store_value)
     assert len(action_calls_found) >= 2
+    assert all(action.runtime == action_pb2.ACTION_RUNTIME_PYTHON for action in action_calls_found)
 
 
 def test_workflow_result_coerces_to_pydantic_model(monkeypatch: pytest.MonkeyPatch) -> None:

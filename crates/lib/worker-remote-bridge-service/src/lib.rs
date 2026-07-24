@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, Streaming, async_trait};
 use tracing_futures::Instrument;
 
-use waymark_proto::messages as proto;
+use waymark_proto::{action, messages as proto};
 
 type Registry = waymark_worker_reservation::Registry<waymark_worker_message_protocol::Channels>;
 
@@ -19,6 +19,7 @@ const MESSAGE_PROTOCOL_CHANNEL_SIZE: usize = 64;
 #[derive(Clone)]
 pub struct WorkerBridgeService {
     pub workers_registry: Arc<Registry>,
+    pub expected_runtime: waymark_action_core::ActionRuntime,
 }
 
 type BridgeAttachStream =
@@ -53,6 +54,23 @@ impl proto::worker_bridge_server::WorkerBridge for WorkerBridgeService {
         let hello = proto::WorkerHello::decode(&*handshake.payload).map_err(|err| {
             Status::invalid_argument(format!("invalid WorkerHello payload: {err}"))
         })?;
+
+        let runtime = action::ActionRuntime::try_from(hello.runtime)
+            .map_err(|_| Status::invalid_argument("invalid worker action runtime"))?;
+        if runtime == action::ActionRuntime::Unspecified {
+            return Err(Status::invalid_argument(
+                "worker action runtime is required",
+            ));
+        }
+        let expected_runtime = match self.expected_runtime {
+            waymark_action_core::ActionRuntime::Python => action::ActionRuntime::Python,
+            waymark_action_core::ActionRuntime::JavaScript => action::ActionRuntime::Javascript,
+        };
+        if runtime != expected_runtime {
+            return Err(Status::failed_precondition(format!(
+                "worker runtime {runtime:?} does not match pool runtime {expected_runtime:?}"
+            )));
+        }
 
         let worker_id = hello.worker_id;
         tracing::info!(worker_id, "worker connected and sent hello");

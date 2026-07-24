@@ -15,7 +15,7 @@ build-proto:
 		--grpc_python_out=../$(PY_PROTO_OUT) \
 		--mypy_out=../$(PY_PROTO_OUT) \
 		--mypy_grpc_out=../$(PY_PROTO_OUT) \
-		../proto/messages.proto ../proto/ast.proto
+		../proto/action.proto ../proto/messages.proto ../proto/ast.proto
 	cd python && uv run python ../scripts/fix_proto_imports.py
 	$(MAKE) lint
 

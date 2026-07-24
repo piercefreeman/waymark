@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from enum import EnumMeta
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Set, Union
 
+from waymark.proto import action_pb2
 from waymark.proto import ast_pb2 as ir
 from waymark.registry import registry
 
@@ -3659,7 +3660,10 @@ class IRBuilder(ast.NodeVisitor):
             return None
 
         action_def = self._action_defs[action_name]
-        action_call = ir.ActionCall(action_name=action_def.action_name)
+        action_call = ir.ActionCall(
+            action_name=action_def.action_name,
+            runtime=action_pb2.ACTION_RUNTIME_PYTHON,
+        )
 
         # Set the module name so the worker knows where to find the action
         if action_def.module_name:

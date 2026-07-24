@@ -681,6 +681,7 @@ impl ExprParser {
         }
 
         let mut action = ir::ActionCall {
+            runtime: waymark_proto::action::ActionRuntime::Python as i32,
             action_name,
             kwargs,
             policies,

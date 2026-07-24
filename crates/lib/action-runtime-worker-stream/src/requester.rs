@@ -56,6 +56,7 @@ fn build_dispatch<Metadata: Encode>(
     } = request;
 
     let ActionRef {
+        runtime,
         action_name,
         module_name,
         call_args,
@@ -83,6 +84,14 @@ fn build_dispatch<Metadata: Encode>(
         attempt_number: None,
         dispatch_token: None,
         metadata: encoded_metadata,
+        runtime: match runtime {
+            waymark_action_core::ActionRuntime::Python => {
+                waymark_proto::action::ActionRuntime::Python as i32
+            }
+            waymark_action_core::ActionRuntime::JavaScript => {
+                waymark_proto::action::ActionRuntime::Javascript as i32
+            }
+        },
     };
 
     Ok(proto::WorkflowStreamResponse {
@@ -90,4 +99,42 @@ fn build_dispatch<Metadata: Encode>(
             dispatch,
         )),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct EmptyMetadata;
+
+    impl Encode for EmptyMetadata {
+        fn encode(&self, _writer: &mut Vec<u8>) {}
+    }
+
+    #[test]
+    fn dispatch_preserves_javascript_runtime() {
+        let response = build_dispatch(ActionCallRequest {
+            action_ref: ActionRef {
+                runtime: waymark_action_core::ActionRuntime::JavaScript,
+                action_name: "send_email".to_owned(),
+                module_name: Some("src/actions/email.ts".to_owned()),
+                call_args: Vec::new(),
+                timeout_seconds: 30,
+                max_retries: 0,
+                exception_types: Vec::new(),
+            },
+            arguments: Vec::new(),
+            metadata: EmptyMetadata,
+        })
+        .expect("dispatch should build");
+
+        let Some(proto::workflow_stream_response::Kind::ActionDispatch(dispatch)) = response.kind
+        else {
+            panic!("expected action dispatch");
+        };
+        assert_eq!(
+            waymark_proto::action::ActionRuntime::try_from(dispatch.runtime),
+            Ok(waymark_proto::action::ActionRuntime::Javascript)
+        );
+    }
 }

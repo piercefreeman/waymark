@@ -272,6 +272,7 @@ impl waymark_action_runtime_core::ActionCallRequester for FailingRequester {
 /// A test action reference.
 pub(crate) fn action_ref(name: &str) -> waymark_action_core::ActionRef {
     waymark_action_core::ActionRef {
+        runtime: waymark_action_core::ActionRuntime::Python,
         action_name: name.to_owned(),
         module_name: None,
         call_args: vec!["value".to_owned()],

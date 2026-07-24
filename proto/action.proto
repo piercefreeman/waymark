@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package waymark.action;
+
+// Runtime required to execute an action.
+enum ActionRuntime {
+  ACTION_RUNTIME_UNSPECIFIED = 0;
+  ACTION_RUNTIME_PYTHON = 1;
+  ACTION_RUNTIME_JAVASCRIPT = 2;
+}

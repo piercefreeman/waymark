@@ -45,11 +45,35 @@ pub fn lower_action_ref(call: &ActionCall) -> ActionRef {
     }
 
     ActionRef {
+        runtime: call.runtime,
         action_name: call.action_name.clone(),
         module_name: call.module_name.clone(),
         call_args: call.kwargs.iter().map(|k| k.name.clone()).collect(),
         timeout_seconds,
         max_retries,
         exception_types,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preserves_javascript_runtime() {
+        let call = ActionCall {
+            runtime: waymark_action_core::ActionRuntime::JavaScript,
+            action_name: "send_email".to_owned(),
+            kwargs: Vec::new(),
+            policies: Vec::new(),
+            module_name: Some("src/actions/email.ts".to_owned()),
+        };
+
+        let action_ref = lower_action_ref(&call);
+
+        assert_eq!(
+            action_ref.runtime,
+            waymark_action_core::ActionRuntime::JavaScript
+        );
     }
 }

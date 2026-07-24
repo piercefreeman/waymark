@@ -135,6 +135,7 @@ pub struct DictEntry {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActionCall {
+    pub runtime: waymark_action_core::ActionRuntime,
     pub action_name: String,
     pub kwargs: Vec<Kwarg>,
     pub policies: Vec<PolicyBracket>,

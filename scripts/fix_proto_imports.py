@@ -82,11 +82,27 @@ def _rewrite_messages_pb2(proto_dir: Path) -> None:
 
 
 def _rewrite_ast_pb2(proto_dir: Path) -> None:
-    """Handle ast_pb2.py - no grpc needed since it's pure data structures."""
-    target = proto_dir / "ast_pb2.py"
+    """Restore the shared action proto import after formatting generated code."""
+    _rewrite_action_import(proto_dir / "ast_pb2.py")
+    _rewrite_action_stub_import(proto_dir / "ast_pb2.pyi")
+
+
+def _rewrite_action_import(target: Path) -> None:
     if not target.exists():
         return
-    # ast.proto doesn't need special import handling since it has no external deps
+    text = target.read_text()
+    import_line = "from . import action_pb2 as action__pb2  # noqa: F401"
+    if import_line in text:
+        return
+    marker = "# @@protoc_insertion_point(imports)\n"
+    target.write_text(text.replace(marker, f"{marker}{import_line}\n", 1))
+
+
+def _rewrite_action_stub_import(target: Path) -> None:
+    if not target.exists():
+        return
+    text = target.read_text()
+    target.write_text(text.replace("import action_pb2", "from . import action_pb2"))
 
 
 def main() -> None:
@@ -96,6 +112,8 @@ def main() -> None:
         _rewrite_messages_pb2_grpc(proto_dir)
         _rewrite_messages_pb2(proto_dir)
         _rewrite_messages_pb2_imports(proto_dir)
+        _rewrite_action_import(proto_dir / "messages_pb2.py")
+        _rewrite_action_stub_import(proto_dir / "messages_pb2.pyi")
         _rewrite_ast_pb2(proto_dir)
 
 

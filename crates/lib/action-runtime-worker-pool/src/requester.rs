@@ -62,6 +62,7 @@ where
         metadata.encode(&mut encoded_metadata);
 
         let worker_request = waymark_worker_core::ActionRequest {
+            runtime: request.action_ref.runtime,
             executor_id: waymark_ids::InstanceId::new_uuid_v4(),
             execution_id: waymark_ids::ExecutionId::new_uuid_v4(),
             action_name: request.action_ref.action_name,
@@ -123,6 +124,7 @@ mod tests {
         requester
             .request_action_call(ActionCallRequest {
                 action_ref: ActionRef {
+                    runtime: waymark_action_core::ActionRuntime::Python,
                     action_name: "act".to_owned(),
                     module_name: None,
                     call_args: Vec::new(),

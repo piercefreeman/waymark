@@ -2,10 +2,24 @@
 
 #![warn(missing_docs)]
 
+/// Runtime required to execute an action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum ActionRuntime {
+    /// Execute the action in a Python worker.
+    Python,
+
+    /// Execute the action in a JavaScript worker.
+    JavaScript,
+}
+
 /// Static metadata for an action call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ActionRef {
+    /// Runtime required to execute the action.
+    pub runtime: ActionRuntime,
+
     /// The name of the action to invoke.
     pub action_name: String,
 
