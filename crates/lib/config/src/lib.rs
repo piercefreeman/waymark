@@ -13,21 +13,32 @@ use waymark_scheduler_config::SchedulerConfig;
 use waymark_secret_string::SecretString;
 
 #[derive(Debug, Clone)]
-pub struct JavaScriptWorkerConfig {
-    pub grpc_addr: SocketAddr,
-    pub worker_count: NonZeroUsize,
-    pub action_bundle: PathBuf,
-    pub command: PathBuf,
+pub enum ActionWorkerConfig {
+    Python {
+        user_modules: Vec<String>,
+    },
+    JavaScript {
+        action_bundle: PathBuf,
+        command: PathBuf,
+    },
+}
+
+impl ActionWorkerConfig {
+    pub fn runtime(&self) -> waymark_action_core::ActionRuntime {
+        match self {
+            Self::Python { .. } => waymark_action_core::ActionRuntime::Python,
+            Self::JavaScript { .. } => waymark_action_core::ActionRuntime::JavaScript,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
     pub database_url: SecretString,
+    pub action_worker: ActionWorkerConfig,
     pub worker_grpc_addr: SocketAddr,
     pub worker_count: NonZeroUsize,
     pub concurrent_per_worker: NonZeroUsize,
-    pub user_modules: Vec<String>,
-    pub javascript_worker: Option<JavaScriptWorkerConfig>,
     pub max_action_lifecycle: Option<NonZeroU64>,
     pub poll_interval: Option<NonZeroDuration>,
     pub max_concurrent_instances: NonZeroUsize,
@@ -56,6 +67,8 @@ impl WorkerConfig {
         use self::parse::*;
 
         let database_url = envfury::must("WAYMARK_DATABASE_URL")?;
+        let action_runtime: waymark_action_core::ActionRuntime =
+            envfury::must("WAYMARK_ACTION_RUNTIME")?;
 
         let worker_grpc_addr = envfury::or_parse("WAYMARK_WORKER_GRPC_ADDR", "127.0.0.1:24118")?;
 
@@ -63,32 +76,19 @@ impl WorkerConfig {
 
         let concurrent_per_worker = envfury::or_parse("WAYMARK_CONCURRENT_PER_WORKER", "10")?;
 
-        let CommaSeparated(user_modules) = envfury::or_parse("WAYMARK_USER_MODULE", "")?;
-
-        let javascript_worker_count: Option<NonZeroUsize> =
-            envfury::maybe("WAYMARK_JAVASCRIPT_WORKER_COUNT")?;
-        let javascript_action_bundle: Option<PathBuf> =
-            envfury::maybe("WAYMARK_JAVASCRIPT_ACTION_BUNDLE")?;
-        let javascript_worker = match (javascript_worker_count, javascript_action_bundle) {
-            (Some(worker_count), Some(action_bundle)) => Some(JavaScriptWorkerConfig {
-                grpc_addr: envfury::or_parse(
-                    "WAYMARK_JAVASCRIPT_WORKER_GRPC_ADDR",
-                    "127.0.0.1:24119",
-                )?,
-                worker_count,
-                action_bundle,
+        let action_worker = match action_runtime {
+            waymark_action_core::ActionRuntime::Python => {
+                let CommaSeparated(user_modules) =
+                    envfury::or_parse("WAYMARK_PYTHON_USER_MODULE", "")?;
+                ActionWorkerConfig::Python { user_modules }
+            }
+            waymark_action_core::ActionRuntime::JavaScript => ActionWorkerConfig::JavaScript {
+                action_bundle: envfury::must("WAYMARK_JAVASCRIPT_ACTION_BUNDLE")?,
                 command: envfury::or_parse(
                     "WAYMARK_JAVASCRIPT_WORKER_COMMAND",
                     "waymark-worker-node",
                 )?,
-            }),
-            (None, None) => None,
-            _ => {
-                return Err(anyhow::anyhow!(
-                    "WAYMARK_JAVASCRIPT_WORKER_COUNT and \
-                     WAYMARK_JAVASCRIPT_ACTION_BUNDLE must be set together"
-                ));
-            }
+            },
         };
 
         let max_action_lifecycle = envfury::maybe("WAYMARK_MAX_ACTION_LIFECYCLE")?;
@@ -175,11 +175,10 @@ impl WorkerConfig {
 
         Ok(Self {
             database_url,
+            action_worker,
             worker_grpc_addr,
             worker_count,
             concurrent_per_worker,
-            user_modules,
-            javascript_worker,
             max_action_lifecycle,
             poll_interval,
             max_concurrent_instances,

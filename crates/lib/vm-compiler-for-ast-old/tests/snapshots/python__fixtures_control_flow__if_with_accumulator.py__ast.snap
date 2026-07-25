@@ -98,6 +98,7 @@ Program {
                                                                 value: Spanned {
                                                                     value: ActionCall {
                                                                         call: ActionCall {
+                                                                            runtime: Python,
                                                                             action_name: "if_accum_process_high",
                                                                             kwargs: [
                                                                                 Kwarg {
@@ -144,6 +145,7 @@ Program {
                                                                 value: Spanned {
                                                                     value: ActionCall {
                                                                         call: ActionCall {
+                                                                            runtime: Python,
                                                                             action_name: "if_accum_finalize",
                                                                             kwargs: [
                                                                                 Kwarg {
@@ -272,6 +274,7 @@ Program {
                                                                     value: Spanned {
                                                                         value: ActionCall {
                                                                             call: ActionCall {
+                                                                                runtime: Python,
                                                                                 action_name: "if_accum_process_low",
                                                                                 kwargs: [
                                                                                     Kwarg {

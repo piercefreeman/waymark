@@ -137,6 +137,7 @@ Program {
                                                         value: Spanned {
                                                             value: ActionCall {
                                                                 call: ActionCall {
+                                                                    runtime: Python,
                                                                     action_name: "process_item_simple",
                                                                     kwargs: [
                                                                         Kwarg {

@@ -177,7 +177,7 @@ where
     } = config;
 
     // Launch the worker pool so it can start routing action requests
-    // to Python workers and collecting completions. Done before spawning
+    // to language workers and collecting completions. Done before spawning
     // anything so a failure doesn't leave background tasks behind.
     // TODO: worker pool needs a better API, more in-line with the rest of
     // the new code and exposing the handles.

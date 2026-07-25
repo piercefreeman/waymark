@@ -11,6 +11,7 @@ waymark-proto = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+waymark-action-core = { workspace = true }
 waymark-dag-builder = { workspace = true }
 waymark-ir-parser = { workspace = true }
 

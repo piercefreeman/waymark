@@ -5,6 +5,7 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
+waymark-action-core = { workspace = true }
 waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-core-backend = { workspace = true }

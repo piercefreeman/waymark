@@ -60,20 +60,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn preserves_javascript_runtime() {
+    fn lowers_action_metadata_and_policies() {
         let call = ActionCall {
             runtime: waymark_action_core::ActionRuntime::JavaScript,
             action_name: "send_email".to_owned(),
             kwargs: Vec::new(),
-            policies: Vec::new(),
+            policies: vec![
+                waymark_vm_ast_old::PolicyBracket::Timeout(waymark_vm_ast_old::TimeoutPolicy {
+                    timeout: waymark_vm_ast_old::DurationLiteral { seconds: 45 },
+                }),
+                waymark_vm_ast_old::PolicyBracket::Retry(waymark_vm_ast_old::RetryPolicy {
+                    exception_types: vec!["NetworkError".to_owned(), "TimeoutError".to_owned()],
+                    max_retries: 3,
+                    backoff: None,
+                }),
+                waymark_vm_ast_old::PolicyBracket::Retry(waymark_vm_ast_old::RetryPolicy {
+                    exception_types: vec!["NetworkError".to_owned()],
+                    max_retries: 2,
+                    backoff: None,
+                }),
+            ],
             module_name: Some("src/actions/email.ts".to_owned()),
         };
 
         let action_ref = lower_action_ref(&call);
 
         assert_eq!(
-            action_ref.runtime,
-            waymark_action_core::ActionRuntime::JavaScript
+            action_ref,
+            ActionRef {
+                runtime: waymark_action_core::ActionRuntime::JavaScript,
+                action_name: "send_email".to_owned(),
+                module_name: Some("src/actions/email.ts".to_owned()),
+                call_args: Vec::new(),
+                timeout_seconds: 45,
+                max_retries: 3,
+                exception_types: vec!["NetworkError".to_owned(), "TimeoutError".to_owned(),],
+            }
         );
     }
 }

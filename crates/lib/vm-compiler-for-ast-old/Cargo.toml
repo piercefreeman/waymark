@@ -21,6 +21,7 @@ nonempty-collections = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+waymark-action-core = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-support-test-python = { workspace = true }
 waymark-vm-ast-old-fmt = { workspace = true }

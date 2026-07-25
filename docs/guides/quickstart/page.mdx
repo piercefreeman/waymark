@@ -123,10 +123,11 @@ your actions live:
 
 ```bash
 export WAYMARK_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/waymark
-export WAYMARK_USER_MODULE=workflows  # or "yourpkg.workflows"
+export WAYMARK_ACTION_RUNTIME=python
+export WAYMARK_PYTHON_USER_MODULE=workflows  # or "yourpkg.workflows"
 ```
 
-`WAYMARK_USER_MODULE` tells each worker which module to preload, so it has
+`WAYMARK_PYTHON_USER_MODULE` tells each worker which module to preload, so it has
 the action handlers registered before it starts pulling from the queue.
 
 ## Boot the worker pool {{ id: 'boot-the-worker-pool' }}
@@ -165,7 +166,7 @@ asyncio.run(main())
 
 <Note>
 If the script hangs instead of printing: check that Postgres is up, and
-check that the worker pool was started with `WAYMARK_USER_MODULE` set.
+check that the worker pool was started with `WAYMARK_PYTHON_USER_MODULE` set.
 A worker that can't find your module doesn't fail loudly - it idles and
 never claims work.
 </Note>

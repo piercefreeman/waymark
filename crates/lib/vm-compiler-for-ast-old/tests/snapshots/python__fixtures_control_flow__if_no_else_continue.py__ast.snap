@@ -30,6 +30,7 @@ Program {
                                     value: Spanned {
                                         value: ActionCall {
                                             call: ActionCall {
+                                                runtime: Python,
                                                 action_name: "get_items",
                                                 kwargs: [],
                                                 policies: [],
@@ -116,6 +117,7 @@ Program {
                                                                 value: Spanned {
                                                                     value: ActionCall {
                                                                         call: ActionCall {
+                                                                            runtime: Python,
                                                                             action_name: "process_items",
                                                                             kwargs: [
                                                                                 Kwarg {
@@ -200,6 +202,7 @@ Program {
                                     value: Spanned {
                                         value: ActionCall {
                                             call: ActionCall {
+                                                runtime: Python,
                                                 action_name: "finalize",
                                                 kwargs: [
                                                     Kwarg {

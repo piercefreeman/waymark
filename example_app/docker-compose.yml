@@ -28,7 +28,8 @@ services:
         condition: service_healthy
     environment:
       WAYMARK_DATABASE_URL: postgresql://waymark:waymark@postgres:5432/waymark_example
-      WAYMARK_USER_MODULE: example_app.workflows
+      WAYMARK_ACTION_RUNTIME: python
+      WAYMARK_PYTHON_USER_MODULE: example_app.workflows
       WAYMARK_CONCURRENT_PER_WORKER: 500
       WAYMARK_MAX_CONCURRENT_INSTANCES: 5000
       RUST_LOG: info,waymark=debug

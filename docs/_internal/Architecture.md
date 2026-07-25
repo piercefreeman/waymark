@@ -4,13 +4,13 @@ Waymark is built around a Postgres-backed instance queue plus an in-memory runne
 
 High-level flow:
 
-`Python SDK -> waymark-bridge (gRPC) -> Postgres -> waymark-start-workers runloop -> Python worker pool`
+`SDK -> waymark-bridge (gRPC) -> Postgres -> waymark-start-workers runloop -> selected language worker pool`
 
 ## Runtime components
 
 - `waymark-bridge`: accepts workflow registrations and queue requests from the Python SDK.
 - `waymark-start-workers`: owns the runloop, scheduler, worker bridge, status reporter, and webapp server.
-- `RemoteWorkerPool`: dispatches action calls to Python worker processes over gRPC.
+- `RemoteWorkerPool`: dispatches action calls to the configured language worker processes over gRPC.
 - `PostgresBackend`: shared persistence implementation for core runtime, schedules, and webapp queries.
 
 ## Current persistence model

@@ -77,6 +77,7 @@ Program {
                                                         value: Spanned {
                                                             value: ActionCall {
                                                                 call: ActionCall {
+                                                                    runtime: Python,
                                                                     action_name: "should_skip",
                                                                     kwargs: [
                                                                         Kwarg {
@@ -177,6 +178,7 @@ Program {
                                                         value: Spanned {
                                                             value: ActionCall {
                                                                 call: ActionCall {
+                                                                    runtime: Python,
                                                                     action_name: "process_item",
                                                                     kwargs: [
                                                                         Kwarg {

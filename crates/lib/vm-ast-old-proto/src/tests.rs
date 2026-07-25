@@ -177,7 +177,7 @@ fn returns_unspecified_required_enum_error() {
 }
 
 #[test]
-fn preserves_javascript_action_runtime() {
+fn converts_an_explicit_action_runtime() {
     let call = ast::ActionCall {
         action_name: "send_email".to_owned(),
         kwargs: Vec::new(),

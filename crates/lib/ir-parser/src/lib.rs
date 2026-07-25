@@ -681,7 +681,7 @@ impl ExprParser {
         }
 
         let mut action = ir::ActionCall {
-            runtime: waymark_proto::action::ActionRuntime::Python as i32,
+            runtime: waymark_proto::action::ActionRuntime::Unspecified as i32,
             action_name,
             kwargs,
             policies,
@@ -882,14 +882,16 @@ impl ExprParser {
 /// Parse IR source strings into protobuf AST structures.
 pub struct IRParser {
     indent: String,
+    action_runtime: waymark_action_core::ActionRuntime,
     lines: Vec<String>,
     index: usize,
 }
 
 impl IRParser {
-    pub fn new(indent: &str) -> Self {
+    pub fn new(indent: &str, action_runtime: waymark_action_core::ActionRuntime) -> Self {
         Self {
             indent: indent.to_string(),
+            action_runtime,
             lines: Vec::new(),
             index: 0,
         }
@@ -914,11 +916,18 @@ impl IRParser {
             functions.push(self.parse_function()?);
         }
 
-        Ok(ir::Program { functions })
+        let mut program = ir::Program { functions };
+        waymark_vm_ast_old_proto_helpers::set_action_runtime(&mut program, self.action_runtime);
+        Ok(program)
     }
 
     pub fn parse_expr(&mut self, source: &str) -> Result<ir::Expr, IRParseError> {
-        ExprParser::new(source)?.parse()
+        let mut expression = ExprParser::new(source)?.parse()?;
+        waymark_vm_ast_old_proto_helpers::set_expression_action_runtime(
+            &mut expression,
+            self.action_runtime,
+        );
+        Ok(expression)
     }
 
     fn parse_function(&mut self) -> Result<ir::FunctionDef, IRParseError> {
@@ -1572,6 +1581,9 @@ fn decode_string(value: &str) -> Result<String, IRParseError> {
 }
 
 /// Convenience wrapper to parse a program.
-pub fn parse_program(source: &str) -> Result<ir::Program, IRParseError> {
-    IRParser::new("    ").parse_program(source)
+pub fn parse_program(
+    source: &str,
+    action_runtime: waymark_action_core::ActionRuntime,
+) -> Result<ir::Program, IRParseError> {
+    IRParser::new("    ", action_runtime).parse_program(source)
 }

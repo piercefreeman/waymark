@@ -390,6 +390,7 @@ fn compiles_action_calls_into_extcalls() {
         "main",
         &[],
         vec![return_stmt(Some(action_expr(
+            waymark_action_core::ActionRuntime::Python,
             "fetch",
             vec![("value", int(41))],
         )))],
@@ -649,7 +650,11 @@ fn compiles_parallel_blocks_to_fan_out_before_awaiting() {
             vec![
                 parallel_stmt(vec![
                     Call::Function(function_call("child", vec![int(3)])),
-                    Call::Action(action_call("fetch", vec![("value", int(4))])),
+                    Call::Action(action_call(
+                        waymark_action_core::ActionRuntime::Python,
+                        "fetch",
+                        vec![("value", int(4))],
+                    )),
                 ]),
                 return_stmt(Some(int(9))),
             ],
@@ -714,8 +719,16 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
         &[],
         vec![
             parallel_stmt(vec![
-                Call::Action(action_call("fetch_first", vec![("value", int(1))])),
-                Call::Action(action_call("fetch_second", vec![("value", int(2))])),
+                Call::Action(action_call(
+                    waymark_action_core::ActionRuntime::Python,
+                    "fetch_first",
+                    vec![("value", int(1))],
+                )),
+                Call::Action(action_call(
+                    waymark_action_core::ActionRuntime::Python,
+                    "fetch_second",
+                    vec![("value", int(2))],
+                )),
             ]),
             return_stmt(Some(int(7))),
         ],
@@ -786,7 +799,11 @@ fn compiles_spread_expressions_to_completion() {
                 spread_expr(
                     variable("items"),
                     "item",
-                    action_call("double", vec![("value", variable("item"))]),
+                    action_call(
+                        waymark_action_core::ActionRuntime::Python,
+                        "double",
+                        vec![("value", variable("item"))],
+                    ),
                 ),
             ),
             return_stmt(Some(variable("results"))),
@@ -857,9 +874,17 @@ fn compiles_mixed_parallel_blocks_with_leading_action_before_awaiting() {
             &[],
             vec![
                 parallel_stmt(vec![
-                    Call::Action(action_call("fetch_first", vec![("value", int(1))])),
+                    Call::Action(action_call(
+                        waymark_action_core::ActionRuntime::Python,
+                        "fetch_first",
+                        vec![("value", int(1))],
+                    )),
                     Call::Function(function_call("child", vec![int(2)])),
-                    Call::Action(action_call("fetch_second", vec![("value", int(3))])),
+                    Call::Action(action_call(
+                        waymark_action_core::ActionRuntime::Python,
+                        "fetch_second",
+                        vec![("value", int(3))],
+                    )),
                 ]),
                 return_stmt(Some(int(7))),
             ],
@@ -957,7 +982,11 @@ fn compiles_parallel_expressions_into_positional_assignments() {
                     &["left", "right"],
                     parallel_expr(vec![
                         Call::Function(function_call("child", vec![int(3)])),
-                        Call::Action(action_call("fetch", vec![("value", int(4))])),
+                        Call::Action(action_call(
+                            waymark_action_core::ActionRuntime::Python,
+                            "fetch",
+                            vec![("value", int(4))],
+                        )),
                     ]),
                 ),
                 return_stmt(Some(binary_expr(
@@ -1021,9 +1050,17 @@ fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
                 assignment_targets(
                     &["first", "second", "third"],
                     parallel_expr(vec![
-                        Call::Action(action_call("fetch_first", vec![("value", int(1))])),
+                        Call::Action(action_call(
+                            waymark_action_core::ActionRuntime::Python,
+                            "fetch_first",
+                            vec![("value", int(1))],
+                        )),
                         Call::Function(function_call("child", vec![int(2)])),
-                        Call::Action(action_call("fetch_second", vec![("value", int(3))])),
+                        Call::Action(action_call(
+                            waymark_action_core::ActionRuntime::Python,
+                            "fetch_second",
+                            vec![("value", int(3))],
+                        )),
                     ]),
                 ),
                 return_stmt(Some(binary_expr(
@@ -1109,7 +1146,11 @@ fn compiles_parallel_expressions_into_aggregate_lists() {
                     "results",
                     parallel_expr(vec![
                         Call::Function(function_call("child", vec![int(3)])),
-                        Call::Action(action_call("fetch", vec![("value", int(4))])),
+                        Call::Action(action_call(
+                            waymark_action_core::ActionRuntime::Python,
+                            "fetch",
+                            vec![("value", int(4))],
+                        )),
                     ]),
                 ),
                 return_stmt(Some(variable("results"))),
@@ -1174,8 +1215,16 @@ fn compiles_parallel_expression_results_by_call_position() {
             assignment_targets(
                 &["first", "second"],
                 parallel_expr(vec![
-                    Call::Action(action_call("fetch_first", vec![("value", int(1))])),
-                    Call::Action(action_call("fetch_second", vec![("value", int(2))])),
+                    Call::Action(action_call(
+                        waymark_action_core::ActionRuntime::Python,
+                        "fetch_first",
+                        vec![("value", int(1))],
+                    )),
+                    Call::Action(action_call(
+                        waymark_action_core::ActionRuntime::Python,
+                        "fetch_second",
+                        vec![("value", int(2))],
+                    )),
                 ]),
             ),
             return_stmt(Some(binary_expr(

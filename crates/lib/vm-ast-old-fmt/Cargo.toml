@@ -10,6 +10,7 @@ waymark-vm-ast-old = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+waymark-action-core = { workspace = true }
 waymark-vm-ast-old-helpers = { workspace = true }
 
 insta = { workspace = true }

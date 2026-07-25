@@ -25,6 +25,7 @@ Program {
                             Spanned {
                                 value: ActionCall {
                                     call: ActionCall {
+                                        runtime: Python,
                                         action_name: "side_effect",
                                         kwargs: [],
                                         policies: [],

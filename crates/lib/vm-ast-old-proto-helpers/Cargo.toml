@@ -1,14 +1,11 @@
 [package]
-name = "waymark-smoke-sources"
+name = "waymark-vm-ast-old-proto-helpers"
+edition = "2024"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
 
 [dependencies]
 waymark-action-core = { workspace = true }
-waymark-ir-parser = { workspace = true }
 waymark-proto = { workspace = true }
 
-[lib]
-test = false
-doctest = false
+thiserror = { workspace = true }

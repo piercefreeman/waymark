@@ -49,7 +49,7 @@ All state lives in the execution graph. Changes are applied in memory and batche
 
 Traversal stops at frontier nodes because they require coordination:
 
-- **Action**: dispatched to Python workers.
+- **Action**: dispatched to workers for its declared runtime.
 - **Barrier**: waits for multiple predecessors (spread/parallel aggregators, joins).
 - **Output**: workflow completion.
 

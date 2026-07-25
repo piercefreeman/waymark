@@ -96,6 +96,7 @@ waymark-vm-ast-old = { path = "crates/lib/vm-ast-old" }
 waymark-vm-ast-old-fmt = { path = "crates/lib/vm-ast-old-fmt" }
 waymark-vm-ast-old-helpers = { path = "crates/lib/vm-ast-old-helpers" }
 waymark-vm-ast-old-proto = { path = "crates/lib/vm-ast-old-proto" }
+waymark-vm-ast-old-proto-helpers = { path = "crates/lib/vm-ast-old-proto-helpers" }
 waymark-vm-bytecode = { path = "crates/lib/vm-bytecode" }
 waymark-vm-bytecode-core = { path = "crates/lib/vm-bytecode-core" }
 waymark-vm-bytecode-fmt = { path = "crates/lib/vm-bytecode-fmt" }

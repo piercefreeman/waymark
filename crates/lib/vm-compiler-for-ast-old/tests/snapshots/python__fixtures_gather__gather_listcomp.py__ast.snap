@@ -45,6 +45,7 @@ Program {
                                             },
                                             loop_var: "item",
                                             action: ActionCall {
+                                                runtime: Python,
                                                 action_name: "process_item",
                                                 kwargs: [
                                                     Kwarg {

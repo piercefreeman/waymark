@@ -4459,6 +4459,7 @@ dependencies = [
  "tracing",
  "uuid",
  "waymark-action-completions-reconciler-backend",
+ "waymark-action-core",
  "waymark-action-effect-reconciler-backend",
  "waymark-backend-postgres-migrations",
  "waymark-backends-core",
@@ -4604,6 +4605,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "envfury",
+ "waymark-action-core",
  "waymark-garbage-collector-config",
  "waymark-nonzero-duration",
  "waymark-scheduler-config",
@@ -4666,6 +4668,7 @@ name = "waymark-dag-builder"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "waymark-action-core",
  "waymark-dag",
  "waymark-dag-validator",
  "waymark-ir-parser",
@@ -4677,6 +4680,7 @@ name = "waymark-dag-validator"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "waymark-action-core",
  "waymark-dag",
  "waymark-dag-builder",
  "waymark-ir-parser",
@@ -4696,29 +4700,19 @@ name = "waymark-execution-bringup"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "nonempty-collections",
- "serde_json",
- "serial_test",
- "sqlx",
  "tokio",
  "tokio-util",
  "tracing",
- "uuid",
  "waymark-action-completions-reconciler",
  "waymark-action-completions-reconciler-backend",
- "waymark-action-core",
  "waymark-action-effect-reconciler",
  "waymark-action-effect-reconciler-backend",
  "waymark-action-runtime-worker-pool",
- "waymark-backend-postgres",
  "waymark-execution-driver",
  "waymark-extcall-reconciler",
  "waymark-fullset-effect-handler",
  "waymark-ids",
- "waymark-ir-parser",
  "waymark-nonzero-duration",
- "waymark-proto",
- "waymark-runner-executor-core",
  "waymark-sleep-reconciler",
  "waymark-state-manager",
  "waymark-state-vm-executables",
@@ -4726,17 +4720,12 @@ dependencies = [
  "waymark-state-vm-runtimes",
  "waymark-state-vm-runtimes-backend",
  "waymark-state-vm-runtimes-core",
- "waymark-support-test",
  "waymark-system-vm",
- "waymark-vm-ast-old-proto",
  "waymark-vm-codec-rmp",
  "waymark-vm-interpreter-fullset",
  "waymark-worker-core",
  "waymark-workflow-completion",
  "waymark-workflow-completion-backend",
- "waymark-workflow-completion-core",
- "waymark-workflow-service-vm-executables",
- "waymark-workflow-service-vm-runtimes",
  "waymark-workload-pinning-backend",
  "waymark-workload-pinning-manager",
 ]
@@ -4836,6 +4825,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+ "waymark-action-core",
  "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
@@ -4924,6 +4914,7 @@ name = "waymark-ir-format"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "waymark-action-core",
  "waymark-ir-parser",
  "waymark-proto",
 ]
@@ -4933,7 +4924,9 @@ name = "waymark-ir-parser"
 version = "0.1.0"
 dependencies = [
  "regex",
+ "waymark-action-core",
  "waymark-proto",
+ "waymark-vm-ast-old-proto-helpers",
 ]
 
 [[package]]
@@ -5088,6 +5081,7 @@ dependencies = [
  "rustc-hash",
  "serde_json",
  "thiserror",
+ "waymark-action-core",
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
@@ -5266,6 +5260,7 @@ dependencies = [
 name = "waymark-smoke-sources"
 version = "0.1.0"
 dependencies = [
+ "waymark-action-core",
  "waymark-ir-parser",
  "waymark-proto",
 ]
@@ -5286,6 +5281,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "waymark-action-core",
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
  "waymark-core-backend",
@@ -5321,10 +5317,12 @@ dependencies = [
  "waymark-prometheus-exporter-bringup",
  "waymark-tokio-metrics-bringup",
  "waymark-webapp-bringup",
+ "waymark-worker-core",
  "waymark-worker-javascript",
  "waymark-worker-python",
  "waymark-worker-remote-bringup",
  "waymark-worker-remote-pool",
+ "waymark-worker-status-core",
  "waymark-worker-status-reporter",
 ]
 
@@ -5565,6 +5563,7 @@ version = "0.1.0"
 dependencies = [
  "insta",
  "serde_json",
+ "waymark-action-core",
  "waymark-vm-ast-old",
  "waymark-vm-ast-old-helpers",
 ]
@@ -5585,6 +5584,15 @@ dependencies = [
  "waymark-action-core",
  "waymark-proto",
  "waymark-vm-ast-old",
+]
+
+[[package]]
+name = "waymark-vm-ast-old-proto-helpers"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "waymark-action-core",
+ "waymark-proto",
 ]
 
 [[package]]
@@ -5675,6 +5683,7 @@ dependencies = [
  "nonempty-collections",
  "thiserror",
  "tokio",
+ "waymark-action-core",
  "waymark-nonzero-duration",
  "waymark-support-test-python",
  "waymark-vm-ast-old",

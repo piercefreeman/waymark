@@ -44,7 +44,8 @@ fn main(input: [x], output: [y]):
     y = @tests.fixtures.test_actions.double(value=x)
     return y
 "#;
-    let program = parse_program(source.trim()).expect("parse program");
+    let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+        .expect("parse program");
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
@@ -147,7 +148,8 @@ fn main(input: [x], output: [y]):
     y = @tests.fixtures.test_actions.double(value=x)
     return y
 "#;
-    let program = parse_program(source.trim()).expect("parse program");
+    let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+        .expect("parse program");
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
@@ -260,7 +262,8 @@ fn main(input: [x], output: [y]):
     y = @tests.fixtures.test_actions.double(value=x)
     return y
 "#;
-    let program = parse_program(source.trim()).expect("parse program");
+    let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+        .expect("parse program");
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
@@ -364,7 +367,8 @@ fn main(input: [], output: [y]):
     y = @tests.fixtures.test_actions.hang()[timeout: 1 s]
     return y
 "#;
-    let program = parse_program(source.trim()).expect("parse program");
+    let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+        .expect("parse program");
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
@@ -487,7 +491,8 @@ fn main(input: [x], output: [y]):
     y = @tests.fixtures.test_actions.double(value=x)
     return y
 "#;
-    let program = parse_program(source.trim()).expect("parse program");
+    let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+        .expect("parse program");
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
@@ -583,7 +588,8 @@ fn main(input: [limit], output: [result]):
     result = @tests.fixtures.test_actions.pack(limit=limit, final=current, iterations=iterations)
     return result
 "#;
-    let program = parse_program(source.trim()).expect("parse program");
+    let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+        .expect("parse program");
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
@@ -796,7 +802,8 @@ fn main(input: [x], output: [y]):
     y = @tests.fixtures.test_actions.double(value=x)
     return y
 "#;
-    let program = parse_program(source.trim()).expect("parse program");
+    let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+        .expect("parse program");
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
@@ -919,7 +926,8 @@ fn main(input: [], output: [result]):
     result = payload["missing"]
     return result
 "#;
-    let program = parse_program(source.trim()).expect("parse program");
+    let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+        .expect("parse program");
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
@@ -1013,7 +1021,8 @@ fn main(input: [], output: [result]):
     result = left
     return result
 "#;
-    let program = parse_program(source.trim()).expect("parse program");
+    let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+        .expect("parse program");
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
@@ -1087,7 +1096,8 @@ fn main(input: [], output: [result]):
     result = payload.missing
     return result
 "#;
-    let program = parse_program(source.trim()).expect("parse program");
+    let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+        .expect("parse program");
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));

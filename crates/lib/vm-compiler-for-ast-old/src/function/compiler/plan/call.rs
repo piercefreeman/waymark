@@ -373,7 +373,11 @@ mod tests {
 
     #[test]
     fn lowers_action_call_plan_ids() {
-        let call = action_call("notify", Vec::new());
+        let call = action_call(
+            waymark_action_core::ActionRuntime::Python,
+            "notify",
+            Vec::new(),
+        );
         let planned_call = ActionCallPlan::lower::<TestSpec, TestLowering, ()>(&call)
             .expect("supported action should lower");
         let (action_ref, kwargs) = planned_call.into_parts();
@@ -384,10 +388,13 @@ mod tests {
 
     #[test]
     fn preserves_action_lowering_errors() {
-        let error = ActionCallPlan::<TestActionRef>::lower::<TestSpec, FailingLowering, ()>(
-            &action_call("notify", Vec::new()),
-        )
-        .expect_err("unsupported action should fail");
+        let error =
+            ActionCallPlan::<TestActionRef>::lower::<TestSpec, FailingLowering, ()>(&action_call(
+                waymark_action_core::ActionRuntime::Python,
+                "notify",
+                Vec::new(),
+            ))
+            .expect_err("unsupported action should fail");
 
         assert!(matches!(
             error,
@@ -403,7 +410,11 @@ mod tests {
         let function_table = build_function_table();
         let function_call =
             waymark_vm_ast_old::Call::Function(function_call("child", vec![int(1)]));
-        let action_call = waymark_vm_ast_old::Call::Action(action_call("notify", Vec::new()));
+        let action_call = waymark_vm_ast_old::Call::Action(action_call(
+            waymark_action_core::ActionRuntime::Python,
+            "notify",
+            Vec::new(),
+        ));
 
         let function_plan =
             CallPlan::build::<TestSpec, TestLowering, ()>(&function_call, &function_table)
@@ -424,7 +435,11 @@ mod tests {
         let function_table = build_function_table();
         let calls = nonempty_collections::nev![
             waymark_vm_ast_old::Call::Function(function_call("child", vec![int(1)])),
-            waymark_vm_ast_old::Call::Action(action_call("notify", Vec::new())),
+            waymark_vm_ast_old::Call::Action(action_call(
+                waymark_action_core::ActionRuntime::Python,
+                "notify",
+                Vec::new()
+            )),
         ];
 
         let planned_calls = CallPlan::build_all::<TestSpec, TestLowering, ()>(

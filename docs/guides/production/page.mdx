@@ -92,7 +92,8 @@ services:
         condition: service_healthy
     environment:
       WAYMARK_DATABASE_URL: postgresql://app:app@postgres:5432/app
-      WAYMARK_USER_MODULE: yourapp.workflows
+      WAYMARK_ACTION_RUNTIME: python
+      WAYMARK_PYTHON_USER_MODULE: yourapp.workflows
       WAYMARK_WEBAPP_ENABLED: "true"
     ports:
       - "24119:24119"
@@ -117,7 +118,7 @@ The defaults are tuned for a single host. Tuning in production is usually govern
 
 | Variable | What it controls |
 | --- | --- |
-| `WAYMARK_WORKER_COUNT` | Python worker processes in the pool. Defaults to host CPU count to effectively allow Python to saturate each core. |
+| `WAYMARK_WORKER_COUNT` | Worker processes for the selected action runtime. Defaults to host CPU count. |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Concurrent actions per worker. Raise it for IO-bound actions like api requests. |
 
 If a third-party library leaks memory inside your actions, set

@@ -30,6 +30,7 @@ Program {
                                     value: Spanned {
                                         value: ActionCall {
                                             call: ActionCall {
+                                                runtime: Python,
                                                 action_name: "get_value_from_import",
                                                 kwargs: [],
                                                 policies: [],
@@ -84,6 +85,7 @@ Program {
                                     value: Spanned {
                                         value: ActionCall {
                                             call: ActionCall {
+                                                runtime: Python,
                                                 action_name: "format_done_from_import",
                                                 kwargs: [
                                                     Kwarg {

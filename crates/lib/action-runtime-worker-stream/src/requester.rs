@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_preserves_javascript_runtime() {
+    fn dispatch_encodes_the_declared_runtime() {
         let response = build_dispatch(ActionCallRequest {
             action_ref: ActionRef {
                 runtime: waymark_action_core::ActionRuntime::JavaScript,

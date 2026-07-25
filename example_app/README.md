@@ -33,8 +33,9 @@ Environment notes:
   inside the container whenever a workflow is invoked, so no extra env vars are
   required.
 - `daemons` runs `waymark-start-workers` with
-  `WAYMARK_USER_MODULE=example_app.workflows` so the worker dispatcher preloads
-  the module that defines the sample actions.
+  `WAYMARK_ACTION_RUNTIME=python` and
+  `WAYMARK_PYTHON_USER_MODULE=example_app.workflows` so the worker dispatcher
+  preloads the module that defines the sample actions.
 
 ## Tests
 

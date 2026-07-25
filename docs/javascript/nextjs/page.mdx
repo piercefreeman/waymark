@@ -314,12 +314,12 @@ so equivalent values produce stable bytes.
 
 ## Durable JavaScript workers {{ id: 'workers' }}
 
-Durable VM execution routes each action from its compiled runtime stamp.
-Python configuration behaves as before. JavaScript is enabled only when
-both of these variables are present:
+Each `waymark-start-workers` process owns one action runtime, worker pool,
+and bridge. Select JavaScript and provide its generated action bundle:
 
 ```bash
-export WAYMARK_JAVASCRIPT_WORKER_COUNT=4
+export WAYMARK_ACTION_RUNTIME=javascript
+export WAYMARK_WORKER_COUNT=4
 export WAYMARK_JAVASCRIPT_ACTION_BUNDLE=/app/.next/waymark/actions.mjs
 waymark-start-workers
 ```
@@ -335,7 +335,7 @@ path.
 Optional settings:
 
 ```bash
-export WAYMARK_JAVASCRIPT_WORKER_GRPC_ADDR=127.0.0.1:24119
+export WAYMARK_WORKER_GRPC_ADDR=127.0.0.1:24118
 export WAYMARK_JAVASCRIPT_WORKER_COMMAND=waymark-worker-node
 ```
 
@@ -343,9 +343,9 @@ The command is installed by `@waymark/nextjs`. The Rust worker process
 specification supplies its bridge address, worker reservation ID, and
 bundle path. JavaScript workers advertise their runtime during the
 bridge handshake, and both the bridge and worker reject a mismatched
-runtime. If a JavaScript action reaches a server without a JavaScript
-pool, the request fails as `ActionRuntimeUnavailable`; it is never sent
-to Python as a fallback.
+runtime. If an action reaches a process configured for another runtime,
+the request fails as `ActionRuntimeUnavailable`; it is never sent to a
+different language as a fallback.
 
 Build the SDK package before starting a worker from the repository:
 

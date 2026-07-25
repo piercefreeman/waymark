@@ -51,6 +51,7 @@ fn fmt_display_prints_program() {
                 value: spanned(Expr::ParallelExpr {
                     calls: vec![
                         Call::Action(module_action_call(
+                            waymark_action_core::ActionRuntime::Python,
                             "worker",
                             "fetch",
                             vec![kwarg(
@@ -75,6 +76,7 @@ fn fmt_display_prints_program() {
                 collection: variable("items"),
                 loop_var: "item".to_owned(),
                 action: module_action_call(
+                    waymark_action_core::ActionRuntime::Python,
                     "worker",
                     "process",
                     vec![kwarg("item", variable("item"))],
@@ -117,13 +119,25 @@ fn fmt_display_prints_program() {
                     condition: variable("flag"),
                     body: block(vec![spanned(Statement::ExprStmt {
                         expr: spanned(Expr::ActionCall {
-                            call: module_action_call("worker", "audit", Vec::new(), Vec::new()),
+                            call: module_action_call(
+                                waymark_action_core::ActionRuntime::Python,
+                                "worker",
+                                "audit",
+                                Vec::new(),
+                                Vec::new(),
+                            ),
                         }),
                     })]),
                 })],
                 else_branch: Some(spanned(ElseBranch {
                     body: block(vec![spanned(Statement::ActionCall {
-                        call: module_action_call("worker", "notify", Vec::new(), Vec::new()),
+                        call: module_action_call(
+                            waymark_action_core::ActionRuntime::Python,
+                            "worker",
+                            "notify",
+                            Vec::new(),
+                            Vec::new(),
+                        ),
                     })]),
                 })),
             }),
@@ -178,6 +192,7 @@ fn fmt_display_prints_program() {
                     targets: vec!["result".to_owned()],
                     value: spanned(Expr::ActionCall {
                         call: module_action_call(
+                            waymark_action_core::ActionRuntime::Python,
                             "worker",
                             "finish",
                             vec![kwarg("value", variable("grouped"))],

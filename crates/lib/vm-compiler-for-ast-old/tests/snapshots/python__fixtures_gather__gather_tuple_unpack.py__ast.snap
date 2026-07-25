@@ -33,6 +33,7 @@ Program {
                                             calls: [
                                                 Action(
                                                     ActionCall {
+                                                        runtime: Python,
                                                         action_name: "compute_factorial",
                                                         kwargs: [
                                                             Kwarg {
@@ -60,6 +61,7 @@ Program {
                                                 ),
                                                 Action(
                                                     ActionCall {
+                                                        runtime: Python,
                                                         action_name: "compute_fibonacci",
                                                         kwargs: [
                                                             Kwarg {
@@ -110,6 +112,7 @@ Program {
                                     value: Spanned {
                                         value: ActionCall {
                                             call: ActionCall {
+                                                runtime: Python,
                                                 action_name: "summarize_math",
                                                 kwargs: [
                                                     Kwarg {

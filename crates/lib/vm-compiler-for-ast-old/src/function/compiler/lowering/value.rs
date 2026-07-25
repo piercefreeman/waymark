@@ -671,7 +671,11 @@ mod tests {
             values
                 .compile_call(
                     values
-                        .plan_action_call(&action_call("fetch", vec![("value", int(2))]))
+                        .plan_action_call(&action_call(
+                            waymark_action_core::ActionRuntime::Python,
+                            "fetch",
+                            vec![("value", int(2))],
+                        ))
                         .expect("action call should plan"),
                     ResultTarget::Allocate,
                 )
@@ -1004,7 +1008,11 @@ mod tests {
             values
                 .compile_call(
                     values
-                        .plan_action_call(&action_call("fetch", vec![("value", int(2))]))
+                        .plan_action_call(&action_call(
+                            waymark_action_core::ActionRuntime::Python,
+                            "fetch",
+                            vec![("value", int(2))],
+                        ))
                         .expect("action call should plan"),
                     ResultTarget::Existing(preferred_dst),
                 )
@@ -1118,10 +1126,18 @@ mod tests {
             );
 
             values
-                .compile_action_statement(&action_call("fetch_first", Vec::new()))
+                .compile_action_statement(&action_call(
+                    waymark_action_core::ActionRuntime::Python,
+                    "fetch_first",
+                    Vec::new(),
+                ))
                 .expect("first action statement should compile");
             values
-                .compile_action_statement(&action_call("fetch_second", Vec::new()))
+                .compile_action_statement(&action_call(
+                    waymark_action_core::ActionRuntime::Python,
+                    "fetch_second",
+                    Vec::new(),
+                ))
                 .expect("second action statement should compile");
         }
 
@@ -1178,10 +1194,18 @@ mod tests {
             );
 
             values
-                .compile_action_statement(&action_call("fetch_first", vec![("value", int(1))]))
+                .compile_action_statement(&action_call(
+                    waymark_action_core::ActionRuntime::Python,
+                    "fetch_first",
+                    vec![("value", int(1))],
+                ))
                 .expect("first action statement should compile");
             values
-                .compile_action_statement(&action_call("fetch_second", vec![("value", int(2))]))
+                .compile_action_statement(&action_call(
+                    waymark_action_core::ActionRuntime::Python,
+                    "fetch_second",
+                    vec![("value", int(2))],
+                ))
                 .expect("second action statement should compile");
         }
 

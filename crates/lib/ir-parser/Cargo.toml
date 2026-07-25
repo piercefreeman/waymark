@@ -5,7 +5,9 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
+waymark-action-core = { workspace = true }
 waymark-proto = { workspace = true }
+waymark-vm-ast-old-proto-helpers = { workspace = true }
 
 regex = { workspace = true }
 

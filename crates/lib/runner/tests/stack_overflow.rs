@@ -24,7 +24,8 @@ fn build_completed_state(chain_len: usize) -> RunnerState {
     source.push_str("    y = acc\n");
     source.push_str("    return y\n");
 
-    let program = parse_program(source.trim()).expect("parse program");
+    let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+        .expect("parse program");
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
     let mut state = RunnerState::from_dag(Arc::clone(&dag));

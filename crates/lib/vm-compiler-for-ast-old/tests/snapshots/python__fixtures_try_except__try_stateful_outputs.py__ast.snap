@@ -96,6 +96,7 @@ Program {
                                                                     value: Spanned {
                                                                         value: ActionCall {
                                                                             call: ActionCall {
+                                                                                runtime: Python,
                                                                                 action_name: "annotate_recovery",
                                                                                 kwargs: [
                                                                                     Kwarg {
@@ -205,6 +206,7 @@ Program {
                                                         value: Spanned {
                                                             value: ActionCall {
                                                                 call: ActionCall {
+                                                                    runtime: Python,
                                                                     action_name: "risky_action",
                                                                     kwargs: [
                                                                         Kwarg {
@@ -251,6 +253,7 @@ Program {
                                                         value: Spanned {
                                                             value: ActionCall {
                                                                 call: ActionCall {
+                                                                    runtime: Python,
                                                                     action_name: "annotate_success",
                                                                     kwargs: [
                                                                         Kwarg {
@@ -328,6 +331,7 @@ Program {
                                     value: Spanned {
                                         value: ActionCall {
                                             call: ActionCall {
+                                                runtime: Python,
                                                 action_name: "finalize_result",
                                                 kwargs: [
                                                     Kwarg {

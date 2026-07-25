@@ -16,8 +16,16 @@ fn allows_single_target_parallel_expressions_for_aggregation() {
         vec![assignment(
             "results",
             parallel_expr(vec![
-                Call::Action(action_call("first", Vec::new())),
-                Call::Action(action_call("second", Vec::new())),
+                Call::Action(action_call(
+                    waymark_action_core::ActionRuntime::Python,
+                    "first",
+                    Vec::new(),
+                )),
+                Call::Action(action_call(
+                    waymark_action_core::ActionRuntime::Python,
+                    "second",
+                    Vec::new(),
+                )),
             ]),
         )],
     )]);
@@ -45,7 +53,11 @@ fn rejects_parallel_expressions_with_mismatched_targets() {
         &[],
         vec![assignment_targets(
             &["left", "right"],
-            parallel_expr(vec![Call::Action(action_call("only", Vec::new()))]),
+            parallel_expr(vec![Call::Action(action_call(
+                waymark_action_core::ActionRuntime::Python,
+                "only",
+                Vec::new(),
+            ))]),
         )],
     )]);
 

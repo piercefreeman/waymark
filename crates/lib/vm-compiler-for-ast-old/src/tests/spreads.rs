@@ -17,7 +17,11 @@ fn compiles_spread_action_statements() {
             spread_stmt(
                 variable("items"),
                 "item",
-                action_call("notify", vec![("value", variable("item"))]),
+                action_call(
+                    waymark_action_core::ActionRuntime::Python,
+                    "notify",
+                    vec![("value", variable("item"))],
+                ),
             ),
             return_stmt(None),
         ],
@@ -37,7 +41,11 @@ fn spread_expression_assignments_lower_to_looped_action_collection() {
                 spread_expr(
                     variable("items"),
                     "item",
-                    action_call("double", vec![("value", variable("item"))]),
+                    action_call(
+                        waymark_action_core::ActionRuntime::Python,
+                        "double",
+                        vec![("value", variable("item"))],
+                    ),
                 ),
             ),
             return_stmt(Some(variable("results"))),
@@ -103,7 +111,11 @@ fn zero_target_spread_assignments_compile_as_side_effect_spreads() {
                 spread_expr(
                     variable("items"),
                     "item",
-                    action_call("notify", vec![("value", variable("item"))]),
+                    action_call(
+                        waymark_action_core::ActionRuntime::Python,
+                        "notify",
+                        vec![("value", variable("item"))],
+                    ),
                 ),
             ),
             return_stmt(None),

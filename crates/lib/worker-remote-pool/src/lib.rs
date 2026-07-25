@@ -16,92 +16,17 @@ use tokio::sync::{Mutex, mpsc};
 use waymark_runner_executor_core::UncheckedExecutionResult;
 use waymark_worker_core::{ActionCompletion, ActionRequest, WorkerPoolError, error_to_value};
 
-/// Routes action calls to the worker pool for their declared runtime.
-pub struct RuntimeWorkerPool<PythonPool, JavaScriptPool> {
-    python: PythonPool,
-    javascript: Option<JavaScriptPool>,
-}
-
-impl<PythonPool, JavaScriptPool> RuntimeWorkerPool<PythonPool, JavaScriptPool> {
-    /// Create a runtime-routed worker pool.
-    pub fn new(python: PythonPool, javascript: Option<JavaScriptPool>) -> Self {
-        Self { python, javascript }
+fn ensure_action_runtime(
+    expected: waymark_action_core::ActionRuntime,
+    actual: waymark_action_core::ActionRuntime,
+) -> Result<(), WorkerPoolError> {
+    if actual == expected {
+        return Ok(());
     }
-}
-
-impl<PythonPool, JavaScriptPool> waymark_worker_core::BaseWorkerPool
-    for RuntimeWorkerPool<PythonPool, JavaScriptPool>
-where
-    PythonPool: waymark_worker_core::BaseWorkerPool + Send + Sync,
-    JavaScriptPool: waymark_worker_core::BaseWorkerPool + Send + Sync,
-{
-    async fn launch(&self) -> Result<(), WorkerPoolError> {
-        self.python.launch().await?;
-        if let Some(javascript) = &self.javascript {
-            javascript.launch().await?;
-        }
-        Ok(())
-    }
-
-    fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError> {
-        match request.runtime {
-            waymark_action_core::ActionRuntime::Python => self.python.queue(request),
-            waymark_action_core::ActionRuntime::JavaScript => {
-                let Some(javascript) = &self.javascript else {
-                    return Err(WorkerPoolError::new(
-                        "ActionRuntimeUnavailable",
-                        "no JavaScript worker pool is configured",
-                    ));
-                };
-                javascript.queue(request)
-            }
-        }
-    }
-
-    async fn poll_complete(&self) -> Option<NEVec<ActionCompletion>> {
-        let Some(javascript) = &self.javascript else {
-            return self.python.poll_complete().await;
-        };
-
-        tokio::select! {
-            completions = self.python.poll_complete() => completions,
-            completions = javascript.poll_complete() => completions,
-        }
-    }
-}
-
-impl<PythonPool, JavaScriptPool> waymark_worker_status_core::WorkerPoolStats
-    for RuntimeWorkerPool<PythonPool, JavaScriptPool>
-where
-    PythonPool: waymark_worker_status_core::WorkerPoolStats,
-    JavaScriptPool: waymark_worker_status_core::WorkerPoolStats,
-{
-    fn stats_snapshot(&self) -> waymark_worker_status_core::WorkerPoolStatsSnapshot {
-        let python = self.python.stats_snapshot();
-        let Some(javascript) = &self.javascript else {
-            return python;
-        };
-        let javascript = javascript.stats_snapshot();
-
-        waymark_worker_status_core::WorkerPoolStatsSnapshot {
-            active_workers: python
-                .active_workers
-                .saturating_add(javascript.active_workers),
-            throughput_per_min: python.throughput_per_min + javascript.throughput_per_min,
-            total_completed: python
-                .total_completed
-                .saturating_add(javascript.total_completed),
-            last_action_at: python.last_action_at.max(javascript.last_action_at),
-            dispatch_queue_size: python
-                .dispatch_queue_size
-                .saturating_add(javascript.dispatch_queue_size),
-            total_in_flight: python
-                .total_in_flight
-                .saturating_add(javascript.total_in_flight),
-            median_dequeue_ms: python.median_dequeue_ms.max(javascript.median_dequeue_ms),
-            median_handling_ms: python.median_handling_ms.max(javascript.median_handling_ms),
-        }
-    }
+    Err(WorkerPoolError::new(
+        "ActionRuntimeUnavailable",
+        format!("worker pool provides {expected} actions, request requires {actual}"),
+    ))
 }
 
 async fn execute_remote_request<Spec>(
@@ -284,6 +209,7 @@ where
     }
 
     fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError> {
+        ensure_action_runtime(Spec::action_runtime(), request.runtime)?;
         self.request_tx.try_send(request).map_err(|err| {
             WorkerPoolError::new(
                 "RemoteWorkerPoolError",
@@ -315,73 +241,20 @@ impl<Spec> waymark_worker_status_core::WorkerPoolStats for RemoteWorkerPool<Spec
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex as StdMutex;
-
-    use waymark_worker_core::BaseWorkerPool as _;
-
     use super::*;
 
-    #[derive(Default)]
-    struct RecordingPool {
-        requests: StdMutex<Vec<ActionRequest>>,
-    }
-
-    impl waymark_worker_core::BaseWorkerPool for RecordingPool {
-        fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError> {
-            self.requests.lock().unwrap().push(request);
-            Ok(())
-        }
-
-        async fn poll_complete(&self) -> Option<NEVec<ActionCompletion>> {
-            std::future::pending().await
-        }
-    }
-
-    fn request(runtime: waymark_action_core::ActionRuntime) -> ActionRequest {
-        ActionRequest {
-            runtime,
-            executor_id: "00000000-0000-0000-0000-000000000001".parse().unwrap(),
-            execution_id: "00000000-0000-0000-0000-000000000002".parse().unwrap(),
-            action_name: "act".to_owned(),
-            module_name: None,
-            kwargs: Default::default(),
-            timeout_seconds: 1,
-            attempt_number: 1,
-            dispatch_token: "00000000-0000-0000-0000-000000000003".parse().unwrap(),
-            metadata: Vec::new(),
-        }
-    }
-
     #[test]
-    fn routes_requests_by_runtime() {
-        let pool = RuntimeWorkerPool::new(RecordingPool::default(), Some(RecordingPool::default()));
-
-        pool.queue(request(waymark_action_core::ActionRuntime::Python))
-            .unwrap();
-        pool.queue(request(waymark_action_core::ActionRuntime::JavaScript))
-            .unwrap();
-
-        assert_eq!(pool.python.requests.lock().unwrap().len(), 1);
-        assert_eq!(
-            pool.javascript
-                .as_ref()
-                .unwrap()
-                .requests
-                .lock()
-                .unwrap()
-                .len(),
-            1
-        );
-    }
-
-    #[test]
-    fn classifies_an_unconfigured_javascript_runtime() {
-        let pool = RuntimeWorkerPool::<_, RecordingPool>::new(RecordingPool::default(), None);
-
-        let error = pool
-            .queue(request(waymark_action_core::ActionRuntime::JavaScript))
-            .unwrap_err();
+    fn rejects_actions_for_a_different_runtime() {
+        let error = ensure_action_runtime(
+            waymark_action_core::ActionRuntime::Python,
+            waymark_action_core::ActionRuntime::JavaScript,
+        )
+        .unwrap_err();
 
         assert_eq!(error.kind, "ActionRuntimeUnavailable");
+        assert_eq!(
+            error.message,
+            "worker pool provides python actions, request requires javascript"
+        );
     }
 }
