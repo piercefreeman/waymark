@@ -19,6 +19,10 @@ pub struct Spec {
 }
 
 impl waymark_worker_process_spec::Spec for Spec {
+    fn action_runtime() -> waymark_action_core::ActionRuntime {
+        waymark_action_core::ActionRuntime::Python
+    }
+
     fn prepare_spawn_params(
         &self,
         reservation_id: waymark_worker_reservation::Id,

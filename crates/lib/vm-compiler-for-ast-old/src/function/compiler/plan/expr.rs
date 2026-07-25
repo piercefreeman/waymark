@@ -186,7 +186,11 @@ mod tests {
     fn builds_variable_call_collection_and_access_plans() {
         let variable_expr = variable("value");
         let function_expr = function_expr("child", vec![int(1)]);
-        let action_expr = action_expr("fetch", vec![("value", int(2))]);
+        let action_expr = action_expr(
+            waymark_action_core::ActionRuntime::Python,
+            "fetch",
+            vec![("value", int(2))],
+        );
         let list_expr = spanned(Expr::List {
             elements: vec![int(1), int(2)],
         });
@@ -240,7 +244,11 @@ mod tests {
         let expr = spanned(Expr::SpreadExpr {
             collection: Box::new(variable("items")),
             loop_var: "item".to_owned(),
-            action: action_call("notify", vec![("value", variable("item"))]),
+            action: action_call(
+                waymark_action_core::ActionRuntime::Python,
+                "notify",
+                vec![("value", variable("item"))],
+            ),
         });
 
         let error = ExpressionPlan::build(&expr)
@@ -256,7 +264,11 @@ mod tests {
     #[test]
     fn rejects_parallel_expressions_outside_assignment_context() {
         let expr = spanned(Expr::ParallelExpr {
-            calls: vec![Call::Action(action_call("notify", Vec::new()))],
+            calls: vec![Call::Action(action_call(
+                waymark_action_core::ActionRuntime::Python,
+                "notify",
+                Vec::new(),
+            ))],
         });
 
         let error =

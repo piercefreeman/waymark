@@ -28,7 +28,8 @@ pub async fn register_workflow(
 ) -> Result<RegisteredWorkflow> {
     let source = workflow_source(user_module, timeout_seconds, actions_per_workflow);
 
-    let program = parse_program(source.trim()).map_err(|err| anyhow!(err.to_string()))?;
+    let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+        .map_err(|err| anyhow!(err.to_string()))?;
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).map_err(|err| anyhow!(err.to_string()))?);

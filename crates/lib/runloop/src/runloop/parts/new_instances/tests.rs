@@ -83,7 +83,9 @@ fn main(input: [x], output: [y]):
     y = @tests.fixtures.test_actions.double(value=x)
     return y
 "#;
-    let program = waymark_ir_parser::parse_program(source.trim()).expect("parse program");
+    let program =
+        waymark_ir_parser::parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+            .expect("parse program");
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
 

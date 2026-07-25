@@ -182,19 +182,20 @@ patterns.
 Workers need to import the modules where your `@action` and `@workflow`
 decorators run, so they have handlers registered before they start
 pulling rows off the queue. Tell them where to look with
-`WAYMARK_USER_MODULE`. We will attempt to intelligently find these classes
+`WAYMARK_PYTHON_USER_MODULE`. We will attempt to intelligently find these classes
 at startup if this parameter isn't specified - but it helps to speed up the latency
 of processing the first action after startup.
 
 ```bash
-export WAYMARK_USER_MODULE=myapp.workflows
+export WAYMARK_ACTION_RUNTIME=python
+export WAYMARK_PYTHON_USER_MODULE=myapp.workflows
 uv run waymark-start-workers
 ```
 
 For a multi-module project, list them all:
 
 ```bash
-export WAYMARK_USER_MODULE=myapp.workflows.billing,myapp.workflows.email
+export WAYMARK_PYTHON_USER_MODULE=myapp.workflows.billing,myapp.workflows.email
 ```
 
 ## Where workflows differ from actions {{ id: 'where-workflows-differ' }}

@@ -42,6 +42,7 @@ Program {
                                                                     value: Spanned {
                                                                         value: ActionCall {
                                                                             call: ActionCall {
+                                                                                runtime: Python,
                                                                                 action_name: "handle_error_simple",
                                                                                 kwargs: [],
                                                                                 policies: [],
@@ -94,6 +95,7 @@ Program {
                                                         value: Spanned {
                                                             value: ActionCall {
                                                                 call: ActionCall {
+                                                                    runtime: Python,
                                                                     action_name: "risky_action_simple",
                                                                     kwargs: [],
                                                                     policies: [],

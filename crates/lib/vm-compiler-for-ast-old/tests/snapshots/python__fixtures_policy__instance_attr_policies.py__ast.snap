@@ -32,6 +32,7 @@ Program {
                                     value: Spanned {
                                         value: ActionCall {
                                             call: ActionCall {
+                                                runtime: Python,
                                                 action_name: "action_with_instance_retry",
                                                 kwargs: [
                                                     Kwarg {
@@ -90,6 +91,7 @@ Program {
                                     value: Spanned {
                                         value: ActionCall {
                                             call: ActionCall {
+                                                runtime: Python,
                                                 action_name: "action_with_instance_timeout",
                                                 kwargs: [
                                                     Kwarg {
@@ -144,6 +146,7 @@ Program {
                                     value: Spanned {
                                         value: ActionCall {
                                             call: ActionCall {
+                                                runtime: Python,
                                                 action_name: "action_with_both_policies",
                                                 kwargs: [
                                                     Kwarg {

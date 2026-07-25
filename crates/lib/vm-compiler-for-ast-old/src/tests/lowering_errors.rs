@@ -32,7 +32,14 @@ fn rejects_non_finite_float_literals() {
 
 #[test]
 fn preserves_action_lowering_errors() {
-    let program = program(vec![function("main", &[], vec![action_stmt("notify")])]);
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![action_stmt(
+            waymark_action_core::ActionRuntime::Python,
+            "notify",
+        )],
+    )]);
 
     let error = match compile::<TestSpec, ActionFailingLowering>(&program) {
         Ok(_) => panic!("unsupported actions should fail"),

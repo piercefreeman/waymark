@@ -298,7 +298,25 @@ impl Convert<ast::ActionCall> for Converter {
             .map(convert)
             .collect::<Result<Vec<_>>>()?;
 
+        let runtime = match parse_enum::<waymark_proto::action::ActionRuntime>(
+            from.runtime,
+            "ActionRuntime",
+        )? {
+            waymark_proto::action::ActionRuntime::Python => {
+                waymark_action_core::ActionRuntime::Python
+            }
+            waymark_proto::action::ActionRuntime::Javascript => {
+                waymark_action_core::ActionRuntime::JavaScript
+            }
+            waymark_proto::action::ActionRuntime::Unspecified => {
+                return Err(ConvertError::UnspecifiedEnumValue {
+                    enum_name: "ActionRuntime",
+                });
+            }
+        };
+
         Ok(vm_ast::ActionCall {
+            runtime,
             action_name: from.action_name,
             kwargs,
             policies,

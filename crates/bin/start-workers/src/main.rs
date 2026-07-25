@@ -1,18 +1,21 @@
-//! Start Workers - Runs the core runloop with Python worker pool.
+//! Start Workers - Runs the VM execution subsystem with action worker pools.
 //!
 //! This binary starts the worker infrastructure:
 //! - Connects to the database
 //! - Starts the WorkerBridge gRPC server for worker connections
-//! - Spawns a pool of Python workers
-//! - Runs the core runloop to process queued workflow instances
+//! - Spawns supported language workers
+//! - Runs the VM execution subsystem for queued workflow instances
 //! - Optionally starts the scheduler and web dashboard
 //!
 //! Configuration is via environment variables:
 //! - WAYMARK_DATABASE_URL: PostgreSQL connection string (required)
+//! - WAYMARK_ACTION_RUNTIME: Worker language, `python` or `javascript` (required)
 //! - WAYMARK_WORKER_GRPC_ADDR: gRPC server for worker connections (default: 127.0.0.1:24118)
-//! - WAYMARK_USER_MODULE: Python module(s) to preload (comma-separated)
 //! - WAYMARK_WORKER_COUNT: Number of workers (default: num_cpus)
 //! - WAYMARK_CONCURRENT_PER_WORKER: Max concurrent actions per worker (default: 10)
+//! - WAYMARK_PYTHON_USER_MODULE: Python module(s) to preload (comma-separated)
+//! - WAYMARK_JAVASCRIPT_ACTION_BUNDLE: Generated ESM action bundle
+//! - WAYMARK_JAVASCRIPT_WORKER_COMMAND: Node worker command
 //! - WAYMARK_POLL_INTERVAL_MS: Poll interval for queued instances (default: 100)
 //! - WAYMARK_MAX_CONCURRENT_INSTANCES: Max workflow instances held concurrently (default: 500)
 //! - WAYMARK_EXECUTOR_SHARDS: Executor shard thread count (default: num_cpus)
@@ -42,7 +45,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use waymark_backend_postgres::PostgresBackend;
-use waymark_config::WorkerConfig;
+use waymark_config::{ActionWorkerConfig, WorkerConfig};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -53,23 +56,23 @@ async fn main() -> Result<()> {
 
     let _task_monitor = waymark_tokio_metrics_bringup::bringup(env!("CARGO_BIN_NAME"));
 
-    // Load configuration and announce startup.
     let config = WorkerConfig::from_env()?;
+    let action_runtime = config.action_worker.runtime();
 
     tracing::debug!(target: "raw-config", ?config, "raw config");
 
     info!(
+        %action_runtime,
         worker_count = config.worker_count,
         concurrent_per_worker = config.concurrent_per_worker,
-        user_modules = ?config.user_modules,
         "starting worker infrastructure"
     );
 
     metrics::gauge!(
         "waymark_start_workers_up",
+        "action_runtime" => action_runtime.to_string(),
         "worker_count" => config.worker_count.to_string(),
         "concurrent_per_worker" => config.concurrent_per_worker.to_string(),
-        "user_modules" => format!("{:?}", config.user_modules),
         "max_action_lifecycle" => config.max_action_lifecycle.map(|val| val.to_string()).unwrap_or("no".into()),
         "max_concurrent_instances" => config.max_concurrent_instances.to_string(),
         "pinning_ttl_seconds" => config.lock_ttl.as_secs_f64().to_string(),
@@ -82,39 +85,139 @@ async fn main() -> Result<()> {
     )
     .set(1);
 
-    // Wire shutdown coordination.
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
 
-    // Initialize the database and backend.
     let pool = PgPool::connect(config.database_url.expose_secret()).await?;
     waymark_backend_postgres_migrations::run(&pool).await?;
     let backend = PostgresBackend::new(pool);
 
-    // Start the worker pool (bridge + python workers).
-    let mut worker_config = waymark_worker_python::Config::new();
-    if !config.user_modules.is_empty() {
-        worker_config = worker_config.with_user_modules(config.user_modules.clone());
+    match config.action_worker.clone() {
+        ActionWorkerConfig::Python { user_modules } => {
+            run_python_workers(
+                &config,
+                backend,
+                user_modules,
+                shutdown_token,
+                force_shutdown_token,
+            )
+            .await
+        }
+        ActionWorkerConfig::JavaScript {
+            action_bundle,
+            command,
+        } => {
+            run_javascript_workers(
+                &config,
+                backend,
+                action_bundle,
+                command,
+                shutdown_token,
+                force_shutdown_token,
+            )
+            .await
+        }
     }
+}
 
-    let worker_process_spec_builder = |bridge_server_addr| waymark_worker_python::Spec {
-        bridge_server_addr,
-        config: worker_config,
-    };
+async fn run_python_workers(
+    config: &WorkerConfig,
+    backend: PostgresBackend,
+    user_modules: Vec<String>,
+    shutdown_token: tokio_util::sync::CancellationToken,
+    force_shutdown_token: tokio_util::sync::CancellationToken,
+) -> Result<()> {
+    let mut worker_config = waymark_worker_python::Config::new();
+    if !user_modules.is_empty() {
+        worker_config = worker_config.with_user_modules(user_modules);
+    }
 
     let (process_pool, bridge_task) = waymark_worker_remote_bringup::start(
         shutdown_token.clone(),
         Some(config.worker_grpc_addr),
-        worker_process_spec_builder,
+        |bridge_server_addr| waymark_worker_python::Spec {
+            bridge_server_addr,
+            config: worker_config,
+        },
         config.worker_count,
         config.max_action_lifecycle,
         config.concurrent_per_worker,
     )
     .await?;
 
-    let process_pool = Arc::new(process_pool);
+    let worker_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
+        process_pool,
+    ));
+    let result = run_worker_runtime(
+        config,
+        backend,
+        Arc::clone(&worker_pool),
+        bridge_task,
+        shutdown_token,
+        force_shutdown_token,
+    )
+    .await;
+    if let Err(err) = worker_pool.shutdown_arc().await {
+        warn!(error = %err, "Python worker pool shutdown failed");
+    }
+    result
+}
 
-    // Start the webapp server.
+async fn run_javascript_workers(
+    config: &WorkerConfig,
+    backend: PostgresBackend,
+    action_bundle: std::path::PathBuf,
+    command: std::path::PathBuf,
+    shutdown_token: tokio_util::sync::CancellationToken,
+    force_shutdown_token: tokio_util::sync::CancellationToken,
+) -> Result<()> {
+    let worker_config = waymark_worker_javascript::Config::new(action_bundle).with_command(command);
+    let (process_pool, bridge_task) = waymark_worker_remote_bringup::start(
+        shutdown_token.clone(),
+        Some(config.worker_grpc_addr),
+        |bridge_server_addr| waymark_worker_javascript::Spec {
+            bridge_server_addr,
+            config: worker_config,
+        },
+        config.worker_count,
+        config.max_action_lifecycle,
+        config.concurrent_per_worker,
+    )
+    .await?;
+
+    let worker_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
+        process_pool,
+    ));
+    let result = run_worker_runtime(
+        config,
+        backend,
+        Arc::clone(&worker_pool),
+        bridge_task,
+        shutdown_token,
+        force_shutdown_token,
+    )
+    .await;
+    if let Err(err) = worker_pool.shutdown_arc().await {
+        warn!(error = %err, "JavaScript worker pool shutdown failed");
+    }
+    result
+}
+
+async fn run_worker_runtime<WorkerPool>(
+    config: &WorkerConfig,
+    backend: PostgresBackend,
+    worker_pool: Arc<WorkerPool>,
+    bridge_task: tokio::task::JoinHandle<()>,
+    shutdown_token: tokio_util::sync::CancellationToken,
+    force_shutdown_token: tokio_util::sync::CancellationToken,
+) -> Result<()>
+where
+    WorkerPool: waymark_worker_core::BaseWorkerPool
+        + waymark_worker_status_core::WorkerPoolStats
+        + Send
+        + Sync
+        + 'static,
+{
     let webapp_backend = Arc::new(backend.clone());
     let maybe_webapp_handle = waymark_webapp_bringup::start(
         config.webapp.clone(),
@@ -125,12 +228,11 @@ async fn main() -> Result<()> {
 
     let active_instance_gauge = Arc::new(AtomicUsize::new(0));
 
-    // Start status reporting.
     let pool_id = Uuid::new_v4();
     let status_reporter_handle = tokio::spawn(waymark_worker_status_reporter::run(
         pool_id,
         backend.clone(),
-        process_pool.clone(),
+        worker_pool.clone(),
         active_instance_gauge.clone(),
         config.profile_interval,
         shutdown_token.clone().cancelled_owned(),
@@ -148,7 +250,6 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Start the execution subsystem (workload pinning + execution driver).
     let bringup_config = waymark_execution_bringup::Config {
         node_id: Uuid::new_v4(),
         action_effect_reconciler_lock_ttl: config.action_effect_reconciler_lock_ttl,
@@ -161,13 +262,10 @@ async fn main() -> Result<()> {
         executable_retention: config.executable_retention,
         executable_sweep_interval: config.executable_sweep_interval,
     };
-    let remote_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
-        process_pool.clone(),
-    ));
     let execution_handles = waymark_execution_bringup::start(
         bringup_config,
         Arc::new(backend.clone()),
-        remote_pool,
+        worker_pool.clone(),
         shutdown_token.child_token(),
         force_shutdown_token.child_token(),
     )
@@ -202,12 +300,9 @@ async fn main() -> Result<()> {
     let _ = tokio::time::timeout(Duration::from_secs(5), bridge_task).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
 
-    if let Err(err) = process_pool.shutdown_arc().await {
-        warn!(error = %err, "worker pool shutdown failed");
-    }
+    drop(worker_pool);
 
     if let Some(webapp_handle) = maybe_webapp_handle {
-        // Wait for graceful termination.
         webapp_handle.await.unwrap();
     }
 

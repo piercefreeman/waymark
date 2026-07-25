@@ -81,9 +81,10 @@ where
         max_concurrent_per_worker: NonZeroUsize,
     ) -> Result<Self, InitError> {
         info!(
+            action_runtime = %Spec::action_runtime(),
             count = worker_count,
             max_action_lifecycle = ?max_action_lifecycle,
-            "spawning python worker pool"
+            "spawning worker pool"
         );
 
         // Spawn all workers in parallel to reduce boot time.
@@ -494,6 +495,10 @@ mod tests {
     struct DummySpec;
 
     impl waymark_worker_process_spec::Spec for DummySpec {
+        fn action_runtime() -> waymark_action_core::ActionRuntime {
+            waymark_action_core::ActionRuntime::Python
+        }
+
         fn prepare_spawn_params(
             &self,
             _reservation_id: waymark_worker_reservation::Id,

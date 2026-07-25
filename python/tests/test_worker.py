@@ -3,6 +3,7 @@ import asyncio
 
 from waymark import worker, workflow_runtime
 from waymark.grpc_config import GRPC_CHANNEL_OPTIONS
+from waymark.proto import action_pb2
 from waymark.proto import messages_pb2 as pb2
 
 
@@ -15,6 +16,7 @@ def test_outgoing_stream_includes_handshake() -> None:
         hello_msg = pb2.WorkerHello()
         hello_msg.ParseFromString(hello.payload)
         assert hello_msg.worker_id == 99
+        assert hello_msg.runtime == action_pb2.ACTION_RUNTIME_PYTHON
 
         payload = pb2.Envelope(
             delivery_id=10, partition_id=2, kind=pb2.MessageKind.MESSAGE_KIND_ACK
@@ -55,6 +57,7 @@ def test_handle_dispatch_echoes_metadata(monkeypatch) -> None:
             action_name="noop",
             dispatch_token="tok",
             metadata=metadata,
+            runtime=action_pb2.ACTION_RUNTIME_PYTHON,
         )
         envelope = pb2.Envelope(
             delivery_id=5,
@@ -86,7 +89,11 @@ def test_handle_dispatch_without_metadata_leaves_it_empty(monkeypatch) -> None:
 
     async def scenario() -> None:
         outgoing: "asyncio.Queue[pb2.Envelope]" = asyncio.Queue()
-        dispatch = pb2.ActionDispatch(action_id="a1", action_name="noop")
+        dispatch = pb2.ActionDispatch(
+            action_id="a1",
+            action_name="noop",
+            runtime=action_pb2.ACTION_RUNTIME_PYTHON,
+        )
         envelope = pb2.Envelope(
             delivery_id=6,
             partition_id=1,

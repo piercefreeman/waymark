@@ -580,7 +580,7 @@ mod tests {
         ]
         .join("\n");
 
-        let mut parser = IRParser::new(DEFAULT_INDENT);
+        let mut parser = IRParser::new(DEFAULT_INDENT, waymark_action_core::ActionRuntime::Python);
         let program = parser.parse_program(&source).expect("parse program");
         let formatted = format_program(&program);
 

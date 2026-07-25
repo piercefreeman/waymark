@@ -158,11 +158,14 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN for worker runtime state/backend | required |
-| `WAYMARK_WORKER_COUNT` | Number of Python worker processes | host CPU count (`available_parallelism`) |
-| `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per Python worker | `10` |
+| `WAYMARK_ACTION_RUNTIME` | Worker language: `python` or `javascript` | required |
+| `WAYMARK_WORKER_COUNT` | Number of language worker processes | host CPU count (`available_parallelism`) |
+| `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per worker | `10` |
 | `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max in-memory instances across runloop shards | `500` |
 | `WAYMARK_EXECUTOR_SHARDS` | Number of executor shards | host CPU count (`available_parallelism`) |
-| `WAYMARK_USER_MODULE` | Comma-separated Python modules preloaded in workers | unset |
+| `WAYMARK_PYTHON_USER_MODULE` | Comma-separated Python modules preloaded in workers | unset |
+| `WAYMARK_JAVASCRIPT_ACTION_BUNDLE` | Generated ESM action bundle; required for the JavaScript runtime | unset |
+| `WAYMARK_JAVASCRIPT_WORKER_COMMAND` | JavaScript worker executable | `waymark-worker-node` |
 | `WAYMARK_MAX_ACTION_LIFECYCLE` | Max actions per worker before worker recycle | unset (no recycle limit) |
 | `WAYMARK_WEBAPP_ENABLED` | Enable embedded webapp | `false` |
 | `WAYMARK_WEBAPP_ADDR` | Webapp bind address | `0.0.0.0:24119` |
@@ -171,7 +174,7 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
-| `WAYMARK_WORKER_GRPC_ADDR` | gRPC bind addr used by the Python worker bridge server | `127.0.0.1:24118` |
+| `WAYMARK_WORKER_GRPC_ADDR` | gRPC bind address used by the selected language worker bridge | `127.0.0.1:24118` |
 | `WAYMARK_POLL_INTERVAL_MS` | Queue poll interval for runloop | `100` |
 | `WAYMARK_INSTANCE_DONE_BATCH_SIZE` | Batch size for persisting completed instances | unset (uses `WAYMARK_MAX_CONCURRENT_INSTANCES`) |
 | `WAYMARK_PERSIST_INTERVAL_MS` | Persistence flush interval | `500` |
@@ -209,7 +212,7 @@ If you need to customize Python startup/bootstrap behavior (for example custom b
 
 ### Worker Recycling
 
-The `WAYMARK_MAX_ACTION_LIFECYCLE` setting controls how many actions a Python worker process can execute before being automatically recycled (shut down and replaced with a fresh process). This can help mitigate memory leaks in third-party libraries that may accumulate memory over time.
+The `WAYMARK_MAX_ACTION_LIFECYCLE` setting controls how many actions a worker process can execute before being automatically recycled (shut down and replaced with a fresh process). This can help mitigate memory leaks in third-party libraries that may accumulate memory over time.
 
 When a worker reaches its action limit, waymark spawns a replacement worker before retiring the old one. Any in-flight actions on the old worker will complete normally before the process terminates. This ensures zero downtime during recycling.
 

@@ -67,9 +67,10 @@ pub fn return_stmt(value: Option<Spanned<Expr>>) -> Spanned<Statement> {
     spanned(Statement::Return { value })
 }
 
-pub fn action_stmt(name: &str) -> Spanned<Statement> {
+pub fn action_stmt(runtime: waymark_action_core::ActionRuntime, name: &str) -> Spanned<Statement> {
     spanned(Statement::ActionCall {
         call: ActionCall {
+            runtime,
             action_name: name.to_owned(),
             kwargs: Vec::new(),
             policies: Vec::new(),
@@ -249,8 +250,13 @@ pub fn enumerate_expr(iterable: Spanned<Expr>) -> Spanned<Expr> {
     builtin_function_expr(GlobalFunction::Enumerate, vec![iterable])
 }
 
-pub fn action_call(name: &str, kwargs: Vec<(&str, Spanned<Expr>)>) -> ActionCall {
+pub fn action_call(
+    runtime: waymark_action_core::ActionRuntime,
+    name: &str,
+    kwargs: Vec<(&str, Spanned<Expr>)>,
+) -> ActionCall {
     ActionCall {
+        runtime,
         action_name: name.to_owned(),
         kwargs: kwargs
             .into_iter()
@@ -261,9 +267,13 @@ pub fn action_call(name: &str, kwargs: Vec<(&str, Spanned<Expr>)>) -> ActionCall
     }
 }
 
-pub fn action_expr(name: &str, kwargs: Vec<(&str, Spanned<Expr>)>) -> Spanned<Expr> {
+pub fn action_expr(
+    runtime: waymark_action_core::ActionRuntime,
+    name: &str,
+    kwargs: Vec<(&str, Spanned<Expr>)>,
+) -> Spanned<Expr> {
     spanned(Expr::ActionCall {
-        call: action_call(name, kwargs),
+        call: action_call(runtime, name, kwargs),
     })
 }
 
@@ -275,12 +285,14 @@ pub fn kwarg(name: &str, value: Spanned<Expr>) -> Kwarg {
 }
 
 pub fn module_action_call(
+    runtime: waymark_action_core::ActionRuntime,
     module_name: &str,
     name: &str,
     kwargs: Vec<Kwarg>,
     policies: Vec<PolicyBracket>,
 ) -> ActionCall {
     ActionCall {
+        runtime,
         action_name: name.to_owned(),
         kwargs,
         policies,

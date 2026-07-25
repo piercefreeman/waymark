@@ -1981,7 +1981,8 @@ fn main(input: [x], output: [y]):
     y = @tests.action(value=x)
     return y
 "#;
-        let program = parse_program(source.trim()).expect("parse program");
+        let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+            .expect("parse program");
         program.encode_to_vec()
     }
 
@@ -1993,7 +1994,8 @@ fn main(input: [items], output: [total]):
         total = total + item
     return total
 "#;
-        let program = parse_program(source.trim()).expect("parse loop program");
+        let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+            .expect("parse loop program");
         program.encode_to_vec()
     }
 

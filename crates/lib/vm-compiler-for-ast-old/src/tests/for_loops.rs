@@ -81,7 +81,11 @@ fn whole_program_async_indexed_for_loops_match_the_documented_lowering_shape() {
                 vec![
                     assignment(
                         "processed",
-                        action_expr("process_value", vec![("item", variable("item"))]),
+                        action_expr(
+                            waymark_action_core::ActionRuntime::Python,
+                            "process_value",
+                            vec![("item", variable("item"))],
+                        ),
                     ),
                     assignment(
                         "results",

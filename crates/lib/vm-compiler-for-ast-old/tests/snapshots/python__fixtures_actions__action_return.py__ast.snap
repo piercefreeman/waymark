@@ -32,6 +32,7 @@ Program {
                                     value: Spanned {
                                         value: ActionCall {
                                             call: ActionCall {
+                                                runtime: Python,
                                                 action_name: "compute_result",
                                                 kwargs: [
                                                     Kwarg {

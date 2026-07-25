@@ -20,7 +20,7 @@ We validate the result (no dangling edges, no invalid loop wiring, no stray outp
 ## Node types you will see
 
 - `input` / `output`: function boundaries.
-- `action_call`: delegated work sent to Python workers.
+- `action_call`: delegated work sent to workers for its declared runtime.
 - `assignment` / `expression` / `return`: inline work executed in the runner.
 - `branch`: decision points for `if` / `elif` / `else` and loop conditions.
 - `join`: merge points; often `required_count = 1` to avoid unnecessary barriers.

@@ -90,6 +90,7 @@ Program {
                                                         value: Spanned {
                                                             value: ActionCall {
                                                                 call: ActionCall {
+                                                                    runtime: Python,
                                                                     action_name: "risky_step_one",
                                                                     kwargs: [
                                                                         Kwarg {
@@ -136,6 +137,7 @@ Program {
                                                         value: Spanned {
                                                             value: ActionCall {
                                                                 call: ActionCall {
+                                                                    runtime: Python,
                                                                     action_name: "risky_step_two",
                                                                     kwargs: [
                                                                         Kwarg {

@@ -74,6 +74,7 @@ Program {
                                                                 value: Spanned {
                                                                     value: ActionCall {
                                                                         call: ActionCall {
+                                                                            runtime: Python,
                                                                             action_name: "handle_case_a",
                                                                             kwargs: [],
                                                                             policies: [],
@@ -163,6 +164,7 @@ Program {
                                                                     value: Spanned {
                                                                         value: ActionCall {
                                                                             call: ActionCall {
+                                                                                runtime: Python,
                                                                                 action_name: "handle_case_b",
                                                                                 kwargs: [],
                                                                                 policies: [],
@@ -251,6 +253,7 @@ Program {
                                                                     value: Spanned {
                                                                         value: ActionCall {
                                                                             call: ActionCall {
+                                                                                runtime: Python,
                                                                                 action_name: "handle_case_c",
                                                                                 kwargs: [],
                                                                                 policies: [],
@@ -306,6 +309,7 @@ Program {
                                                                     value: Spanned {
                                                                         value: ActionCall {
                                                                             call: ActionCall {
+                                                                                runtime: Python,
                                                                                 action_name: "handle_default",
                                                                                 kwargs: [],
                                                                                 policies: [],

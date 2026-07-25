@@ -5,7 +5,7 @@ use tokio::{net::TcpListener, sync::mpsc, time::timeout};
 use tokio_stream::wrappers::{ReceiverStream, TcpListenerStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tonic::{Code, Request, transport::Server};
-use waymark_proto::messages as proto;
+use waymark_proto::{action, messages as proto};
 use waymark_worker_remote_bridge_service::WorkerBridgeService;
 
 type Registry = waymark_worker_reservation::Registry<waymark_worker_message_protocol::Channels>;
@@ -39,12 +39,16 @@ impl Drop for TestServer {
     }
 }
 
-fn worker_hello_envelope(worker_id: u64) -> proto::Envelope {
+fn worker_hello_envelope(worker_id: u64, runtime: action::ActionRuntime) -> proto::Envelope {
     proto::Envelope {
         delivery_id: 0,
         partition_id: 0,
         kind: proto::MessageKind::WorkerHello as i32,
-        payload: proto::WorkerHello { worker_id }.encode_to_vec(),
+        payload: proto::WorkerHello {
+            worker_id,
+            runtime: runtime as i32,
+        }
+        .encode_to_vec(),
     }
 }
 
@@ -65,7 +69,10 @@ async fn start_test_server(workers_registry: Arc<Registry>) -> TestServer {
     let shutdown_token = CancellationToken::new();
     let shutdown_guard = shutdown_token.clone().drop_guard();
 
-    let service = WorkerBridgeService { workers_registry };
+    let service = WorkerBridgeService {
+        workers_registry,
+        expected_runtime: waymark_action_core::ActionRuntime::Python,
+    };
     let server_shutdown = shutdown_token.clone();
     let server_handle = tokio::spawn(async move {
         Server::builder()
@@ -106,7 +113,10 @@ async fn attach_registers_reserved_worker_and_bridges_messages() {
     let mut client = connect_client(server.addr).await;
     let (request_tx, request_rx) = mpsc::channel(4);
     request_tx
-        .send(worker_hello_envelope(worker_id))
+        .send(worker_hello_envelope(
+            worker_id,
+            action::ActionRuntime::Python,
+        ))
         .await
         .expect("queue handshake envelope");
 
@@ -196,7 +206,7 @@ async fn attach_rejects_unreserved_worker_id() {
     let mut client = connect_client(server.addr).await;
     let (request_tx, request_rx) = mpsc::channel(1);
     request_tx
-        .send(worker_hello_envelope(42))
+        .send(worker_hello_envelope(42, action::ActionRuntime::Python))
         .await
         .expect("queue handshake for unreserved worker");
     drop(request_tx);
@@ -208,4 +218,31 @@ async fn attach_rejects_unreserved_worker_id() {
 
     assert_eq!(err.code(), Code::NotFound);
     assert!(err.message().contains("not found"));
+}
+
+#[tokio::test]
+async fn attach_rejects_worker_for_another_runtime() {
+    let registry = Arc::new(Registry::default());
+    let server = start_test_server(Arc::clone(&registry)).await;
+    let reservation = registry.reserve();
+    let worker_id = u64::from(reservation.id());
+
+    let mut client = connect_client(server.addr).await;
+    let (request_tx, request_rx) = mpsc::channel(1);
+    request_tx
+        .send(worker_hello_envelope(
+            worker_id,
+            action::ActionRuntime::Javascript,
+        ))
+        .await
+        .expect("queue JavaScript handshake");
+    drop(request_tx);
+
+    let error = client
+        .attach(Request::new(ReceiverStream::new(request_rx)))
+        .await
+        .expect_err("runtime mismatch must be rejected");
+
+    assert_eq!(error.code(), Code::FailedPrecondition);
+    assert!(error.message().contains("does not match pool runtime"));
 }

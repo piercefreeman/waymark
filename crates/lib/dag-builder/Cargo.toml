@@ -12,6 +12,7 @@ waymark-proto = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+waymark-action-core = { workspace = true }
 waymark-ir-parser = { workspace = true }
 
 [lib]

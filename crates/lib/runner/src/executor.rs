@@ -1671,7 +1671,8 @@ mod tests {
     }
 
     fn dag_from_ir_source(source: &str) -> Arc<DAG> {
-        let program = parse_program(source.trim()).expect("parse program");
+        let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+            .expect("parse program");
         Arc::new(convert_to_dag(&program).expect("convert program to DAG"))
     }
 

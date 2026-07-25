@@ -4459,6 +4459,7 @@ dependencies = [
  "tracing",
  "uuid",
  "waymark-action-completions-reconciler-backend",
+ "waymark-action-core",
  "waymark-action-effect-reconciler-backend",
  "waymark-backend-postgres-migrations",
  "waymark-backends-core",
@@ -4604,6 +4605,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "envfury",
+ "waymark-action-core",
  "waymark-garbage-collector-config",
  "waymark-nonzero-duration",
  "waymark-scheduler-config",
@@ -4666,6 +4668,7 @@ name = "waymark-dag-builder"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "waymark-action-core",
  "waymark-dag",
  "waymark-dag-validator",
  "waymark-ir-parser",
@@ -4677,6 +4680,7 @@ name = "waymark-dag-validator"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "waymark-action-core",
  "waymark-dag",
  "waymark-dag-builder",
  "waymark-ir-parser",
@@ -4821,6 +4825,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+ "waymark-action-core",
  "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
@@ -4909,6 +4914,7 @@ name = "waymark-ir-format"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "waymark-action-core",
  "waymark-ir-parser",
  "waymark-proto",
 ]
@@ -4918,7 +4924,9 @@ name = "waymark-ir-parser"
 version = "0.1.0"
 dependencies = [
  "regex",
+ "waymark-action-core",
  "waymark-proto",
+ "waymark-vm-ast-old-proto-helpers",
 ]
 
 [[package]]
@@ -5039,6 +5047,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+ "waymark-action-core",
  "waymark-backend-fault-injection",
  "waymark-backend-memory",
  "waymark-backends-core",
@@ -5072,6 +5081,7 @@ dependencies = [
  "rustc-hash",
  "serde_json",
  "thiserror",
+ "waymark-action-core",
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
@@ -5250,6 +5260,7 @@ dependencies = [
 name = "waymark-smoke-sources"
 version = "0.1.0"
 dependencies = [
+ "waymark-action-core",
  "waymark-ir-parser",
  "waymark-proto",
 ]
@@ -5270,6 +5281,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "waymark-action-core",
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
  "waymark-core-backend",
@@ -5305,9 +5317,12 @@ dependencies = [
  "waymark-prometheus-exporter-bringup",
  "waymark-tokio-metrics-bringup",
  "waymark-webapp-bringup",
+ "waymark-worker-core",
+ "waymark-worker-javascript",
  "waymark-worker-python",
  "waymark-worker-remote-bringup",
  "waymark-worker-remote-pool",
+ "waymark-worker-status-core",
  "waymark-worker-status-reporter",
 ]
 
@@ -5538,6 +5553,9 @@ dependencies = [
 [[package]]
 name = "waymark-vm-ast-old"
 version = "0.1.0"
+dependencies = [
+ "waymark-action-core",
+]
 
 [[package]]
 name = "waymark-vm-ast-old-fmt"
@@ -5545,6 +5563,7 @@ version = "0.1.0"
 dependencies = [
  "insta",
  "serde_json",
+ "waymark-action-core",
  "waymark-vm-ast-old",
  "waymark-vm-ast-old-helpers",
 ]
@@ -5553,6 +5572,7 @@ dependencies = [
 name = "waymark-vm-ast-old-helpers"
 version = "0.1.0"
 dependencies = [
+ "waymark-action-core",
  "waymark-vm-ast-old",
 ]
 
@@ -5561,8 +5581,18 @@ name = "waymark-vm-ast-old-proto"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "waymark-action-core",
  "waymark-proto",
  "waymark-vm-ast-old",
+]
+
+[[package]]
+name = "waymark-vm-ast-old-proto-helpers"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "waymark-action-core",
+ "waymark-proto",
 ]
 
 [[package]]
@@ -5653,6 +5683,7 @@ dependencies = [
  "nonempty-collections",
  "thiserror",
  "tokio",
+ "waymark-action-core",
  "waymark-nonzero-duration",
  "waymark-support-test-python",
  "waymark-vm-ast-old",
@@ -6143,6 +6174,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "uuid",
+ "waymark-action-core",
  "waymark-ids",
  "waymark-runner-executor-core",
 ]
@@ -6160,6 +6192,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-worker-javascript"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "waymark-action-core",
+ "waymark-worker-process",
+ "waymark-worker-process-spec",
+ "waymark-worker-reservation",
+]
+
+[[package]]
 name = "waymark-worker-message-protocol"
 version = "0.1.0"
 dependencies = [
@@ -6168,6 +6211,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "waymark-action-core",
  "waymark-proto",
  "waymark-worker-metrics",
 ]
@@ -6201,6 +6245,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "waymark-action-core",
  "waymark-managed-process",
  "waymark-worker-message-protocol",
  "waymark-worker-metrics",
@@ -6214,6 +6259,7 @@ dependencies = [
 name = "waymark-worker-process-spec"
 version = "0.1.0"
 dependencies = [
+ "waymark-action-core",
  "waymark-worker-process",
  "waymark-worker-reservation",
 ]
@@ -6224,6 +6270,7 @@ version = "0.1.0"
 dependencies = [
  "tokio",
  "tracing",
+ "waymark-action-core",
  "waymark-worker-process",
  "waymark-worker-process-spec",
  "waymark-worker-reservation",
@@ -6238,6 +6285,7 @@ dependencies = [
  "tokio-util",
  "tonic 0.11.0",
  "tracing",
+ "waymark-action-core",
  "waymark-proto",
  "waymark-worker-message-protocol",
  "waymark-worker-remote-bridge-service",
@@ -6257,6 +6305,7 @@ dependencies = [
  "tonic 0.11.0",
  "tracing",
  "tracing-futures",
+ "waymark-action-core",
  "waymark-proto",
  "waymark-worker-message-protocol",
  "waymark-worker-reservation",
@@ -6285,6 +6334,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "waymark-action-core",
  "waymark-managed-process",
  "waymark-message-conversions",
  "waymark-proto",

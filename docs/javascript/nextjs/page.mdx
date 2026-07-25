@@ -1,69 +1,381 @@
 export const metadata = {
-  title: 'Next.js Spec',
+  title: 'JavaScript and Next.js',
   description:
-    'The planned authoring model for Waymark workflows and actions in TypeScript inside a Next.js project.',
+    'Define Waymark workflows and actions in TypeScript and run them through the shared VM.',
 }
 
 export const sections = [
-  { title: 'Status', id: 'status' },
-  { title: 'The authoring model', id: 'authoring-model' },
-  { title: 'What carries over from Python', id: 'parity' },
+  { title: 'Authoring model', id: 'authoring-model' },
+  { title: 'Complete example', id: 'complete-example' },
+  { title: 'Compile during the server build', id: 'build' },
+  { title: 'Execute a workflow', id: 'execute' },
+  { title: 'Supported workflow syntax', id: 'syntax' },
+  { title: 'Values', id: 'values' },
+  { title: 'Durable JavaScript workers', id: 'workers' },
+  { title: 'Diagnostics and identity', id: 'diagnostics' },
 ]
 
-# Next.js Spec
+# JavaScript and Next.js
 
 <Note>
-**Not built yet.** Python is the Waymark SDK today. This page is the
-design we intend to ship for JavaScript, published so you can see where
-the project is headed. Expect the details to change before release.
+The JavaScript SDK is TypeScript-first, ESM-only, and currently
+experimental. It targets Next.js server modules running on Node.js 20.9
+or newer. Client components, the Edge runtime, CommonJS, Bun, and Deno
+are not supported.
 </Note>
 
-Waymark's first JavaScript target is Next.js. The runtime model is the
-same - workflows define durable control flow, actions define distributed
-work - but the front-end will be a TypeScript compiler that lowers your
-authored source into the same Waymark IR the Rust runtime already
-executes. The runtime, Postgres persistence, and worker pool need no
-changes; only the compiler in front of them is new.
+JavaScript workflows compile to the same source AST and Rust VM used by
+Python workflows. The workflow body is durable control flow. Action
+bodies remain ordinary Node.js code and are the only place for network,
+database, filesystem, framework, or library calls.
 
-## Status {{ id: 'status' }}
+## Authoring model {{ id: 'authoring-model' }}
 
-Design stage. The Python SDK proved out the compile-once model end to
-end; the JavaScript compiler reuses that runtime contract. When an
-implementation lands, this page becomes the reference for it.
-
-## The authoring model {{ id: 'authoring-model' }}
-
-The intended shape mirrors Python directly. Actions are exported async
-functions; workflows are classes extending `Workflow` with a durable
-`run()` entrypoint; parallel fan-out uses the language's native
-primitive:
+An action is an exported, named async function wrapped with `action(...)`:
 
 ```ts
-export class WelcomeEmailWorkflow extends Workflow {
-  async run(userIds: string[]): Promise<EmailResult[]> {
-    const users = await fetchUsers(userIds);
-    const activeUsers = users.filter((user) => user.active);
+export const loadCustomer = action(async function loadCustomer(
+  customerId: string,
+): Promise<Customer> {
+  // Normal Node.js code runs here.
+});
+```
 
-    return await Promise.all(
-      activeUsers.map((user) => sendWelcomeEmail({ to: user.email })),
-    );
+The declaration shape is deliberately exact. A named function gives the
+compiler and worker a stable action identity without inspecting
+`Function.toString()` or depending on a comment:
+
+```ts
+// Supported
+export const loadCustomer = action(async function loadCustomer(customerId: string) {
+  // ...
+});
+
+// Rejected: anonymous arrow functions do not provide the required identity.
+export const loadCustomer = action(async (customerId: string) => {
+  // ...
+});
+```
+
+A workflow remains a class with arguments passed directly to its async
+`run()` method:
+
+```ts
+export class OnboardCustomer extends Workflow<OnboardInput, OnboardResult> {
+  async run(input: OnboardInput): Promise<OnboardResult> {
+    // Durable, restricted control flow is compiled here.
   }
 }
 ```
 
-As in Python, the authored `run()` body is compiler input, not runtime
-business logic. The build compiles it to IR once; the runtime executes
-the compiled program durably, with no replay.
+Do not add workflow constructor state. The compiler treats `run()` as the
+entrypoint and maps its plain identifier parameters to the initial
+workflow context.
 
-## What carries over from Python {{ id: 'parity' }}
+## Complete example {{ id: 'complete-example' }}
 
-- Actions are the retryable, distributed work units.
-- Workflows are the durable control-flow layer.
-- The workflow definition is compiled once, not re-run during recovery.
-- Retry and timeout policy attach to action calls, not the workflow as
-  a whole.
-- Parallel fan-out uses the language's native primitive: `Promise.all`
-  in TypeScript, `asyncio.gather` in Python.
+Put action implementations in a server module. Action bodies can use
+normal TypeScript, installed packages, and Next.js server APIs because
+they execute in Node.js rather than in the workflow VM.
 
-If you want durable workflows today, start with the
-[Quickstart](/guides/quickstart).
+```ts title="src/waymark/customer-actions.ts"
+import { action } from "@waymark/nextjs";
+
+export interface Customer {
+  id: string;
+  active: boolean;
+  email: string;
+}
+
+export interface Delivery {
+  customerId: string;
+  messageId: string;
+}
+
+export const loadCustomer = action(async function loadCustomer(
+  customerId: string,
+): Promise<Customer> {
+  const response = await fetch(
+    `https://customers.internal/v1/customers/${customerId}`,
+  );
+  if (!response.ok) {
+    throw new Error(`customer lookup failed: ${response.status}`);
+  }
+  return (await response.json()) as Customer;
+});
+
+export const sendWelcomeEmail = action(async function sendWelcomeEmail(
+  customer: Customer,
+): Promise<Delivery> {
+  const response = await fetch("https://email.internal/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      template: "welcome",
+      to: customer.email,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`email delivery failed: ${response.status}`);
+  }
+  const body = (await response.json()) as { messageId: string };
+  return { customerId: customer.id, messageId: body.messageId };
+});
+
+export const recordAudit = action(async function recordAudit(
+  customerId: string,
+  event: string,
+): Promise<string> {
+  // A database client or Next.js server dependency can be used here.
+  return `${customerId}:${event}`;
+});
+```
+
+The workflow imports those actions and uses only the supported durable
+subset:
+
+```ts title="src/waymark/onboard-customer.workflow.ts"
+import { Workflow } from "@waymark/nextjs";
+import {
+  loadCustomer,
+  recordAudit,
+  sendWelcomeEmail,
+  type Delivery,
+} from "./customer-actions";
+
+export interface OnboardInput {
+  customerId: string;
+  relatedCustomerIds: string[];
+}
+
+export type OnboardResult =
+  | { status: "skipped"; customerId: string }
+  | {
+      status: "sent";
+      delivery: Delivery;
+      auditId: string;
+      relatedCount: number;
+    };
+
+export class OnboardCustomer extends Workflow<OnboardInput, OnboardResult> {
+  async run(input: OnboardInput): Promise<OnboardResult> {
+    const customer = await loadCustomer(input.customerId);
+
+    if (customer.active === false) {
+      return { status: "skipped", customerId: customer.id };
+    }
+
+    const relatedCustomers = await Promise.all(
+      input.relatedCustomerIds.map((customerId) => loadCustomer(customerId)),
+    );
+
+    const delivery = await this.runAction(sendWelcomeEmail(customer), {
+      retry: { attempts: 3, backoffSeconds: 5 },
+      timeout: "30s",
+    });
+    const auditId = await recordAudit(customer.id, "welcome-sent");
+
+    return {
+      status: "sent",
+      delivery,
+      auditId,
+      relatedCount: relatedCustomers.length,
+    };
+  }
+}
+```
+
+`attempts` includes the first attempt, so `attempts: 3` compiles to two
+retries. Timeouts are literal seconds, minutes, or hours such as `"30s"`,
+`"2m"`, and `"1h"`.
+
+## Compile during the server build {{ id: 'build' }}
+
+Use `compileNextWorkflow()` from a Next.js server build hook. The hook
+must provide the resolver and file reader already owned by the bundler,
+plus a callback that bundles the generated action-manifest entry as ESM:
+
+```ts
+const compiled = await compileNextWorkflow({
+  projectRoot,
+  filePath: workflowFile,
+  source: workflowSource,
+  adapter: {
+    resolve(context, specifier) {
+      return bundlerResolve(context, specifier);
+    },
+    readFile(filePath) {
+      return bundlerFileSystem.readFile(filePath);
+    },
+    bundleEsm(entry) {
+      return bundleServerEntry(entry);
+    },
+  },
+});
+```
+
+For webpack-compatible loader contexts, `bundlerResolve` should come
+from `this.getResolve(...)`. Turbopack also exposes the resolver through
+the loader runner. Do not recreate extension probing, `tsconfig` path
+aliases, package exports, or Next.js resolution inside a Waymark plugin.
+
+The result contains:
+
+- `workflow.bytes`: deterministic protobuf bytes registered with Waymark.
+- `workflow.hash`: SHA-256 of those exact bytes.
+- `workflow.actions`: stable module/action references used to create a
+  deployment manifest.
+- `actionBundlePath`: the ESM action bundle produced by the build adapter.
+
+The build integration owns how these artifacts are emitted into the
+server output. Keep workflow source, compiled bytes, and the action
+bundle from the same build together.
+
+## Execute a workflow {{ id: 'execute' }}
+
+For a blocking server request, load the compiled artifact and generated
+manifest in a Node.js server module, then call the existing workflow
+stream:
+
+```ts
+import {
+  createWorkflowClient,
+  executeWorkflow,
+} from "@waymark/nextjs";
+import manifest from "./generated/onboard-customer.actions.mjs";
+import { compiledWorkflow } from "./generated/onboard-customer.waymark";
+
+const client = createWorkflowClient(process.env.WAYMARK_BRIDGE!);
+
+export async function POST(request: Request): Promise<Response> {
+  const input = (await request.json()) as {
+    customerId: string;
+    relatedCustomerIds: string[];
+  };
+  const result = await executeWorkflow({
+    client,
+    compiled: compiledWorkflow,
+    input,
+    manifest,
+  });
+  return Response.json(result);
+}
+```
+
+This is server-only code. The transient stream dispatches JavaScript
+actions back to the loaded manifest, permits concurrent action
+dispatches, and returns the VM result. The browser never receives action
+implementations, bridge credentials, or compiled workflow internals.
+
+## Supported workflow syntax {{ id: 'syntax' }}
+
+`Workflow.run()` intentionally supports less syntax than TypeScript.
+Unsupported constructs fail at build time with a code frame.
+
+| Area | Supported |
+| --- | --- |
+| Bindings | Initialized local identifiers; flat array destructuring only for a matching `Promise.all([action(), ...])` |
+| Literals | `null`, booleans, strings, finite numbers, arrays without holes/spreads, and plain objects with static keys |
+| Reads | Local variables, static properties, computed indexes, and `.length` |
+| Operators | `+`, `-`, `*`, `/`, `%`, unary `-`, `===`, `!==`, `<`, `<=`, `>`, `>=`, `!`, `&&`, and `||` |
+| Calls | Direct calls to known exported actions and `this.runAction(action(), literalPolicies)` |
+| Branching | `if` / `else` with explicit boolean comparisons |
+| Loops | `for...of`, `while`, `break`, and `continue` |
+| Errors | Catch-all `try` / `catch` without `finally` |
+| Parallelism | `Promise.all([action(), ...])` and `Promise.all(collection.map(item => action(item)))` |
+| Completion | `return` with or without a supported expression |
+
+Move everything else into an action. In particular, workflow code
+rejects arbitrary helper or library calls, method calls other than the
+two `Promise.all` forms, dynamic action selection, property/index
+mutation, compound assignment, increments, implicit truthiness, loose
+equality, interpolated template strings, spread arguments, default/rest
+parameters, destructured parameters, computed object keys, `for await`,
+typed catches, and `finally`.
+
+These restrictions apply only to `Workflow.run()`. Action bodies are
+ordinary JavaScript.
+
+## Values {{ id: 'values' }}
+
+Workflow and action boundaries accept:
+
+- `null`
+- booleans
+- strings
+- finite numbers and safe integers
+- arrays of supported values
+- plain objects with string keys and supported values
+
+The boundary rejects `undefined`, `bigint`, `NaN`, infinities, unsafe
+integers, symbols, functions, cyclic data, class instances, accessors,
+and symbol-keyed properties. Object keys are serialized in sorted order
+so equivalent values produce stable bytes.
+
+## Durable JavaScript workers {{ id: 'workers' }}
+
+Each `waymark-start-workers` process owns one action runtime, worker pool,
+and bridge. Select JavaScript and provide its generated action bundle:
+
+```bash
+export WAYMARK_ACTION_RUNTIME=javascript
+export WAYMARK_WORKER_COUNT=4
+export WAYMARK_JAVASCRIPT_ACTION_BUNDLE=/app/.next/waymark/actions.mjs
+waymark-start-workers
+```
+
+`WAYMARK_JAVASCRIPT_ACTION_BUNDLE` must be a server-targeted ESM bundle
+whose default export is the generated `ActionManifest`. For a deployment
+with several workflows, union and deduplicate their compiled action
+references before passing them to
+`createActionManifestSource(actions, ".waymark/actions.mjs")`, then bundle
+that single entry with the application bundler at the matching virtual
+path.
+
+Optional settings:
+
+```bash
+export WAYMARK_WORKER_GRPC_ADDR=127.0.0.1:24118
+export WAYMARK_JAVASCRIPT_WORKER_COMMAND=waymark-worker-node
+```
+
+The command is installed by `@waymark/nextjs`. The Rust worker process
+specification supplies its bridge address, worker reservation ID, and
+bundle path. JavaScript workers advertise their runtime during the
+bridge handshake, and both the bridge and worker reject a mismatched
+runtime. If an action reaches a process configured for another runtime,
+the request fails as `ActionRuntimeUnavailable`; it is never sent to a
+different language as a fallback.
+
+Build the SDK package before starting a worker from the repository:
+
+```bash
+npm ci
+npm run build --workspace @waymark/nextjs
+npm link --workspace @waymark/nextjs
+```
+
+Production images should install the package normally and copy the
+generated action bundle into the server image. Do not run TypeScript
+source directly in the worker.
+
+## Diagnostics and identity {{ id: 'diagnostics' }}
+
+The compiler uses parser locations for half-open source spans: lines are
+one-based, columns are zero-based, and the end position is exclusive.
+Every lowered function, block, statement, and expression carries its
+originating span.
+
+An unsupported expression fails against the original source:
+
+```text
+/app/src/waymark/onboard.workflow.ts: workflow conditions must be explicit
+boolean expressions; implicit truthiness is unsupported
+  18 | if (customer.active) {
+     |     ^^^^^^^^^^^^^^^
+```
+
+Module IDs are normalized to project-relative POSIX paths after the
+bundler resolves them. Action identity is the pair of that module ID and
+the exported action name. Workflow identity uses the exported class name
+plus the SHA-256 hash of the exact serialized program bytes.

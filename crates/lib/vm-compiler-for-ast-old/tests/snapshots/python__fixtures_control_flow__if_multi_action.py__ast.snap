@@ -50,6 +50,7 @@ Program {
                                                                 value: Spanned {
                                                                     value: ActionCall {
                                                                         call: ActionCall {
+                                                                            runtime: Python,
                                                                             action_name: "action_if_1",
                                                                             kwargs: [],
                                                                             policies: [],
@@ -81,6 +82,7 @@ Program {
                                                                 value: Spanned {
                                                                     value: ActionCall {
                                                                         call: ActionCall {
+                                                                            runtime: Python,
                                                                             action_name: "action_if_2",
                                                                             kwargs: [
                                                                                 Kwarg {
@@ -175,6 +177,7 @@ Program {
                                                                     value: Spanned {
                                                                         value: ActionCall {
                                                                             call: ActionCall {
+                                                                                runtime: Python,
                                                                                 action_name: "action_else_1",
                                                                                 kwargs: [],
                                                                                 policies: [],
@@ -206,6 +209,7 @@ Program {
                                                                     value: Spanned {
                                                                         value: ActionCall {
                                                                             call: ActionCall {
+                                                                                runtime: Python,
                                                                                 action_name: "action_else_2",
                                                                                 kwargs: [
                                                                                     Kwarg {

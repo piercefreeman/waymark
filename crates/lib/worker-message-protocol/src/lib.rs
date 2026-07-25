@@ -208,6 +208,9 @@ async fn r#loop(
 /// Payload for dispatching an action to a worker.
 #[derive(Debug, Clone)]
 pub struct ActionDispatchPayload {
+    /// Runtime required to execute the action.
+    pub runtime: waymark_action_core::ActionRuntime,
+
     /// Unique action identifier
     pub action_id: String,
 
@@ -304,6 +307,14 @@ impl Sender {
             attempt_number: Some(dispatch.attempt_number),
             dispatch_token: Some(dispatch.dispatch_token.to_string()),
             metadata: dispatch.metadata.clone(),
+            runtime: match dispatch.runtime {
+                waymark_action_core::ActionRuntime::Python => {
+                    waymark_proto::action::ActionRuntime::Python as i32
+                }
+                waymark_action_core::ActionRuntime::JavaScript => {
+                    waymark_proto::action::ActionRuntime::Javascript as i32
+                }
+            },
         };
 
         let envelope = proto::Envelope {
@@ -393,6 +404,7 @@ mod tests {
 
     fn sample_dispatch(dispatch_token: Uuid) -> ActionDispatchPayload {
         ActionDispatchPayload {
+            runtime: waymark_action_core::ActionRuntime::Python,
             action_id: "action-1".to_string(),
             instance_id: "instance-1".to_string(),
             sequence: 42,

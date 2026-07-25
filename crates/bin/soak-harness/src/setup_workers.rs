@@ -35,7 +35,8 @@ pub async fn start_workers(args: &crate::cli::SoakArgs, run_dir: &Path) -> Resul
     let mut cmd = start_workers_command();
     cmd.current_dir(&repo_root);
     cmd.env("WAYMARK_DATABASE_URL", args.dsn.expose_secret());
-    cmd.env("WAYMARK_USER_MODULE", &args.user_module);
+    cmd.env("WAYMARK_ACTION_RUNTIME", "python");
+    cmd.env("WAYMARK_PYTHON_USER_MODULE", &args.user_module);
     cmd.env("PYTHONPATH", soak_python_path(&repo_root)?);
     cmd.env("WAYMARK_WORKER_COUNT", args.worker_count.to_string());
     cmd.env(

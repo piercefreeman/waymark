@@ -18,6 +18,7 @@ type Registry = waymark_worker_reservation::Registry<waymark_worker_message_prot
 pub async fn start(
     shutdown_token: tokio_util::sync::CancellationToken,
     workers_registry: Arc<Registry>,
+    expected_runtime: waymark_action_core::ActionRuntime,
     bind_addr: Option<SocketAddr>,
 ) -> Result<(SocketAddr, JoinHandle<()>), std::io::Error> {
     let bind_addr =
@@ -30,7 +31,10 @@ pub async fn start(
 
     info!(%addr, "worker bridge server starting");
 
-    let service = waymark_worker_remote_bridge_service::WorkerBridgeService { workers_registry };
+    let service = waymark_worker_remote_bridge_service::WorkerBridgeService {
+        workers_registry,
+        expected_runtime,
+    };
 
     let task = tokio::spawn(async move {
         let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
@@ -61,7 +65,14 @@ mod tests {
 
         let registry = Default::default();
 
-        let (addr, task) = start(shutdown_token.clone(), registry, None).await.unwrap();
+        let (addr, task) = start(
+            shutdown_token.clone(),
+            registry,
+            waymark_action_core::ActionRuntime::Python,
+            None,
+        )
+        .await
+        .unwrap();
         assert!(addr.port() > 0);
 
         shutdown_token.cancel();

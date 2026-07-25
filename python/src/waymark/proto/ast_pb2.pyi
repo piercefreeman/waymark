@@ -13,6 +13,8 @@ import google.protobuf.internal.containers
 import google.protobuf.internal.enum_type_wrapper
 import google.protobuf.message
 
+from . import action_pb2
+
 if sys.version_info >= (3, 10):
     import typing as typing_extensions
 else:
@@ -474,9 +476,11 @@ class ActionCall(google.protobuf.message.Message):
     KWARGS_FIELD_NUMBER: builtins.int
     POLICIES_FIELD_NUMBER: builtins.int
     MODULE_NAME_FIELD_NUMBER: builtins.int
+    RUNTIME_FIELD_NUMBER: builtins.int
     action_name: builtins.str
     module_name: builtins.str
-    """Python module containing the action"""
+    """Module containing the action"""
+    runtime: action_pb2.ActionRuntime.ValueType
     @property
     def kwargs(
         self,
@@ -494,6 +498,7 @@ class ActionCall(google.protobuf.message.Message):
         kwargs: collections.abc.Iterable[Global___Kwarg] | None = ...,
         policies: collections.abc.Iterable[Global___PolicyBracket] | None = ...,
         module_name: builtins.str | None = ...,
+        runtime: action_pb2.ActionRuntime.ValueType = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -512,6 +517,8 @@ class ActionCall(google.protobuf.message.Message):
             b"module_name",
             "policies",
             b"policies",
+            "runtime",
+            b"runtime",
         ],
     ) -> None: ...
     def WhichOneof(

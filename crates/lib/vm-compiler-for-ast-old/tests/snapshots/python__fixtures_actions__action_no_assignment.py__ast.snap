@@ -25,6 +25,7 @@ Program {
                             Spanned {
                                 value: ActionCall {
                                     call: ActionCall {
+                                        runtime: Python,
                                         action_name: "log_event",
                                         kwargs: [
                                             Kwarg {
@@ -65,6 +66,7 @@ Program {
                                     value: Spanned {
                                         value: ActionCall {
                                             call: ActionCall {
+                                                runtime: Python,
                                                 action_name: "get_final_value",
                                                 kwargs: [],
                                                 policies: [],
@@ -91,6 +93,7 @@ Program {
                             Spanned {
                                 value: ActionCall {
                                     call: ActionCall {
+                                        runtime: Python,
                                         action_name: "log_event",
                                         kwargs: [
                                             Kwarg {

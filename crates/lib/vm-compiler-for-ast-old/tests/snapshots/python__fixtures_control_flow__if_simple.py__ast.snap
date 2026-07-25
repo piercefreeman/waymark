@@ -50,6 +50,7 @@ Program {
                                                                 value: Spanned {
                                                                     value: ActionCall {
                                                                         call: ActionCall {
+                                                                            runtime: Python,
                                                                             action_name: "handle_true_case",
                                                                             kwargs: [],
                                                                             policies: [],
@@ -105,6 +106,7 @@ Program {
                                                                     value: Spanned {
                                                                         value: ActionCall {
                                                                             call: ActionCall {
+                                                                                runtime: Python,
                                                                                 action_name: "handle_false_case",
                                                                                 kwargs: [],
                                                                                 policies: [],

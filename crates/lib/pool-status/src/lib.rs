@@ -21,7 +21,7 @@ pub struct TimeSeriesEntry {
     pub timestamp_secs: i64,
     /// Actions per second at this point
     pub actions_per_sec: f32,
-    /// Number of active Python worker processes
+    /// Number of active language worker processes.
     pub active_workers: u16,
     /// Average instance duration in seconds
     pub median_instance_duration_secs: f32,

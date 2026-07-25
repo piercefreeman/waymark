@@ -375,7 +375,8 @@ fn main(input: [input_text], output: [result]):
     result = @double(value=global_fallback)
     return result
 "#;
-        let program = parse_program(source.trim()).expect("parse program");
+        let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+            .expect("parse program");
         let err = convert_to_dag(&program).expect_err("expected unresolved variable error");
         assert!(err.0.contains("global_fallback"));
     }
@@ -387,7 +388,8 @@ fn main(input: [input_text], output: [result]):
     result = @double(value=input_text)
     return result
 "#;
-        let program = parse_program(source.trim()).expect("parse program");
+        let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+            .expect("parse program");
         let dag = convert_to_dag(&program).expect("convert dag");
         validate_dag(&dag).expect("validate dag");
     }
@@ -399,7 +401,8 @@ fn main(input: [values], output: [doubles]):
     doubles = spread values:item -> @double(value=item)
     return doubles
 "#;
-        let program = parse_program(source.trim()).expect("parse program");
+        let program = parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+            .expect("parse program");
         let dag = convert_to_dag(&program).expect("convert dag");
         validate_dag(&dag).expect("validate dag");
     }

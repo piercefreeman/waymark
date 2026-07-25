@@ -181,7 +181,8 @@ to know which module registers your workflows.
 
 ```bash
 export WAYMARK_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/waymark
-export WAYMARK_USER_MODULE=app.workflows
+export WAYMARK_ACTION_RUNTIME=python
+export WAYMARK_PYTHON_USER_MODULE=app.workflows
 export RESEND_API_KEY=re_xxxxxxxxx
 export RECEIPTS_FROM_EMAIL="Acme <onboarding@resend.dev>"
 ```
@@ -209,7 +210,7 @@ claims action work from Postgres, and sends results back to the workflow runtime
   calls, and anything that needs retries.
 - Keep workflow inputs and outputs as Pydantic models when they are more than a
   couple of scalars.
-- Keep `WAYMARK_USER_MODULE` pointed at the module that imports and registers
+- Keep `WAYMARK_PYTHON_USER_MODULE` pointed at the module that imports and registers
   every workflow/action your workers need.
 - Use `_blocking=False` when a client does not need the final answer in the same
   request.

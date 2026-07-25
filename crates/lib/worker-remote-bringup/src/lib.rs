@@ -32,6 +32,7 @@ where
     let (bridge_addr, bridge_task) = waymark_worker_remote_bridge_bringup::start(
         shutdown_token,
         Arc::clone(&workers_registry),
+        Spec::action_runtime(),
         bind_addr,
     )
     .await

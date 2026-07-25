@@ -1,0 +1,30 @@
+{
+  "name": "@waymark/example-javascript",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.9"
+  },
+  "scripts": {
+    "build": "npm run waymark:compile && next build",
+    "dev": "npm run waymark:compile && next dev",
+    "lint": "npm run waymark:compile && next typegen && tsc --noEmit",
+    "start": "next start",
+    "test": "npm run waymark:compile && node --test tests/*.test.mjs",
+    "waymark:compile": "node scripts/compile-workflow.mjs"
+  },
+  "dependencies": {
+    "@waymark/nextjs": "0.1.0",
+    "next": "^16.2.11",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.3"
+  }
+}

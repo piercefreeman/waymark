@@ -33,7 +33,7 @@ pub(super) fn dedent(source: &str) -> String {
 
 pub(super) fn parse_program_source(source: &str) -> ir::Program {
     let source = dedent(source);
-    parse_program(source.trim()).expect("parse program")
+    parse_program(source.trim(), waymark_action_core::ActionRuntime::Python).expect("parse program")
 }
 
 pub(super) fn build_dag_with_pointers(source: &str) -> DAG {

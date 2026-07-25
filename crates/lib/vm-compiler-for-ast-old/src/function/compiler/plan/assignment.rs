@@ -256,8 +256,16 @@ mod tests {
         let mut flow_state = FlowState::new();
         let targets = vec!["first".to_owned(), "second".to_owned()];
         let value = parallel_expr(vec![
-            waymark_vm_ast_old::Call::Action(action_call("fetch_first", Vec::new())),
-            waymark_vm_ast_old::Call::Action(action_call("fetch_second", Vec::new())),
+            waymark_vm_ast_old::Call::Action(action_call(
+                waymark_action_core::ActionRuntime::Python,
+                "fetch_first",
+                Vec::new(),
+            )),
+            waymark_vm_ast_old::Call::Action(action_call(
+                waymark_action_core::ActionRuntime::Python,
+                "fetch_second",
+                Vec::new(),
+            )),
         ]);
         let first_target_register = Marked::<LocalSlot, AssignmentTargetMarker>::get_or_declare(
             &mut local_frame,
@@ -342,7 +350,11 @@ mod tests {
         let value = spread_expr(
             variable("items"),
             "item",
-            action_call("double", vec![("value", variable("item"))]),
+            action_call(
+                waymark_action_core::ActionRuntime::Python,
+                "double",
+                vec![("value", variable("item"))],
+            ),
         );
 
         let plan = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(
@@ -384,7 +396,11 @@ mod tests {
         let value = spread_expr(
             variable("items"),
             "item",
-            action_call("double", vec![("value", variable("item"))]),
+            action_call(
+                waymark_action_core::ActionRuntime::Python,
+                "double",
+                vec![("value", variable("item"))],
+            ),
         );
 
         let plan = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(

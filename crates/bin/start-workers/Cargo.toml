@@ -13,9 +13,12 @@ waymark-fn-main-common = { workspace = true }
 waymark-prometheus-exporter-bringup = { workspace = true }
 waymark-tokio-metrics-bringup = { workspace = true }
 waymark-webapp-bringup = { workspace = true }
+waymark-worker-core = { workspace = true }
+waymark-worker-javascript = { workspace = true }
 waymark-worker-python = { workspace = true }
 waymark-worker-remote-bringup = { workspace = true }
 waymark-worker-remote-pool = { workspace = true }
+waymark-worker-status-core = { workspace = true }
 waymark-worker-status-reporter = { workspace = true }
 
 anyhow = { workspace = true }

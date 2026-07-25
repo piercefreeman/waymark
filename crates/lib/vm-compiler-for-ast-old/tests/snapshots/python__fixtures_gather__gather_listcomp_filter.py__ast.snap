@@ -218,6 +218,7 @@ Program {
                                             },
                                             loop_var: "user",
                                             action: ActionCall {
+                                                runtime: Python,
                                                 action_name: "process_user",
                                                 kwargs: [
                                                     Kwarg {

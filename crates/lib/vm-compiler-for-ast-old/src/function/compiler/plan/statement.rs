@@ -211,7 +211,7 @@ mod tests {
     fn builds_simple_statement_plans() {
         let function_table = build_function_table();
         let assignment = assignment("value", int(1));
-        let action = action_stmt("notify");
+        let action = action_stmt(waymark_action_core::ActionRuntime::Python, "notify");
         let returned = return_stmt(Some(variable("value")));
         let expr = spanned(Statement::ExprStmt {
             expr: variable("value"),
@@ -252,13 +252,18 @@ mod tests {
         let for_loop = for_stmt(&["item"], variable("items"), vec![continue_stmt()]);
         let while_loop = while_stmt(variable("flag"), vec![continue_stmt()]);
         let parallel = parallel_stmt(vec![waymark_vm_ast_old::Call::Action(action_call(
+            waymark_action_core::ActionRuntime::Python,
             "notify",
             Vec::new(),
         ))]);
         let spread = spanned(Statement::SpreadAction {
             collection: variable("items"),
             loop_var: "item".to_owned(),
-            action: action_call("notify", vec![("value", variable("item"))]),
+            action: action_call(
+                waymark_action_core::ActionRuntime::Python,
+                "notify",
+                vec![("value", variable("item"))],
+            ),
         });
 
         assert!(matches!(

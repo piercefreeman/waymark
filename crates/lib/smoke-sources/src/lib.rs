@@ -4,7 +4,8 @@ use waymark_ir_parser::parse_program;
 use waymark_proto::ast as ir;
 
 fn parse_program_source(source: &str) -> Result<ir::Program, String> {
-    parse_program(source.trim()).map_err(|err| err.to_string())
+    parse_program(source.trim(), waymark_action_core::ActionRuntime::Python)
+        .map_err(|err| err.to_string())
 }
 
 const SMOKE_SOURCE: &str = r#"

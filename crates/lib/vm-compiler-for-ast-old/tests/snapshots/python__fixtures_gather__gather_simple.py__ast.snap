@@ -33,6 +33,7 @@ Program {
                                             calls: [
                                                 Action(
                                                     ActionCall {
+                                                        runtime: Python,
                                                         action_name: "action_a",
                                                         kwargs: [],
                                                         policies: [],
@@ -43,6 +44,7 @@ Program {
                                                 ),
                                                 Action(
                                                     ActionCall {
+                                                        runtime: Python,
                                                         action_name: "action_b",
                                                         kwargs: [],
                                                         policies: [],

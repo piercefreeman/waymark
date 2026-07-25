@@ -1,8 +1,8 @@
-## Waymark example app
+## Waymark Python example app
 
 ![Webapp Demo](https://raw.githubusercontent.com/piercefreeman/waymark/main/media/webapp_demo.png)
 
-`example_app` contains a minimal FastAPI webapp that dispatches a
+`examples/python` contains a FastAPI webapp that dispatches
 waymark workflow. This is intended to show in miniature what it would take to actually deploy a background task cluster to production:
 
 `docker-compose.yml` starts Postgres, a `daemons` container (running
@@ -16,7 +16,7 @@ Our Dockerfile is a bit more complicated than you would need, because we actuall
 We're effectively just wrapping the docker-compose within our make file, but it makes it a bit easier to apply tests that should execute within the container.
 
 ```bash
-cd example_app
+cd examples/python
 make up             # docker compose up --build -d
 make docker-test    # run uv run pytest -vvv inside the built image
 make down           # stop and clean up
@@ -33,8 +33,9 @@ Environment notes:
   inside the container whenever a workflow is invoked, so no extra env vars are
   required.
 - `daemons` runs `waymark-start-workers` with
-  `WAYMARK_USER_MODULE=example_app.workflows` so the worker dispatcher preloads
-  the module that defines the sample actions.
+  `WAYMARK_ACTION_RUNTIME=python` and
+  `WAYMARK_PYTHON_USER_MODULE=example_app.workflows` so the worker dispatcher
+  preloads the module that defines the sample actions.
 
 ## Tests
 

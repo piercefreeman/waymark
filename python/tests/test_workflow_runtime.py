@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from waymark import registry as action_registry
 from waymark.actions import action
 from waymark.dependencies import Depend
+from waymark.proto import action_pb2
 from waymark.proto import messages_pb2 as pb2
 from waymark.workflow_runtime import ActionExecutionResult, execute_action
 
@@ -46,6 +47,7 @@ def _build_action_dispatch(
         sequence=1,
         action_name=action_name,
         module_name=module_name,
+        runtime=action_pb2.ACTION_RUNTIME_PYTHON,
     )
 
     # Build kwargs
@@ -202,6 +204,7 @@ def _build_action_dispatch_with_dict(
         sequence=1,
         action_name=action_name,
         module_name=module_name,
+        runtime=action_pb2.ACTION_RUNTIME_PYTHON,
     )
 
     def add_value_to_proto(proto_value: pb2.WorkflowArgumentValue, value: object) -> None:
@@ -233,6 +236,21 @@ def _build_action_dispatch_with_dict(
         add_value_to_proto(arg.value, value)
 
     return dispatch
+
+
+def test_execute_action_rejects_javascript_runtime() -> None:
+    dispatch = _build_action_dispatch(
+        action_name="multiply",
+        module_name=__name__,
+        kwargs={"value": 10},
+    )
+    dispatch.runtime = action_pb2.ACTION_RUNTIME_JAVASCRIPT
+
+    result = asyncio.run(execute_action(dispatch))
+
+    assert result.result is None
+    assert isinstance(result.exception, RuntimeError)
+    assert "cannot execute action runtime" in str(result.exception)
 
 
 def test_execute_action_coerces_dict_to_pydantic_model() -> None:

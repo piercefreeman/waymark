@@ -35,6 +35,7 @@ Program {
                                             calls: [
                                                 Action(
                                                     ActionCall {
+                                                        runtime: Python,
                                                         action_name: "compute_square",
                                                         kwargs: [
                                                             Kwarg {
@@ -60,6 +61,7 @@ Program {
                                                 ),
                                                 Action(
                                                     ActionCall {
+                                                        runtime: Python,
                                                         action_name: "compute_cube",
                                                         kwargs: [
                                                             Kwarg {

@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package waymark.messages;
 
+import "action.proto";
 import "google/protobuf/struct.proto";
 
 // =============================================================================
@@ -36,7 +37,7 @@ message ActionDispatch {
 
   // Action execution details
   string action_name = 4;            // Name of the action function to call
-  string module_name = 5;            // Python module containing the action
+  string module_name = 5;            // Module containing the action
   WorkflowArguments kwargs = 6;      // Keyword arguments for the action
 
   // Execution policies
@@ -47,6 +48,8 @@ message ActionDispatch {
 
   // Opaque server correlation metadata; workers echo it untouched
   bytes metadata = 11;
+
+  waymark.action.ActionRuntime runtime = 12;
 }
 
 // Worker -> Server: result of action execution
@@ -70,6 +73,7 @@ message Ack {
 // Worker -> Server: initial handshake when connecting
 message WorkerHello {
   uint64 worker_id = 1;
+  waymark.action.ActionRuntime runtime = 2;
 }
 
 // =============================================================================

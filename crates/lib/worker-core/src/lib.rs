@@ -11,6 +11,7 @@ use waymark_runner_executor_core::UncheckedExecutionResult;
 /// Action execution request routed through the worker pool.
 #[derive(Clone, Debug)]
 pub struct ActionRequest {
+    pub runtime: waymark_action_core::ActionRuntime,
     pub executor_id: InstanceId,
     pub execution_id: ExecutionId,
     pub action_name: String,

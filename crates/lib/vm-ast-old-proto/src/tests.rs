@@ -175,3 +175,41 @@ fn returns_unspecified_required_enum_error() {
         }
     );
 }
+
+#[test]
+fn converts_an_explicit_action_runtime() {
+    let call = ast::ActionCall {
+        action_name: "send_email".to_owned(),
+        kwargs: Vec::new(),
+        policies: Vec::new(),
+        module_name: Some("src/actions/email.ts".to_owned()),
+        runtime: waymark_proto::action::ActionRuntime::Javascript as i32,
+    };
+
+    let converted = convert(call).expect("JavaScript action call should convert");
+
+    assert_eq!(
+        converted.runtime,
+        waymark_action_core::ActionRuntime::JavaScript
+    );
+}
+
+#[test]
+fn rejects_unspecified_action_runtime() {
+    let call = ast::ActionCall {
+        action_name: "send_email".to_owned(),
+        kwargs: Vec::new(),
+        policies: Vec::new(),
+        module_name: Some("src/actions/email.ts".to_owned()),
+        runtime: waymark_proto::action::ActionRuntime::Unspecified as i32,
+    };
+
+    let error = convert(call).expect_err("unspecified action runtime should fail");
+
+    assert_eq!(
+        error,
+        ConvertError::UnspecifiedEnumValue {
+            enum_name: "ActionRuntime",
+        }
+    );
+}

@@ -692,7 +692,7 @@ mod tests {
     };
 
     fn parse_expr(source: &str) -> ir::Expr {
-        IRParser::new("    ")
+        IRParser::new("    ", waymark_action_core::ActionRuntime::Python)
             .parse_expr(source)
             .expect("parse expression")
     }

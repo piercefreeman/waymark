@@ -32,6 +32,7 @@ Program {
                                             calls: [
                                                 Action(
                                                     ActionCall {
+                                                        runtime: Python,
                                                         action_name: "fetch_a",
                                                         kwargs: [],
                                                         policies: [],
@@ -42,6 +43,7 @@ Program {
                                                 ),
                                                 Action(
                                                     ActionCall {
+                                                        runtime: Python,
                                                         action_name: "fetch_b",
                                                         kwargs: [],
                                                         policies: [],
@@ -75,6 +77,7 @@ Program {
                                     value: Spanned {
                                         value: ActionCall {
                                             call: ActionCall {
+                                                runtime: Python,
                                                 action_name: "combine",
                                                 kwargs: [
                                                     Kwarg {

@@ -42,6 +42,7 @@ Program {
                                                                     value: Spanned {
                                                                         value: ActionCall {
                                                                             call: ActionCall {
+                                                                                runtime: Python,
                                                                                 action_name: "cleanup",
                                                                                 kwargs: [
                                                                                     Kwarg {
@@ -111,6 +112,7 @@ Program {
                                                         value: Spanned {
                                                             value: ActionCall {
                                                                 call: ActionCall {
+                                                                    runtime: Python,
                                                                     action_name: "provide_value",
                                                                     kwargs: [],
                                                                     policies: [],
@@ -137,6 +139,7 @@ Program {
                                                 Spanned {
                                                     value: ActionCall {
                                                         call: ActionCall {
+                                                            runtime: Python,
                                                             action_name: "explode_custom",
                                                             kwargs: [
                                                                 Kwarg {

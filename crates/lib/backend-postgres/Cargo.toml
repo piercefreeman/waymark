@@ -55,6 +55,7 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+waymark-action-core = { workspace = true }
 waymark-ir-parser = { workspace = true }
 waymark-support-test = { workspace = true }
 

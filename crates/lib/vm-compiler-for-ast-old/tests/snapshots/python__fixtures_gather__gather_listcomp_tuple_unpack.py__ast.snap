@@ -44,6 +44,7 @@ Program {
                                             },
                                             loop_var: "__spread_item_1__",
                                             action: ActionCall {
+                                                runtime: Python,
                                                 action_name: "process_pair",
                                                 kwargs: [
                                                     Kwarg {

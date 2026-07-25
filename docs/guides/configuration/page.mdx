@@ -16,9 +16,9 @@ export const sections = [
 # Configuration
 
 Waymark is designed to run with almost no configuration: most deployments
-set `WAYMARK_DATABASE_URL` and `WAYMARK_USER_MODULE` and never touch
-another variable. Everything else has a default tuned for a single-host
-deployment.
+set `WAYMARK_DATABASE_URL`, `WAYMARK_ACTION_RUNTIME`, and the selected
+language's action source. Everything else has a default tuned for a
+single-host deployment.
 
 Configuration is entirely through environment variables. The runtime
 reads them directly from the process environment - there's no auto-loading
@@ -36,17 +36,20 @@ These are the variables you'll touch most often when running
 | Variable | Description | Default |
 | --- | --- | --- |
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN for runtime state. | Required |
-| `WAYMARK_WORKER_COUNT` | Number of Python worker processes. | Host CPU count |
+| `WAYMARK_ACTION_RUNTIME` | Worker language: `python` or `javascript`. | Required |
+| `WAYMARK_WORKER_COUNT` | Number of language worker processes. | Host CPU count |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per worker. | `10` |
 | `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max in-memory instances across runloop shards. | `500` |
 | `WAYMARK_EXECUTOR_SHARDS` | Number of executor shards. | Host CPU count |
-| `WAYMARK_USER_MODULE` | Comma-separated Python modules preloaded in workers. | Unset |
+| `WAYMARK_PYTHON_USER_MODULE` | Comma-separated Python modules preloaded in workers. | Unset |
+| `WAYMARK_JAVASCRIPT_ACTION_BUNDLE` | Generated ESM action bundle; required when the runtime is `javascript`. | Unset |
+| `WAYMARK_JAVASCRIPT_WORKER_COMMAND` | JavaScript worker executable. | `waymark-worker-node` |
 | `WAYMARK_MAX_ACTION_LIFECYCLE` | Actions per worker before recycle (memory mitigation). | Unset (no limit) |
 | `WAYMARK_WEBAPP_ENABLED` | Enable embedded web UI. | `false` |
 | `WAYMARK_WEBAPP_ADDR` | Web UI bind address. | `0.0.0.0:24119` |
 
 <Note>
-`WAYMARK_USER_MODULE` is the one most people miss on first setup. The
+`WAYMARK_PYTHON_USER_MODULE` is the one most people miss on first setup. The
 worker pool needs to import the modules where your `@action` and
 `@workflow` decorators run, otherwise it has no handlers registered when
 queue rows arrive - and it won't fail loudly, it will just idle.
@@ -60,7 +63,7 @@ running multiple hosts and have a measured reason.
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `WAYMARK_WORKER_GRPC_ADDR` | gRPC bind for the Python worker bridge server. | `127.0.0.1:24118` |
+| `WAYMARK_WORKER_GRPC_ADDR` | gRPC bind for the selected language worker bridge. | `127.0.0.1:24118` |
 | `WAYMARK_POLL_INTERVAL_MS` | Queue poll interval. | `100` |
 | `WAYMARK_INSTANCE_DONE_BATCH_SIZE` | Batch size for persisting completed instances. | Falls back to `WAYMARK_MAX_CONCURRENT_INSTANCES` |
 | `WAYMARK_PERSIST_INTERVAL_MS` | Persistence flush interval. | `500` |
@@ -105,7 +108,7 @@ you've split processes across containers or hosts.
 
 ## Worker recycling {{ id: 'worker-recycling' }}
 
-`WAYMARK_MAX_ACTION_LIFECYCLE` controls how many actions a Python worker
+`WAYMARK_MAX_ACTION_LIFECYCLE` controls how many actions a worker
 can execute before it's automatically replaced. Useful when a third-party
 library leaks memory: set the variable to something like `1000` or
 `10000` and Waymark will spin up a fresh worker before retiring the old

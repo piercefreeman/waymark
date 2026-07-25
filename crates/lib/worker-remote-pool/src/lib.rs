@@ -16,6 +16,19 @@ use tokio::sync::{Mutex, mpsc};
 use waymark_runner_executor_core::UncheckedExecutionResult;
 use waymark_worker_core::{ActionCompletion, ActionRequest, WorkerPoolError, error_to_value};
 
+fn ensure_action_runtime(
+    expected: waymark_action_core::ActionRuntime,
+    actual: waymark_action_core::ActionRuntime,
+) -> Result<(), WorkerPoolError> {
+    if actual == expected {
+        return Ok(());
+    }
+    Err(WorkerPoolError::new(
+        "ActionRuntimeUnavailable",
+        format!("worker pool provides {expected} actions, request requires {actual}"),
+    ))
+}
+
 async fn execute_remote_request<Spec>(
     pool: &Arc<waymark_worker_process_pool::Pool<Spec>>,
     request: ActionRequest,
@@ -196,6 +209,7 @@ where
     }
 
     fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError> {
+        ensure_action_runtime(Spec::action_runtime(), request.runtime)?;
         self.request_tx.try_send(request).map_err(|err| {
             WorkerPoolError::new(
                 "RemoteWorkerPoolError",
@@ -222,5 +236,25 @@ where
 impl<Spec> waymark_worker_status_core::WorkerPoolStats for RemoteWorkerPool<Spec> {
     fn stats_snapshot(&self) -> waymark_worker_status_core::WorkerPoolStatsSnapshot {
         self.pool.stats_snapshot()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_actions_for_a_different_runtime() {
+        let error = ensure_action_runtime(
+            waymark_action_core::ActionRuntime::Python,
+            waymark_action_core::ActionRuntime::JavaScript,
+        )
+        .unwrap_err();
+
+        assert_eq!(error.kind, "ActionRuntimeUnavailable");
+        assert_eq!(
+            error.message,
+            "worker pool provides python actions, request requires javascript"
+        );
     }
 }

@@ -44,6 +44,7 @@ Program {
                                             },
                                             loop_var: "item",
                                             action: ActionCall {
+                                                runtime: Python,
                                                 action_name: "process_item",
                                                 kwargs: [
                                                     Kwarg {
@@ -105,6 +106,7 @@ Program {
                                     value: Spanned {
                                         value: ActionCall {
                                             call: ActionCall {
+                                                runtime: Python,
                                                 action_name: "combine_results",
                                                 kwargs: [
                                                     Kwarg {

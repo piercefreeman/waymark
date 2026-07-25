@@ -23,7 +23,11 @@ use waymark_worker_core::WorkerPoolError;
 use waymark_worker_inline::{ActionCallable, InlineWorkerPool};
 
 pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
-    let program = parse_program(case.source.trim()).map_err(|err| {
+    let program = parse_program(
+        case.source.trim(),
+        waymark_action_core::ActionRuntime::Python,
+    )
+    .map_err(|err| {
         anyhow::anyhow!(
             "case {case_index} failed to parse: {err}\n--- program ---\n{}",
             case.source
