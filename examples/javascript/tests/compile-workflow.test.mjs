@@ -7,6 +7,7 @@ import workflow from "../.waymark/workflow.mjs";
 
 test("example compiles and bundles executable JavaScript actions", async () => {
   assert.equal(workflow.workflowName, "ExampleMathWorkflow");
+  assert.equal(workflow.inputName, "input");
   assert.equal(
     workflow.hash,
     createHash("sha256").update(workflow.bytes).digest("hex"),

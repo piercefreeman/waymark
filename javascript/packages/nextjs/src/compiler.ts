@@ -57,6 +57,7 @@ export interface CompiledWorkflow {
   readonly actions: readonly CompiledActionReference[];
   readonly bytes: Buffer;
   readonly hash: string;
+  readonly inputName: string;
   readonly moduleId: string;
   readonly program: ProgramMessage;
   readonly workflowName: string;
@@ -776,10 +777,13 @@ class Lowerer {
           });
         }
         return this.expr(node, {
-          $case: "dot",
+          $case: "index",
           value: {
             object: this.expression(node.object),
-            attribute: node.property.name,
+            index: this.literal(node.property, {
+              $case: "stringValue",
+              value: node.property.name,
+            }),
           },
         });
       case "BinaryExpression":
@@ -1370,6 +1374,15 @@ export async function compileWorkflow(
   const workflowName = workflow.id.name;
 
   const run = workflowRun(workflow, options.source, options.filePath);
+  if (run.params.length !== 1 || run.params[0]?.type !== "Identifier") {
+    throw new WorkflowCompileError(
+      "Workflow.run() must accept exactly one input parameter",
+      options.source,
+      options.filePath,
+      run,
+    );
+  }
+  const inputName = run.params[0].name;
   const actions = await knownActions(parsed.program.body, options);
   const lowerer = new Lowerer(actions, options.source, options.filePath);
   const program: ProgramMessage = {
@@ -1405,6 +1418,7 @@ export async function compileWorkflow(
     ),
     bytes,
     hash: createHash("sha256").update(bytes).digest("hex"),
+    inputName,
     moduleId: moduleIdentifier(options.filePath, options.projectRoot),
     program,
     workflowName,

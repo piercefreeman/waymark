@@ -124,6 +124,7 @@ test("transient execution registers compiled IR and services action dispatches",
     ],
     bytes: Buffer.from([1, 2, 3]),
     hash: "ir-hash",
+    inputName: "input",
     moduleId: "src/workflow.ts",
     program: { functions: [] },
     workflowName: "GreetingWorkflow",
@@ -152,7 +153,7 @@ test("transient execution registers compiled IR and services action dispatches",
       decodeWorkflowArguments(
         registration.value.initialContext ?? { arguments: [] },
       ),
-      { requestId: "request-1" },
+      { input: { requestId: "request-1" } },
     );
     assert.deepEqual(registration.value.ir, Buffer.from([1, 2, 3]));
     assert.equal(registration.value.irHash, "ir-hash");

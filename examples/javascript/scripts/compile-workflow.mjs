@@ -97,6 +97,7 @@ const generatedWorkflow = [
   `  actions: ${JSON.stringify(workflow.actions)},`,
   `  bytes: Buffer.from(${JSON.stringify(workflow.bytes.toString("base64"))}, "base64"),`,
   `  hash: ${JSON.stringify(workflow.hash)},`,
+  `  inputName: ${JSON.stringify(workflow.inputName)},`,
   `  moduleId: ${JSON.stringify(workflow.moduleId)},`,
   "  program: undefined,",
   `  workflowName: ${JSON.stringify(workflow.workflowName)},`,

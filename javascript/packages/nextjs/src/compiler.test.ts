@@ -151,6 +151,7 @@ test("compiler lowers a full TypeScript workflow through the resolver boundary",
 
   assert.deepEqual(resolutions, [["./actions", workflowPath]]);
   assert.equal(compiled.workflowName, "OnboardCustomer");
+  assert.equal(compiled.inputName, "input");
   assert.equal(compiled.moduleId, "src/workflow.ts");
   assert.deepEqual(Program.decode(compiled.bytes), compiled.program);
   assert.equal(
@@ -189,6 +190,42 @@ test("compiler lowers a full TypeScript workflow through the resolver boundary",
       ? timeout.kind.value.timeout?.seconds
       : undefined,
     30n,
+  );
+});
+
+test("compiler lowers JavaScript property reads as dictionary indexes", async () => {
+  const compiled = await compileWorkflow({
+    filePath: workflowPath,
+    projectRoot,
+    source: `
+      import { Workflow } from "@waymark/nextjs";
+      export class ReadProperty extends Workflow<{ customerId: string }, string> {
+        async run(input: { customerId: string }) {
+          return input.customerId;
+        }
+      }
+    `,
+    resolveModule() {
+      throw new Error("unexpected resolver call");
+    },
+  });
+
+  const statement = compiled.program.functions[0]?.body?.statements[0]?.kind;
+  assert.equal(statement?.$case, "returnStmt");
+  if (statement?.$case !== "returnStmt") {
+    return;
+  }
+  const expression = statement.value.value?.kind;
+  assert.equal(expression?.$case, "index");
+  if (expression?.$case !== "index") {
+    return;
+  }
+  assert.equal(expression.value.index?.kind?.$case, "literal");
+  assert.equal(
+    expression.value.index?.kind?.$case === "literal"
+      ? expression.value.index.kind.value.value?.value
+      : undefined,
+    "customerId",
   );
 });
 

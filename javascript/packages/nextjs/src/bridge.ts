@@ -110,7 +110,9 @@ export async function executeWorkflow(
     ir: options.compiled.bytes,
     irHash: options.compiled.hash,
     workflowVersion: options.version ?? options.compiled.hash,
-    initialContext: encodeWorkflowArguments(options.input),
+    initialContext: encodeWorkflowArguments({
+      [options.compiled.inputName]: options.input,
+    }),
     concurrent: options.concurrent ?? false,
     priority: undefined,
   };
