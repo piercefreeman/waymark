@@ -2,7 +2,8 @@
   "name": "waymark",
   "private": true,
   "workspaces": [
-    "javascript/packages/*"
+    "javascript/packages/*",
+    "examples/javascript"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

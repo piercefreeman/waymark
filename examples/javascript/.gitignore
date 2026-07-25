@@ -1,0 +1,4 @@
+.next/
+.waymark/
+*.tsbuildinfo
+next-env.d.ts

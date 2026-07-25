@@ -1,0 +1,26 @@
+x-app-build: &app-build
+  context: ../..
+  dockerfile: examples/javascript/Dockerfile
+
+services:
+  bridge:
+    build: *app-build
+    image: waymark-example-javascript
+    command: ["waymark-bridge"]
+    environment:
+      WAYMARK_BRIDGE_GRPC_ADDR: 0.0.0.0:24117
+      WAYMARK_BRIDGE_IN_MEMORY: "true"
+      RUST_LOG: info,waymark=debug
+    ports:
+      - "24117:24117"
+
+  webapp:
+    build: *app-build
+    image: waymark-example-javascript
+    depends_on:
+      bridge:
+        condition: service_started
+    environment:
+      WAYMARK_BRIDGE: bridge:24117
+    ports:
+      - "3000:3000"

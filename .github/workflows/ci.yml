@@ -569,8 +569,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build and test example_app
-        working-directory: example_app
+      - name: Build and test Python example
+        working-directory: examples/python
         run: make docker-test
 
   build-wheel:

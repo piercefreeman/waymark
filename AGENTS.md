@@ -140,6 +140,7 @@ Follow a modern, developer-focused design language. The design prioritizes clari
 This section is used for the scratch updates, driven by our Agents.
 
 <code_feedback>
+<rule>Group runnable example applications by language under `examples/`, with each application owning its build, test, and deployment instructions. Good: `examples/python` and `examples/javascript`. Bad: a language-specific `example_app` directory at the repository root.</rule>
 <rule>Avoid webapp tests that assert rendered HTML contains route or API URL strings; test behavior, data wiring, or stable UI semantics instead. Good: assert a handler returns the expected redirect payload or a page renders the expected domain data. Bad: `assert!(rendered.contains("/api/instance/"));`.</rule>
 <rule>Centralize environment parsing in shared config modules and build sub-configs inside `from_env`. Good: `let cfg = WorkerConfig::from_env()?; let webapp = cfg.webapp.clone();` Bad: `let cfg = WorkerConfig::from_env()?; let webapp = WebappConfig::from_env();`</rule>
 <rule>Prefer `?` (with `context` when needed) over wrapping simple errors with `map_err(|err| anyhow!(err))`. Good: `PostgresBackend::connect(dsn).await?;` Bad: `PostgresBackend::connect(dsn).await.map_err(|err| anyhow!(err))?;`</rule>
