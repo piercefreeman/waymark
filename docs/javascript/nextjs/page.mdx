@@ -350,10 +350,9 @@ to Python as a fallback.
 Build the SDK package before starting a worker from the repository:
 
 ```bash
-cd javascript/packages/nextjs
 npm ci
-npm run build
-npm link
+npm run build --workspace @waymark/nextjs
+npm link --workspace @waymark/nextjs
 ```
 
 Production images should install the package normally and copy the

@@ -10,7 +10,7 @@ build-proto:
 	@mkdir -p $(PY_PROTO_OUT)
 	@mkdir -p $(TS_PROTO_OUT)
 	@touch python/src/waymark/proto/__init__.py
-	cd $(TS_PROTO_PACKAGE) && npm ci --ignore-scripts
+	npm ci --ignore-scripts
 	cd python && uv run python -m grpc_tools.protoc \
 		--proto_path=../proto \
 		--plugin=protoc-gen-mypy="$$(uv run which protoc-gen-mypy)" \
@@ -22,7 +22,7 @@ build-proto:
 		../proto/action.proto ../proto/messages.proto ../proto/ast.proto
 	cd python && uv run python -m grpc_tools.protoc \
 		--proto_path=../proto \
-		--plugin=protoc-gen-ts_proto=../$(TS_PROTO_PACKAGE)/node_modules/.bin/protoc-gen-ts_proto \
+		--plugin=protoc-gen-ts_proto=../node_modules/.bin/protoc-gen-ts_proto \
 		--ts_proto_out=../$(TS_PROTO_OUT) \
 		--ts_proto_opt=esModuleInterop=true,env=node,forceLong=bigint,importSuffix=.js,oneof=unions-value,outputServices=grpc-js,useOptionals=none \
 		../proto/action.proto ../proto/ast.proto ../proto/messages.proto
@@ -38,8 +38,8 @@ lint: typescript-lint python-lint rust-lint
 lint-verify: typescript-lint-verify python-lint-verify rust-lint-verify
 
 typescript-lint:
-	cd $(TS_PROTO_PACKAGE) && npm ci --ignore-scripts
-	cd $(TS_PROTO_PACKAGE) && npm run lint
+	npm ci --ignore-scripts
+	npm run lint
 
 typescript-lint-verify: typescript-lint
 

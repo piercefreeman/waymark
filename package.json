@@ -1,0 +1,12 @@
+{
+  "name": "waymark",
+  "private": true,
+  "workspaces": [
+    "javascript/packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  }
+}
