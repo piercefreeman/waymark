@@ -151,6 +151,8 @@ async fn main() -> Result<()> {
     // Start the execution subsystem (workload pinning + execution driver).
     let bringup_config = waymark_execution_bringup::Config {
         node_id: Uuid::new_v4(),
+        action_effect_reconciler_lock_ttl: config.action_effect_reconciler_lock_ttl,
+        action_effect_reconciler_lock_heartbeat: config.action_effect_reconciler_lock_heartbeat,
         max_pinned: config.max_concurrent_instances,
         pinning_ttl: config.lock_ttl,
         pinning_heartbeat: config.lock_heartbeat,
@@ -190,6 +192,11 @@ async fn main() -> Result<()> {
     let _ = tokio::time::timeout(
         Duration::from_secs(5),
         execution_handles.durable_action_completions_acker,
+    )
+    .await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        execution_handles.action_effect_reconciler_lock_renewal,
     )
     .await;
     let _ = tokio::time::timeout(Duration::from_secs(5), bridge_task).await;

@@ -4294,6 +4294,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-action-effect-reconciler"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "nonempty-collections",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "waymark-action-core",
+ "waymark-action-effect-reconciler-backend",
+ "waymark-action-runtime-core",
+ "waymark-action-runtime-metadata",
+ "waymark-extcall-reconciler-core",
+ "waymark-nonzero-duration",
+ "waymark-state-manager-core",
+ "waymark-vm-codec-core",
+ "waymark-vm-codec-rmp",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
+name = "waymark-action-effect-reconciler-backend"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
 name = "waymark-action-runtime-convert"
 version = "0.1.0"
 dependencies = [
@@ -4427,6 +4459,7 @@ dependencies = [
  "tracing",
  "uuid",
  "waymark-action-completions-reconciler-backend",
+ "waymark-action-effect-reconciler-backend",
  "waymark-backend-postgres-migrations",
  "waymark-backends-core",
  "waymark-core-backend",
@@ -4668,10 +4701,11 @@ dependencies = [
  "tracing",
  "waymark-action-completions-reconciler",
  "waymark-action-completions-reconciler-backend",
+ "waymark-action-effect-reconciler",
+ "waymark-action-effect-reconciler-backend",
  "waymark-action-runtime-worker-pool",
  "waymark-execution-driver",
  "waymark-extcall-reconciler",
- "waymark-extcall-reconciler-action-compat",
  "waymark-fullset-effect-handler",
  "waymark-ids",
  "waymark-nonzero-duration",
