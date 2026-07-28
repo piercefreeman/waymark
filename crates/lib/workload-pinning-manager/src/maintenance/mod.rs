@@ -6,8 +6,8 @@
 //! Work exists whenever **either** condition holds:
 //!
 //! - `batch_rx` is still open — the poll loop is alive and may dispatch
-//!   newly-pinned instance IDs at any time.
-//! - `active_ids` is non-empty — there are in-flight instances whose
+//!   newly-pinned workload IDs at any time.
+//! - `active_ids` is non-empty — there are in-flight workloads whose
 //!   pinnings must be refreshed and whose evictions must be processed.
 //!
 //! The **terminal state** is reached when **both** conditions are false:
@@ -47,15 +47,15 @@ use waymark_nonzero_duration::NonZeroDuration;
 pub(super) struct MaintainParams<Backend>
 where
     Backend: waymark_workload_pinning_backend::HasNodeId,
-    Backend: waymark_workload_pinning_backend::HasInstanceId,
+    Backend: waymark_workload_pinning_backend::HasWorkloadId,
 {
     pub backend: Arc<Backend>,
     pub node_id: Backend::NodeId,
     pub batch_rx: tokio::sync::mpsc::Receiver<(
-        NEVec<Backend::InstanceId>,
+        NEVec<Backend::WorkloadId>,
         tokio::sync::oneshot::Sender<usize>,
     )>,
-    pub evict_rx: tokio::sync::mpsc::UnboundedReceiver<Backend::InstanceId>,
+    pub evict_rx: tokio::sync::mpsc::UnboundedReceiver<Backend::WorkloadId>,
     pub count_tx: tokio::sync::mpsc::UnboundedSender<usize>,
     pub shutdown_token: CancellationToken,
     pub pinning_heartbeat: NonZeroDuration,
@@ -64,15 +64,15 @@ where
 
 pub(super) async fn run_maintenance_loop<Backend>(
     params: MaintainParams<Backend>,
-) -> Result<(), (MaintenanceErrorFor<Backend>, HashSet<Backend::InstanceId>)>
+) -> Result<(), (MaintenanceErrorFor<Backend>, HashSet<Backend::WorkloadId>)>
 where
-    Backend: waymark_workload_pinning_backend::PollUnpinnedInstances,
-    Backend: waymark_workload_pinning_backend::KeepaliveInstancePinnings<
+    Backend: waymark_workload_pinning_backend::PollUnpinnedWorkloads,
+    Backend: waymark_workload_pinning_backend::KeepalivePinnings<
             Timestamp = chrono::DateTime<chrono::Utc>,
         >,
     Backend: waymark_workload_pinning_backend::ReleasePinnings,
     Backend::NodeId: Clone,
-    Backend::InstanceId: Clone + std::hash::Hash + Eq,
+    Backend::WorkloadId: Clone + std::hash::Hash + Eq,
 {
     let MaintainParams {
         backend,
@@ -85,7 +85,7 @@ where
         pinning_ttl,
     } = params;
 
-    let mut active_ids: HashSet<Backend::InstanceId> = HashSet::new();
+    let mut active_ids: HashSet<Backend::WorkloadId> = HashSet::new();
     let mut poll_exited = false;
     let shutdown = shutdown_token.child_token().cancelled_owned();
     let mut shutdown = std::pin::pin!(shutdown);
@@ -152,11 +152,11 @@ pub(super) async fn refresh_active_pinnings<Backend>(
     backend: &Backend,
     now: chrono::DateTime<chrono::Utc>,
     node_id: Backend::NodeId,
-    ids: impl nonempty_collections::IntoNonEmptyIterator<Item = Backend::InstanceId>,
+    ids: impl nonempty_collections::IntoNonEmptyIterator<Item = Backend::WorkloadId>,
     pinning_ttl: NonZeroDuration,
-) -> Result<(), <Backend as waymark_workload_pinning_backend::KeepaliveInstancePinnings>::Error>
+) -> Result<(), <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error>
 where
-    Backend: waymark_workload_pinning_backend::KeepaliveInstancePinnings<
+    Backend: waymark_workload_pinning_backend::KeepalivePinnings<
             Timestamp = chrono::DateTime<chrono::Utc>,
         >,
 {

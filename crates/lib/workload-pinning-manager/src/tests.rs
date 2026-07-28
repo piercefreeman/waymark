@@ -19,7 +19,7 @@ use crate::{Params, PinnedHandle, run};
 async fn run_exits_on_cancellation() {
     let mut backend = MockBackend::new();
     backend
-        .expect_poll_unlocked()
+        .expect_poll_unpinned()
         .returning(move |_, _, _| Box::pin(std::future::ready(Ok(None))));
 
     let backend = Arc::new(backend);
@@ -68,7 +68,7 @@ async fn run_propagates_poll_error() {
 
     let mut backend = MockBackend::new();
     backend
-        .expect_poll_unlocked()
+        .expect_poll_unpinned()
         .with(
             predicate::always(),
             predicate::always(),
@@ -113,9 +113,9 @@ async fn maintenance_drains_after_poll_error() {
     let pinning = test_pinning(node_id, 1);
 
     let mut backend = MockBackend::new();
-    // First poll returns an instance; second poll errors.
+    // First poll returns an workload; second poll errors.
     let mut poll_calls = 0;
-    backend.expect_poll_unlocked().returning(move |_, _, _| {
+    backend.expect_poll_unpinned().returning(move |_, _, _| {
         poll_calls += 1;
         if poll_calls == 1 {
             Box::pin(std::future::ready(Ok(Some(nev![id]))))
@@ -123,14 +123,14 @@ async fn maintenance_drains_after_poll_error() {
             Box::pin(std::future::ready(Err(MockError)))
         }
     });
-    // Heartbeat may fire while the instance is active, but the drain
+    // Heartbeat may fire while the workload is active, but the drain
     // cycle can complete before the first tick — optional expectation.
     backend
         .expect_refresh_pinnings()
         .times(0..)
         .returning(move |_, _, _| {
             Box::pin(std::future::ready(Ok(nev![PinningStatus {
-                instance_id: id,
+                workload_id: id,
                 pinning: Some(pinning.clone()),
             }])))
         });
@@ -186,7 +186,7 @@ async fn maintenance_drains_after_poll_error() {
 }
 
 /// After the poll loop dies, the maintenance loop must still execute
-/// heartbeats for in-flight instances. Three heartbeats are observed:
+/// heartbeats for in-flight workloads. Three heartbeats are observed:
 /// 1. Before poll error — proves heartbeats work normally.
 /// 2. After signalling poll error — may race with termination; discarded.
 /// 3. After poll is definitively dead — this is the proof.
@@ -207,10 +207,10 @@ async fn maintenance_heartbeats_after_poll_is_dead() {
     let mut poll_calls = 0;
     {
         let poll_error = Arc::clone(&poll_error);
-        backend.expect_poll_unlocked().returning(move |_, _, _| {
+        backend.expect_poll_unpinned().returning(move |_, _, _| {
             poll_calls += 1;
             if poll_calls == 1 {
-                // First call: hand out an instance so maintenance has
+                // First call: hand out an workload so maintenance has
                 // something to heartbeat.
                 return Box::pin(std::future::ready(Ok(Some(nev![id]))));
             }
@@ -236,7 +236,7 @@ async fn maintenance_heartbeats_after_poll_is_dead() {
                 // Record every heartbeat so the monitor can count them.
                 heartbeat_tx.send(()).ok();
                 Box::pin(std::future::ready(Ok(nev![PinningStatus {
-                    instance_id: id,
+                    workload_id: id,
                     pinning: Some(pinning.clone()),
                 }])))
             });
@@ -253,7 +253,7 @@ async fn maintenance_heartbeats_after_poll_is_dead() {
 
     let heartbeat = Duration::from_millis(10);
 
-    // The monitor owns the pinned handle — it holds the instance
+    // The monitor owns the pinned handle — it holds the workload
     // in-flight while counting three heartbeats, then drops the handle
     // to trigger eviction so maintenance can drain and run() can exit.
     let monitor = tokio::spawn(async move {

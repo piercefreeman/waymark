@@ -1,30 +1,31 @@
-//! Poll for unpinned instances.
+//! Poll for unpinned workloads.
 
 use std::num::NonZeroUsize;
 
 use nonempty_collections::NEVec;
 
-use crate::{HasInstanceId, HasNodeId, HasTimestamp, PinningFor};
+use crate::{HasNodeId, HasTimestamp, HasWorkloadId, PinningFor};
 
-/// The ability to poll and pin the instances that are present in
-/// the system but are not pinned to a particular node, effectively claiming
-/// them.
-pub trait PollUnpinnedInstances: HasTimestamp + HasNodeId + HasInstanceId {
+/// The ability to poll and pin the workloads that no node effectively
+/// holds: those that are not pinned to any node, and those whose pinning
+/// expired without a refresh. Polling takes such workloads over, pinning
+/// them to the polling node.
+pub trait PollUnpinnedWorkloads: HasTimestamp + HasNodeId + HasWorkloadId {
     /// An error that can occur while polling.
     type Error: std::fmt::Debug;
 
-    /// Return up to `max_items` instances without blocking.
+    /// Return up to `max_items` workloads without blocking.
     ///
-    /// Instances are guaranteed to be freshly pinned with
+    /// Workloads are guaranteed to be freshly pinned with
     /// the provided `pinning`.
     ///
     /// `now` is used for expiration checks of stale pinnings.
     ///
-    /// Returns `Ok(None)` if no instances were available.
-    fn poll_unlocked(
+    /// Returns `Ok(None)` if no workloads were available.
+    fn poll_unpinned(
         &self,
         now: Self::Timestamp,
         pinning: PinningFor<Self>,
         max_items: NonZeroUsize,
-    ) -> impl Future<Output = Result<Option<NEVec<Self::InstanceId>>, Self::Error>> + Send + '_;
+    ) -> impl Future<Output = Result<Option<NEVec<Self::WorkloadId>>, Self::Error>> + Send + '_;
 }
