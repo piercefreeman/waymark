@@ -1,19 +1,19 @@
-//! Keepalive (refresh) pinnings on instances.
+//! Keepalive (refresh) pinnings on workloads.
 
 use nonempty_collections::{IntoNonEmptyIterator, NEVec};
 
-use crate::{HasInstanceId, HasNodeId, HasTimestamp, PinningFor, PinningStatusFor};
+use crate::{HasNodeId, HasTimestamp, HasWorkloadId, PinningFor, PinningStatusFor};
 
-/// The ability to maintain pins on instances.
-pub trait KeepaliveInstancePinnings: HasNodeId + HasInstanceId + HasTimestamp {
+/// The ability to maintain pinnings on workloads.
+pub trait KeepalivePinnings: HasNodeId + HasWorkloadId + HasTimestamp {
     /// Error returned when refreshing pinning fails.
     type Error: std::fmt::Debug;
 
-    /// Refresh pinning expiry for owned instances.
+    /// Refresh pinning expiry for owned workloads.
     fn refresh_pinnings<'a>(
         &'a self,
         now: Self::Timestamp,
         pinning: PinningFor<Self>,
-        instance_ids: impl IntoNonEmptyIterator<Item = Self::InstanceId> + 'a,
+        workload_ids: impl IntoNonEmptyIterator<Item = Self::WorkloadId> + 'a,
     ) -> impl Future<Output = Result<NEVec<PinningStatusFor<Self>>, Self::Error>> + Send + 'a;
 }

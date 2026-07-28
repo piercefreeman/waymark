@@ -11,13 +11,13 @@ use crate::test_utils::helpers::{test_max_concurrent, test_node_id, test_pinning
 use crate::test_utils::mock::MockBackend;
 
 #[tokio::test]
-async fn manager_polls_and_pins_instances() {
+async fn manager_polls_and_pins_workloads() {
     let id1 = 1u64;
     let id2 = 2u64;
 
     let mut backend = MockBackend::new();
     backend
-        .expect_poll_unlocked()
+        .expect_poll_unpinned()
         .with(
             predicate::always(),
             predicate::always(),
@@ -30,7 +30,7 @@ async fn manager_polls_and_pins_instances() {
     let ids = poll_and_pin(&backend, test_node_id(), test_max_concurrent(), pinning_ttl)
         .await
         .expect("poll and pin")
-        .expect("instances available");
+        .expect("workloads available");
 
     let active_ids: HashSet<u64> = HashSet::from_iter(ids);
     assert_eq!(active_ids.len(), 2);
@@ -39,10 +39,10 @@ async fn manager_polls_and_pins_instances() {
 }
 
 #[tokio::test]
-async fn manager_polls_and_pins_instances_none_when_no_work() {
+async fn manager_polls_and_pins_workloads_none_when_no_work() {
     let mut backend = MockBackend::new();
     backend
-        .expect_poll_unlocked()
+        .expect_poll_unpinned()
         .with(
             predicate::always(),
             predicate::always(),
@@ -63,7 +63,7 @@ async fn manager_polls_and_pins_instances_none_when_no_work() {
 async fn poll_and_pin_propagates_error() {
     let mut backend = MockBackend::new();
     backend
-        .expect_poll_unlocked()
+        .expect_poll_unpinned()
         .with(
             predicate::always(),
             predicate::always(),
@@ -91,7 +91,7 @@ async fn poll_and_pin_propagates_error() {
 async fn poll_loop_continues_when_count_channel_closes() {
     let mut backend = MockBackend::new();
     backend
-        .expect_poll_unlocked()
+        .expect_poll_unpinned()
         .returning(move |_, _, _| Box::pin(std::future::ready(Ok(None))));
 
     let backend = Arc::new(backend);
@@ -132,7 +132,7 @@ async fn poll_loop_continues_when_count_channel_closes() {
 async fn poll_loop_exits_on_pinned_receiver_closed() {
     let mut backend = MockBackend::new();
     backend
-        .expect_poll_unlocked()
+        .expect_poll_unpinned()
         .return_once(move |_, _, _| Box::pin(std::future::ready(Ok(Some(nev![1u64])))));
 
     let backend = Arc::new(backend);
