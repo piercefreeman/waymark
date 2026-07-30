@@ -21,7 +21,7 @@ pub use self::poll::*;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use nonempty_collections::{IntoIteratorExt as _, NEVec};
+use nonempty_collections::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use waymark_nonzero_duration::NonZeroDuration;
@@ -82,11 +82,11 @@ where
         waymark_workload_pinning_backend::HasTimestamp<Timestamp = chrono::DateTime<chrono::Utc>>,
     Backend: waymark_workload_pinning_backend::PollUnpinnedWorkloads,
     Backend: waymark_workload_pinning_backend::KeepalivePinnings,
-    Backend: waymark_workload_pinning_backend::ReleasePinnings,
+    Backend: waymark_workload_pinning_backend::UnpinWorkloads,
     Backend: Send + Sync + 'static,
     <Backend as waymark_workload_pinning_backend::PollUnpinnedWorkloads>::Error: std::fmt::Debug,
     <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error: std::fmt::Debug,
-    <Backend as waymark_workload_pinning_backend::ReleasePinnings>::Error: std::fmt::Debug,
+    <Backend as waymark_workload_pinning_backend::UnpinWorkloads>::Error: std::fmt::Debug,
     Backend::NodeId: Clone,
     Backend::WorkloadId: Clone + std::hash::Hash + Eq,
 {
@@ -171,8 +171,11 @@ where
         && let Some(ids) = ids.try_into_nonempty_iter()
     {
         debug!("releasing pinnings on shutdown");
-        if let Err(error) = backend.release_pinnings(node_id, ids).await {
-            warn!(?error, "failed to release pinnings during cleanup");
+        // Cleanup always releases: no park decision was made for these
+        // workloads, so they must remain runnable.
+        let unpins = ids.map(|id| (id, waymark_workload_pinning_core::UnpinMode::Release));
+        if let Err(error) = backend.unpin_workloads(node_id, unpins).await {
+            warn!(?error, "failed to unpin workloads during cleanup");
             cleanup_error = Some(error);
         }
     }

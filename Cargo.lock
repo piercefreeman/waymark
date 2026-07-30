@@ -4494,6 +4494,7 @@ dependencies = [
  "waymark-workflow-service-vm-executables-backend",
  "waymark-workflow-service-vm-runtimes-backend",
  "waymark-workload-pinning-backend",
+ "waymark-workload-pinning-core",
 ]
 
 [[package]]
@@ -4739,6 +4740,7 @@ dependencies = [
  "waymark-state-vm-runtimes",
  "waymark-vm-driver",
  "waymark-vm-driver-thread",
+ "waymark-workload-pinning-core",
  "waymark-workload-pinning-manager",
 ]
 
@@ -6461,7 +6463,12 @@ name = "waymark-workload-pinning-backend"
 version = "0.1.0"
 dependencies = [
  "nonempty-collections",
+ "waymark-workload-pinning-core",
 ]
+
+[[package]]
+name = "waymark-workload-pinning-core"
+version = "0.1.0"
 
 [[package]]
 name = "waymark-workload-pinning-manager"
@@ -6476,6 +6483,7 @@ dependencies = [
  "tracing",
  "waymark-nonzero-duration",
  "waymark-workload-pinning-backend",
+ "waymark-workload-pinning-core",
 ]
 
 [[package]]

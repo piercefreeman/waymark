@@ -10,6 +10,7 @@ waymark-state-manager-core = { workspace = true }
 waymark-state-vm-runtimes = { workspace = true }
 waymark-vm-driver = { workspace = true }
 waymark-vm-driver-thread = { workspace = true }
+waymark-workload-pinning-core = { workspace = true }
 waymark-workload-pinning-manager = { workspace = true }
 
 nonempty-collections = { workspace = true }

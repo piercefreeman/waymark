@@ -10,6 +10,10 @@ use crate::{HasNodeId, HasTimestamp, HasWorkloadId, PinningFor};
 /// holds: those that are not pinned to any node, and those whose pinning
 /// expired without a refresh. Polling takes such workloads over, pinning
 /// them to the polling node.
+///
+/// Only workloads in the runnable set are polled: a parked workload
+/// (see [`UnpinMode::Park`](waymark_workload_pinning_core::UnpinMode::Park))
+/// has left the set and is not returned until it is made runnable again.
 pub trait PollUnpinnedWorkloads: HasTimestamp + HasNodeId + HasWorkloadId {
     /// An error that can occur while polling.
     type Error: std::fmt::Debug;

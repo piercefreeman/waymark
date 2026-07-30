@@ -265,14 +265,14 @@ async fn refresh_returns_mixed_statuses_for_refreshed_and_lost() {
     .expect("pin both vms")
     .expect("workloads available");
 
-    // Release vm_b so it loses its pinning.
-    waymark_workload_pinning_backend::ReleasePinnings::release_pinnings(
+    // Unpin vm_b in release mode so it loses its pinning.
+    waymark_workload_pinning_backend::UnpinWorkloads::unpin_workloads(
         &backend,
         node_id,
-        nonempty_collections::NEVec::new(vm_b),
+        nonempty_collections::NEVec::new((vm_b, waymark_workload_pinning_core::UnpinMode::Release)),
     )
     .await
-    .expect("release vm_b");
+    .expect("unpin vm_b");
 
     // Refresh both — vm_a should stay pinned, vm_b should be None.
     let mut ids = nonempty_collections::NEVec::new(vm_a);
@@ -297,7 +297,7 @@ async fn refresh_returns_mixed_statuses_for_refreshed_and_lost() {
 
 #[serial(postgres)]
 #[tokio::test]
-async fn release_clears_pinning() {
+async fn unpin_release_keeps_workload_runnable() {
     let backend = setup_backend().await;
     let node_id = Uuid::new_v4();
     let (vm_id, _executable_id) = register_test_vm(&backend).await;
@@ -313,27 +313,214 @@ async fn release_clears_pinning() {
     .expect("pin vm")
     .expect("workloads available");
 
-    // Release it.
-    waymark_workload_pinning_backend::ReleasePinnings::release_pinnings(
+    // Unpin in release mode.
+    waymark_workload_pinning_backend::UnpinWorkloads::unpin_workloads(
         &backend,
         node_id,
-        nonempty_collections::NEVec::new(vm_id),
+        nonempty_collections::NEVec::new((
+            vm_id,
+            waymark_workload_pinning_core::UnpinMode::Release,
+        )),
     )
     .await
-    .expect("release pinning");
+    .expect("unpin release");
 
-    // Poll again — should pick it up since it's released.
+    // Poll again — the workload stayed runnable and is pinnable again.
     let result = waymark_workload_pinning_backend::PollUnpinnedWorkloads::poll_unpinned(
+        &backend,
+        test_now(),
+        test_pinning(Uuid::new_v4()),
+        test_max_items(),
+    )
+    .await
+    .expect("poll after release-unpin")
+    .expect("workloads available");
+    let ids: Vec<InstanceId> = result.into_iter().collect();
+    assert_eq!(ids, vec![vm_id]);
+}
+
+#[serial(postgres)]
+#[tokio::test]
+async fn unpin_park_removes_workload_from_runnable_set() {
+    let backend = setup_backend().await;
+    let node_id = Uuid::new_v4();
+    let (vm_id, _executable_id) = register_test_vm(&backend).await;
+
+    // Pin the VM.
+    waymark_workload_pinning_backend::PollUnpinnedWorkloads::poll_unpinned(
         &backend,
         test_now(),
         test_pinning(node_id),
         test_max_items(),
     )
     .await
-    .expect("poll after release")
+    .expect("pin vm")
+    .expect("workloads available");
+
+    // Unpin in park mode.
+    waymark_workload_pinning_backend::UnpinWorkloads::unpin_workloads(
+        &backend,
+        node_id,
+        nonempty_collections::NEVec::new((vm_id, waymark_workload_pinning_core::UnpinMode::Park)),
+    )
+    .await
+    .expect("unpin park");
+
+    // Poll again — the workload left the runnable set.
+    let result = waymark_workload_pinning_backend::PollUnpinnedWorkloads::poll_unpinned(
+        &backend,
+        test_now(),
+        test_pinning(Uuid::new_v4()),
+        test_max_items(),
+    )
+    .await;
+    assert!(matches!(result, Ok(None)));
+
+    // The snapshot survives parking — only the runnable-workload row is gone.
+    let snapshots: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM vm_runtime_snapshots WHERE vm_id = $1")
+            .bind(vm_id)
+            .fetch_one(backend.pool())
+            .await
+            .expect("count snapshots");
+    assert_eq!(snapshots, 1);
+}
+
+#[serial(postgres)]
+#[tokio::test]
+async fn refresh_reports_parked_workload_as_lost() {
+    let backend = setup_backend().await;
+    let node_id = Uuid::new_v4();
+    let (vm_id, _executable_id) = register_test_vm(&backend).await;
+
+    // Pin the VM.
+    waymark_workload_pinning_backend::PollUnpinnedWorkloads::poll_unpinned(
+        &backend,
+        test_now(),
+        test_pinning(node_id),
+        test_max_items(),
+    )
+    .await
+    .expect("pin vm")
+    .expect("workloads available");
+
+    // Park it — the runnable-workload row is gone.
+    waymark_workload_pinning_backend::UnpinWorkloads::unpin_workloads(
+        &backend,
+        node_id,
+        nonempty_collections::NEVec::new((vm_id, waymark_workload_pinning_core::UnpinMode::Park)),
+    )
+    .await
+    .expect("unpin park");
+
+    // A late heartbeat racing the park must report the pinning as lost.
+    let statuses = waymark_workload_pinning_backend::KeepalivePinnings::refresh_pinnings(
+        &backend,
+        test_now(),
+        test_pinning(node_id),
+        nonempty_collections::NEVec::new(vm_id),
+    )
+    .await
+    .expect("refresh pinnings");
+    assert!(statuses.first().pinning.is_none());
+}
+
+#[serial(postgres)]
+#[tokio::test]
+async fn unpin_mixed_batch_releases_and_parks() {
+    let backend = setup_backend().await;
+    let node_id = Uuid::new_v4();
+    let (vm_a, _executable_a) = register_test_vm(&backend).await;
+    let (vm_b, _executable_b) = register_test_vm(&backend).await;
+
+    // Pin both VMs.
+    waymark_workload_pinning_backend::PollUnpinnedWorkloads::poll_unpinned(
+        &backend,
+        test_now(),
+        test_pinning(node_id),
+        test_max_items(),
+    )
+    .await
+    .expect("pin both vms")
+    .expect("workloads available");
+
+    // Release vm_a and park vm_b in a single batch.
+    let mut workloads =
+        nonempty_collections::NEVec::new((vm_a, waymark_workload_pinning_core::UnpinMode::Release));
+    workloads.push((vm_b, waymark_workload_pinning_core::UnpinMode::Park));
+    waymark_workload_pinning_backend::UnpinWorkloads::unpin_workloads(&backend, node_id, workloads)
+        .await
+        .expect("unpin mixed batch");
+
+    // Poll again — only the released workload comes back.
+    let result = waymark_workload_pinning_backend::PollUnpinnedWorkloads::poll_unpinned(
+        &backend,
+        test_now(),
+        test_pinning(Uuid::new_v4()),
+        test_max_items(),
+    )
+    .await
+    .expect("poll after mixed unpin")
     .expect("workloads available");
     let ids: Vec<InstanceId> = result.into_iter().collect();
-    assert_eq!(ids, vec![vm_id]);
+    assert_eq!(ids, vec![vm_a]);
+}
+
+#[serial(postgres)]
+#[tokio::test]
+async fn unpin_from_non_owner_is_noop() {
+    let backend = setup_backend().await;
+    let node_a = Uuid::new_v4();
+    let node_b = Uuid::new_v4();
+    let (vm_id, _executable_id) = register_test_vm(&backend).await;
+
+    // Node A pins the VM.
+    waymark_workload_pinning_backend::PollUnpinnedWorkloads::poll_unpinned(
+        &backend,
+        test_now(),
+        test_pinning(node_a),
+        test_max_items(),
+    )
+    .await
+    .expect("node a pin")
+    .expect("workloads available");
+
+    // Node B tries to park it — the ownership fence makes this a no-op.
+    waymark_workload_pinning_backend::UnpinWorkloads::unpin_workloads(
+        &backend,
+        node_b,
+        nonempty_collections::NEVec::new((vm_id, waymark_workload_pinning_core::UnpinMode::Park)),
+    )
+    .await
+    .expect("unpin from non-owner");
+
+    // Node A still owns the pinning.
+    let statuses = waymark_workload_pinning_backend::KeepalivePinnings::refresh_pinnings(
+        &backend,
+        test_now(),
+        test_pinning(node_a),
+        nonempty_collections::NEVec::new(vm_id),
+    )
+    .await
+    .expect("refresh pinnings");
+    assert!(statuses.first().pinning.is_some());
+}
+
+#[serial(postgres)]
+#[tokio::test]
+async fn unpin_absent_workload_is_noop() {
+    let backend = setup_backend().await;
+
+    let result = waymark_workload_pinning_backend::UnpinWorkloads::unpin_workloads(
+        &backend,
+        Uuid::new_v4(),
+        nonempty_collections::NEVec::new((
+            InstanceId::new_uuid_v4(),
+            waymark_workload_pinning_core::UnpinMode::Park,
+        )),
+    )
+    .await;
+    assert!(result.is_ok());
 }
 
 #[serial(postgres)]

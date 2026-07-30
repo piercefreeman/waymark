@@ -1,8 +1,8 @@
 //! Postgres backend for workload pinning.
 //!
 //! Implements [`waymark_workload_pinning_backend::Backend`] so that the
-//! workload pinning manager can pin, refresh, and release workload
-//! pinnings via Postgres.
+//! workload pinning manager can pin, refresh, and unpin workloads via
+//! Postgres.
 
 pub mod error;
 
@@ -20,6 +20,7 @@ use waymark_ids::InstanceId;
 use waymark_observability::obs;
 use waymark_timed_future::TimedFutureExt as _;
 use waymark_workload_pinning_backend::{Pinning, PinningStatus};
+use waymark_workload_pinning_core::UnpinMode;
 
 use crate::PostgresBackend;
 
@@ -152,34 +153,47 @@ impl waymark_workload_pinning_backend::KeepalivePinnings for PostgresBackend {
     }
 }
 
-impl waymark_workload_pinning_backend::ReleasePinnings for PostgresBackend {
-    type Error = error::ReleaseError;
+impl waymark_workload_pinning_backend::UnpinWorkloads for PostgresBackend {
+    type Error = error::UnpinError;
 
     #[obs]
     #[function_name::named]
-    fn release_pinnings<'a>(
+    fn unpin_workloads<'a>(
         &'a self,
         node_id: Self::NodeId,
-        workload_ids: impl nonempty_collections::IntoNonEmptyIterator<Item = Self::WorkloadId> + 'a,
+        workloads: impl nonempty_collections::IntoNonEmptyIterator<Item = (Self::WorkloadId, UnpinMode)>
+        + 'a,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a {
-        let ids: Vec<InstanceId> = workload_ids.into_iter().collect();
+        let mut released: Vec<InstanceId> = Vec::new();
+        let mut parked: Vec<InstanceId> = Vec::new();
+        for (workload_id, mode) in workloads {
+            match mode {
+                UnpinMode::Release => released.push(workload_id),
+                UnpinMode::Park => parked.push(workload_id),
+            }
+        }
         async move {
-            Self::count_query(&self.query_counts, "update:runnable_workloads_release");
+            Self::count_query(&self.query_counts, "update:runnable_workloads_unpin");
             sqlx::query(
                 r#"
+                WITH parked AS (
+                    DELETE FROM runnable_workloads
+                    WHERE node_id = $1 AND workload_id = ANY($2)
+                )
                 UPDATE runnable_workloads
                 SET node_id = NULL, expires_at = NULL, updated_at = NOW()
-                WHERE node_id = $1 AND workload_id = ANY($2)
+                WHERE node_id = $1 AND workload_id = ANY($3)
                 "#,
             )
             .bind(node_id)
-            .bind(&ids)
+            .bind(&parked)
+            .bind(&released)
             .execute(&self.pool)
             .timed(crate::query_timing_histogram!(
-                "update:runnable_workloads_release"
+                "update:runnable_workloads_unpin"
             ))
             .await
-            .map_err(error::ReleaseError::Sqlx)?;
+            .map_err(error::UnpinError::Sqlx)?;
 
             Ok(())
         }

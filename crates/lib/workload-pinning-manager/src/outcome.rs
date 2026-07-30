@@ -10,27 +10,27 @@ use crate::{MaintenanceError, PollLoopError};
 /// Use [`RunOutcomeFor`] to construct this type from a backend.
 #[derive(Debug)]
 #[must_use = "the run outcome should be inspected for errors"]
-pub struct RunOutcome<PollError, KeepaliveError, ReleaseError> {
+pub struct RunOutcome<PollError, KeepaliveError, UnpinError> {
     /// Error from the poll loop, if any.
     pub poll_error: Option<PollLoopError<PollError>>,
 
     /// Error from the maintenance loop, if any.
-    pub maintenance_error: Option<MaintenanceError<KeepaliveError, ReleaseError>>,
+    pub maintenance_error: Option<MaintenanceError<KeepaliveError, UnpinError>>,
 
-    /// If cleanup failed, the error from releasing remaining pinnings.
+    /// If cleanup failed, the error from unpinning remaining workloads.
     /// `None` means either there were no remaining pinnings or they were
     /// released successfully.
-    pub cleanup_error: Option<ReleaseError>,
+    pub cleanup_error: Option<UnpinError>,
 }
 
 /// Convenience alias for [`RunOutcome`] parameterized on a backend.
 pub type RunOutcomeFor<Backend> = RunOutcome<
     <Backend as waymark_workload_pinning_backend::PollUnpinnedWorkloads>::Error,
     <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error,
-    <Backend as waymark_workload_pinning_backend::ReleasePinnings>::Error,
+    <Backend as waymark_workload_pinning_backend::UnpinWorkloads>::Error,
 >;
 
-impl<PollError, KeepaliveError, ReleaseError> RunOutcome<PollError, KeepaliveError, ReleaseError> {
+impl<PollError, KeepaliveError, UnpinError> RunOutcome<PollError, KeepaliveError, UnpinError> {
     /// Returns `true` if every error field is `None`.
     pub fn is_ok(&self) -> bool {
         matches!(

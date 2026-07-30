@@ -7,9 +7,11 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_workload_pinning_backend::PinningStatus;
+use waymark_workload_pinning_core::UnpinMode;
 
 use crate::test_utils::helpers::{
-    short_heartbeat, test_max_concurrent, test_node_id, test_pinning, test_pinning_ttl,
+    long_heartbeat, short_heartbeat, test_max_concurrent, test_node_id, test_pinning,
+    test_pinning_ttl,
 };
 use crate::test_utils::mock::{MockBackend, MockError};
 use crate::{Params, PinnedHandle, run};
@@ -134,10 +136,13 @@ async fn maintenance_drains_after_poll_error() {
                 pinning: Some(pinning.clone()),
             }])))
         });
-    // Eviction releases the pinning.
+    // Eviction unpins the workload.
     backend
-        .expect_release_pinnings()
-        .with(predicate::eq(node_id), predicate::eq(nev![id]))
+        .expect_unpin_workloads()
+        .with(
+            predicate::eq(node_id),
+            predicate::eq(nev![(id, UnpinMode::Release)]),
+        )
         .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
@@ -174,7 +179,7 @@ async fn maintenance_drains_after_poll_error() {
     // Ensure the handle was received and dropped.
     handle_dropper.await.expect("handle dropper panicked");
 
-    // Explicit: release_pinnings was called (and completed) before run() returned.
+    // Explicit: unpin_workloads was called (and completed) before run() returned.
     let mut mock = Arc::into_inner(backend)
         .unwrap_or_else(|| panic!("backend should be exclusively owned after run() drops its Arc"));
     mock.checkpoint();
@@ -242,8 +247,11 @@ async fn maintenance_heartbeats_after_poll_is_dead() {
             });
     }
     backend
-        .expect_release_pinnings()
-        .with(predicate::eq(node_id), predicate::eq(nev![id]))
+        .expect_unpin_workloads()
+        .with(
+            predicate::eq(node_id),
+            predicate::eq(nev![(id, UnpinMode::Release)]),
+        )
         .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
@@ -288,7 +296,7 @@ async fn maintenance_heartbeats_after_poll_is_dead() {
 
     monitor.await.expect("monitor panicked");
 
-    // Explicit: release_pinnings was called (and completed) before run() returned.
+    // Explicit: unpin_workloads was called (and completed) before run() returned.
     let mut mock = Arc::into_inner(backend)
         .unwrap_or_else(|| panic!("backend should be exclusively owned after run() drops its Arc"));
     mock.checkpoint();
@@ -297,4 +305,239 @@ async fn maintenance_heartbeats_after_poll_is_dead() {
         Some(_) => {} // expected
         other => panic!("expected Poll error on poll_error, got {other:?}"),
     }
+}
+
+/// When the maintenance loop exits by force shutdown while workloads
+/// are still active (their handles held, never evicted), cleanup must
+/// unpin all of them with the release mode.
+#[tokio::test]
+async fn cleanup_unpins_remaining_workloads_on_force_shutdown() {
+    let id = 1u64;
+    let node_id = test_node_id();
+
+    let mut backend = MockBackend::new();
+    let mut poll_calls = 0;
+    backend.expect_poll_unpinned().returning(move |_, _, _| {
+        poll_calls += 1;
+        if poll_calls == 1 {
+            Box::pin(std::future::ready(Ok(Some(nev![id]))))
+        } else {
+            Box::pin(async {
+                // Yield so the single-threaded runtime can schedule
+                // spawned tasks between polls.
+                tokio::task::yield_now().await;
+                Ok(None)
+            })
+        }
+    });
+    backend
+        .expect_unpin_workloads()
+        .with(
+            predicate::eq(node_id),
+            predicate::eq(nev![(id, UnpinMode::Release)]),
+        )
+        .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
+
+    let backend = Arc::new(backend);
+
+    let (pinned_tx, mut pinned_rx) =
+        mpsc::channel::<nonempty_collections::NEVec<PinnedHandle<u64>>>(1);
+    let force_shutdown = CancellationToken::new();
+
+    let run_future = run(Params {
+        shutdown_token: CancellationToken::new(),
+        force_shutdown_token: force_shutdown.clone(),
+        backend: Arc::clone(&backend),
+        node_id,
+        pinned_tx,
+        max_pinned: test_max_concurrent(),
+        pinning_ttl: test_pinning_ttl(),
+        pinning_heartbeat: long_heartbeat(),
+    });
+    tokio::pin!(run_future);
+
+    // Receiving the handles proves the maintenance loop acked the batch,
+    // so the workload is in the active set.
+    let handles = tokio::select! {
+        handles = pinned_rx.recv() => handles.expect("pinned handles dispatched"),
+        _ = &mut run_future => panic!("run exited before dispatching handles"),
+        _ = tokio::time::sleep(Duration::from_secs(5)) => panic!("handles never dispatched"),
+    };
+
+    force_shutdown.cancel();
+
+    let outcome = tokio::time::timeout(Duration::from_secs(5), &mut run_future)
+        .await
+        .expect("run should exit after force shutdown");
+
+    // The handles were held for the whole run — the eviction path never
+    // fired; only cleanup could have unpinned.
+    drop(handles);
+
+    match outcome.maintenance_error {
+        Some(crate::MaintenanceError::ForceShutdown) => {}
+        other => panic!("expected ForceShutdown, got {other:?}"),
+    }
+    assert!(
+        outcome.cleanup_error.is_none(),
+        "expected clean cleanup, got {:?}",
+        outcome.cleanup_error
+    );
+
+    // Explicit: the cleanup unpin was called exactly once.
+    let mut mock = Arc::into_inner(backend)
+        .unwrap_or_else(|| panic!("backend should be exclusively owned after run() drops its Arc"));
+    mock.checkpoint();
+}
+
+/// When the cleanup unpin itself fails, the error must surface on
+/// `cleanup_error` instead of being swallowed.
+#[tokio::test]
+async fn cleanup_reports_unpin_error() {
+    let id = 1u64;
+    let node_id = test_node_id();
+
+    let mut backend = MockBackend::new();
+    let mut poll_calls = 0;
+    backend.expect_poll_unpinned().returning(move |_, _, _| {
+        poll_calls += 1;
+        if poll_calls == 1 {
+            Box::pin(std::future::ready(Ok(Some(nev![id]))))
+        } else {
+            Box::pin(async {
+                // Yield so the single-threaded runtime can schedule
+                // spawned tasks between polls.
+                tokio::task::yield_now().await;
+                Ok(None)
+            })
+        }
+    });
+    backend
+        .expect_unpin_workloads()
+        .with(
+            predicate::eq(node_id),
+            predicate::eq(nev![(id, UnpinMode::Release)]),
+        )
+        .return_once(move |_, _| Box::pin(std::future::ready(Err(MockError))));
+
+    let backend = Arc::new(backend);
+
+    let (pinned_tx, mut pinned_rx) =
+        mpsc::channel::<nonempty_collections::NEVec<PinnedHandle<u64>>>(1);
+    let force_shutdown = CancellationToken::new();
+
+    let run_future = run(Params {
+        shutdown_token: CancellationToken::new(),
+        force_shutdown_token: force_shutdown.clone(),
+        backend: Arc::clone(&backend),
+        node_id,
+        pinned_tx,
+        max_pinned: test_max_concurrent(),
+        pinning_ttl: test_pinning_ttl(),
+        pinning_heartbeat: long_heartbeat(),
+    });
+    tokio::pin!(run_future);
+
+    let handles = tokio::select! {
+        handles = pinned_rx.recv() => handles.expect("pinned handles dispatched"),
+        _ = &mut run_future => panic!("run exited before dispatching handles"),
+        _ = tokio::time::sleep(Duration::from_secs(5)) => panic!("handles never dispatched"),
+    };
+
+    force_shutdown.cancel();
+
+    let outcome = tokio::time::timeout(Duration::from_secs(5), &mut run_future)
+        .await
+        .expect("run should exit after force shutdown");
+
+    drop(handles);
+
+    assert!(
+        outcome.cleanup_error.is_some(),
+        "expected the cleanup unpin failure to be reported"
+    );
+}
+
+/// A handle unpinned with the park mode must flow end to end: the
+/// consumer's `unpin(Park)` reaches the backend as a park eviction and
+/// the run drains cleanly afterwards.
+#[tokio::test]
+async fn unpin_park_flows_end_to_end() {
+    let id = 1u64;
+    let node_id = test_node_id();
+    let pinning = test_pinning(node_id, 1);
+
+    let mut backend = MockBackend::new();
+    // First poll returns the workload; second poll errors so the run
+    // can drain and exit once the workload is parked.
+    let mut poll_calls = 0;
+    backend.expect_poll_unpinned().returning(move |_, _, _| {
+        poll_calls += 1;
+        if poll_calls == 1 {
+            Box::pin(std::future::ready(Ok(Some(nev![id]))))
+        } else {
+            Box::pin(std::future::ready(Err(MockError)))
+        }
+    });
+    backend
+        .expect_refresh_pinnings()
+        .times(0..)
+        .returning(move |_, _, _| {
+            Box::pin(std::future::ready(Ok(nev![PinningStatus {
+                workload_id: id,
+                pinning: Some(pinning.clone()),
+            }])))
+        });
+    backend
+        .expect_unpin_workloads()
+        .with(
+            predicate::eq(node_id),
+            predicate::eq(nev![(id, UnpinMode::Park)]),
+        )
+        .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
+
+    let backend = Arc::new(backend);
+
+    let (pinned_tx, mut pinned_rx) =
+        mpsc::channel::<nonempty_collections::NEVec<PinnedHandle<u64>>>(1);
+
+    // Receive the pinned handles and park them all.
+    let parker = tokio::spawn(async move {
+        let handles = pinned_rx
+            .recv()
+            .await
+            .expect("should receive pinned handle");
+        for handle in handles {
+            handle.unpin(UnpinMode::Park);
+        }
+    });
+
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(5),
+        run(Params {
+            shutdown_token: CancellationToken::new(),
+            force_shutdown_token: CancellationToken::new(),
+            backend: Arc::clone(&backend),
+            node_id,
+            pinned_tx,
+            max_pinned: test_max_concurrent(),
+            pinning_ttl: test_pinning_ttl(),
+            pinning_heartbeat: short_heartbeat(),
+        }),
+    )
+    .await
+    .expect("run should exit after the workload is parked");
+
+    parker.await.expect("parker panicked");
+
+    // Explicit: the park eviction reached the backend before run() returned.
+    let mut mock = Arc::into_inner(backend)
+        .unwrap_or_else(|| panic!("backend should be exclusively owned after run() drops its Arc"));
+    mock.checkpoint();
+
+    assert!(
+        outcome.cleanup_error.is_none(),
+        "expected no cleanup, got {:?}",
+        outcome.cleanup_error
+    );
 }

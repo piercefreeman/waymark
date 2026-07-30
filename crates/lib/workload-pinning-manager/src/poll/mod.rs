@@ -23,7 +23,10 @@ where
     pub backend: Arc<Backend>,
     pub node_id: Backend::NodeId,
     pub pinned_tx: tokio::sync::mpsc::Sender<NEVec<PinnedHandle<Backend::WorkloadId>>>,
-    pub evict_tx: tokio::sync::mpsc::UnboundedSender<Backend::WorkloadId>,
+    pub evict_tx: tokio::sync::mpsc::UnboundedSender<(
+        Backend::WorkloadId,
+        waymark_workload_pinning_core::UnpinMode,
+    )>,
     pub batch_tx: tokio::sync::mpsc::Sender<(
         NEVec<Backend::WorkloadId>,
         tokio::sync::oneshot::Sender<usize>,
@@ -146,7 +149,10 @@ async fn poll_and_dispatch<Backend>(
         tokio::sync::oneshot::Sender<usize>,
     )>,
     pinned_tx: &tokio::sync::mpsc::Sender<NEVec<PinnedHandle<Backend::WorkloadId>>>,
-    evict_tx: &tokio::sync::mpsc::UnboundedSender<Backend::WorkloadId>,
+    evict_tx: &tokio::sync::mpsc::UnboundedSender<(
+        Backend::WorkloadId,
+        waymark_workload_pinning_core::UnpinMode,
+    )>,
 ) -> Result<Option<usize>, PollLoopErrorFor<Backend>>
 where
     Backend: waymark_workload_pinning_backend::PollUnpinnedWorkloads<
