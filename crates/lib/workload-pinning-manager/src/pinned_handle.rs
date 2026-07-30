@@ -7,9 +7,13 @@ use waymark_workload_pinning_core::UnpinMode;
 /// A handle to a pinned workload.
 ///
 /// Unpin explicitly via [`PinnedHandle::unpin`]. When dropped, the
-/// workload is unpinned with [`UnpinMode::Release`]: releasing is valid
-/// unless parking is justified, and parking — which requires a
-/// justification — is only available through the explicit call.
+/// workload is unpinned with [`UnpinMode::Release`] — not because
+/// releasing is unconditionally valid (see [`UnpinMode`]: it is not),
+/// but because a drop carries no decision, and of the two ways to be
+/// wrong, a spurious release is the recoverable one: it is loud and ends
+/// as soon as some attempt reaches a park decision, while a spurious
+/// park is silent and permanent. Parking is reachable only through the
+/// explicit call.
 #[must_use]
 pub struct PinnedHandle<WorkloadId> {
     id: Option<WorkloadId>,
@@ -38,9 +42,9 @@ impl<WorkloadId> PinnedHandle<WorkloadId> {
 
     /// Unpin the workload with the given mode.
     ///
-    /// Pass [`UnpinMode::Park`] only when there is a liveness guarantee
-    /// for the workload to be unparked in the future when needed — or
-    /// when it never needs to be.
+    /// See [`UnpinMode`] for what each mode obliges the caller to have
+    /// established: neither of them is the safe default, and passing the
+    /// wrong one is a spinloop or a stuck workload, not a no-op.
     pub fn unpin(mut self, mode: UnpinMode) {
         if let Some(id) = self.id.take() {
             let _ = self.evict_tx.send((id, mode));
