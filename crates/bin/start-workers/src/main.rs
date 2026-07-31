@@ -161,6 +161,10 @@ async fn main() -> Result<()> {
         workload_poll_rate_limit: config.workload_poll_rate_limit,
         snapshot_batch_max: config.snapshot_batch_max,
         snapshot_batch_delay: config.snapshot_batch_delay,
+        action_effect_reconciler_request_batch_max: config
+            .action_effect_reconciler_request_batch_max,
+        action_effect_reconciler_request_batch_delay: config
+            .action_effect_reconciler_request_batch_delay,
         sleep_poll_interval: config.sleep_poll_interval,
         vm_retention: config.vm_retention,
         vm_sweep_interval: config.vm_sweep_interval,
@@ -206,6 +210,11 @@ async fn main() -> Result<()> {
     )
     .await;
     let _ = tokio::time::timeout(Duration::from_secs(5), execution_handles.snapshot_batcher).await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        execution_handles.action_effect_reconciler_request_batcher,
+    )
+    .await;
     let _ = tokio::time::timeout(Duration::from_secs(5), bridge_task).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
 

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use waymark_extcall_reconciler_core::ActionEffectHandler as _;
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_codec_rmp::RmpCodec;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
@@ -8,18 +9,36 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 use crate::EffectHandler;
 use crate::effect_handler::Error;
 use crate::renewal::HeldLock;
-use crate::test_support::{
-    CapturingRequester, FailingRequester, MockBackend, MockRecordError, TestKey, action_ref,
-};
+use crate::request_batcher::{RecordError, request_batcher};
+use crate::test_support::{CapturingRequester, FailingRequester, MockBackend, TestKey, action_ref};
 
 const LOCK_TIME_TO_LIVE: std::time::Duration = std::time::Duration::from_secs(60);
 
-type TestEffectHandler = EffectHandler<MockBackend, RmpCodec, CapturingRequester>;
+type TestEffectHandler<Requester> = EffectHandler<u64, RmpCodec, Requester>;
+
+/// A recorder over the mock backend, with its batcher spawned onto the
+/// test runtime.  Small delay window so single submissions flush promptly.
+fn spawn_recorder(
+    backend: &Arc<MockBackend>,
+) -> crate::request_batcher::RequestRecorderHandle<u64> {
+    let (recorder, batcher) = request_batcher(
+        Arc::clone(backend),
+        7u32,
+        LOCK_TIME_TO_LIVE.try_into().unwrap(),
+        waymark_batcher::Policy {
+            max_batch: 16.try_into().unwrap(),
+            max_delay: NonZeroDuration::from_millis(1).unwrap(),
+        },
+        std::future::pending(),
+    );
+    tokio::spawn(batcher);
+    recorder
+}
 
 struct Harness {
     backend: Arc<MockBackend>,
     requester: CapturingRequester,
-    handler: TestEffectHandler,
+    handler: TestEffectHandler<CapturingRequester>,
     held_locks_rx: tokio::sync::mpsc::UnboundedReceiver<HeldLock<u64>>,
 }
 
@@ -28,10 +47,8 @@ fn harness() -> Harness {
     let requester = CapturingRequester::default();
     let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
     let handler = EffectHandler {
-        backend: Arc::clone(&backend),
+        recorder: spawn_recorder(&backend),
         codec: RmpCodec,
-        lock_owner_id: 7u32,
-        lock_time_to_live: LOCK_TIME_TO_LIVE.try_into().unwrap(),
         held_locks_tx,
         vm_id: 42u64,
         requester: requester.clone(),
@@ -133,7 +150,7 @@ async fn divergent_payload_is_fatal() {
         .expect_err("divergent payload must fail");
     assert!(matches!(
         error,
-        Error::Record(MockRecordError::DivergentPayload(_))
+        Error::Record(RecordError::DivergentPayload)
     ));
 }
 
@@ -160,11 +177,9 @@ async fn retries_retryable_record_failures() {
 async fn delivery_failure_leaves_the_row_recorded_and_untracked() {
     let backend = Arc::new(MockBackend::default());
     let (held_locks_tx, mut held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut handler: EffectHandler<MockBackend, RmpCodec, FailingRequester> = EffectHandler {
-        backend: Arc::clone(&backend),
+    let mut handler: TestEffectHandler<FailingRequester> = EffectHandler {
+        recorder: spawn_recorder(&backend),
         codec: RmpCodec,
-        lock_owner_id: 7u32,
-        lock_time_to_live: LOCK_TIME_TO_LIVE.try_into().unwrap(),
         held_locks_tx,
         vm_id: 42u64,
         requester: FailingRequester,

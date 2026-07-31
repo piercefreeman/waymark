@@ -9,6 +9,7 @@ waymark-action-core = { workspace = true, features = ["serde"] }
 waymark-action-effect-reconciler-backend = { workspace = true }
 waymark-action-runtime-core = { workspace = true }
 waymark-action-runtime-metadata = { workspace = true }
+waymark-batcher = { workspace = true }
 waymark-extcall-reconciler-core = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-state-manager-core = { workspace = true }
