@@ -36,6 +36,7 @@ async fn run_benchmark(
     dsn: &SecretStr,
     max_pinned: NonZeroUsize,
     pool_size: NonZeroU32,
+    registration_batch_max: NonZeroUsize,
 ) -> BenchmarkStats {
     let cases = cases::build_cases(base);
     if dsn.expose_secret() == LOCAL_POSTGRES_DSN.expose_secret() {
@@ -60,9 +61,14 @@ async fn run_benchmark(
         waymark_workflow_service_vm_runtimes::RegistrationService::new(backend.clone(), codec);
 
     let queue_start = Instant::now();
-    let total =
-        registration::register_benchmark_vms(&executables, &registration, &cases, count_per_case)
-            .await;
+    let total = registration::register_benchmark_vms(
+        &executables,
+        &registration,
+        &cases,
+        count_per_case,
+        registration_batch_max,
+    )
+    .await;
     println!(
         "Queued {total} instances across {} IR jobs in {:.2?}",
         cases.len(),
@@ -135,12 +141,22 @@ fn main() {
     }
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
     let _span = tracing::info_span!("benchmark_main").entered();
-    let max_pinned = cli::benchmark_max_pinned();
-    let pool_size = cli::benchmark_db_pool_size();
+    let max_pinned: NonZeroUsize = envfury::or_parse("WAYMARK_MAX_CONCURRENT_INSTANCES", "500")
+        .expect("WAYMARK_MAX_CONCURRENT_INSTANCES");
+    let pool_size: NonZeroU32 =
+        envfury::or_parse("WAYMARK_DB_POOL_SIZE", "10").expect("WAYMARK_DB_POOL_SIZE");
+    let registration_batch_max: NonZeroUsize =
+        envfury::or_parse("WAYMARK_REGISTRATION_BATCH_MAX", "256")
+            .expect("WAYMARK_REGISTRATION_BATCH_MAX");
     println!("max_pinned = {max_pinned}");
     println!("db_pool_size = {pool_size}");
     let stats = runtime.block_on(run_benchmark(
-        args.count, args.base, &args.dsn, max_pinned, pool_size,
+        args.count,
+        args.base,
+        &args.dsn,
+        max_pinned,
+        pool_size,
+        registration_batch_max,
     ));
     println!("Benchmark completed in {:.2?}", stats.elapsed);
     println!("{}", report::format_query_counts(stats.query_counts));

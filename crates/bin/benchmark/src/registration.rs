@@ -9,15 +9,6 @@ use waymark_backend_postgres::PostgresBackend;
 
 use crate::cases::BenchmarkCase;
 
-/// Max VM runtimes registered per batched call (env
-/// `WAYMARK_REGISTRATION_BATCH_MAX`).
-fn registration_batch_max() -> NonZeroUsize {
-    std::env::var("WAYMARK_REGISTRATION_BATCH_MAX")
-        .ok()
-        .and_then(|value| value.trim().parse().ok())
-        .unwrap_or(NonZeroUsize::new(256).unwrap())
-}
-
 struct CompiledCase {
     executable_id: waymark_ids::WorkflowVersionId,
     executable: Arc<waymark_system_vm::Executable>,
@@ -37,6 +28,7 @@ pub async fn register_benchmark_vms(
     >,
     cases: &HashMap<String, BenchmarkCase>,
     count_per_case: NonZeroUsize,
+    registration_batch_max: NonZeroUsize,
 ) -> usize {
     let mut compiled = HashMap::new();
     for (name, case) in cases {
@@ -68,7 +60,7 @@ pub async fn register_benchmark_vms(
     }
     case_names.shuffle(&mut rand::rng());
 
-    for chunk in case_names.chunks(registration_batch_max().get()) {
+    for chunk in case_names.chunks(registration_batch_max.get()) {
         let mut vms = Vec::with_capacity(chunk.len());
         for name in chunk {
             let case = cases.get(name).expect("case");
