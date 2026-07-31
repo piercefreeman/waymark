@@ -210,6 +210,9 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for M
 
     async fn renew_action_call_request_locks(
         &self,
+        // The mock stores `lock.expires_at` verbatim rather than translating
+        // it onto a store clock, so the baseline instant goes unused.
+        _now: DateTime<Utc>,
         lock: TestLock,
         keys: NESlice<'_, TestKey>,
     ) -> Result<NEVec<RequestLockRenewal<TestVmId>>, Self::Error> {

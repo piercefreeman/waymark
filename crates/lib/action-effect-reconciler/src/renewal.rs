@@ -169,9 +169,14 @@ where
                 let keys = NEVec::try_from_vec(tracked.keys().copied().collect())
                     .expect("tracked is non-empty");
 
-                let lock = fresh_lock(Utc::now(), &lock_owner_id, lock_time_to_live);
+                // One wall-clock instant for both the lock expiry and the
+                // store-clock baseline, so the store reconstructs the
+                // intended time-to-live exactly.  (Distinct from `now`
+                // above: the monotonic fence clock.)
+                let wall_now = Utc::now();
+                let lock = fresh_lock(wall_now, &lock_owner_id, lock_time_to_live);
                 let renewals = match backend
-                    .renew_action_call_request_locks(lock, keys.as_nonempty_slice())
+                    .renew_action_call_request_locks(wall_now, lock, keys.as_nonempty_slice())
                     .await
                 {
                     Ok(renewals) => renewals,
