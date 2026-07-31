@@ -154,3 +154,19 @@ pub enum Error {
     #[error(transparent)]
     Sqlx(sqlx::Error),
 }
+
+/// The remaining time to a caller-clock deadline as microseconds for
+/// `interval` arithmetic in SQL: the difference of two caller-clock
+/// values, so the stored deadline (the store's now plus this duration)
+/// tracks the caller's without any cross-clock comparison.  Negative
+/// when the deadline already passed — storing an already-lapsed
+/// deadline is the honest statement.  Saturated at the (unreachable)
+/// ±292k-year chrono overflow bounds.
+pub(crate) fn remaining_micros(
+    now: chrono::DateTime<chrono::Utc>,
+    deadline: chrono::DateTime<chrono::Utc>,
+) -> i64 {
+    (deadline - now)
+        .num_microseconds()
+        .unwrap_or(if deadline >= now { i64::MAX } else { i64::MIN })
+}
