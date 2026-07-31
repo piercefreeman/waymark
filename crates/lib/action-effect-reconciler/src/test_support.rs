@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use nonempty_collections::{NESlice, NEVec};
-use waymark_action_effect_reconciler_backend::lock_vm_action_call_requests::VmLockOutcome;
+use waymark_action_effect_reconciler_backend::lock_action_call_requests::VmLockOutcome;
 use waymark_action_effect_reconciler_backend::record_action_call_requests::RecordingSuccess;
 use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::{
     RenewalStatus, RequestLockRenewal,
@@ -150,49 +150,54 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Mock
 #[error("mock lock failure")]
 pub(crate) struct MockLockError;
 
-impl waymark_action_effect_reconciler_backend::LockVmActionCallRequests for MockBackend {
+impl waymark_action_effect_reconciler_backend::LockActionCallRequests for MockBackend {
     type Error = MockLockError;
 
-    async fn lock_vm_action_call_requests(
-        &self,
+    async fn lock_action_call_requests<'a>(
+        &'a self,
         now: DateTime<Utc>,
         lock: TestLock,
-        vm_id: &TestVmId,
-    ) -> Result<VmLockOutcome<TestVmId>, MockLockError> {
+        vm_ids: NESlice<'a, TestVmId>,
+    ) -> Result<NEVec<VmLockOutcome<TestVmId>>, MockLockError> {
         if *self.fail_locks.lock().unwrap() {
             return Err(MockLockError);
         }
 
         let mut rows = self.rows.lock().unwrap();
-        let mut locked = Vec::new();
-        let mut held_elsewhere = Vec::new();
-        for (key, row) in rows.iter_mut() {
-            if key.vm_id != *vm_id {
-                continue;
-            }
-            let eligible = match (row.locked_by, row.lock_expires_at) {
-                (None, _) => true,
-                (Some(_), Some(expires_at)) => expires_at <= now,
-                (Some(_), None) => unreachable!("lock owner and expiry are paired"),
-            };
-            if eligible {
-                row.locked_by = Some(lock.owner);
-                row.lock_expires_at = Some(lock.expires_at);
-                locked.push(ActionCallRequestRecord {
-                    vm_id: key.vm_id,
-                    promise_state_id: key.promise_state_id,
-                    effect_number: row.effect_number,
-                    request: row.request.clone(),
-                });
-            } else {
-                held_elsewhere.push(*key);
+        let mut outcomes: Vec<VmLockOutcome<TestVmId>> = vm_ids
+            .iter()
+            .map(|vm_id| VmLockOutcome {
+                vm_id: *vm_id,
+                locked: Vec::new(),
+                held_elsewhere: Vec::new(),
+            })
+            .collect();
+        for outcome in &mut outcomes {
+            for (key, row) in rows.iter_mut() {
+                if key.vm_id != outcome.vm_id {
+                    continue;
+                }
+                let eligible = match (row.locked_by, row.lock_expires_at) {
+                    (None, _) => true,
+                    (Some(_), Some(expires_at)) => expires_at <= now,
+                    (Some(_), None) => unreachable!("lock owner and expiry are paired"),
+                };
+                if eligible {
+                    row.locked_by = Some(lock.owner);
+                    row.lock_expires_at = Some(lock.expires_at);
+                    outcome.locked.push(ActionCallRequestRecord {
+                        vm_id: key.vm_id,
+                        promise_state_id: key.promise_state_id,
+                        effect_number: row.effect_number,
+                        request: row.request.clone(),
+                    });
+                } else {
+                    outcome.held_elsewhere.push(*key);
+                }
             }
         }
 
-        Ok(VmLockOutcome {
-            locked,
-            held_elsewhere,
-        })
+        Ok(NEVec::try_from_vec(outcomes).expect("one outcome per input vm; inputs are non-empty"))
     }
 }
 

@@ -8,8 +8,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
+use nonempty_collections::{IntoNonEmptyIterator as _, NonEmptyIterator as _};
 use waymark_action_effect_reconciler_backend::{
-    ActionCallRequestKey, HasLockOwnerId, HasTimestamp, HasVmId, LockVmActionCallRequests,
+    ActionCallRequestKey, HasLockOwnerId, HasTimestamp, HasVmId, LockActionCallRequests,
 };
 use waymark_action_runtime_core::ActionCallRequest;
 use waymark_action_runtime_metadata::ActionCallCorrelation;
@@ -93,8 +94,8 @@ impl<Inner, Backend, Codec, RequesterProvider, ActionCallRequester>
 where
     Inner: waymark_state_manager_core::Factory<Key = Backend::VmId> + Send + Sync,
     Backend: HasVmId + HasLockOwnerId + HasTimestamp<Timestamp = DateTime<Utc>>,
-    Backend: LockVmActionCallRequests + Send + Sync,
-    <Backend as LockVmActionCallRequests>::Error: Send,
+    Backend: LockActionCallRequests + Send + Sync,
+    <Backend as LockActionCallRequests>::Error: Send,
     Backend::VmId: Clone + Send + Sync + core::fmt::Debug,
     Backend::LockOwnerId: Clone + Send + Sync,
     Codec: waymark_vm_codec_core::DeserializerProvider + Send + Sync,
@@ -110,7 +111,7 @@ where
     type Value = Inner::Value;
     type Error = Error<
         ReconcileVmError<
-            <Backend as LockVmActionCallRequests>::Error,
+            <Backend as LockActionCallRequests>::Error,
             <Codec as waymark_vm_codec_core::DeserializerProvider>::Error,
             ActionCallRequester::Error,
         >,
@@ -123,12 +124,20 @@ where
         // so the store reconstructs the intended time-to-live exactly.
         let now = Utc::now();
         let lock = fresh_lock(now, &self.lock_owner_id, self.lock_time_to_live);
-        let outcome = self
+        let outcomes = self
             .backend
-            .lock_vm_action_call_requests(now, lock, key)
+            .lock_action_call_requests(
+                now,
+                lock,
+                nonempty_collections::NESlice::try_from_slice(std::slice::from_ref(key))
+                    .expect("from_ref yields a one-element, non-empty slice"),
+            )
             .await
             .map_err(ReconcileVmError::Lock)
             .map_err(Error::Reconcile)?;
+        // A non-empty result for a one-element input: the first outcome is
+        // this VM's, by the per-input-order contract.
+        let (outcome, _) = outcomes.into_nonempty_iter().next();
 
         if !outcome.held_elsewhere.is_empty() {
             tracing::debug!(
