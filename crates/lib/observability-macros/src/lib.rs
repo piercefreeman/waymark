@@ -9,7 +9,7 @@ pub fn obs(args: TokenStream, input: TokenStream) -> TokenStream {
     TokenStream::from(quote!(#item))
 }
 
-#[cfg(waymark_observability_trace)]
+#[cfg(waymark_observability_chrome_trace)]
 fn handle_item(args: TokenStream, item: &mut ItemFn) {
     let attr = if args.is_empty() {
         syn::parse_quote!(#[::waymark_observability::__inner::tracing::instrument(skip_all)])
@@ -20,5 +20,5 @@ fn handle_item(args: TokenStream, item: &mut ItemFn) {
     item.attrs.push(attr);
 }
 
-#[cfg(not(waymark_observability_trace))]
+#[cfg(not(waymark_observability_chrome_trace))]
 fn handle_item(_args: TokenStream, _item: &mut ItemFn) {}

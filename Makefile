@@ -89,8 +89,8 @@ BENCH_TRACE_PREFIX ?= $(BENCH_TRACE:.json=)
 BENCH_TRACE_TOP ?= 30
 BENCH_CONSOLE_BIND ?= 127.0.0.1:6669
 BENCH_CONSOLE_ARGS ?= --observe
-BENCH_CONSOLE_RUSTFLAGS ?= --cfg waymark_observability_trace
-BENCH_RUSTFLAGS ?= --cfg tokio_unstable --cfg waymark_observability_trace
+BENCH_CONSOLE_RUSTFLAGS ?= --cfg tokio_unstable --cfg waymark_observability_tokio_console
+BENCH_RUSTFLAGS ?= --cfg waymark_observability_chrome_trace
 BENCH_CONCURRENCY_SWEEP ?= 25 100 250 1000
 BENCH_RELEASE ?= 0
 BENCH_PROFILE_FLAG := $(if $(filter 1 true yes,$(BENCH_RELEASE)),--release,)
@@ -106,8 +106,8 @@ benchmark-console:
 	tmux attach -t waymark-benchmark
 
 benchmark-console-run:
-	TOKIO_CONSOLE_BIND="$(BENCH_CONSOLE_BIND)" RUSTFLAGS="$(BENCH_RUSTFLAGS) $(BENCH_CONSOLE_RUSTFLAGS)" cargo build $(BENCH_PROFILE_FLAG) --bin waymark-benchmark
-	TOKIO_CONSOLE_BIND="$(BENCH_CONSOLE_BIND)" RUSTFLAGS="$(BENCH_RUSTFLAGS) $(BENCH_CONSOLE_RUSTFLAGS)" $(BENCH_BIN) $(BENCH_CONSOLE_ARGS) $(BENCH_ARGS)
+	TOKIO_CONSOLE_BIND="$(BENCH_CONSOLE_BIND)" RUSTFLAGS="$(BENCH_CONSOLE_RUSTFLAGS)" cargo build $(BENCH_PROFILE_FLAG) --bin waymark-benchmark
+	TOKIO_CONSOLE_BIND="$(BENCH_CONSOLE_BIND)" RUSTFLAGS="$(BENCH_CONSOLE_RUSTFLAGS)" $(BENCH_BIN) $(BENCH_CONSOLE_ARGS) $(BENCH_ARGS)
 
 benchmark-trace:
 	RUSTFLAGS="$(BENCH_RUSTFLAGS)" cargo build $(BENCH_PROFILE_FLAG) --bin waymark-benchmark
