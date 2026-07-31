@@ -61,6 +61,7 @@ pub trait SleepEffectHandler {
     /// Record a sleep deadline for the given promise.
     fn record_sleep(
         &mut self,
+        effect_number: EffectNumber,
         promise_state_id: PromiseStateId,
         duration: NonZeroDuration,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
@@ -77,14 +78,21 @@ pub trait SettlerAck {
     type Ack;
 }
 
+/// Exposes the settlement value type a settler produces.
+///
+/// Shared by [`ActionPromiseSettler`] and [`SleepPromiseSettler`], so a
+/// unified settler can require that all its extcall sources settle into
+/// one value type.
+pub trait HasValue {
+    /// The type of a settlement resolution value.
+    type Value;
+}
+
 /// Produces promise settlements from completed action calls.
-pub trait ActionPromiseSettler<UnifiedAck>: SettlerAck
+pub trait ActionPromiseSettler<UnifiedAck>: SettlerAck + HasValue
 where
     UnifiedAck: From<Self::Ack>,
 {
-    /// The type of a successful action result value.
-    type Value;
-
     /// The error type returned when polling for action settlements fails.
     type Error: std::fmt::Debug;
 
@@ -105,7 +113,7 @@ where
 }
 
 /// Produces promise settlements from elapsed sleeps.
-pub trait SleepPromiseSettler<UnifiedAck>: SettlerAck
+pub trait SleepPromiseSettler<UnifiedAck>: SettlerAck + HasValue
 where
     UnifiedAck: From<Self::Ack>,
 {
@@ -118,11 +126,12 @@ where
     /// caller is currently waiting on — see
     /// [`waymark_vm_driver_core::PromiseSettler::get_promise_settlements`],
     /// where the demand originates.
-    fn poll_sleep_settlements<'a, Value>(
+    fn poll_sleep_settlements<'a>(
         &'a mut self,
         waiting_promise_state_ids: NESlice<'a, PromiseStateId>,
-    ) -> impl Future<Output = Result<NEVec<PromiseSettlement<Value, UnifiedAck>>, Self::Error>> + Send + 'a
+    ) -> impl Future<Output = Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>>
+    + Send
+    + 'a
     where
-        Value: From<()> + 'a,
         UnifiedAck: 'a;
 }

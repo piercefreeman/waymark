@@ -4710,7 +4710,7 @@ dependencies = [
  "waymark-fullset-effect-handler",
  "waymark-ids",
  "waymark-nonzero-duration",
- "waymark-sleep-reconciler",
+ "waymark-sleep-compat",
  "waymark-state-manager",
  "waymark-state-vm-executables",
  "waymark-state-vm-executables-backend",
@@ -4718,6 +4718,7 @@ dependencies = [
  "waymark-state-vm-runtimes-backend",
  "waymark-state-vm-runtimes-core",
  "waymark-system-vm",
+ "waymark-transient-sleep-reconciler",
  "waymark-vm-codec-rmp",
  "waymark-vm-interpreter-fullset",
  "waymark-worker-core",
@@ -4758,7 +4759,8 @@ dependencies = [
  "waymark-extcall-reconciler-action-compat",
  "waymark-extcall-reconciler-core",
  "waymark-nonzero-duration",
- "waymark-sleep-reconciler",
+ "waymark-sleep-compat",
+ "waymark-transient-sleep-reconciler",
  "waymark-vm-driver-core",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-runtime-effect",
@@ -5208,18 +5210,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-sleep-reconciler"
+name = "waymark-sleep-compat"
 version = "0.1.0"
 dependencies = [
- "nonempty-collections",
- "tokio",
- "tracing",
- "waymark-extcall-reconciler-core",
- "waymark-nonzero-duration",
- "waymark-vm-driver-core",
- "waymark-vm-runtime-promise-core",
+ "waymark-sleep-core",
  "waymark-vm-value",
 ]
+
+[[package]]
+name = "waymark-sleep-core"
+version = "0.1.0"
 
 [[package]]
 name = "waymark-smoke"
@@ -5499,8 +5499,9 @@ dependencies = [
  "waymark-extcall-reconciler-action-compat",
  "waymark-fullset-effect-handler",
  "waymark-proto",
- "waymark-sleep-reconciler",
+ "waymark-sleep-compat",
  "waymark-system-vm",
+ "waymark-transient-sleep-reconciler",
  "waymark-vm-ast-old-proto",
  "waymark-vm-codec-rmp",
  "waymark-vm-compiler-for-ast-old",
@@ -5511,6 +5512,23 @@ dependencies = [
  "waymark-workflow-completion-core",
  "waymark-workflow-completion-direct",
  "waymark-workflow-initialization-convert-proto",
+]
+
+[[package]]
+name = "waymark-transient-sleep-reconciler"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tokio",
+ "tracing",
+ "waymark-extcall-reconciler-core",
+ "waymark-nonzero-duration",
+ "waymark-sleep-compat",
+ "waymark-sleep-core",
+ "waymark-vm-driver-core",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
 ]
 
 [[package]]

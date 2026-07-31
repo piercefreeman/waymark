@@ -401,13 +401,19 @@ where
     type Ack = Ack<VmId>;
 }
 
+impl<VmId> waymark_extcall_reconciler_core::HasValue for SettlementsHandle<VmId>
+where
+    VmId: Eq + std::hash::Hash,
+{
+    type Value = ReadyValue;
+}
+
 impl<VmId, UnifiedAck> waymark_extcall_reconciler_core::ActionPromiseSettler<UnifiedAck>
     for SettlementsHandle<VmId>
 where
     VmId: Copy + Eq + std::hash::Hash + Send + Sync + 'static,
     UnifiedAck: From<Ack<VmId>>,
 {
-    type Value = ReadyValue;
     type Error = PollActionSettlementsError;
 
     async fn poll_action_settlements<'a>(

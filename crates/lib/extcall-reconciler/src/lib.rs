@@ -120,7 +120,7 @@ where
                 duration,
             } => {
                 self.sleep
-                    .record_sleep(promise_state_id, duration)
+                    .record_sleep(emitted_effect.number, promise_state_id, duration)
                     .await
                     .map_err(HandleEffectError::Sleep)?;
             }
@@ -147,8 +147,8 @@ where
                 <SleepSettler as waymark_extcall_reconciler_core::SettlerAck>::Ack,
             >,
         >,
+    SleepSettler: waymark_extcall_reconciler_core::HasValue<Value = ActionSettler::Value>,
     ActionSettler::Ack: PromiseSettlementAck,
-    ActionSettler::Value: From<()>,
     SleepSettler::Ack: PromiseSettlementAck,
     Ack<ActionSettler::Ack, SleepSettler::Ack>: From<ActionSettler::Ack>,
     Ack<ActionSettler::Ack, SleepSettler::Ack>: From<SleepSettler::Ack>,
@@ -162,7 +162,7 @@ where
         waiting_ids: NEVec<PromiseStateId>,
     ) -> Result<NEVec<PromiseSettlement<Self::Value, Self::Ack>>, Self::Error> {
         tokio::select! {
-            settlements = self.sleep.poll_sleep_settlements::<Self::Value>(waiting_ids.as_nonempty_slice()) => {
+            settlements = self.sleep.poll_sleep_settlements(waiting_ids.as_nonempty_slice()) => {
                 settlements.map_err(GetPromiseSettlementsError::Sleep)
             }
             settlements = self.action.poll_action_settlements(waiting_ids.as_nonempty_slice()) => {
