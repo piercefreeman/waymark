@@ -156,6 +156,8 @@ fn durable_execution_config() -> waymark_execution_bringup::Config<uuid::Uuid> {
         action_effect_reconciler_request_batch_delay: Duration::from_millis(5).try_into().unwrap(),
         workflow_completion_batch_max: 256.try_into().unwrap(),
         workflow_completion_batch_delay: Duration::from_millis(5).try_into().unwrap(),
+        action_effect_reconciler_lock_batch_max: 256.try_into().unwrap(),
+        action_effect_reconciler_lock_batch_delay: Duration::from_millis(5).try_into().unwrap(),
         sleep_poll_interval: Duration::from_millis(250).try_into().unwrap(),
         vm_retention: Duration::from_secs(60).try_into().unwrap(),
         vm_sweep_interval: Duration::from_secs(10).try_into().unwrap(),
@@ -179,6 +181,7 @@ async fn shutdown_execution(handles: waymark_execution_bringup::Handles) {
         snapshot_batcher,
         action_effect_reconciler_request_batcher,
         workflow_completion_batcher,
+        action_effect_reconciler_lock_batcher,
     } = handles;
 
     let _ = tokio::time::timeout(Duration::from_secs(5), pinning_manager).await;
@@ -202,6 +205,11 @@ async fn shutdown_execution(handles: waymark_execution_bringup::Handles) {
     )
     .await;
     let _ = tokio::time::timeout(Duration::from_secs(5), workflow_completion_batcher).await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        action_effect_reconciler_lock_batcher,
+    )
+    .await;
 }
 
 async fn run_case_durable(

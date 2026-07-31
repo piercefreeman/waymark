@@ -34,6 +34,8 @@ pub struct WorkerConfig {
     pub action_effect_reconciler_request_batch_delay: NonZeroDuration,
     pub workflow_completion_batch_max: NonZeroUsize,
     pub workflow_completion_batch_delay: NonZeroDuration,
+    pub action_effect_reconciler_lock_batch_max: NonZeroUsize,
+    pub action_effect_reconciler_lock_batch_delay: NonZeroDuration,
     pub action_effect_reconciler_lock_ttl: NonZeroDuration,
     pub action_effect_reconciler_lock_heartbeat: NonZeroDuration,
     pub evict_sleep_threshold: NonZeroDuration,
@@ -108,6 +110,12 @@ impl WorkerConfig {
 
         let FromMillis(workflow_completion_batch_delay) =
             envfury::or_parse("WAYMARK_WORKFLOW_COMPLETION_BATCH_DELAY_MS", "5")?;
+
+        let action_effect_reconciler_lock_batch_max =
+            envfury::or_parse("WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_BATCH_MAX", "256")?;
+
+        let FromMillis(action_effect_reconciler_lock_batch_delay) =
+            envfury::or_parse("WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_BATCH_DELAY_MS", "5")?;
 
         let FromMillis(action_effect_reconciler_lock_ttl) =
             envfury::or_parse("WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_TTL_MS", "15000")?;
@@ -196,6 +204,8 @@ impl WorkerConfig {
             action_effect_reconciler_request_batch_delay,
             workflow_completion_batch_max,
             workflow_completion_batch_delay,
+            action_effect_reconciler_lock_batch_max,
+            action_effect_reconciler_lock_batch_delay,
             action_effect_reconciler_lock_ttl,
             action_effect_reconciler_lock_heartbeat,
             evict_sleep_threshold,
