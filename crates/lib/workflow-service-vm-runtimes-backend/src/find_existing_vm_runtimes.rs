@@ -7,7 +7,7 @@ use super::common::HasVmId;
 /// Backend capability for checking which VM runtimes are registered.
 ///
 /// This is the read-side counterpart to
-/// [`RegisterVmRuntime`](super::RegisterVmRuntime): it answers "which of these
+/// [`RegisterVmRuntimes`](super::RegisterVmRuntimes): it answers "which of these
 /// VM runtimes exist?" against the same registration state, without touching
 /// the registration write path.
 pub trait FindExistingVmRuntimes: HasVmId {
