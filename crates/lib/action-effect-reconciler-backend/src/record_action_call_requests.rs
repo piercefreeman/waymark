@@ -18,6 +18,12 @@ pub trait RecordActionCallRequests: HasVmId + HasLockOwnerId + HasTimestamp {
     /// `lock.expires_at`; the caller is expected to deliver exactly those
     /// calls to its local worker pool.
     ///
+    /// `now` is the caller-clock instant `lock.expires_at` was computed
+    /// against.  Implementations keep expiry on the store's clock alone:
+    /// the born lock's expiry is stored as the store's now plus the
+    /// remaining duration `expires_at - now` — a difference of two
+    /// caller-clock values, so no cross-node clock agreement is needed.
+    ///
     /// Recording is idempotent per key: a record whose key already exists
     /// with a byte-identical payload is silently accepted, its row is left
     /// **untouched** (including its lock), and the key is reported via
@@ -35,6 +41,7 @@ pub trait RecordActionCallRequests: HasVmId + HasLockOwnerId + HasTimestamp {
     /// callers need not (and must not) retry the batch.
     fn record_action_call_requests<'a>(
         &'a self,
+        now: Self::Timestamp,
         lock: RequestLockFor<Self>,
         records: NESlice<'a, ActionCallRequestRecord<Self::VmId>>,
     ) -> impl Future<Output = Result<RecordingSuccess<Self::VmId>, Self::Error>> + Send + 'a;

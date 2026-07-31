@@ -119,10 +119,13 @@ where
 
     async fn produce(&self, key: &Self::Key) -> Result<Self::Value, Self::Error> {
         let taken_at = Instant::now();
-        let lock = fresh_lock(&self.lock_owner_id, self.lock_time_to_live);
+        // One instant for both the lock expiry and the store-clock baseline,
+        // so the store reconstructs the intended time-to-live exactly.
+        let now = Utc::now();
+        let lock = fresh_lock(now, &self.lock_owner_id, self.lock_time_to_live);
         let outcome = self
             .backend
-            .lock_vm_action_call_requests(Utc::now(), lock, key)
+            .lock_vm_action_call_requests(now, lock, key)
             .await
             .map_err(ReconcileVmError::Lock)
             .map_err(Error::Reconcile)?;
