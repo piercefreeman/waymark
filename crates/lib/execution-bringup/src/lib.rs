@@ -198,7 +198,7 @@ where
     <Backend as waymark_sleep_reconciler_backend::PollDueSleeps>::Error: Send + 'static,
     <Backend as waymark_sleep_reconciler_backend::AckSleeps>::Error: Send + 'static,
     Backend: waymark_action_effect_reconciler_backend::RecordActionCallRequests,
-    Backend: waymark_action_effect_reconciler_backend::LockVmActionCallRequests,
+    Backend: waymark_action_effect_reconciler_backend::LockActionCallRequests,
     Backend: waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks,
     Backend: waymark_action_effect_reconciler_backend::HasVmId<VmId = waymark_ids::InstanceId>,
     Backend:
@@ -208,7 +208,7 @@ where
         >,
     <Backend as waymark_action_effect_reconciler_backend::RecordActionCallRequests>::Error:
         Send + 'static,
-    <Backend as waymark_action_effect_reconciler_backend::LockVmActionCallRequests>::Error:
+    <Backend as waymark_action_effect_reconciler_backend::LockActionCallRequests>::Error:
         Send + 'static,
     Backend: waymark_workflow_completion_backend::RecordOutcomes,
     Backend: waymark_workflow_completion_backend::HasVmId<
