@@ -4837,7 +4837,9 @@ name = "waymark-fn-main-common"
 version = "0.1.0"
 dependencies = [
  "color-eyre",
+ "envfury",
  "thiserror",
+ "tracing",
  "tracing-subscriber",
 ]
 
