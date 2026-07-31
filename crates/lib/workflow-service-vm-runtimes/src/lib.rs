@@ -19,6 +19,11 @@ pub enum RegisterVmError<RegistrationError, CodecError> {
     /// The VM runtime registration failed.
     #[error("register vm runtime: {0:?}")]
     Registration(RegistrationError),
+
+    /// A VM runtime is already registered under this id; it was left
+    /// untouched.
+    #[error("vm runtime already registered")]
+    AlreadyRegistered,
 }
 
 /// Errors returned by [`OutcomePollingService::wait_for_outcome`].
@@ -56,7 +61,7 @@ impl<Backend, Codec> RegistrationService<Backend, Codec> {
 
 impl<Backend, Codec> RegistrationService<Backend, Codec>
 where
-    Backend: waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntime,
+    Backend: waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntimes,
     Codec: SerializerProvider,
 {
     /// Register a VM runtime by serializing it into a snapshot.
@@ -71,7 +76,7 @@ where
     ) -> Result<
         (),
         RegisterVmError<
-            <Backend as waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntime>::Error,
+            <Backend as waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntimes>::Error,
             <Codec as SerializerProvider>::Error,
         >,
     > {
@@ -79,10 +84,25 @@ where
         self.codec
             .with_serializer(&mut snapshot, snapshot_provider)
             .map_err(RegisterVmError::Serialize)?;
-        self.backend
-            .register_vm_runtime(&vm_id, &executable_id, &snapshot)
+        let item =
+            waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegisterVmRuntimesItem {
+                vm_id: &vm_id,
+                executable_id: &executable_id,
+                snapshot: &snapshot,
+            };
+        let success = self
+            .backend
+            .register_vm_runtimes(nonempty_collections::nev![item].as_nonempty_slice())
             .await
-            .map_err(RegisterVmError::Registration)
+            .map_err(RegisterVmError::Registration)?;
+
+        match success {
+            waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegistrationSuccess::AllRegistered => Ok(()),
+            // The batch held exactly this VM, so a conflict can only name it.
+            waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegistrationSuccess::SomeAlreadyRegistered(_) => {
+                Err(RegisterVmError::AlreadyRegistered)
+            }
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 //! Postgres backend for the workflow service.
 //!
-//! Implements [`waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntime`]
+//! Implements [`waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntimes`]
 //! and [`waymark_workflow_service_vm_runtimes_backend::FindExistingVmRuntimes`]
 //! for [`crate::PostgresBackend`].
 
@@ -25,60 +25,92 @@ impl waymark_workflow_service_vm_runtimes_backend::HasExecutableId for PostgresB
     type ExecutableId = WorkflowVersionId;
 }
 
-impl waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntime for PostgresBackend {
-    type Error = error::RegisterVmRuntimeError;
+impl waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntimes for PostgresBackend {
+    type Error = error::RegisterVmRuntimesError;
 
     #[obs]
     #[function_name::named]
-    async fn register_vm_runtime(
-        &self,
-        vm_id: &Self::VmId,
-        executable_id: &Self::ExecutableId,
-        snapshot: &[u8],
-    ) -> Result<(), Self::Error> {
+    async fn register_vm_runtimes<'a>(
+        &'a self,
+        runtimes: nonempty_collections::NESlice<
+            'a,
+            waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegisterVmRuntimesItem<
+                'a,
+                InstanceId,
+                WorkflowVersionId,
+            >,
+        >,
+    ) -> Result<
+        waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegistrationSuccess<
+            InstanceId,
+        >,
+        Self::Error,
+    > {
         Self::count_query(&self.query_counts, "insert:vm_runtime_snapshots_register");
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(error::RegisterVmRuntimeError::Sqlx)?;
+        Self::count_batch_size(
+            &self.batch_size_counts,
+            "insert:vm_runtime_snapshots_register",
+            runtimes.len().get(),
+        );
 
-        let result = sqlx::query(
+        let mut vm_ids = Vec::with_capacity(runtimes.len().get());
+        let mut executable_ids = Vec::with_capacity(runtimes.len().get());
+        let mut snapshots: Vec<&[u8]> = Vec::with_capacity(runtimes.len().get());
+        for item in runtimes.iter() {
+            vm_ids.push(*item.vm_id);
+            executable_ids.push(*item.executable_id);
+            snapshots.push(item.snapshot);
+        }
+
+        // One statement, one implicit transaction: only freshly inserted
+        // snapshots get a workload row (the CTE feeds the second insert),
+        // so an already-registered VM runtime is left fully untouched.
+        let rows = sqlx::query(
             r#"
-            INSERT INTO vm_runtime_snapshots (vm_id, executable_id, snapshot)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (vm_id) DO NOTHING
+            WITH inserted AS (
+                INSERT INTO vm_runtime_snapshots (vm_id, executable_id, snapshot)
+                SELECT * FROM UNNEST($1::uuid[], $2::uuid[], $3::bytea[])
+                ON CONFLICT (vm_id) DO NOTHING
+                RETURNING vm_id
+            )
+            INSERT INTO runnable_workloads (workload_id)
+            SELECT vm_id FROM inserted
+            RETURNING workload_id
             "#,
         )
-        .bind(vm_id)
-        .bind(executable_id)
-        .bind(snapshot)
-        .execute(&mut *tx)
+        .bind(&vm_ids)
+        .bind(&executable_ids)
+        .bind(&snapshots)
+        .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!(
             "insert:vm_runtime_snapshots_register"
         ))
         .await
-        .map_err(error::RegisterVmRuntimeError::Sqlx)?;
+        .map_err(error::RegisterVmRuntimesError::Sqlx)?;
 
-        if result.rows_affected() == 0 {
-            return Err(error::RegisterVmRuntimeError::AlreadyExists(*vm_id));
+        // Happy path: every VM runtime was freshly registered.
+        if rows.len() == vm_ids.len() {
+            return Ok(
+                waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegistrationSuccess::AllRegistered,
+            );
         }
 
-        sqlx::query(
-            r#"
-            INSERT INTO runnable_workloads (workload_id)
-            VALUES ($1)
-            "#,
+        // Keys missing from `RETURNING` conflicted with existing
+        // registrations and were left untouched; the rest were durably
+        // registered above.
+        let registered: std::collections::HashSet<InstanceId> =
+            rows.iter().map(|row| row.get("workload_id")).collect();
+        let already: Vec<InstanceId> = vm_ids
+            .iter()
+            .copied()
+            .filter(|vm_id| !registered.contains(vm_id))
+            .collect();
+        Ok(
+            waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegistrationSuccess::SomeAlreadyRegistered(
+                nonempty_collections::NEVec::try_from_vec(already)
+                    .expect("fewer returned rows than inputs, so at least one key conflicted"),
+            ),
         )
-        .bind(vm_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(error::RegisterVmRuntimeError::Sqlx)?;
-
-        tx.commit()
-            .await
-            .map_err(error::RegisterVmRuntimeError::Sqlx)?;
-        Ok(())
     }
 }
 

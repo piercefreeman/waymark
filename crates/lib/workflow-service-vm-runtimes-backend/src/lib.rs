@@ -9,9 +9,9 @@
 pub mod common;
 /// Batch existence query for registered VM runtimes.
 pub mod find_existing_vm_runtimes;
-/// VM runtime registration trait and error classification.
-pub mod register_vm_runtime;
+/// VM runtime registration trait.
+pub mod register_vm_runtimes;
 
 pub use self::common::{HasExecutableId, HasVmId};
 pub use self::find_existing_vm_runtimes::FindExistingVmRuntimes;
-pub use self::register_vm_runtime::RegisterVmRuntime;
+pub use self::register_vm_runtimes::RegisterVmRuntimes;

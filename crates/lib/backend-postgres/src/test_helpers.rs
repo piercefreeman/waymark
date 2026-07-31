@@ -3,7 +3,7 @@ use sqlx::PgPool;
 use super::PostgresBackend;
 use waymark_ids::{InstanceId, WorkflowVersionId};
 use waymark_support_test::postgres_setup;
-use waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntime;
+use waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntimes;
 
 pub(super) async fn setup_backend() -> PostgresBackend {
     let pool = postgres_setup().await;
@@ -15,13 +15,18 @@ pub(super) async fn setup_backend() -> PostgresBackend {
 pub(super) const TEST_VM_SNAPSHOT: &[u8] = b"test-snapshot";
 
 /// Register a VM runtime (its snapshot and runnable-workload rows) through the
-/// production [`RegisterVmRuntime`] path and return its identifiers, so tests
+/// production [`RegisterVmRuntimes`] path and return its identifiers, so tests
 /// share exactly the registration behavior they exercise.
 pub(super) async fn register_test_vm(backend: &PostgresBackend) -> (InstanceId, WorkflowVersionId) {
     let vm_id = InstanceId::new_uuid_v4();
     let executable_id = WorkflowVersionId::new_uuid_v4();
+    let item = waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegisterVmRuntimesItem {
+        vm_id: &vm_id,
+        executable_id: &executable_id,
+        snapshot: TEST_VM_SNAPSHOT,
+    };
     backend
-        .register_vm_runtime(&vm_id, &executable_id, TEST_VM_SNAPSHOT)
+        .register_vm_runtimes(nonempty_collections::nev![item].as_nonempty_slice())
         .await
         .expect("register test vm");
     (vm_id, executable_id)
