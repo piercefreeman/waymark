@@ -25,8 +25,7 @@ pub enum Error<DriverError> {
 
 /// Convenience alias for [`Handle`] that computes the concrete type
 /// parameters from the higher-level types used by [`spawn`].
-pub type HandleFor<Value, Interpreter, Codec, Persister, Effector> = Handle<
-    <Value as waymark_vm_runtime_promise_core::Resolvable>::ReadyValue,
+pub type HandleFor<Interpreter, Codec, Persister, Effector> = Handle<
     <Interpreter as waymark_vm_interpreter::Interpreter>::Error,
     <Codec as waymark_vm_codec_core::SerializerProvider>::Error,
     <Persister as waymark_vm_driver_core::SnapshotPersister>::Error,
@@ -44,7 +43,7 @@ pub type HandleFor<Value, Interpreter, Codec, Persister, Effector> = Handle<
 /// Current tracing span is carried over to the driver thread.
 pub fn spawn<Executable, Interpreter, Value, Effector, Persister, Codec>(
     params: driver::Params<Executable, Interpreter, Value, Effector, Persister, Codec>,
-) -> HandleFor<Value, Interpreter, Codec, Persister, Effector>
+) -> HandleFor<Interpreter, Codec, Persister, Effector>
 where
     // Executable
     Executable: waymark_vm_executable::InstructionsProvider + Send + 'static,
@@ -95,7 +94,6 @@ where
 /// to finish. On completion, returns either the driver's terminal error or
 /// a thread-level panic error.
 pub struct Handle<
-    Value,
     ExecutionError,
     SnapshotSerializationError,
     SnapshotPersistenceError,
@@ -103,7 +101,6 @@ pub struct Handle<
     GettingPromiseSettlementsError,
 > {
     task: DriverTaskJoinHandle<
-        Value,
         ExecutionError,
         SnapshotSerializationError,
         SnapshotPersistenceError,
@@ -114,7 +111,6 @@ pub struct Handle<
 
 /// Join handle for the OS thread running the driver loop.
 type DriverTaskJoinHandle<
-    Value,
     ExecutionError,
     SnapshotSerializationError,
     SnapshotPersistenceError,
@@ -124,7 +120,6 @@ type DriverTaskJoinHandle<
     Result<
         core::convert::Infallible,
         driver::Error<
-            Value,
             ExecutionError,
             SnapshotSerializationError,
             SnapshotPersistenceError,
@@ -135,7 +130,6 @@ type DriverTaskJoinHandle<
 >;
 
 impl<
-    Value,
     ExecutionError,
     SnapshotSerializationError,
     SnapshotPersistenceError,
@@ -143,7 +137,6 @@ impl<
     GettingPromiseSettlementsError,
 > IntoFuture
     for Handle<
-        Value,
         ExecutionError,
         SnapshotSerializationError,
         SnapshotPersistenceError,
@@ -151,7 +144,6 @@ impl<
         GettingPromiseSettlementsError,
     >
 where
-    Value: core::fmt::Debug + Send + 'static,
     ExecutionError: core::fmt::Debug + Send + 'static,
     SnapshotSerializationError: core::fmt::Debug + Send + 'static,
     SnapshotPersistenceError: core::fmt::Debug + Send + 'static,
@@ -162,7 +154,6 @@ where
         core::convert::Infallible,
         Error<
             driver::Error<
-                Value,
                 ExecutionError,
                 SnapshotSerializationError,
                 SnapshotPersistenceError,

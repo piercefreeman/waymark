@@ -12,11 +12,11 @@ use nonempty_collections::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use tokio_util::sync::CancellationToken;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime::{FrameFor, Runtime};
+use waymark_vm_runtime_core::ResolvePromiseError;
 
 /// Errors returned by the driver loop.
 #[derive(Debug)]
 pub enum Error<
-    Value,
     ExecutionError,
     SnapshotSerializationError,
     SnapshotPersistenceError,
@@ -44,20 +44,13 @@ pub enum Error<
     /// Getting promise settlements has failed.
     GettingPromiseSettlements(GettingPromiseSettlementsError),
 
-    /// Resolving a promise failed.
-    ResolvingPromise(waymark_vm_runtime_core::ResolvePromiseError<Value>),
-
-    /// Rejecting a promise failed.
-    RejectingPromise(waymark_vm_runtime_core::RejectPromiseError<Value>),
-
     /// The driver was cancelled via its [`CancellationToken`].
     Cancelled,
 }
 
 /// Convenience alias for [`Error`] that computes the concrete error
 /// types from the higher-level type parameters used by [`run`].
-pub type ErrorFor<Value, Interpreter, Codec, Persister, Effector> = Error<
-    <Value as waymark_vm_runtime_promise_core::Resolvable>::ReadyValue,
+pub type ErrorFor<Interpreter, Codec, Persister, Effector> = Error<
     <Interpreter as waymark_vm_interpreter::Interpreter>::Error,
     <Codec as waymark_vm_codec_core::SerializerProvider>::Error,
     <Persister as waymark_vm_driver_core::SnapshotPersister>::Error,
@@ -95,7 +88,7 @@ where
 /// triggered, or another error variant when a fatal error occurs.
 pub async fn run<Executable, Interpreter, Value, Effector, Persister, Codec>(
     params: Params<Executable, Interpreter, Value, Effector, Persister, Codec>,
-) -> Result<core::convert::Infallible, ErrorFor<Value, Interpreter, Codec, Persister, Effector>>
+) -> Result<core::convert::Infallible, ErrorFor<Interpreter, Codec, Persister, Effector>>
 where
     Executable: waymark_vm_executable::InstructionsProvider,
     Executable::FunctionId: Copy + serde::Serialize,
@@ -163,18 +156,48 @@ where
                 ack,
             } = settlement;
 
+            // Stale settlements are normal under at-least-once
+            // delivery: a redelivery of an applied settlement finds its
+            // promise already settled, or — once settled promise states
+            // are garbage collected — not present at all.  Either way
+            // there is nothing to apply and the settlement is still
+            // acked below: the ack is what removes the durable record,
+            // and without it it would redeliver forever.  Benign by
+            // enumeration, not by default: the matches are exhaustive
+            // over the two known variants, so a new error variant is a
+            // compile error here, forcing a conscious classification.
             match resolution {
                 PromiseResolution::Resolved(value) => {
                     tracing::info!(?promise_state_id, ?value, "promise resolution");
-                    runtime
-                        .resolve_promise(promise_state_id, value)
-                        .map_err(Error::ResolvingPromise)?;
+                    match runtime.resolve_promise(promise_state_id, value) {
+                        Ok(()) => {}
+                        Err(
+                            error @ (ResolvePromiseError::AlreadyResolved(_)
+                            | ResolvePromiseError::PromiseStateNotFound(_)),
+                        ) => {
+                            tracing::info!(
+                                ?promise_state_id,
+                                ?error,
+                                "stale promise resolution ignored"
+                            );
+                        }
+                    }
                 }
                 PromiseResolution::Rejected(exception) => {
                     tracing::info!(?promise_state_id, ?exception, "promise rejection");
-                    runtime
-                        .reject_promise(promise_state_id, exception)
-                        .map_err(Error::RejectingPromise)?;
+                    match runtime.reject_promise(promise_state_id, exception) {
+                        Ok(()) => {}
+                        Err(
+                            error @ (ResolvePromiseError::AlreadyResolved(_)
+                            | ResolvePromiseError::PromiseStateNotFound(_)),
+                        ) => {
+                            tracing::info!(
+                                ?promise_state_id,
+                                ?error,
+                                "stale promise rejection ignored"
+                            );
+                        }
+                    }
                 }
             }
 
