@@ -18,7 +18,6 @@ waymark-worker-remote-bringup = { workspace = true }
 waymark-worker-remote-pool = { workspace = true }
 waymark-worker-status-reporter = { workspace = true }
 
-anyhow = { workspace = true }
 envfury = { workspace = true }
 metrics = { workspace = true }
 sqlx = { workspace = true }

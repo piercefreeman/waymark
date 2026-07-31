@@ -11,8 +11,8 @@ waymark-scheduler-config = { workspace = true }
 waymark-secret-string = { workspace = true }
 waymark-webapp-config = { workspace = true }
 
-thiserror = { workspace = true }
 envfury = { workspace = true }
+thiserror = { workspace = true }
 
 [lib]
 test = false

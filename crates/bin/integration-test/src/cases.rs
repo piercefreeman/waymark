@@ -1,6 +1,6 @@
 //! The curated fixture cases.
 
-use anyhow::{Result, bail};
+use color_eyre::eyre::bail;
 
 #[derive(Clone, Debug)]
 pub struct FixtureCase {
@@ -91,7 +91,7 @@ pub const CASES: &[FixtureCase] = &[
     },
 ];
 
-pub fn select_cases(filters: &[String]) -> Result<Vec<FixtureCase>> {
+pub fn select_cases(filters: &[String]) -> Result<Vec<FixtureCase>, color_eyre::eyre::Report> {
     if filters.is_empty() {
         return Ok(CASES.to_vec());
     }

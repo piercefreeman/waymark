@@ -15,8 +15,8 @@ waymark-worker-core = { workspace = true }
 waymark-worker-inline = { workspace = true }
 waymark-workflow-completion-core = { workspace = true }
 
-anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
+color-eyre = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

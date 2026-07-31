@@ -17,7 +17,7 @@ use self::workflow_store::*;
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use color_eyre::eyre::WrapErr as _;
 use tracing::info;
 use waymark_secret_string::SecretString;
 
@@ -38,7 +38,7 @@ impl core::str::FromStr for PermissiveBool {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), waymark_fn_main_common::Error> {
     waymark_fn_main_common::init()?;
 
     let grpc_addr = envfury::or_parse("WAYMARK_BRIDGE_GRPC_ADDR", DEFAULT_GRPC_ADDR)?;
@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
         .add_service(workflow_service)
         .serve(grpc_addr)
         .await
-        .context("bridge server exited")?;
+        .wrap_err("bridge server exited")?;
 
     Ok(())
 }

@@ -20,9 +20,9 @@ waymark-vm-runtime-builder = { workspace = true }
 waymark-workflow-service-vm-executables = { workspace = true }
 waymark-workflow-service-vm-runtimes = { workspace = true }
 
-anyhow = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
+color-eyre = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

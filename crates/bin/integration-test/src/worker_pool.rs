@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use color_eyre::eyre::WrapErr as _;
 
 use crate::ground_truth::PreparedCase;
 
@@ -17,7 +17,7 @@ pub async fn setup_worker_pool(
     repo_root: &Path,
     cases: &[PreparedCase],
     worker_count: NonZeroUsize,
-) -> Result<(PythonWorkerPool, tokio::task::JoinHandle<()>)> {
+) -> Result<(PythonWorkerPool, tokio::task::JoinHandle<()>), color_eyre::eyre::Report> {
     let mut modules = cases
         .iter()
         .map(|prepared| prepared.case.module_name.to_string())
@@ -45,7 +45,7 @@ pub async fn setup_worker_pool(
         10.try_into().unwrap(),
     )
     .await
-    .context("create remote worker pool")?;
+    .wrap_err("create remote worker pool")?;
 
     let worker_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
         process_pool,

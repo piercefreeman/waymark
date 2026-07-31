@@ -177,7 +177,6 @@ waymark-workload-pinning-backend = { path = "crates/lib/workload-pinning-backend
 waymark-workload-pinning-core = { path = "crates/lib/workload-pinning-core" }
 waymark-workload-pinning-manager = { path = "crates/lib/workload-pinning-manager" }
 
-anyhow = "1"
 async-stream = "0.3"
 async-walkdir = "2"
 axum = "0.8"

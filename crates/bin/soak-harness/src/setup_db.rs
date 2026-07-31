@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, anyhow, bail};
+use color_eyre::eyre::{WrapErr as _, bail, eyre};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use tokio::process::Command;
@@ -9,7 +9,7 @@ use waymark_secret_string::SecretStr;
 
 const DB_RETRY_DELAY: Duration = Duration::from_millis(500);
 
-pub async fn boot_postgres() -> Result<()> {
+pub async fn boot_postgres() -> Result<(), color_eyre::eyre::Report> {
     let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let status = Command::new("docker")
         .arg("compose")
@@ -21,7 +21,7 @@ pub async fn boot_postgres() -> Result<()> {
         .current_dir(&project_root)
         .status()
         .await
-        .with_context(|| format!("run docker compose from {}", project_root.display()))?;
+        .wrap_err_with(|| format!("run docker compose from {}", project_root.display()))?;
 
     if !status.success() {
         bail!("docker compose up -d postgres failed with status {status}");
@@ -30,7 +30,10 @@ pub async fn boot_postgres() -> Result<()> {
     Ok(())
 }
 
-pub async fn wait_for_database(dsn: &SecretStr, timeout: Duration) -> Result<PgPool> {
+pub async fn wait_for_database(
+    dsn: &SecretStr,
+    timeout: Duration,
+) -> Result<PgPool, color_eyre::eyre::Report> {
     let deadline = Instant::now() + timeout;
     let mut last_error: Option<String> = None;
 
@@ -49,7 +52,7 @@ pub async fn wait_for_database(dsn: &SecretStr, timeout: Duration) -> Result<PgP
         }
     }
 
-    Err(anyhow!(
+    Err(eyre!(
         "timed out waiting for Postgres at {}; last error: {}",
         dsn.expose_secret(),
         last_error.unwrap_or_else(|| "unknown".to_string())

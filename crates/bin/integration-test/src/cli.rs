@@ -2,8 +2,8 @@
 
 use std::num::NonZeroUsize;
 
-use anyhow::{Result, bail};
 use clap::Parser;
+use color_eyre::eyre::bail;
 
 #[derive(Parser, Debug)]
 #[command(name = "integration_test")]
@@ -40,7 +40,7 @@ impl ExecutionMode {
     }
 }
 
-pub fn parse_modes(raw: &str) -> Result<Vec<ExecutionMode>> {
+pub fn parse_modes(raw: &str) -> Result<Vec<ExecutionMode>, color_eyre::eyre::Report> {
     let mut parsed = Vec::new();
     for item in raw.split(',') {
         let trimmed = item.trim();
