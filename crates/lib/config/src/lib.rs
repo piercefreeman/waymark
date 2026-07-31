@@ -52,8 +52,32 @@ pub struct WorkerConfig {
     pub executable_sweep_interval: NonZeroDuration,
 }
 
+/// Error returned when reading a [`WorkerConfig`] from the environment.
+#[derive(Debug, thiserror::Error)]
+pub enum FromEnvError {
+    /// A required variable could not be read.
+    #[error(transparent)]
+    Must(#[from] envfury::Error<envfury::MustError<std::convert::Infallible>>),
+
+    /// A socket-address variable (with a parsed default) could not be read.
+    #[error(transparent)]
+    SocketAddrOrDefault(#[from] envfury::Error<envfury::OrParseError<std::net::AddrParseError>>),
+
+    /// An integer-backed variable (with a parsed default) could not be read.
+    #[error(transparent)]
+    IntOrDefault(#[from] envfury::Error<envfury::OrParseError<core::num::ParseIntError>>),
+
+    /// A list variable (with a parsed default) could not be read.
+    #[error(transparent)]
+    ListOrDefault(#[from] envfury::Error<envfury::OrParseError<std::convert::Infallible>>),
+
+    /// An integer-backed variable (without a parsed default) could not be read.
+    #[error(transparent)]
+    Int(#[from] envfury::Error<envfury::ValueError<core::num::ParseIntError>>),
+}
+
 impl WorkerConfig {
-    pub fn from_env() -> Result<Self, anyhow::Error> {
+    pub fn from_env() -> Result<Self, FromEnvError> {
         use self::parse::*;
 
         let database_url = envfury::must("WAYMARK_DATABASE_URL")?;

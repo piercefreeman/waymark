@@ -4637,8 +4637,8 @@ dependencies = [
 name = "waymark-config"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "envfury",
+ "thiserror",
  "waymark-garbage-collector-config",
  "waymark-nonzero-duration",
  "waymark-scheduler-config",
