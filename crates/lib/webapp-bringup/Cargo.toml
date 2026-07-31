@@ -9,8 +9,9 @@ waymark-webapp-backend = { workspace = true }
 waymark-webapp-config = { workspace = true }
 waymark-webapp-routes = { workspace = true }
 
-anyhow = { workspace = true }
 axum = { workspace = true }
+tera = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["net"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
