@@ -199,8 +199,7 @@ where
         Send + 'static,
     <Backend as waymark_action_effect_reconciler_backend::LockVmActionCallRequests>::Error:
         Send + 'static,
-    Backend: waymark_workflow_completion_backend::RecordCompletion,
-    Backend: waymark_workflow_completion_backend::RecordException,
+    Backend: waymark_workflow_completion_backend::RecordOutcomes,
     Backend: waymark_workflow_completion_backend::HasVmId<
             VmId = <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
         >,
@@ -209,8 +208,7 @@ where
     <Backend as waymark_workload_pinning_backend::UnpinWorkloads>::Error: Send,
     <Backend as waymark_state_vm_runtimes_backend::StoreSnapshots>::Error: Send + 'static,
     <Backend as waymark_state_vm_runtimes_backend::LoadForRevive>::Error: Send + 'static,
-    <Backend as waymark_workflow_completion_backend::RecordCompletion>::Error: Send + 'static,
-    <Backend as waymark_workflow_completion_backend::RecordException>::Error: Send + 'static,
+    <Backend as waymark_workflow_completion_backend::RecordOutcomes>::Error: Send + 'static,
     WorkerPool: BaseWorkerPool + Clone + Send + Sync + 'static,
 {
     let Config {
