@@ -54,6 +54,7 @@ waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }
 waymark-pool-status = { path = "crates/lib/pool-status" }
 waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-bringup" }
+waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settlement-demand-registry" }
 waymark-proto = { path = "crates/lib/proto" }
 waymark-python-workflow-ir-reader = { path = "crates/lib/python-workflow-ir-reader" }
 waymark-runloop = { path = "crates/lib/runloop" }

@@ -4258,7 +4258,6 @@ dependencies = [
 name = "waymark-action-completions-reconciler"
 version = "0.1.0"
 dependencies = [
- "dashmap 6.2.1",
  "nonempty-collections",
  "serde",
  "thiserror",
@@ -4269,6 +4268,7 @@ dependencies = [
  "waymark-action-runtime-metadata",
  "waymark-extcall-reconciler-core",
  "waymark-ids",
+ "waymark-promise-settlement-demand-registry",
  "waymark-vm-codec-core",
  "waymark-vm-codec-rmp",
  "waymark-vm-driver-core",
@@ -5011,6 +5011,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-promise-settlement-demand-registry"
+version = "0.1.0"
+dependencies = [
+ "dashmap 6.2.1",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
 name = "waymark-proto"
 version = "0.1.0"
 dependencies = [
@@ -5228,7 +5240,6 @@ name = "waymark-sleep-reconciler"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "dashmap 6.2.1",
  "nonempty-collections",
  "thiserror",
  "tokio",
@@ -5236,6 +5247,7 @@ dependencies = [
  "waymark-extcall-reconciler-core",
  "waymark-ids",
  "waymark-nonzero-duration",
+ "waymark-promise-settlement-demand-registry",
  "waymark-sleep-compat",
  "waymark-sleep-core",
  "waymark-sleep-reconciler-backend",
