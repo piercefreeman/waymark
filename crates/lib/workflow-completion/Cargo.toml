@@ -12,6 +12,7 @@ waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-workflow-completion-backend = { workspace = true }
 
+nonempty-collections = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

@@ -6480,6 +6480,7 @@ dependencies = [
 name = "waymark-workflow-completion"
 version = "0.1.0"
 dependencies = [
+ "nonempty-collections",
  "serde",
  "thiserror",
  "tracing",
@@ -6494,6 +6495,9 @@ dependencies = [
 [[package]]
 name = "waymark-workflow-completion-backend"
 version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+]
 
 [[package]]
 name = "waymark-workflow-completion-convert-proto"
