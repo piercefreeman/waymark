@@ -5457,8 +5457,8 @@ version = "0.1.0"
 name = "waymark-support-integration"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "sqlx",
+ "thiserror",
  "tokio",
  "waymark-backend-postgres-migrations",
  "waymark-secret-string",
