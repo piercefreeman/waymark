@@ -8,8 +8,8 @@ edition = "2024"
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-secret-string = { workspace = true }
 
-anyhow = { workspace = true }
 sqlx = { workspace = true, features = ["postgres"] }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["process", "time", "sync"] }
 
 [lib]
