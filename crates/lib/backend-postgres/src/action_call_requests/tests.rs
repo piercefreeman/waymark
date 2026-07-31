@@ -6,7 +6,7 @@ use waymark_action_effect_reconciler_backend::record_action_call_requests;
 use waymark_action_effect_reconciler_backend::record_action_call_requests::Error as _;
 use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::RenewalStatus;
 use waymark_action_effect_reconciler_backend::{
-    ActionCallRequestKey, ActionCallRequestRecord, LockVmActionCallRequests as _,
+    ActionCallRequestKey, ActionCallRequestRecord, LockActionCallRequests as _,
     RecordActionCallRequests as _, RenewActionCallRequestLocks as _, RequestLock,
     UnlockActionCallRequests as _,
 };
@@ -184,23 +184,28 @@ async fn lock_vm_takes_expired_and_reports_foreign() {
         .await
         .expect("record live-locked");
 
-    let outcome = backend
-        .lock_vm_action_call_requests(Utc::now(), live_lock(reviver), &vm)
+    // One batch spanning the seeded VM and an empty one: per-input-aligned
+    // outcomes, with the empty VM keeping its (no-op) entry.
+    let other_vm = InstanceId::new_uuid_v4();
+    let vm_ids = [vm, other_vm];
+    let outcomes = backend
+        .lock_action_call_requests(
+            Utc::now(),
+            live_lock(reviver),
+            nonempty_collections::NESlice::try_from_slice(&vm_ids).unwrap(),
+        )
         .await
         .expect("lock vm requests");
 
-    assert_eq!(outcome.locked.len(), 1);
-    assert_eq!(outcome.locked[0], record(vm, 1, 10, b"expired-call"));
-    assert_eq!(outcome.held_elsewhere, vec![key(vm, 2)]);
+    assert_eq!(outcomes.len().get(), 2);
+    assert_eq!(outcomes[0].vm_id, vm);
+    assert_eq!(outcomes[0].locked.len(), 1);
+    assert_eq!(outcomes[0].locked[0], record(vm, 1, 10, b"expired-call"));
+    assert_eq!(outcomes[0].held_elsewhere, vec![key(vm, 2)]);
 
-    // A VM with no rows is a no-op.
-    let other_vm = InstanceId::new_uuid_v4();
-    let outcome = backend
-        .lock_vm_action_call_requests(Utc::now(), live_lock(reviver), &other_vm)
-        .await
-        .expect("lock empty vm");
-    assert!(outcome.locked.is_empty());
-    assert!(outcome.held_elsewhere.is_empty());
+    assert_eq!(outcomes[1].vm_id, other_vm);
+    assert!(outcomes[1].locked.is_empty());
+    assert!(outcomes[1].held_elsewhere.is_empty());
 }
 
 #[serial(postgres)]
@@ -325,13 +330,17 @@ async fn unlock_releases_own_locks_only() {
 
     // The unlocked row is immediately deliverable; the foreign one is not.
     let reviver = uuid::Uuid::new_v4();
-    let outcome = backend
-        .lock_vm_action_call_requests(Utc::now(), live_lock(reviver), &vm)
+    let outcomes = backend
+        .lock_action_call_requests(
+            Utc::now(),
+            live_lock(reviver),
+            nonempty_collections::NESlice::try_from_slice(std::slice::from_ref(&vm)).unwrap(),
+        )
         .await
         .expect("lock vm requests");
-    assert_eq!(outcome.locked.len(), 1);
-    assert_eq!(outcome.locked[0], record(vm, 1, 10, b"mine"));
-    assert_eq!(outcome.held_elsewhere, vec![key(vm, 2)]);
+    assert_eq!(outcomes[0].locked.len(), 1);
+    assert_eq!(outcomes[0].locked[0], record(vm, 1, 10, b"mine"));
+    assert_eq!(outcomes[0].held_elsewhere, vec![key(vm, 2)]);
 }
 
 #[serial(postgres)]
