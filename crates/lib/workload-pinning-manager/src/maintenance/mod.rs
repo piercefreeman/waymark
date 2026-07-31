@@ -1,28 +1,53 @@
-//! Maintenance loop — handles evictions, pinnings refresh, and batch registration.
+//! Maintenance loop — handles evictions, pinnings refresh, batch
+//! registration, and the pinning fences.
 //!
 //! # Exit contract
 //!
 //! The maintenance loop keeps running as long as there is work to do.
-//! Work exists whenever **either** condition holds:
+//! Work exists whenever **any** condition holds:
 //!
 //! - `batch_rx` is still open — the poll loop is alive and may dispatch
 //!   newly-pinned workload IDs at any time.
-//! - `active_ids` is non-empty — there are in-flight workloads whose
-//!   pinnings must be refreshed and whose evictions must be processed.
+//! - `active` is non-empty — there are in-flight workloads whose
+//!   pinnings must be refreshed, whose liveness must be watched, and
+//!   whose evictions must be processed.
 //!
-//! The **terminal state** is reached when **both** conditions are false:
-//! `batch_rx` has been closed (the poll loop has exited) **and**
-//! `active_ids` is empty (all in-flight work has been evicted). At that
+//! The **terminal state** is reached when **both** conditions are
+//! false: `batch_rx` has been closed (the poll loop has exited) **and**
+//! `active` is empty (all in-flight work has been evicted). At that
 //! point no future work can arrive and the loop exits cleanly.
 //!
-//! On exit (whether clean or errored) the remaining `active_ids` set is
-//! sent through `cleanup_tx` so the caller can release any pinnings
-//! that were still held.
-//!
 //! The maintenance loop listens to its own shutdown token for emergency
-//! cancellation — this is separate from the poll loop's graceful-shutdown
-//! token. Under normal operation the loop exits naturally when the poll
-//! loop has stopped and all active IDs have been evicted.
+//! cancellation — this is separate from the poll loop's
+//! graceful-shutdown token. Under normal operation the loop exits
+//! naturally as above.
+//!
+//! # Pinning liveness and the fence
+//!
+//! Each active workload's pinning has a tracked liveness: a lapse
+//! deadline on the local monotonic clock — the instant captured
+//! **before** the (re-)pinning call was sent, plus the ttl, minus the
+//! configured fencing margin. The pre-send anchor makes the local
+//! deadline conservative with respect to the store-authoritative
+//! expiry regardless of the call's latency. A confirmed refresh pushes
+//! the deadline out; liveness ends when the pinning **lapses** (the
+//! deadline passes without a confirmed refresh) or is **lost** (a
+//! refresh reports it held by another node). Either way the workload
+//! is fenced: its fence token is cancelled, signalling the holder of
+//! the matching [`PinnedHandle`](crate::PinnedHandle) that the pinning
+//! can no longer be proven held. What the holder does about that is its
+//! own concern — the loop only raises the signal. A fenced workload
+//! stays tracked (though no longer refreshed) until its eviction flows
+//! back through the normal channel; the loop's responsibility ends at
+//! the signal.
+//!
+//! The converse is an invariant of
+//! [`ActiveSet`](self::active_set::ActiveSet): because tracking is what
+//! drives the refresh, a workload that stops being tracked is always
+//! fenced on the way out — including when the loop exits with an error
+//! and hands the remaining ids to the caller to release. Releasing a
+//! pinning whose holder was never told to stop is precisely the
+//! double-drive the fence exists to prevent.
 //!
 //! # Heartbeat retry policy
 //!
@@ -32,6 +57,7 @@
 //! If the retry also fails the loop exits with [`Error::Refresh`] so the
 //! caller can release the pinnings cleanly before they expire.
 
+mod active_set;
 mod error;
 
 pub use self::error::*;
@@ -39,10 +65,13 @@ pub use self::error::*;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use nonempty_collections::{IntoIteratorExt as _, NEVec};
+use nonempty_collections::NEVec;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 use waymark_nonzero_duration::NonZeroDuration;
+
+use self::active_set::ActiveSet;
+use crate::pinned_batch::PinnedBatch;
 
 pub(super) struct MaintainParams<Backend>
 where
@@ -51,10 +80,7 @@ where
 {
     pub backend: Arc<Backend>,
     pub node_id: Backend::NodeId,
-    pub batch_rx: tokio::sync::mpsc::Receiver<(
-        NEVec<Backend::WorkloadId>,
-        tokio::sync::oneshot::Sender<usize>,
-    )>,
+    pub batch_rx: tokio::sync::mpsc::Receiver<PinnedBatch<Backend::WorkloadId>>,
     pub evict_rx: tokio::sync::mpsc::UnboundedReceiver<(
         Backend::WorkloadId,
         waymark_workload_pinning_core::UnpinMode,
@@ -63,6 +89,7 @@ where
     pub shutdown_token: CancellationToken,
     pub pinning_heartbeat: NonZeroDuration,
     pub pinning_ttl: NonZeroDuration,
+    pub pinning_fencing_margin: NonZeroDuration,
 }
 
 pub(super) async fn run_maintenance_loop<Backend>(
@@ -75,7 +102,7 @@ where
         >,
     Backend: waymark_workload_pinning_backend::UnpinWorkloads,
     Backend::NodeId: Clone,
-    Backend::WorkloadId: Clone + std::hash::Hash + Eq,
+    Backend::WorkloadId: Clone + std::hash::Hash + Eq + std::fmt::Debug,
 {
     let MaintainParams {
         backend,
@@ -86,9 +113,18 @@ where
         shutdown_token,
         pinning_heartbeat,
         pinning_ttl,
+        pinning_fencing_margin,
     } = params;
 
-    let mut active_ids: HashSet<Backend::WorkloadId> = HashSet::new();
+    // How long past its pre-send anchor a pinning stays locally
+    // trusted.  A margin at or above the ttl degenerates to zero:
+    // workloads fence immediately, which such a configuration is
+    // asking for.
+    let lapse_after = pinning_ttl
+        .get()
+        .saturating_sub(pinning_fencing_margin.get());
+
+    let mut active: ActiveSet<Backend::WorkloadId> = ActiveSet::new();
     let mut poll_exited = false;
     let shutdown = shutdown_token.child_token().cancelled_owned();
     let mut shutdown = std::pin::pin!(shutdown);
@@ -96,23 +132,26 @@ where
     heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     let result = loop {
-        if poll_exited && active_ids.is_empty() {
+        if poll_exited && active.tracked_count() == 0 {
             break Ok(());
         }
+
+        let next_lapse = active.earliest_lapse_deadline();
 
         tokio::select! {
             result = batch_rx.recv(), if !poll_exited => {
                 match result {
-                    Some((ids, reply)) => {
-                        for id in ids.iter() {
-                            active_ids.insert(id.clone());
+                    Some(PinnedBatch { pinned_at, pinned, reply }) => {
+                        let lapses_at = pinned_at + lapse_after;
+                        for (id, fence) in pinned {
+                            active.track_newly_pinned(id, lapses_at, fence);
                         }
-                        let _ = reply.send(active_ids.len());
+                        let _ = reply.send(active.tracked_count());
                     }
                     None => {
                         poll_exited = true;
-                        if !active_ids.is_empty() {
-                            info!("poll loop exited, {} active IDs remain", active_ids.len());
+                        if active.tracked_count() > 0 {
+                            info!("poll loop exited, {} active IDs remain", active.tracked_count());
                         }
                     }
                 }
@@ -124,31 +163,60 @@ where
                     unpins.push(eviction);
                 }
                 if let Err(error) = (*backend).unpin_workloads(node_id.clone(), unpins.clone()).await {
-                    break Err((MaintenanceError::Unpin(error), active_ids));
+                    break Err((MaintenanceError::Unpin(error), active.fence_all_and_into_ids()));
                 }
                 for (id, _mode) in unpins {
-                    active_ids.remove(&id);
+                    active.fence_and_stop_tracking(&id);
                 }
-                let _ = count_tx.send(active_ids.len());
+                let _ = count_tx.send(active.tracked_count());
             }
             _ = heartbeat_tick.tick() => {
-                let Some(ids) = active_ids.iter().cloned().try_into_nonempty_iter() else {
-                    continue;
-                };
-                match refresh_active_pinnings(&*backend, chrono::Utc::now(), node_id.clone(), ids.clone(), pinning_ttl).await {
-                    Ok(()) => {}
-                    Err(error) => {
-                        warn!(?error, "heartbeat refresh failed, retrying immediately");
-                        // Retry once immediately — must complete before pins expire.
-                        if let Err(error) = refresh_active_pinnings(&*backend, chrono::Utc::now(), node_id.clone(), ids, pinning_ttl).await {
-                            break Err((MaintenanceError::Refresh(error), active_ids));
+                // Both nows are captured before issuing the refresh:
+                // the store stamps the new expiry after this instant,
+                // so `fencing_now + lapse_after` is a conservative
+                // local deadline.  The immediate retry re-sends the
+                // same refresh, so it reuses them.
+                let fencing_now = tokio::time::Instant::now();
+                let timestamp_now = chrono::Utc::now();
+
+                // The ids borrow `active`, so the refresh is scoped:
+                // applying the statuses below needs it back, mutably.
+                let refreshed = {
+                    let Some(ids) = active.ids_needing_refresh() else {
+                        continue;
+                    };
+                    match refresh_active_pinnings(&*backend, timestamp_now, node_id.clone(), ids.clone(), pinning_ttl).await {
+                        Ok(statuses) => Ok(statuses),
+                        Err(error) => {
+                            warn!(?error, "heartbeat refresh failed, retrying immediately");
+                            // Retry once immediately — must complete before pins expire.
+                            refresh_active_pinnings(&*backend, timestamp_now, node_id.clone(), ids, pinning_ttl).await
                         }
+                    }
+                };
+
+                let statuses = match refreshed {
+                    Ok(statuses) => statuses,
+                    Err(error) => {
+                        break Err((MaintenanceError::Refresh(error), active.fence_all_and_into_ids()));
+                    }
+                };
+
+                let lapses_at = fencing_now + lapse_after;
+                for status in statuses {
+                    if status.pinning.is_some() {
+                        active.extend_after_confirmed_refresh(&status.workload_id, lapses_at);
+                    } else {
+                        active.fence_lost_pinning(&status.workload_id);
                     }
                 }
             }
+            _ = async { tokio::time::sleep_until(next_lapse.unwrap()).await }, if next_lapse.is_some() => {
+                active.fence_lapsed_pinnings(tokio::time::Instant::now());
+            }
             _ = &mut shutdown => {
                 warn!("maintenance loop force shutdown");
-                break Err((MaintenanceError::ForceShutdown, active_ids));
+                break Err((MaintenanceError::ForceShutdown, active.fence_all_and_into_ids()));
             }
         }
     };
@@ -157,14 +225,18 @@ where
     result
 }
 
-/// Refresh pinnings on all active workloads.
+/// Refresh pinnings on all active workloads, returning the per-workload
+/// statuses.
 pub(super) async fn refresh_active_pinnings<Backend>(
     backend: &Backend,
     now: chrono::DateTime<chrono::Utc>,
     node_id: Backend::NodeId,
     ids: impl nonempty_collections::IntoNonEmptyIterator<Item = Backend::WorkloadId>,
     pinning_ttl: NonZeroDuration,
-) -> Result<(), <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error>
+) -> Result<
+    NEVec<waymark_workload_pinning_backend::PinningStatusFor<Backend>>,
+    <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error,
+>
 where
     Backend: waymark_workload_pinning_backend::KeepalivePinnings<
             Timestamp = chrono::DateTime<chrono::Utc>,
@@ -177,11 +249,11 @@ where
         expires_at,
     };
 
-    backend.refresh_pinnings(now, pinning, ids).await?;
+    let statuses = backend.refresh_pinnings(now, pinning, ids).await?;
 
     debug!("refreshed workload pinnings");
 
-    Ok(())
+    Ok(statuses)
 }
 
 #[cfg(test)]

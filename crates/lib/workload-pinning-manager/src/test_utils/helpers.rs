@@ -25,6 +25,10 @@ pub(crate) fn short_heartbeat() -> NonZeroDuration {
     NonZeroDuration::new(Duration::from_millis(100)).unwrap()
 }
 
+pub(crate) fn test_fencing_margin() -> NonZeroDuration {
+    NonZeroDuration::new(Duration::from_millis(1)).unwrap()
+}
+
 pub(crate) fn test_now() -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap()
 }
