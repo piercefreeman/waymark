@@ -167,6 +167,8 @@ async fn main() -> Result<()> {
             .action_effect_reconciler_request_batch_delay,
         workflow_completion_batch_max: config.workflow_completion_batch_max,
         workflow_completion_batch_delay: config.workflow_completion_batch_delay,
+        action_effect_reconciler_lock_batch_max: config.action_effect_reconciler_lock_batch_max,
+        action_effect_reconciler_lock_batch_delay: config.action_effect_reconciler_lock_batch_delay,
         sleep_poll_interval: config.sleep_poll_interval,
         vm_retention: config.vm_retention,
         vm_sweep_interval: config.vm_sweep_interval,
@@ -220,6 +222,11 @@ async fn main() -> Result<()> {
     let _ = tokio::time::timeout(
         Duration::from_secs(5),
         execution_handles.workflow_completion_batcher,
+    )
+    .await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        execution_handles.action_effect_reconciler_lock_batcher,
     )
     .await;
     let _ = tokio::time::timeout(Duration::from_secs(5), bridge_task).await;
