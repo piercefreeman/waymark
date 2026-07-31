@@ -60,6 +60,25 @@ fn workflow_completion_batch_delay() -> NonZeroDuration {
         .unwrap_or(NonZeroDuration::from_millis(5).unwrap())
 }
 
+/// Max revival-reconcile locks coalesced per batched statement pair (env
+/// `WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_BATCH_MAX`).
+fn action_effect_reconciler_lock_batch_max() -> NonZeroUsize {
+    std::env::var("WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_BATCH_MAX")
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(NonZeroUsize::new(256).unwrap())
+}
+
+/// Revival-reconcile lock batch flush window (env
+/// `WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_BATCH_DELAY_MS`).
+fn action_effect_reconciler_lock_batch_delay() -> NonZeroDuration {
+    std::env::var("WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_BATCH_DELAY_MS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .and_then(NonZeroDuration::from_millis)
+        .unwrap_or(NonZeroDuration::from_millis(5).unwrap())
+}
+
 pub fn durable_execution_config(
     max_pinned: NonZeroUsize,
 ) -> waymark_execution_bringup::Config<uuid::Uuid> {
@@ -79,6 +98,8 @@ pub fn durable_execution_config(
         ),
         workflow_completion_batch_max: workflow_completion_batch_max(),
         workflow_completion_batch_delay: workflow_completion_batch_delay(),
+        action_effect_reconciler_lock_batch_max: action_effect_reconciler_lock_batch_max(),
+        action_effect_reconciler_lock_batch_delay: action_effect_reconciler_lock_batch_delay(),
         sleep_poll_interval: Duration::from_millis(250).try_into().unwrap(),
         vm_retention: Duration::from_secs(60).try_into().unwrap(),
         vm_sweep_interval: Duration::from_secs(10).try_into().unwrap(),
@@ -102,6 +123,7 @@ pub async fn shutdown_execution(handles: waymark_execution_bringup::Handles) {
         snapshot_batcher,
         action_effect_reconciler_request_batcher,
         workflow_completion_batcher,
+        action_effect_reconciler_lock_batcher,
     } = handles;
 
     let _ = tokio::time::timeout(Duration::from_secs(5), pinning_manager).await;
@@ -125,4 +147,9 @@ pub async fn shutdown_execution(handles: waymark_execution_bringup::Handles) {
     )
     .await;
     let _ = tokio::time::timeout(Duration::from_secs(5), workflow_completion_batcher).await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        action_effect_reconciler_lock_batcher,
+    )
+    .await;
 }

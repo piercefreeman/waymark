@@ -32,11 +32,27 @@ impl waymark_state_manager_core::Factory for RecordingFactory {
 }
 
 type TestRequesterProvider = Box<dyn Fn(&u64) -> CapturingRequester + Send + Sync>;
-type TestFactory =
-    ReconcilingFactory<RecordingFactory, MockBackend, RmpCodec, TestRequesterProvider>;
+type TestFactory = ReconcilingFactory<RecordingFactory, u64, RmpCodec, TestRequesterProvider>;
 type FailingRequesterProvider = Box<dyn Fn(&u64) -> FailingRequester + Send + Sync>;
 type FailingDeliveryFactory =
-    ReconcilingFactory<RecordingFactory, MockBackend, RmpCodec, FailingRequesterProvider>;
+    ReconcilingFactory<RecordingFactory, u64, RmpCodec, FailingRequesterProvider>;
+
+/// A locker over the mock backend, with its batcher spawned onto the test
+/// runtime.  Small delay window so single submissions flush promptly.
+fn spawn_locker(backend: &Arc<MockBackend>) -> crate::lock_batcher::VmLockerHandle<u64> {
+    let (locker, batcher) = crate::lock_batcher::lock_batcher(
+        Arc::clone(backend),
+        7u32,
+        LOCK_TIME_TO_LIVE.try_into().unwrap(),
+        waymark_batcher::Policy {
+            max_batch: 16.try_into().unwrap(),
+            max_delay: waymark_nonzero_duration::NonZeroDuration::from_millis(1).unwrap(),
+        },
+        std::future::pending(),
+    );
+    tokio::spawn(batcher);
+    locker
+}
 
 struct Harness {
     backend: Arc<MockBackend>,
@@ -57,10 +73,8 @@ fn harness() -> Harness {
         inner: RecordingFactory {
             events: Arc::clone(&events),
         },
-        backend: Arc::clone(&backend),
+        locker: spawn_locker(&backend),
         codec: RmpCodec,
-        lock_owner_id: 7u32,
-        lock_time_to_live: LOCK_TIME_TO_LIVE.try_into().unwrap(),
         held_locks_tx,
         requester_provider: Box::new(move |_vm_id: &u64| {
             provider_events.lock().unwrap().push("redeliver".to_owned());
@@ -298,10 +312,8 @@ async fn redelivery_failure_fails_the_spawn() {
         inner: RecordingFactory {
             events: Arc::clone(&events),
         },
-        backend: Arc::clone(&backend),
+        locker: spawn_locker(&backend),
         codec: RmpCodec,
-        lock_owner_id: 7u32,
-        lock_time_to_live: LOCK_TIME_TO_LIVE.try_into().unwrap(),
         held_locks_tx,
         requester_provider: Box::new(|_vm_id: &u64| FailingRequester),
     };
