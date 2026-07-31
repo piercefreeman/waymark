@@ -20,16 +20,16 @@ use std::collections::VecDeque;
 use std::fs::{self};
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use clap::Parser;
+use color_eyre::eyre::{WrapErr as _, bail};
 use tracing::{error, info};
 use waymark_backend_postgres::PostgresBackend;
 
 const DB_READY_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), color_eyre::eyre::Report> {
     waymark_fn_main_common::init()?;
 
     let args = cli::SoakArgs::parse();
@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
     let run_id = Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
     let run_dir = args.diagnostic_dir.join(&run_id);
     fs::create_dir_all(&run_dir)
-        .with_context(|| format!("create run directory {}", run_dir.display()))?;
+        .wrap_err_with(|| format!("create run directory {}", run_dir.display()))?;
 
     // Create a convenience symlink pointing to this run directory at
     // the `diagnostic_dir`; the goal is to allow repeating
@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
     let pool = setup_db::wait_for_database(&args.dsn, DB_READY_TIMEOUT).await?;
     waymark_backend_postgres_migrations::run(&pool)
         .await
-        .context("run migrations before soak")?;
+        .wrap_err("run migrations before soak")?;
 
     let backend = PostgresBackend::new(pool.clone());
     if !args.keep_existing_data {
@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
         )
         .execute(&pool)
         .await
-        .context("clear durable-VM tables")?;
+        .wrap_err("clear durable-VM tables")?;
     }
     let services = setup_workflows::soak_services(&backend);
 
@@ -174,7 +174,10 @@ async fn main() -> Result<()> {
 
 /// Creates a `last` symlink that points to the current run directory adjacent
 /// to it.
-fn symlink_last(diagnostic_dir: &std::path::Path, run_id: &str) -> Result<()> {
+fn symlink_last(
+    diagnostic_dir: &std::path::Path,
+    run_id: &str,
+) -> Result<(), color_eyre::eyre::Report> {
     symlink_if_possible(std::path::Path::new(run_id), diagnostic_dir.join("last"))?;
     Ok(())
 }
@@ -184,7 +187,7 @@ fn symlink_last(diagnostic_dir: &std::path::Path, run_id: &str) -> Result<()> {
 fn symlink_if_possible(
     target: impl AsRef<std::path::Path>,
     link: impl AsRef<std::path::Path>,
-) -> Result<()> {
+) -> Result<(), color_eyre::eyre::Report> {
     #[cfg(unix)]
     {
         let new_link = link.as_ref().with_added_extension("new");

@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use color_eyre::eyre::{WrapErr as _, eyre};
 use waymark_secret_string::SecretString;
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
 
@@ -41,7 +41,7 @@ pub async fn run_durable_mode(
     prepared_cases: &[PreparedCase],
     worker_count: NonZeroUsize,
     timeout: Duration,
-) -> Result<Vec<String>> {
+) -> Result<Vec<String>, color_eyre::eyre::Report> {
     let stack = connect_durable_stack().await?;
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
@@ -53,7 +53,7 @@ pub async fn run_durable_mode(
         worker_count,
     )
     .await
-    .context("start durable worker pool")?;
+    .wrap_err("start durable worker pool")?;
 
     // The execution subsystem launches the worker pool itself.
     let execution_handles = waymark_execution_bringup::start(
@@ -64,7 +64,7 @@ pub async fn run_durable_mode(
         force_shutdown_token.child_token(),
     )
     .await
-    .context("start durable execution subsystem")?;
+    .wrap_err("start durable execution subsystem")?;
 
     let mut failures = Vec::new();
     for prepared in prepared_cases {
@@ -84,7 +84,7 @@ pub async fn run_durable_mode(
     Ok(failures)
 }
 
-async fn connect_durable_stack() -> Result<DurableStack> {
+async fn connect_durable_stack() -> Result<DurableStack, color_eyre::eyre::Report> {
     let dsn = std::env::var("WAYMARK_DATABASE_URL")
         .map(SecretString::from)
         .unwrap_or_else(|_| SecretString::from(LOCAL_POSTGRES_DSN));
@@ -92,15 +92,15 @@ async fn connect_durable_stack() -> Result<DurableStack> {
     if dsn.expose_secret() == LOCAL_POSTGRES_DSN.expose_secret() {
         ensure_local_postgres()
             .await
-            .context("auto-bootstrap local postgres for integration runner")?;
+            .wrap_err("auto-bootstrap local postgres for integration runner")?;
     }
 
     let pool = connect_pool(&dsn)
         .await
-        .with_context(|| format!("connect postgres backend: {dsn}"))?;
+        .wrap_err_with(|| format!("connect postgres backend: {dsn}"))?;
     waymark_backend_postgres_migrations::run(&pool)
         .await
-        .context("run postgres migrations for integration runner")?;
+        .wrap_err("run postgres migrations for integration runner")?;
 
     // Reset the durable-VM tables so stale runnable workloads from prior
     // (crashed) runs cannot be revived into this run's execution subsystem.
@@ -118,7 +118,7 @@ async fn connect_durable_stack() -> Result<DurableStack> {
     )
     .execute(&pool)
     .await
-    .context("truncate durable-VM tables")?;
+    .wrap_err("truncate durable-VM tables")?;
 
     let backend = waymark_backend_postgres::PostgresBackend::new(pool);
     let codec = waymark_vm_codec_rmp::RmpCodec;
@@ -216,7 +216,7 @@ async fn run_case_durable(
     prepared: &PreparedCase,
     stack: &DurableStack,
     timeout: Duration,
-) -> Result<CaseOutcome> {
+) -> Result<CaseOutcome, color_eyre::eyre::Report> {
     let (executable_id, executable, metadata) = stack
         .executables
         .compile_and_store(
@@ -226,7 +226,7 @@ async fn run_case_durable(
         )
         .await
         .map_err(|err| {
-            anyhow!(
+            eyre!(
                 "compile and store executable for case '{}': {err}",
                 prepared.case.id
             )
@@ -235,14 +235,14 @@ async fn run_case_durable(
     let call_spec = waymark_vm_runtime_builder::builder(&metadata)
         .first_fn()
         .map_err(|err| {
-            anyhow!(
+            eyre!(
                 "select entry function for case '{}': {err}",
                 prepared.case.id
             )
         })?
         .args(prepared.inputs.clone())
         .map_err(|err| {
-            anyhow!(
+            eyre!(
                 "match entry function arguments for case '{}': {err}",
                 prepared.case.id
             )
@@ -253,7 +253,7 @@ async fn run_case_durable(
         Arc::new(executable),
         call_spec,
     )
-    .map_err(|err| anyhow!("create VM runtime for case '{}': {err}", prepared.case.id))?;
+    .map_err(|err| eyre!("create VM runtime for case '{}': {err}", prepared.case.id))?;
 
     let vm_id = waymark_ids::InstanceId::new_uuid_v4();
     stack
@@ -262,7 +262,7 @@ async fn run_case_durable(
             runtime.snapshot(serializer)
         })
         .await
-        .map_err(|err| anyhow!("register VM for case '{}': {err}", prepared.case.id))?;
+        .map_err(|err| eyre!("register VM for case '{}': {err}", prepared.case.id))?;
 
     let workflow_outcome = tokio::time::timeout(
         timeout,
@@ -272,13 +272,13 @@ async fn run_case_durable(
     )
     .await
     .map_err(|_elapsed| {
-        anyhow!(
+        eyre!(
             "case '{}' timed out after {}s",
             prepared.case.id,
             timeout.as_secs()
         )
     })?
-    .map_err(|err| anyhow!("wait for outcome of case '{}': {err}", prepared.case.id))?;
+    .map_err(|err| eyre!("wait for outcome of case '{}': {err}", prepared.case.id))?;
 
     Ok(canonicalize_outcome(outcome_from_vm(workflow_outcome)?))
 }

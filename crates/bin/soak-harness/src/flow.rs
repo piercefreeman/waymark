@@ -5,8 +5,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
+use color_eyre::eyre::{WrapErr as _, bail, eyre};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use serde::Serialize;
@@ -61,7 +61,7 @@ pub async fn run_soak_loop(
     pool: &PgPool,
     workflow: &RegisteredWorkflow,
     worker: &mut Option<crate::setup_workers::WorkerProcess>,
-) -> Result<(TerminationReason, VecDeque<HealthSample>)> {
+) -> Result<(TerminationReason, VecDeque<HealthSample>), color_eyre::eyre::Report> {
     let seed = args.seed.unwrap_or_else(rand::random);
     info!(seed, "soak workload random seed");
     let mut rng = StdRng::seed_from_u64(seed);
@@ -90,7 +90,7 @@ pub async fn run_soak_loop(
             && let Some(status) = worker_process
                 .child
                 .try_wait()
-                .context("poll worker process")?
+                .wrap_err("poll worker process")?
         {
             return Ok((
                 TerminationReason::WorkerExited(format!("worker process exited: {status}")),
@@ -253,22 +253,22 @@ async fn register_instances(
     args: &crate::cli::SoakArgs,
     count: usize,
     rng: &mut StdRng,
-) -> Result<usize> {
+) -> Result<usize, color_eyre::eyre::Report> {
     for _ in 0..count {
         let item = sample_work_item(args, rng);
         let inputs = build_instance_inputs(&item)?;
 
         let call_spec = waymark_vm_runtime_builder::builder(&workflow.metadata)
             .first_fn()
-            .map_err(|err| anyhow!("select soak entry function: {err}"))?
+            .map_err(|err| eyre!("select soak entry function: {err}"))?
             .args(inputs)
-            .map_err(|err| anyhow!("match soak entry function arguments: {err}"))?;
+            .map_err(|err| eyre!("match soak entry function arguments: {err}"))?;
         let runtime = waymark_system_vm::Runtime::with_custom_entrypoint(
             waymark_system_vm::Interpreter::default(),
             Arc::clone(&workflow.executable),
             call_spec,
         )
-        .map_err(|err| anyhow!("create soak VM runtime: {err}"))?;
+        .map_err(|err| eyre!("create soak VM runtime: {err}"))?;
 
         services
             .registration
@@ -278,7 +278,7 @@ async fn register_instances(
                 |serializer| runtime.snapshot(serializer),
             )
             .await
-            .map_err(|err| anyhow!("register soak VM: {err}"))?;
+            .map_err(|err| eyre!("register soak VM: {err}"))?;
     }
 
     Ok(count)
@@ -352,7 +352,9 @@ fn jitter_payload(base_payload: i64, rng: &mut StdRng) -> i64 {
     rng.random_range(lower..=upper)
 }
 
-fn build_instance_inputs(item: &WorkItem) -> Result<HashMap<String, waymark_system_vm::Value>> {
+fn build_instance_inputs(
+    item: &WorkItem,
+) -> Result<HashMap<String, waymark_system_vm::Value>, color_eyre::eyre::Report> {
     if item.step_delays_ms.len() != item.step_should_fail.len()
         || item.step_delays_ms.len() != item.step_payload_bytes.len()
         || item.step_delays_ms.len() != item.step_include_payload.len()

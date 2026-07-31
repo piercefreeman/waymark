@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 use std::fs::{self};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use color_eyre::eyre::WrapErr as _;
 use serde::Serialize;
 use sqlx::PgPool;
 use waymark_ids::WorkflowVersionId;
@@ -36,7 +36,9 @@ struct QueryCapture<T: Serialize> {
     pub error: Option<String>,
 }
 
-fn capture_query<T: Serialize>(result: Result<Vec<T>>) -> QueryCapture<T> {
+fn capture_query<T: Serialize>(
+    result: Result<Vec<T>, color_eyre::eyre::Report>,
+) -> QueryCapture<T> {
     match result {
         Ok(rows) => QueryCapture { rows, error: None },
         Err(err) => QueryCapture {
@@ -54,7 +56,7 @@ pub async fn capture_diagnostics(
     samples: &VecDeque<HealthSample>,
     worker_log_path: Option<&Path>,
     run_dir: &Path,
-) -> Result<PathBuf> {
+) -> Result<PathBuf, color_eyre::eyre::Report> {
     let workload_snapshot = data::fetch_workload_snapshot(pool).await?;
     let worker_status = data::fetch_latest_worker_status(pool).await?;
 
@@ -105,8 +107,8 @@ pub async fn capture_diagnostics(
     };
 
     let path = run_dir.join("diagnostics.json");
-    let json = serde_json::to_vec_pretty(&bundle).context("serialize diagnostics")?;
-    fs::write(&path, json).with_context(|| format!("write {}", path.display()))?;
+    let json = serde_json::to_vec_pretty(&bundle).wrap_err("serialize diagnostics")?;
+    fs::write(&path, json).wrap_err_with(|| format!("write {}", path.display()))?;
 
     Ok(path)
 }

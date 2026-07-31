@@ -18,7 +18,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result, bail};
+use color_eyre::eyre::{ContextCompat as _, WrapErr as _, bail};
 use tonic::transport::Channel;
 use tonic_health::pb::HealthCheckRequest;
 use tonic_health::pb::health_client::HealthClient;
@@ -40,7 +40,7 @@ const DEFAULT_GRPC_PORT: u16 = 24117;
 const HEALTH_SERVICE_NAME: &str = "waymark.messages.WorkflowService";
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), waymark_fn_main_common::Error> {
     waymark_fn_main_common::init()?;
 
     let args: Vec<String> = env::args().collect();
@@ -142,7 +142,7 @@ async fn check_grpc_health(host: &str, port: u16) -> bool {
     }
 }
 
-async fn spawn_server(host: &str, port: u16) -> Result<u16> {
+async fn spawn_server(host: &str, port: u16) -> Result<u16, color_eyre::eyre::Report> {
     let grpc_addr = format!("{host}:{port}");
     let server_bin = find_server_binary()?;
 
@@ -160,7 +160,7 @@ async fn spawn_server(host: &str, port: u16) -> Result<u16> {
         cmd.process_group(0);
     }
 
-    let _child = cmd.spawn().context("failed to spawn waymark-bridge")?;
+    let _child = cmd.spawn().wrap_err("failed to spawn waymark-bridge")?;
 
     let deadline = tokio::time::Instant::now() + STARTUP_WAIT;
     while tokio::time::Instant::now() < deadline {
@@ -173,8 +173,8 @@ async fn spawn_server(host: &str, port: u16) -> Result<u16> {
     bail!("server failed to start within {STARTUP_WAIT:?}")
 }
 
-fn find_server_binary() -> Result<PathBuf> {
-    let current_exe = env::current_exe().context("failed to get current executable path")?;
+fn find_server_binary() -> Result<PathBuf, color_eyre::eyre::Report> {
+    let current_exe = env::current_exe().wrap_err("failed to get current executable path")?;
     let parent = current_exe
         .parent()
         .context("failed to get parent directory")?;
@@ -211,10 +211,10 @@ fn find_server_binary() -> Result<PathBuf> {
     bail!("could not find waymark-bridge binary")
 }
 
-fn write_port_file(port_file: &Option<PathBuf>, port: u16) -> Result<()> {
+fn write_port_file(port_file: &Option<PathBuf>, port: u16) -> Result<(), color_eyre::eyre::Report> {
     if let Some(path) = port_file {
         fs::write(path, port.to_string())
-            .with_context(|| format!("failed to write port file: {}", path.display()))?;
+            .wrap_err_with(|| format!("failed to write port file: {}", path.display()))?;
         info!(path = %path.display(), port, "wrote port file");
     } else {
         println!("{port}");

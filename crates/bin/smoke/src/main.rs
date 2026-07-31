@@ -27,7 +27,10 @@ struct SmokeCase {
     inputs: HashMap<String, Value>,
 }
 
-async fn run_program_smoke<Pool>(case: &SmokeCase, worker_pool: Pool) -> Result<(), anyhow::Error>
+async fn run_program_smoke<Pool>(
+    case: &SmokeCase,
+    worker_pool: Pool,
+) -> Result<(), color_eyre::eyre::Report>
 where
     Pool: waymark_worker_core::BaseWorkerPool + Clone + Send + Sync + 'static,
 {
@@ -55,8 +58,9 @@ where
     let Err(driver_exit) = driver_handle.await;
     tracing::debug!(?driver_exit, "vm driver exited");
 
-    let workflow_outcome = workflow_outcome
-        .map_err(|_recv_error| anyhow::anyhow!("vm driver exited without a workflow outcome"))?;
+    let workflow_outcome = workflow_outcome.map_err(|_recv_error| {
+        color_eyre::eyre::eyre!("vm driver exited without a workflow outcome")
+    })?;
 
     println!("Workflow outcome ({}): {:?}", case.name, workflow_outcome);
     Ok(())
@@ -182,11 +186,11 @@ fn repo_root() -> std::path::PathBuf {
         .to_path_buf()
 }
 
-pub fn main() {
-    waymark_fn_main_common::init().expect("tracing setup");
+pub fn main() -> Result<(), waymark_fn_main_common::Error> {
+    waymark_fn_main_common::init()?;
 
     let args = SmokeArgs::parse();
-    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+    let runtime = tokio::runtime::Runtime::new()?;
     let code = runtime.block_on(run_smoke(args.base));
     std::process::exit(code);
 }

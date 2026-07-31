@@ -1,6 +1,6 @@
 use std::{num::NonZeroUsize, sync::Arc};
 
-use anyhow::{Result, anyhow};
+use color_eyre::eyre::eyre;
 use prost::Message as _;
 use sha2::{Digest as _, Sha256};
 use waymark_backend_postgres::PostgresBackend;
@@ -50,20 +50,20 @@ pub async fn register_workflow(
     timeout_seconds: u32,
     actions_per_workflow: NonZeroUsize,
     user_module: &str,
-) -> Result<RegisteredWorkflow> {
+) -> Result<RegisteredWorkflow, color_eyre::eyre::Report> {
     let source = workflow_source(user_module, timeout_seconds, actions_per_workflow);
 
-    let program = parse_program(source.trim()).map_err(|err| anyhow!(err.to_string()))?;
+    let program = parse_program(source.trim()).map_err(|err| eyre!(err.to_string()))?;
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let program = waymark_vm_ast_old_proto::convert(program)
-        .map_err(|err| anyhow!("convert soak workflow to the VM AST: {err}"))?;
+        .map_err(|err| eyre!("convert soak workflow to the VM AST: {err}"))?;
 
     let (workflow_version_id, executable, metadata) = services
         .executables
         .compile_and_store(DEFAULT_WORKFLOW_NAME, &ir_hash, &program)
         .await
-        .map_err(|err| anyhow!("compile and store soak workflow: {err}"))?;
+        .map_err(|err| eyre!("compile and store soak workflow: {err}"))?;
 
     Ok(RegisteredWorkflow {
         workflow_name: DEFAULT_WORKFLOW_NAME.to_string(),
