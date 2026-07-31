@@ -4307,6 +4307,7 @@ dependencies = [
  "waymark-action-effect-reconciler-backend",
  "waymark-action-runtime-core",
  "waymark-action-runtime-metadata",
+ "waymark-batcher",
  "waymark-extcall-reconciler-core",
  "waymark-nonzero-duration",
  "waymark-state-manager-core",
