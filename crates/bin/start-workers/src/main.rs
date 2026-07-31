@@ -156,6 +156,7 @@ async fn main() -> Result<()> {
         max_pinned: config.max_concurrent_instances,
         pinning_ttl: config.lock_ttl,
         pinning_heartbeat: config.lock_heartbeat,
+        sleep_poll_interval: config.sleep_poll_interval,
         vm_retention: config.vm_retention,
         vm_sweep_interval: config.vm_sweep_interval,
         executable_retention: config.executable_retention,

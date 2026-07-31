@@ -32,6 +32,7 @@ pub(super) async fn reset_database(pool: &PgPool) {
         r#"
         TRUNCATE action_call_completions,
                  action_call_requests,
+                 sleep_requests,
                  runner_actions_done,
                  queued_instances,
                  runner_instances,

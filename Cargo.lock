@@ -4480,6 +4480,7 @@ dependencies = [
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
  "waymark-secret-string",
+ "waymark-sleep-reconciler-backend",
  "waymark-state-vm-executables-backend",
  "waymark-state-vm-runtimes-backend",
  "waymark-support-test",
@@ -4711,6 +4712,8 @@ dependencies = [
  "waymark-ids",
  "waymark-nonzero-duration",
  "waymark-sleep-compat",
+ "waymark-sleep-reconciler",
+ "waymark-sleep-reconciler-backend",
  "waymark-state-manager",
  "waymark-state-vm-executables",
  "waymark-state-vm-executables-backend",
@@ -4718,7 +4721,6 @@ dependencies = [
  "waymark-state-vm-runtimes-backend",
  "waymark-state-vm-runtimes-core",
  "waymark-system-vm",
- "waymark-transient-sleep-reconciler",
  "waymark-vm-codec-rmp",
  "waymark-vm-interpreter-fullset",
  "waymark-worker-core",
@@ -5220,6 +5222,37 @@ dependencies = [
 [[package]]
 name = "waymark-sleep-core"
 version = "0.1.0"
+
+[[package]]
+name = "waymark-sleep-reconciler"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "dashmap 6.2.1",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "waymark-extcall-reconciler-core",
+ "waymark-ids",
+ "waymark-nonzero-duration",
+ "waymark-sleep-compat",
+ "waymark-sleep-core",
+ "waymark-sleep-reconciler-backend",
+ "waymark-vm-driver-core",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+]
+
+[[package]]
+name = "waymark-sleep-reconciler-backend"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+]
 
 [[package]]
 name = "waymark-smoke"
