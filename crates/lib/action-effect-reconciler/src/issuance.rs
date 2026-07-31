@@ -21,8 +21,13 @@ const RETRY_INITIAL_BACKOFF: Duration = Duration::from_millis(25);
 /// Cap on the retry delay.
 const RETRY_MAX_BACKOFF: Duration = Duration::from_secs(1);
 
-/// A fresh lock for this process, expiring one time-to-live from now.
+/// A fresh lock for this process, expiring one time-to-live from `now`.
+///
+/// `now` is the caller-clock instant the expiry is computed against; pass
+/// the same instant to the backend call taking the lock, so the store can
+/// reconstruct the intended time-to-live exactly.
 pub(crate) fn fresh_lock<LockOwnerId: Clone>(
+    now: DateTime<Utc>,
     lock_owner_id: &LockOwnerId,
     lock_time_to_live: NonZeroDuration,
 ) -> RequestLock<LockOwnerId, DateTime<Utc>> {
@@ -30,7 +35,7 @@ pub(crate) fn fresh_lock<LockOwnerId: Clone>(
         .expect("the lock time-to-live fits the chrono duration range");
     RequestLock {
         owner: lock_owner_id.clone(),
-        expires_at: Utc::now() + time_to_live,
+        expires_at: now + time_to_live,
     }
 }
 
@@ -70,9 +75,10 @@ where
     let mut backoff = RETRY_INITIAL_BACKOFF;
     loop {
         let taken_at = Instant::now();
-        let lock = fresh_lock(lock_owner_id, lock_time_to_live);
+        let now = Utc::now();
+        let lock = fresh_lock(now, lock_owner_id, lock_time_to_live);
         match backend
-            .record_action_call_requests(lock, records.as_nonempty_slice())
+            .record_action_call_requests(now, lock, records.as_nonempty_slice())
             .await
         {
             Ok(success) => return Ok((success, taken_at)),

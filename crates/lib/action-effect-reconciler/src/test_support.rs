@@ -90,6 +90,9 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Mock
 
     async fn record_action_call_requests(
         &self,
+        // The mock stores `lock.expires_at` verbatim rather than translating
+        // it onto a store clock, so the baseline instant goes unused.
+        _now: chrono::DateTime<chrono::Utc>,
         lock: TestLock,
         records: NESlice<'_, ActionCallRequestRecord<TestVmId>>,
     ) -> Result<RecordingSuccess<TestVmId>, MockRecordError> {
