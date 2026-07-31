@@ -72,12 +72,3 @@ pub enum UnlockError {
     #[error("value out of range for the database column: {0}")]
     OutOfRange(#[source] std::num::TryFromIntError),
 }
-
-/// Error returned by [`super::super::PostgresBackend`] when purging a VM's
-/// requests.
-#[derive(Debug, thiserror::Error)]
-pub enum PurgeError {
-    /// The underlying database operation failed.
-    #[error("sqlx: {0}")]
-    Sqlx(#[source] sqlx::Error),
-}
