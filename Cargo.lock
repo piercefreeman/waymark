@@ -6229,8 +6229,9 @@ dependencies = [
 name = "waymark-webapp-bringup"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "axum 0.8.8",
+ "tera",
+ "thiserror",
  "tokio",
  "tokio-util",
  "tracing",
