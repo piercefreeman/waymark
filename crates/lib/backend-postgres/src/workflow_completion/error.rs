@@ -1,15 +1,14 @@
 //! Error types for workflow completion persistence.
 
-/// Error returned when recording a workflow completion or exception fails.
+/// Error returned when recording workflow terminal outcomes fails.
+///
+/// Per-row conflicts are not errors — they are reported via
+/// [`waymark_workflow_completion_backend::RecordingSuccess::SomeConflicted`].
 #[derive(Debug, thiserror::Error)]
-pub enum RecordError {
+pub enum RecordOutcomesError {
     /// The underlying database operation failed.
     #[error("sqlx: {0}")]
     Sqlx(#[source] sqlx::Error),
-
-    /// A different outcome was already recorded for this VM.
-    #[error("conflicting outcome already recorded for vm {0}")]
-    Conflict(waymark_ids::InstanceId),
 }
 
 /// Error returned when polling for a workflow outcome fails.

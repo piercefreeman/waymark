@@ -3,8 +3,7 @@
 //! Provides an [`waymark_vm_driver_core::EffectHandler`] implementation that
 //! takes [`waymark_vm_interpreter_coreset::Effect`] values directly and
 //! persists completion or exception outcomes via
-//! [`waymark_workflow_completion_backend::RecordCompletion`] and
-//! [`waymark_workflow_completion_backend::RecordException`].
+//! [`waymark_workflow_completion_backend::RecordOutcomes`].
 
 #![warn(missing_docs)]
 
@@ -15,18 +14,19 @@ use waymark_vm_interpreter_coreset::Effect as CoreSetEffect;
 
 /// Error returned by [`EffectHandler::handle_effect`].
 #[derive(Debug, thiserror::Error)]
-pub enum HandleEffectError<CodecError, CompletionError, ExceptionError> {
+pub enum HandleEffectError<CodecError, RecordError> {
     /// Serialization of the completion value or exception failed.
     #[error("codec: {0:?}")]
     Codec(#[source] CodecError),
 
-    /// The backend failed to record a completion.
-    #[error("persisting completion: {0}")]
-    BackendCompletion(#[source] CompletionError),
+    /// The backend failed to record the terminal outcome.
+    #[error("persisting outcome: {0}")]
+    Backend(#[source] RecordError),
 
-    /// The backend failed to record an exception.
-    #[error("persisting exception: {0}")]
-    BackendException(#[source] ExceptionError),
+    /// A different terminal outcome is already recorded for this VM —
+    /// first-write-wins kept the stored value.
+    #[error("a different terminal outcome is already recorded")]
+    Conflict,
 }
 
 /// An [`waymark_vm_driver_core::EffectHandler`] that records workflow
@@ -64,10 +64,9 @@ where
 impl<Backend, Codec, ReadyValue> waymark_vm_driver_core::EffectHandler
     for EffectHandler<Backend, Codec, ReadyValue>
 where
-    Backend: waymark_workflow_completion_backend::RecordCompletion,
-    Backend: waymark_workflow_completion_backend::RecordException,
+    Backend: waymark_workflow_completion_backend::RecordOutcomes,
     Backend: Send + Sync,
-    Backend::VmId: Send,
+    Backend::VmId: Send + Sync,
     Codec: waymark_vm_codec_core::SerializerProvider + Send,
     ReadyValue: serde::Serialize + Send,
     waymark_vm_runtime_exception::Exception<ReadyValue>: serde::Serialize,
@@ -75,25 +74,21 @@ where
     type Effect = CoreSetEffect<ReadyValue>;
     type Error = HandleEffectError<
         Codec::Error,
-        <Backend as waymark_workflow_completion_backend::RecordCompletion>::Error,
-        <Backend as waymark_workflow_completion_backend::RecordException>::Error,
+        <Backend as waymark_workflow_completion_backend::RecordOutcomes>::Error,
     >;
 
     async fn handle_effect(
         &mut self,
         emitted_effect: waymark_vm_runtime_effect::EmittedEffect<Self::Effect>,
     ) -> Result<(), Self::Error> {
-        match emitted_effect.effect {
+        let outcome = match emitted_effect.effect {
             CoreSetEffect::Complete(value) => {
                 tracing::info!("workflow completed successfully");
                 let mut buf = Vec::new();
                 self.codec
                     .with_serializer(&mut buf, |ser| serde::Serialize::serialize(&value, ser))
                     .map_err(HandleEffectError::Codec)?;
-                self.backend
-                    .record_completion(&self.vm_id, buf)
-                    .await
-                    .map_err(HandleEffectError::BackendCompletion)
+                waymark_workflow_completion_backend::Outcome::Completion(buf)
             }
             CoreSetEffect::UnhandledException(exception) => {
                 tracing::info!(
@@ -104,10 +99,29 @@ where
                 self.codec
                     .with_serializer(&mut buf, |ser| serde::Serialize::serialize(&exception, ser))
                     .map_err(HandleEffectError::Codec)?;
-                self.backend
-                    .record_exception(&self.vm_id, buf)
-                    .await
-                    .map_err(HandleEffectError::BackendException)
+                waymark_workflow_completion_backend::Outcome::Exception(buf)
+            }
+        };
+
+        let item = waymark_workflow_completion_backend::RecordOutcomesItem {
+            vm_id: &self.vm_id,
+            outcome: &outcome,
+        };
+        let success = self
+            .backend
+            .record_outcomes(
+                nonempty_collections::NESlice::try_from_slice(std::slice::from_ref(&item))
+                    .expect("from_ref yields a one-element, non-empty slice"),
+            )
+            .await
+            .map_err(HandleEffectError::Backend)?;
+
+        match success {
+            waymark_workflow_completion_backend::RecordingSuccess::AllRecorded => Ok(()),
+            // The batch held exactly this VM's outcome, so a conflict can
+            // only name it: a different outcome is already stored.
+            waymark_workflow_completion_backend::RecordingSuccess::SomeConflicted(_) => {
+                Err(HandleEffectError::Conflict)
             }
         }
     }
