@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use color_eyre::eyre::WrapErr as _;
 use rand::seq::SliceRandom;
 use waymark_backend_postgres::PostgresBackend;
 
@@ -29,7 +30,7 @@ pub async fn register_benchmark_vms(
     cases: &HashMap<String, BenchmarkCase>,
     count_per_case: NonZeroUsize,
     registration_batch_max: NonZeroUsize,
-) -> usize {
+) -> Result<usize, color_eyre::eyre::Report> {
     let mut compiled = HashMap::new();
     for (name, case) in cases {
         match executables
@@ -68,15 +69,15 @@ pub async fn register_benchmark_vms(
 
             let call_spec = waymark_vm_runtime_builder::builder(&compiled_case.metadata)
                 .first_fn()
-                .expect("select entry function")
+                .wrap_err_with(|| format!("select entry function for case '{name}'"))?
                 .args(case.inputs.clone())
-                .expect("match entry function arguments");
+                .wrap_err_with(|| format!("match entry function arguments for case '{name}'"))?;
             let runtime = waymark_system_vm::Runtime::with_custom_entrypoint(
                 waymark_system_vm::Interpreter::default(),
                 Arc::clone(&compiled_case.executable),
                 call_spec,
             )
-            .expect("create VM runtime");
+            .wrap_err_with(|| format!("create VM runtime for case '{name}'"))?;
 
             vms.push((
                 waymark_ids::InstanceId::new_uuid_v4(),
@@ -92,7 +93,7 @@ pub async fn register_benchmark_vms(
                 |runtime, serializer| runtime.snapshot(serializer),
             )
             .await
-            .expect("register vms");
+            .wrap_err("register VMs")?;
         assert!(
             matches!(
                 success,
@@ -102,5 +103,5 @@ pub async fn register_benchmark_vms(
         );
     }
 
-    case_names.len()
+    Ok(case_names.len())
 }

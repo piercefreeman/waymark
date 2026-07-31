@@ -4539,6 +4539,7 @@ name = "waymark-benchmark"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "color-eyre",
  "envfury",
  "nonempty-collections",
  "prost 0.12.6",
