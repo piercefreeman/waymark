@@ -131,14 +131,13 @@ async fn run_benchmark(
 
 fn main() {
     let args = cli::BenchmarkArgs::parse();
-    if args.observe || args.trace.is_some() {
-        waymark_observability_setup::init(waymark_observability_setup::ObservabilityOptions {
-            console: args.observe,
-            trace_path: args.trace.clone(),
-        });
-    } else {
-        waymark_fn_main_common::init().expect("tracing setup");
-    }
+    waymark_fn_main_common::init_with_tracing_layer(waymark_observability_setup::tracing_layer(
+        &waymark_observability_setup::ObservabilityOptions {
+            tokio_console: args.observe,
+            chrome_trace_path: args.trace.clone(),
+        },
+    ))
+    .expect("init");
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
     let _span = tracing::info_span!("benchmark_main").entered();
     let max_pinned: NonZeroUsize = envfury::or_parse("WAYMARK_MAX_CONCURRENT_INSTANCES", "500")
@@ -161,7 +160,5 @@ fn main() {
     println!("Benchmark completed in {:.2?}", stats.elapsed);
     println!("{}", report::format_query_counts(stats.query_counts));
     println!("{}", report::format_batch_size_counts(stats.batch_counts));
-    if args.trace.is_some() {
-        waymark_observability_setup::flush();
-    }
+    waymark_observability_setup::flush();
 }

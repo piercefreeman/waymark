@@ -89,8 +89,8 @@ BENCH_TRACE_PREFIX ?= $(BENCH_TRACE:.json=)
 BENCH_TRACE_TOP ?= 30
 BENCH_CONSOLE_BIND ?= 127.0.0.1:6669
 BENCH_CONSOLE_ARGS ?= --observe
-BENCH_CONSOLE_RUSTFLAGS ?= --cfg waymark_observability_trace
-BENCH_RUSTFLAGS ?= --cfg tokio_unstable --cfg waymark_observability_trace
+BENCH_CONSOLE_RUSTFLAGS ?= --cfg waymark_observability_chrome_trace
+BENCH_RUSTFLAGS ?= --cfg tokio_unstable --cfg waymark_observability_chrome_trace
 BENCH_CONCURRENCY_SWEEP ?= 25 100 250 1000
 BENCH_RELEASE ?= 0
 BENCH_PROFILE_FLAG := $(if $(filter 1 true yes,$(BENCH_RELEASE)),--release,)

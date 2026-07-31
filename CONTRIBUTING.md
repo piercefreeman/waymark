@@ -47,7 +47,7 @@ Run the Rust benchmark harness (defaults to `--count 1000`) via:
 $ make benchmark
 ```
 
-`make benchmark` builds with `RUSTFLAGS="--cfg waymark_observability_trace"`,
+`make benchmark` builds with `RUSTFLAGS="--cfg waymark_observability_chrome_trace"`,
 writes a tracing-chrome file, and prints a pyinstrument-style summary
 via `scripts/parse_chrome_trace.py`. Override the trace path
 with `BENCH_TRACE=...`, the summary size with `BENCH_TRACE_TOP=...`, or benchmark args with
