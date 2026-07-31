@@ -26,6 +26,21 @@ pub enum RegisterVmError<RegistrationError, CodecError> {
     AlreadyRegistered,
 }
 
+/// Errors returned by [`RegistrationService::register_vms`].
+///
+/// Already-registered ids are not errors — they are reported via
+/// [`RegistrationSuccess::SomeAlreadyRegistered`](waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegistrationSuccess::SomeAlreadyRegistered).
+#[derive(Debug, thiserror::Error)]
+pub enum RegisterVmsError<RegistrationError, CodecError> {
+    /// A runtime snapshot serialization failed.
+    #[error("serialize runtime snapshot: {0:?}")]
+    Serialize(CodecError),
+
+    /// The VM runtime registration failed.
+    #[error("register vm runtimes: {0:?}")]
+    Registration(RegistrationError),
+}
+
 /// Errors returned by [`OutcomePollingService::wait_for_outcome`].
 #[derive(Debug, thiserror::Error)]
 pub enum WaitForOutcomeError<PollError, ExistsError, CodecError> {
@@ -103,6 +118,67 @@ where
                 Err(RegisterVmError::AlreadyRegistered)
             }
         }
+    }
+
+    /// Register a batch of VM runtimes, serializing each into a snapshot,
+    /// with one backend call for the whole batch.
+    ///
+    /// Each entry carries its per-runtime `SnapshotData`; one
+    /// `snapshot_provider` serializes them all — a collection of
+    /// same-typed closures would be equivalent to exactly this, with the
+    /// captured state made explicit.
+    ///
+    /// Returns the per-batch
+    /// [`RegistrationSuccess`](waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegistrationSuccess)
+    /// verbatim — already-registered ids are per-row facts, not errors.
+    pub async fn register_vms<SnapshotData, SnapshotProvider>(
+        &self,
+        vms: nonempty_collections::NEVec<(Backend::VmId, Backend::ExecutableId, SnapshotData)>,
+        mut snapshot_provider: SnapshotProvider,
+    ) -> Result<
+        waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegistrationSuccess<
+            Backend::VmId,
+        >,
+        RegisterVmsError<
+            <Backend as waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntimes>::Error,
+            <Codec as SerializerProvider>::Error,
+        >,
+    >
+    where
+        SnapshotProvider: for<'buf> FnMut(
+            SnapshotData,
+            Codec::Serializer<'buf>,
+        )
+            -> Result<(), <Codec as SerializerProvider>::Error>,
+    {
+        let mut serialized = Vec::with_capacity(vms.len().get());
+        for (vm_id, executable_id, snapshot_data) in vms {
+            let mut snapshot = Vec::new();
+            self.codec
+                .with_serializer(&mut snapshot, |serializer| {
+                    snapshot_provider(snapshot_data, serializer)
+                })
+                .map_err(RegisterVmsError::Serialize)?;
+            serialized.push((vm_id, executable_id, snapshot));
+        }
+
+        let items: Vec<_> = serialized
+            .iter()
+            .map(|(vm_id, executable_id, snapshot)| {
+                waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegisterVmRuntimesItem {
+                    vm_id,
+                    executable_id,
+                    snapshot: snapshot.as_slice(),
+                }
+            })
+            .collect();
+        self.backend
+            .register_vm_runtimes(
+                nonempty_collections::NESlice::try_from_slice(&items)
+                    .expect("built from a non-empty input"),
+            )
+            .await
+            .map_err(RegisterVmsError::Registration)
     }
 }
 
