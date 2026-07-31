@@ -89,6 +89,7 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
     #[function_name::named]
     async fn record_action_call_requests(
         &self,
+        now: DateTime<Utc>,
         lock: RequestLock<uuid::Uuid, DateTime<Utc>>,
         records: NESlice<'_, ActionCallRequestRecord<InstanceId>>,
     ) -> Result<record_action_call_requests::RecordingSuccess<InstanceId>, Self::Error> {
@@ -128,7 +129,7 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
         .bind(&effect_numbers)
         .bind(&requests)
         .bind(lock.owner)
-        .bind(crate::remaining_micros(Utc::now(), lock.expires_at))
+        .bind(crate::remaining_micros(now, lock.expires_at))
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!(
             "insert:action_call_requests"

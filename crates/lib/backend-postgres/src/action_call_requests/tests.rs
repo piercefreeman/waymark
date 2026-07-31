@@ -66,7 +66,7 @@ async fn record_fresh_then_identical_replay() {
     .unwrap();
 
     let success = backend
-        .record_action_call_requests(live_lock(owner), records.as_nonempty_slice())
+        .record_action_call_requests(Utc::now(), live_lock(owner), records.as_nonempty_slice())
         .await
         .expect("fresh record");
     assert_eq!(
@@ -78,7 +78,11 @@ async fn record_fresh_then_identical_replay() {
     // accepted, reported, and the rows stay untouched.
     let replay = NEVec::try_from_vec(vec![record(vm, 1, 10, b"call-1")]).unwrap();
     let success = backend
-        .record_action_call_requests(live_lock(uuid::Uuid::new_v4()), replay.as_nonempty_slice())
+        .record_action_call_requests(
+            Utc::now(),
+            live_lock(uuid::Uuid::new_v4()),
+            replay.as_nonempty_slice(),
+        )
         .await
         .expect("replayed record");
     assert_eq!(
@@ -113,13 +117,18 @@ async fn record_divergent_payload_fails_loudly() {
 
     let records = NEVec::try_from_vec(vec![record(vm, 1, 10, b"original")]).unwrap();
     backend
-        .record_action_call_requests(live_lock(uuid::Uuid::new_v4()), records.as_nonempty_slice())
+        .record_action_call_requests(
+            Utc::now(),
+            live_lock(uuid::Uuid::new_v4()),
+            records.as_nonempty_slice(),
+        )
         .await
         .expect("fresh record");
 
     let divergent = NEVec::try_from_vec(vec![record(vm, 1, 10, b"DIFFERENT")]).unwrap();
     let error = backend
         .record_action_call_requests(
+            Utc::now(),
             live_lock(uuid::Uuid::new_v4()),
             divergent.as_nonempty_slice(),
         )
@@ -141,6 +150,7 @@ async fn record_divergent_payload_fails_loudly() {
     let divergent = NEVec::try_from_vec(vec![record(vm, 1, 99, b"original")]).unwrap();
     let error = backend
         .record_action_call_requests(
+            Utc::now(),
             live_lock(uuid::Uuid::new_v4()),
             divergent.as_nonempty_slice(),
         )
@@ -161,12 +171,16 @@ async fn lock_vm_takes_expired_and_reports_foreign() {
     // One request whose lock expired (dead process), one still held live.
     let expired = NEVec::try_from_vec(vec![record(vm, 1, 10, b"expired-call")]).unwrap();
     backend
-        .record_action_call_requests(expired_lock(dead_owner), expired.as_nonempty_slice())
+        .record_action_call_requests(
+            Utc::now(),
+            expired_lock(dead_owner),
+            expired.as_nonempty_slice(),
+        )
         .await
         .expect("record expired-locked");
     let live = NEVec::try_from_vec(vec![record(vm, 2, 11, b"live-call")]).unwrap();
     backend
-        .record_action_call_requests(live_lock(live_owner), live.as_nonempty_slice())
+        .record_action_call_requests(Utc::now(), live_lock(live_owner), live.as_nonempty_slice())
         .await
         .expect("record live-locked");
 
@@ -199,12 +213,12 @@ async fn renew_reports_per_key_status() {
 
     let mine = NEVec::try_from_vec(vec![record(vm, 1, 10, b"mine")]).unwrap();
     backend
-        .record_action_call_requests(live_lock(owner), mine.as_nonempty_slice())
+        .record_action_call_requests(Utc::now(), live_lock(owner), mine.as_nonempty_slice())
         .await
         .expect("record mine");
     let theirs = NEVec::try_from_vec(vec![record(vm, 2, 11, b"theirs")]).unwrap();
     backend
-        .record_action_call_requests(live_lock(other), theirs.as_nonempty_slice())
+        .record_action_call_requests(Utc::now(), live_lock(other), theirs.as_nonempty_slice())
         .await
         .expect("record theirs");
 
@@ -244,7 +258,7 @@ async fn renew_racing_a_row_removal_reports_missing() {
 
     let records = NEVec::try_from_vec(vec![record(vm, 1, 10, b"racing")]).unwrap();
     backend
-        .record_action_call_requests(live_lock(owner), records.as_nonempty_slice())
+        .record_action_call_requests(Utc::now(), live_lock(owner), records.as_nonempty_slice())
         .await
         .expect("record request");
 
@@ -290,12 +304,12 @@ async fn unlock_releases_own_locks_only() {
 
     let mine = NEVec::try_from_vec(vec![record(vm, 1, 10, b"mine")]).unwrap();
     backend
-        .record_action_call_requests(live_lock(owner), mine.as_nonempty_slice())
+        .record_action_call_requests(Utc::now(), live_lock(owner), mine.as_nonempty_slice())
         .await
         .expect("record mine");
     let theirs = NEVec::try_from_vec(vec![record(vm, 2, 11, b"theirs")]).unwrap();
     backend
-        .record_action_call_requests(live_lock(other), theirs.as_nonempty_slice())
+        .record_action_call_requests(Utc::now(), live_lock(other), theirs.as_nonempty_slice())
         .await
         .expect("record theirs");
 
@@ -333,7 +347,7 @@ async fn recording_a_completion_removes_the_request() {
     ])
     .unwrap();
     backend
-        .record_action_call_requests(live_lock(owner), requests.as_nonempty_slice())
+        .record_action_call_requests(Utc::now(), live_lock(owner), requests.as_nonempty_slice())
         .await
         .expect("record requests");
 
@@ -389,7 +403,7 @@ async fn snapshot_delete_sweeps_only_the_vms_requests() {
     let records =
         NEVec::try_from_vec(vec![record(vm_a, 1, 10, b"a1"), record(vm_b, 1, 20, b"b1")]).unwrap();
     backend
-        .record_action_call_requests(live_lock(owner), records.as_nonempty_slice())
+        .record_action_call_requests(Utc::now(), live_lock(owner), records.as_nonempty_slice())
         .await
         .expect("record");
 

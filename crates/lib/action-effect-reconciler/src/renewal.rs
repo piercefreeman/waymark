@@ -169,7 +169,7 @@ where
                 let keys = NEVec::try_from_vec(tracked.keys().copied().collect())
                     .expect("tracked is non-empty");
 
-                let lock = fresh_lock(&lock_owner_id, lock_time_to_live);
+                let lock = fresh_lock(Utc::now(), &lock_owner_id, lock_time_to_live);
                 let renewals = match backend
                     .renew_action_call_request_locks(lock, keys.as_nonempty_slice())
                     .await
