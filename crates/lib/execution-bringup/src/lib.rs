@@ -62,6 +62,14 @@ pub struct Config<NodeId> {
     /// insert is flushed.
     pub action_effect_reconciler_request_batch_delay: NonZeroDuration,
 
+    /// Maximum number of workflow terminal outcomes coalesced into one
+    /// batched upsert.
+    pub workflow_completion_batch_max: NonZeroUsize,
+
+    /// Longest a workflow terminal outcome waits to be batched before its
+    /// upsert is flushed.
+    pub workflow_completion_batch_delay: NonZeroDuration,
+
     /// How long the durable-sleeps demand poller waits between polls
     /// while demand is registered.
     pub sleep_poll_interval: NonZeroDuration,
@@ -116,6 +124,9 @@ pub struct Handles {
 
     /// Join handle for the action-call request write batcher.
     pub action_effect_reconciler_request_batcher: tokio::task::JoinHandle<()>,
+
+    /// Join handle for the workflow terminal-outcome write batcher.
+    pub workflow_completion_batcher: tokio::task::JoinHandle<()>,
 }
 
 /// Start the execution subsystem.
@@ -222,6 +233,8 @@ where
         snapshot_batch_delay,
         action_effect_reconciler_request_batch_max,
         action_effect_reconciler_request_batch_delay,
+        workflow_completion_batch_max,
+        workflow_completion_batch_delay,
         sleep_poll_interval,
         vm_retention,
         vm_sweep_interval,
@@ -444,6 +457,20 @@ where
     let action_effect_reconciler_request_batcher_handle =
         tokio::spawn(action_effect_reconciler_request_batcher_loop);
 
+    let (outcome_recorder, workflow_completion_batcher_loop) =
+        waymark_workflow_completion::outcome_batcher::outcome_batcher(
+            Arc::clone(&backend),
+            waymark_batcher::Policy {
+                max_batch: workflow_completion_batch_max,
+                max_delay: workflow_completion_batch_delay,
+            },
+            {
+                let shutdown = shutdown_token.child_token();
+                async move { shutdown.cancelled_owned().await }
+            },
+        );
+    let workflow_completion_batcher_handle = tokio::spawn(workflow_completion_batcher_loop);
+
     let requests_factory_worker_pool = worker_pool.clone();
     let effector_provider = waymark_state_vm_runtimes_core::FnEffectorProvider::new({
         let backend = Arc::clone(&backend);
@@ -451,6 +478,7 @@ where
         let registrar = registrar.clone();
         let sleep_registrar = sleep_registrar.clone();
         let request_recorder = request_recorder.clone();
+        let outcome_recorder = outcome_recorder.clone();
         let held_locks_tx = held_locks_tx.clone();
         move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
             let action_call_requester =
@@ -485,7 +513,7 @@ where
                 sleep_settler,
             );
             let completion_handler = waymark_workflow_completion::EffectHandler::new(
-                Arc::clone(&backend),
+                outcome_recorder.clone(),
                 *vm_id,
                 Arc::clone(&codec),
             );
@@ -625,6 +653,7 @@ where
         action_effect_reconciler_lock_renewal: action_effect_reconciler_lock_renewal_handle,
         snapshot_batcher: snapshot_batcher_handle,
         action_effect_reconciler_request_batcher: action_effect_reconciler_request_batcher_handle,
+        workflow_completion_batcher: workflow_completion_batcher_handle,
     })
 }
 
