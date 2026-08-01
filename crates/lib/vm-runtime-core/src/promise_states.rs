@@ -1,7 +1,7 @@
 use index_type::typed_vec::TypedVec;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::{Continuation, PromiseState, SettlingAlreadySettledPromiseError};
+use crate::{PromiseState, SettlingAlreadySettledPromiseError};
 
 /// A list of promise states.
 #[derive(Debug)]
@@ -99,17 +99,14 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
     /// Idempotently resolve a promise at a given `promise_state_id` with
     /// the provided `value`.
     ///
-    /// Returns a list of continuations to resume, or an error if this promise
+    /// Returns a list of waiters to notify, or an error if this promise
     /// has already settled.
-    #[allow(clippy::type_complexity)]
     pub fn resolve(
         &mut self,
         promise_state_id: PromiseStateId,
         value: Value,
-    ) -> Result<
-        Vec<crate::Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
-        SettlePromiseError<Value>,
-    > {
+    ) -> Result<Vec<crate::PromiseWaiter<FunctionId, StateId, Value>>, SettlePromiseError<Value>>
+    {
         let promise_state = self
             .get_mut(promise_state_id)
             .map_err(SettlePromiseError::PromiseStateNotFound)?;
@@ -120,6 +117,9 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
     }
 
     /// Idempotently reject a promise at a given `promise_state_id`.
+    ///
+    /// Returns a list of waiters to notify, or an error if this promise
+    /// has already settled.
     #[expect(
         clippy::type_complexity,
         reason = "we purposely avoid alias for the error"
@@ -129,7 +129,7 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
         promise_state_id: PromiseStateId,
         exception: waymark_vm_runtime_exception::Exception<Value>,
     ) -> Result<
-        Vec<Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
+        Vec<crate::PromiseWaiter<FunctionId, StateId, Value>>,
         SettlePromiseError<waymark_vm_runtime_exception::Exception<Value>>,
     > {
         let promise_state = self
@@ -166,8 +166,8 @@ mod tests {
 
     use super::{PromiseStateId, PromiseStateNotFoundError, PromiseStates, SettlePromiseError};
     use crate::{
-        Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, RegisterId, Registers,
-        SettledPromiseState,
+        Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, PromiseWaiter, RegisterId,
+        Registers, SettledPromiseState,
     };
 
     fn continuation(
@@ -214,7 +214,7 @@ mod tests {
         let state = states
             .get_mut(promise_state_id)
             .expect("promise state exists");
-        *state = PromiseState::Waiting(vec![continuation(RegisterId(0), 4)]);
+        *state = PromiseState::Waiting(vec![PromiseWaiter::Await(continuation(RegisterId(0), 4))]);
 
         let continuations = states
             .resolve(promise_state_id, 23)

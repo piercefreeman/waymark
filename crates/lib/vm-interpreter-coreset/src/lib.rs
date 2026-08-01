@@ -230,7 +230,7 @@ where
                                 ExecutionOutcome::ExitFrame
                             }
                             PromiseState::Settled(SettledPromiseState::Rejected(exception)) => {
-                                Continuation::<_, _, _, ()>::immediate_raise_exception(
+                                Continuation::immediate_raise_exception(
                                     &mut frame,
                                     *resume,
                                     exception.clone(),
@@ -238,8 +238,10 @@ where
                                 state.ready.push_back(frame);
                                 ExecutionOutcome::ExitFrame
                             }
-                            PromiseState::Waiting(continuations) => {
-                                continuations.push(Continuation::capture(frame, *resume, *dst));
+                            PromiseState::Waiting(waiters) => {
+                                waiters.push(waymark_vm_runtime_core::PromiseWaiter::Await(
+                                    Continuation::capture(frame, *resume, *dst),
+                                ));
                                 ExecutionOutcome::ExitFrame
                             }
                         });
@@ -249,6 +251,80 @@ where
                         frame.state = *resume;
                     }
                 }
+            }
+            waymark_vm_instructions_coreset::CoreSet::Select { arms } => {
+                if arms.is_empty() {
+                    return Err(Error::Select(SelectError::EmptyArms));
+                }
+
+                // Scan the arms in the listed order for one whose source
+                // has already settled - taking it immediately, mirroring
+                // the immediate paths of `Await` - and collect the pending
+                // sources meanwhile.
+                let mut pending = Vec::with_capacity(arms.len());
+                for arm in arms {
+                    let promise_state_id = match frame.regs[arm.src].as_ready() {
+                        Ok(value) => {
+                            // A ready source wins the scan outright.
+                            let value = Value::from_ready(value.clone());
+                            frame.regs.set(arm.dst, value);
+                            frame.state = arm.resume;
+                            return Ok(ExecutionOutcome::Continue(frame));
+                        }
+                        Err(waymark_vm_runtime_promise_core::UnresolvedPromiseError {
+                            promise_state_id,
+                        }) => promise_state_id,
+                    };
+                    let promise_state = state
+                        .promise_states
+                        .get(promise_state_id)
+                        .map_err(SelectError::SourcePromiseStateNotFound)
+                        .map_err(Error::Select)?;
+                    match promise_state {
+                        PromiseState::Settled(SettledPromiseState::Resolved(value)) => {
+                            Continuation::immediate_resume(
+                                &mut frame,
+                                arm.resume,
+                                arm.dst,
+                                value.clone(),
+                            );
+                            state.ready.push_back(frame);
+                            return Ok(ExecutionOutcome::ExitFrame);
+                        }
+                        PromiseState::Settled(SettledPromiseState::Rejected(exception)) => {
+                            Continuation::immediate_raise_exception(
+                                &mut frame,
+                                arm.resume,
+                                exception.clone(),
+                            );
+                            state.ready.push_back(frame);
+                            return Ok(ExecutionOutcome::ExitFrame);
+                        }
+                        PromiseState::Waiting(_) => {
+                            pending.push((promise_state_id, arm.dst, arm.resume));
+                        }
+                    }
+                }
+
+                // Every arm waits: keep the frame aside and plant a claim
+                // on each source.
+                let handle = state
+                    .select_states
+                    .insert(Continuation::capture_select(frame));
+                for (promise_state_id, dst, resume) in pending {
+                    // The scan above just observed these promise states as
+                    // waiting, and nothing runs in between.
+                    let Ok(promise_state) = state.promise_states.get_mut(promise_state_id) else {
+                        unreachable!();
+                    };
+                    let PromiseState::Waiting(waiters) = promise_state else {
+                        unreachable!();
+                    };
+                    waiters.push(waymark_vm_runtime_core::PromiseWaiter::Select(
+                        handle.arm(dst, resume),
+                    ));
+                }
+                return Ok(ExecutionOutcome::ExitFrame);
             }
             waymark_vm_instructions_coreset::CoreSet::PushExceptionHandlers { handlers } => {
                 frame.exception_handler_blocks.push(handlers.clone());

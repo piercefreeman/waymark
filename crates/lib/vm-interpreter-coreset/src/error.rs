@@ -8,6 +8,10 @@ pub enum Error<Spec: waymark_vm_instructions_coreset::Spec> {
     #[error("await: {0}")]
     Await(#[source] AwaitError),
 
+    /// Selecting over promises failed.
+    #[error("select: {0}")]
+    Select(#[source] SelectError),
+
     /// Returning from a function failed.
     #[error("return: {0}")]
     Return(#[source] FnExitError),
@@ -42,6 +46,22 @@ pub enum CallError<FunctionId> {
         /// The function ID that was looked up in the executable.
         function_id: FunctionId,
     },
+}
+
+/// Errors produced while evaluating a `Select` instruction.
+#[derive(Debug, thiserror::Error)]
+pub enum SelectError {
+    /// The instruction listed no arms.
+    ///
+    /// This is a mistake in the bytecode - a select with no arms would
+    /// never settle and the selecting frame would suspend forever.
+    #[error("select has no arms")]
+    EmptyArms,
+
+    /// A pending arm source promise no longer existed in the runtime
+    /// state.
+    #[error("arm source promise state: {0}")]
+    SourcePromiseStateNotFound(#[source] PromiseStateNotFoundError),
 }
 
 /// Errors produced while evaluating an `Await` instruction.
