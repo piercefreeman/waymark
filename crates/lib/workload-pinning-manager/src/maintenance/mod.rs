@@ -56,6 +56,10 @@
 //! transient database errors without waiting for the next tick interval.
 //! If the retry also fails the loop exits with [`Error::Refresh`] so the
 //! caller can release the pinnings cleanly before they expire.
+//!
+//! Evictions are only untracked (and fenced) here — the durable unpin
+//! is forwarded to the [unpin loop](crate::unpin), which is what keeps
+//! a slow database round-trip from stalling the heartbeat.
 
 mod active_set;
 mod error;
@@ -85,6 +89,7 @@ where
         Backend::WorkloadId,
         waymark_workload_pinning_core::UnpinMode,
     )>,
+    pub unpin_tx: crate::unpin::UnpinSender<Backend::WorkloadId>,
     pub count_tx: tokio::sync::mpsc::UnboundedSender<usize>,
     pub shutdown_token: CancellationToken,
     pub pinning_heartbeat: NonZeroDuration,
@@ -100,7 +105,6 @@ where
     Backend: waymark_workload_pinning_backend::KeepalivePinnings<
             Timestamp = chrono::DateTime<chrono::Utc>,
         >,
-    Backend: waymark_workload_pinning_backend::UnpinWorkloads,
     Backend::NodeId: Clone,
     Backend::WorkloadId: Clone + std::hash::Hash + Eq + std::fmt::Debug,
 {
@@ -109,6 +113,7 @@ where
         node_id,
         mut batch_rx,
         mut evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token,
         pinning_heartbeat,
@@ -157,16 +162,16 @@ where
                 }
             }
             Some(eviction) = evict_rx.recv() => {
-                // Coalesce everything already queued into one batch.
-                let mut unpins = NEVec::new(eviction);
+                // Coalesce everything already queued.
+                let mut evictions = vec![eviction];
                 while let Ok(eviction) = evict_rx.try_recv() {
-                    unpins.push(eviction);
+                    evictions.push(eviction);
                 }
-                if let Err(error) = (*backend).unpin_workloads(node_id.clone(), unpins.clone()).await {
-                    break Err((MaintenanceError::Unpin(error), active.fence_all_and_into_ids()));
-                }
-                for (id, _mode) in unpins {
+                for (id, mode) in evictions {
+                    // Done being driven — stop tracking it (which fences
+                    // it); the durable unpin is the unpin loop's job.
                     active.fence_and_stop_tracking(&id);
+                    unpin_tx.request(id, mode);
                 }
                 let _ = count_tx.send(active.tracked_count());
             }

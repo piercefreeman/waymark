@@ -28,6 +28,8 @@ async fn maintain_loop_exits_when_batch_closed_and_empty() {
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     // Close both channels — no work can ever arrive.
     drop(batch_tx);
@@ -40,6 +42,7 @@ async fn maintain_loop_exits_when_batch_closed_and_empty() {
             node_id: test_node_id(),
             batch_rx,
             evict_rx,
+            unpin_tx,
             count_tx,
             shutdown_token: CancellationToken::new(),
             pinning_heartbeat: long_heartbeat(),
@@ -62,13 +65,6 @@ async fn maintain_loop_continues_until_last_eviction_after_batch_closed() {
     let node_id = test_node_id();
 
     let mut backend = MockBackend::new();
-    backend
-        .expect_unpin_workloads()
-        .with(
-            predicate::eq(node_id),
-            predicate::eq(nev![(id, UnpinMode::Release)]),
-        )
-        .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
     // The heartbeat interval is long enough that refresh should never
     // fire, but allow it optionally so the test doesn't panic if it does.
     backend
@@ -87,6 +83,8 @@ async fn maintain_loop_continues_until_last_eviction_after_batch_closed() {
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     // Stage a batch.  The reply oneshot is kept alive so we can wait
     // for the maintenance loop to acknowledge the ID before evicting.
@@ -108,6 +106,7 @@ async fn maintain_loop_continues_until_last_eviction_after_batch_closed() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: CancellationToken::new(),
         pinning_heartbeat: long_heartbeat(),
@@ -164,19 +163,14 @@ async fn maintain_loop_heartbeats_fire_for_active_ids() {
                 pinning: Some(pinning.clone()),
             }])))
         });
-    backend
-        .expect_unpin_workloads()
-        .with(
-            predicate::eq(node_id),
-            predicate::eq(nev![(id, UnpinMode::Release)]),
-        )
-        .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     // Stage a batch so there is an active ID to heartbeat.
     let (reply_tx, _reply_rx) = oneshot::channel::<usize>();
@@ -195,6 +189,7 @@ async fn maintain_loop_heartbeats_fire_for_active_ids() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: CancellationToken::new(),
         pinning_heartbeat: short_heartbeat(),
@@ -264,19 +259,14 @@ async fn maintain_loop_heartbeats_after_batch_closed() {
                 pinning: Some(pinning.clone()),
             }])))
         });
-    backend
-        .expect_unpin_workloads()
-        .with(
-            predicate::eq(node_id),
-            predicate::eq(nev![(id, UnpinMode::Release)]),
-        )
-        .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     // Stage a batch.
     let (reply_tx, _reply_rx) = oneshot::channel::<usize>();
@@ -297,6 +287,7 @@ async fn maintain_loop_heartbeats_after_batch_closed() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: CancellationToken::new(),
         pinning_heartbeat: short_heartbeat(),
@@ -435,95 +426,6 @@ async fn refresh_pinnings_propagates_error() {
     assert!(result.is_err());
 }
 
-/// When an unpin fails, the maintenance loop must exit with
-/// the error and return the remaining active IDs.
-#[tokio::test]
-async fn maintain_loop_exits_on_unpin_error() {
-    let id = 1u64;
-    let node_id = test_node_id();
-
-    let mut backend = MockBackend::new();
-    backend
-        .expect_unpin_workloads()
-        .with(
-            predicate::eq(node_id),
-            predicate::eq(nev![(id, UnpinMode::Release)]),
-        )
-        .return_once(move |_, _| {
-            Box::pin(std::future::ready(Err(crate::test_utils::mock::MockError)))
-        });
-    backend
-        .expect_refresh_pinnings()
-        .times(0..)
-        .returning(move |_, _, _| {
-            let pinning = test_pinning(node_id, 1);
-            Box::pin(std::future::ready(Ok(nev![PinningStatus {
-                workload_id: id,
-                pinning: Some(pinning),
-            }])))
-        });
-
-    let backend = Arc::new(backend);
-
-    let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
-    let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
-    let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
-
-    let (reply_tx, reply_rx) = oneshot::channel::<usize>();
-    batch_tx
-        .send(PinnedBatch {
-            pinned_at: tokio::time::Instant::now(),
-            pinned: nev![(id, CancellationToken::new())],
-            reply: reply_tx,
-        })
-        .await
-        .expect("batch send");
-    drop(batch_tx);
-
-    let loop_future = run_maintenance_loop(MaintainParams {
-        backend: Arc::clone(&backend),
-        node_id,
-        batch_rx,
-        evict_rx,
-        count_tx,
-        shutdown_token: CancellationToken::new(),
-        pinning_heartbeat: short_heartbeat(),
-        pinning_ttl: test_pinning_ttl(),
-        pinning_fencing_margin: test_fencing_margin(),
-    });
-    tokio::pin!(loop_future);
-
-    // Wait for the batch ack — the ID must be in active_ids before
-    // we evict, otherwise the eviction is a no-op.
-    let batch_size = tokio::select! {
-        size = reply_rx => size.expect("maintain loop should ack the batch"),
-        result = &mut loop_future => {
-            panic!("loop exited before processing batch: {result:?}");
-        }
-        _ = tokio::time::sleep(Duration::from_secs(5)) => {
-            panic!("batch was never processed");
-        }
-    };
-    assert_eq!(batch_size, 1);
-
-    // Evict the ID — the unpin call will fail.
-    evict_tx.send((id, UnpinMode::Release)).expect("evict send");
-
-    let result = tokio::time::timeout(Duration::from_secs(5), &mut loop_future)
-        .await
-        .expect("loop should exit on unpin error");
-
-    match result {
-        Err((crate::MaintenanceError::Unpin(_), ids)) => {
-            assert!(
-                ids.contains(&id),
-                "the failed-to-unpin id must remain in active_ids, got {ids:?}"
-            );
-        }
-        other => panic!("expected Unpin error, got {other:?}"),
-    }
-}
-
 /// When the shutdown token fires, the maintenance loop must exit
 /// immediately with [`crate::MaintenanceError::ForceShutdown`] and
 /// return whatever active IDs remain.
@@ -549,6 +451,8 @@ async fn maintain_loop_exits_on_force_shutdown() {
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     let (reply_tx, reply_rx) = oneshot::channel::<usize>();
     batch_tx
@@ -567,6 +471,7 @@ async fn maintain_loop_exits_on_force_shutdown() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: shutdown.clone(),
         pinning_heartbeat: long_heartbeat(),
@@ -626,16 +531,14 @@ async fn maintain_loop_exits_on_refresh_error() {
             Box::pin(std::future::ready(Err(crate::test_utils::mock::MockError)))
         });
     // unpin should never fire — the refresh failure exits the loop first
-    backend
-        .expect_unpin_workloads()
-        .times(0)
-        .returning(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     // Stage a batch so there is an active ID to trigger a heartbeat.
     let (reply_tx, reply_rx) = oneshot::channel::<usize>();
@@ -654,6 +557,7 @@ async fn maintain_loop_exits_on_refresh_error() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: CancellationToken::new(),
         pinning_heartbeat: short_heartbeat(),
@@ -702,13 +606,6 @@ async fn maintain_loop_forwards_park_mode() {
 
     let mut backend = MockBackend::new();
     backend
-        .expect_unpin_workloads()
-        .with(
-            predicate::eq(node_id),
-            predicate::eq(nev![(id, UnpinMode::Park)]),
-        )
-        .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
-    backend
         .expect_refresh_pinnings()
         .times(0..)
         .returning(move |_, _, _| {
@@ -724,6 +621,8 @@ async fn maintain_loop_forwards_park_mode() {
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     let (reply_tx, reply_rx) = oneshot::channel::<usize>();
     batch_tx
@@ -741,6 +640,7 @@ async fn maintain_loop_forwards_park_mode() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: CancellationToken::new(),
         pinning_heartbeat: long_heartbeat(),
@@ -777,13 +677,6 @@ async fn maintain_loop_coalesces_queued_evictions() {
 
     let mut backend = MockBackend::new();
     backend
-        .expect_unpin_workloads()
-        .with(
-            predicate::eq(node_id),
-            predicate::eq(nev![(1u64, UnpinMode::Release), (2u64, UnpinMode::Park)]),
-        )
-        .return_once(move |_, _| Box::pin(std::future::ready(Ok(()))));
-    backend
         .expect_refresh_pinnings()
         .times(0..)
         .returning(move |_, _, _| {
@@ -805,6 +698,8 @@ async fn maintain_loop_coalesces_queued_evictions() {
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     let (reply_tx, reply_rx) = oneshot::channel::<usize>();
     batch_tx
@@ -825,6 +720,7 @@ async fn maintain_loop_coalesces_queued_evictions() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: CancellationToken::new(),
         pinning_heartbeat: long_heartbeat(),
@@ -875,16 +771,14 @@ async fn refresh_lost_status_fences_the_workload() {
                 pinning: None,
             }])))
         });
-    backend
-        .expect_unpin_workloads()
-        .times(1)
-        .returning(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     let fence = CancellationToken::new();
     let (reply_tx, reply_rx) = oneshot::channel::<usize>();
@@ -903,6 +797,7 @@ async fn refresh_lost_status_fences_the_workload() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: CancellationToken::new(),
         pinning_heartbeat: short_heartbeat(),
@@ -950,16 +845,14 @@ async fn pinning_lapses_when_no_refresh_confirms_in_time() {
                 pinning: Some(pinning),
             }])))
         });
-    backend
-        .expect_unpin_workloads()
-        .times(1)
-        .returning(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     let fence = CancellationToken::new();
     let (reply_tx, reply_rx) = oneshot::channel::<usize>();
@@ -978,6 +871,7 @@ async fn pinning_lapses_when_no_refresh_confirms_in_time() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: CancellationToken::new(),
         pinning_heartbeat: long_heartbeat(),
@@ -1028,16 +922,14 @@ async fn confirmed_refresh_extends_the_fence() {
                 pinning: Some(pinning),
             }])))
         });
-    backend
-        .expect_unpin_workloads()
-        .times(1)
-        .returning(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     let fence = CancellationToken::new();
     let (reply_tx, reply_rx) = oneshot::channel::<usize>();
@@ -1056,6 +948,7 @@ async fn confirmed_refresh_extends_the_fence() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: CancellationToken::new(),
         // Refreshes land well inside the 200ms lapse window.
@@ -1113,16 +1006,14 @@ async fn fencing_one_workload_leaves_a_healthy_sibling_untouched() {
                 },
             ])))
         });
-    backend
-        .expect_unpin_workloads()
-        .times(1..)
-        .returning(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     let fence1 = CancellationToken::new();
     let fence2 = CancellationToken::new();
@@ -1142,6 +1033,7 @@ async fn fencing_one_workload_leaves_a_healthy_sibling_untouched() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: CancellationToken::new(),
         pinning_heartbeat: short_heartbeat(),
@@ -1215,16 +1107,14 @@ async fn a_fenced_workload_is_dropped_from_refresh() {
                 },
             ])))
         });
-    backend
-        .expect_unpin_workloads()
-        .times(1..)
-        .returning(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     let fence1 = CancellationToken::new();
     let fence2 = CancellationToken::new();
@@ -1244,6 +1134,7 @@ async fn a_fenced_workload_is_dropped_from_refresh() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: CancellationToken::new(),
         pinning_heartbeat: short_heartbeat(),
@@ -1331,16 +1222,14 @@ async fn refresh_recovers_on_retry_and_extends_the_fence() {
                 pinning: Some(pinning),
             }])))
         });
-    backend
-        .expect_unpin_workloads()
-        .times(1)
-        .returning(move |_, _| Box::pin(std::future::ready(Ok(()))));
 
     let backend = Arc::new(backend);
 
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     let fence = CancellationToken::new();
     let (reply_tx, reply_rx) = oneshot::channel::<usize>();
@@ -1359,6 +1248,7 @@ async fn refresh_recovers_on_retry_and_extends_the_fence() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: CancellationToken::new(),
         // heartbeat 200ms < lapse_after 300ms < 2 * heartbeat 400ms.
@@ -1413,6 +1303,8 @@ async fn force_shutdown_fences_the_tracked_workloads() {
     let (batch_tx, batch_rx) = mpsc::channel::<PinnedBatch<u64>>(1);
     let (evict_tx, evict_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
     let (count_tx, _count_rx) = mpsc::unbounded_channel::<usize>();
+    let (unpin_tx, _unpin_rx) = mpsc::unbounded_channel::<(u64, UnpinMode)>();
+    let unpin_tx = crate::unpin::wrap_tx(unpin_tx);
 
     let fence = CancellationToken::new();
     let (reply_tx, reply_rx) = oneshot::channel::<usize>();
@@ -1432,6 +1324,7 @@ async fn force_shutdown_fences_the_tracked_workloads() {
         node_id,
         batch_rx,
         evict_rx,
+        unpin_tx,
         count_tx,
         shutdown_token: shutdown.clone(),
         pinning_heartbeat: long_heartbeat(),

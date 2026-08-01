@@ -15,12 +15,14 @@ pub struct RunOutcome<PollError, KeepaliveError, UnpinError> {
     pub poll_error: Option<PollLoopError<PollError>>,
 
     /// Error from the maintenance loop, if any.
-    pub maintenance_error: Option<MaintenanceError<KeepaliveError, UnpinError>>,
+    pub maintenance_error: Option<MaintenanceError<KeepaliveError>>,
 
-    /// If cleanup failed, the error from unpinning remaining workloads.
-    /// `None` means either there were no remaining pinnings or they were
-    /// released successfully.
-    pub cleanup_error: Option<UnpinError>,
+    /// Error from the unpin loop, if any.
+    ///
+    /// The loop gave up on unpins it could not apply — including the
+    /// pinnings routed to it for cleanup when the other loops exited.
+    /// Those pinnings are left to lapse on their own.
+    pub unpin_error: Option<UnpinError>,
 }
 
 /// Convenience alias for [`RunOutcome`] parameterized on a backend.
@@ -38,7 +40,7 @@ impl<PollError, KeepaliveError, UnpinError> RunOutcome<PollError, KeepaliveError
             Self {
                 poll_error: None,
                 maintenance_error: None,
-                cleanup_error: None
+                unpin_error: None
             }
         )
     }

@@ -493,6 +493,9 @@ where
         max_pinned,
         pinning_ttl,
         pinning_heartbeat,
+        // TODO: surface through `Config` and the env.
+        unpin_retry_interval: NonZeroDuration::new(std::time::Duration::from_secs(5))
+            .expect("five seconds is non-zero"),
         pinning_fencing_margin,
     };
 
@@ -504,8 +507,8 @@ where
         if let Some(error) = outcome.maintenance_error {
             tracing::error!(?error, "workload pinning manager maintenance loop failed");
         }
-        if let Some(error) = outcome.cleanup_error {
-            tracing::warn!(?error, "workload pinning manager cleanup failed");
+        if let Some(error) = outcome.unpin_error {
+            tracing::warn!(?error, "workload pinning manager unpin loop failed");
         }
     });
 
