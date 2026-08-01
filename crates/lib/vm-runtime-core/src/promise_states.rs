@@ -1,11 +1,7 @@
 use index_type::typed_vec::TypedVec;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::{Continuation, PromiseState, ResolvingAlreadyResolvedPromiseError};
-
-/// Errors returned when rejecting a promise state.
-pub type RejectPromiseError<Value> =
-    ResolvePromiseError<waymark_vm_runtime_exception::Exception<Value>>;
+use crate::{Continuation, PromiseState, SettlingAlreadySettledPromiseError};
 
 /// A list of promise states.
 #[derive(Debug)]
@@ -87,24 +83,24 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
     }
 }
 
-/// Errors returned when resolving a promise state.
+/// Errors returned when settling a promise state.
 #[derive(Debug, thiserror::Error)]
-pub enum ResolvePromiseError<Value> {
+pub enum SettlePromiseError<Value> {
     /// The requested promise state ID does not exist.
     #[error(transparent)]
-    PromiseStateNotFound(#[from] PromiseStateNotFoundError),
+    PromiseStateNotFound(PromiseStateNotFoundError),
 
-    /// The promise state has already been resolved.
+    /// The promise state has already settled.
     #[error(transparent)]
-    AlreadyResolved(#[from] ResolvingAlreadyResolvedPromiseError<Value>),
+    AlreadySettled(SettlingAlreadySettledPromiseError<Value>),
 }
 
 impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
     /// Idempotently resolve a promise at a given `promise_state_id` with
     /// the provided `value`.
     ///
-    /// Returns a list of continuations to resume, or an error is this promise
-    /// has already been resolved.
+    /// Returns a list of continuations to resume, or an error if this promise
+    /// has already settled.
     #[allow(clippy::type_complexity)]
     pub fn resolve(
         &mut self,
@@ -112,48 +108,53 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
         value: Value,
     ) -> Result<
         Vec<crate::Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
-        ResolvePromiseError<Value>,
+        SettlePromiseError<Value>,
     > {
-        let promise_state = self.get_mut(promise_state_id)?;
+        let promise_state = self
+            .get_mut(promise_state_id)
+            .map_err(SettlePromiseError::PromiseStateNotFound)?;
 
         promise_state
             .resolve(value)
-            .map_err(ResolvePromiseError::AlreadyResolved)
+            .map_err(SettlePromiseError::AlreadySettled)
     }
 
     /// Idempotently reject a promise at a given `promise_state_id`.
-    #[allow(clippy::type_complexity)]
+    #[expect(
+        clippy::type_complexity,
+        reason = "we purposely avoid alias for the error"
+    )]
     pub fn reject(
         &mut self,
         promise_state_id: PromiseStateId,
         exception: waymark_vm_runtime_exception::Exception<Value>,
     ) -> Result<
         Vec<Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
-        RejectPromiseError<Value>,
+        SettlePromiseError<waymark_vm_runtime_exception::Exception<Value>>,
     > {
-        let promise_state = self.get_mut(promise_state_id)?;
+        let promise_state = self
+            .get_mut(promise_state_id)
+            .map_err(SettlePromiseError::PromiseStateNotFound)?;
 
         promise_state
             .reject(exception)
-            .map_err(ResolvePromiseError::AlreadyResolved)
+            .map_err(SettlePromiseError::AlreadySettled)
     }
 }
 
-impl<Value> ResolvePromiseError<Value> {
-    /// Map the `Value` of this [`ResolvePromiseError`] into `OtherValue` using
+impl<Value> SettlePromiseError<Value> {
+    /// Map the `Value` of this [`SettlePromiseError`] into `OtherValue` using
     /// function `f`.
     pub fn map<OtherValue>(
         self,
         f: impl FnOnce(Value) -> OtherValue,
-    ) -> ResolvePromiseError<OtherValue> {
+    ) -> SettlePromiseError<OtherValue> {
         match self {
-            Self::PromiseStateNotFound(error) => ResolvePromiseError::PromiseStateNotFound(error),
-            Self::AlreadyResolved(error) => {
-                let ResolvingAlreadyResolvedPromiseError { new_value } = error;
+            Self::PromiseStateNotFound(error) => SettlePromiseError::PromiseStateNotFound(error),
+            Self::AlreadySettled(error) => {
+                let SettlingAlreadySettledPromiseError { new_value } = error;
                 let new_value = f(new_value);
-                ResolvePromiseError::AlreadyResolved(ResolvingAlreadyResolvedPromiseError {
-                    new_value,
-                })
+                SettlePromiseError::AlreadySettled(SettlingAlreadySettledPromiseError { new_value })
             }
         }
     }
@@ -163,9 +164,10 @@ impl<Value> ResolvePromiseError<Value> {
 mod tests {
     use waymark_vm_runtime_exception::Exception;
 
-    use super::{PromiseStateId, PromiseStateNotFoundError, PromiseStates, ResolvePromiseError};
+    use super::{PromiseStateId, PromiseStateNotFoundError, PromiseStates, SettlePromiseError};
     use crate::{
         Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, RegisterId, Registers,
+        SettledPromiseState,
     };
 
     fn continuation(
@@ -221,7 +223,7 @@ mod tests {
         assert_eq!(continuations.len(), 1);
         assert!(matches!(
             states.get(promise_state_id).expect("promise state exists"),
-            PromiseState::Resolved(value) if *value == 23
+            PromiseState::Settled(SettledPromiseState::Resolved(value)) if *value == 23
         ));
     }
 
@@ -229,7 +231,7 @@ mod tests {
     fn resolve_rejects_unknown_promise_state_ids() {
         let mut states = PromiseStates::<&'static str, usize, i32>::new();
 
-        let Err(ResolvePromiseError::PromiseStateNotFound(PromiseStateNotFoundError {
+        let Err(SettlePromiseError::PromiseStateNotFound(PromiseStateNotFoundError {
             promise_state_id,
         })) = states.resolve(PromiseStateId(4), 23)
         else {
@@ -257,7 +259,7 @@ mod tests {
         assert!(continuations.is_empty());
         assert!(matches!(
             states.get(promise_state_id).expect("promise state exists"),
-            PromiseState::Rejected(Exception { type_id, details })
+            PromiseState::Settled(SettledPromiseState::Rejected(Exception { type_id, details }))
                 if type_id == "ValueError" && *details == 23
         ));
     }

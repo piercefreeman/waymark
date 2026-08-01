@@ -12,7 +12,7 @@ use nonempty_collections::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use tokio_util::sync::CancellationToken;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime::{FrameFor, Runtime};
-use waymark_vm_runtime_core::ResolvePromiseError;
+use waymark_vm_runtime_core::SettlePromiseError;
 
 /// Errors returned by the driver loop.
 #[derive(Debug)]
@@ -172,8 +172,8 @@ where
                     match runtime.resolve_promise(promise_state_id, value) {
                         Ok(()) => {}
                         Err(
-                            error @ (ResolvePromiseError::AlreadyResolved(_)
-                            | ResolvePromiseError::PromiseStateNotFound(_)),
+                            error @ (SettlePromiseError::AlreadySettled(_)
+                            | SettlePromiseError::PromiseStateNotFound(_)),
                         ) => {
                             tracing::info!(
                                 ?promise_state_id,
@@ -188,8 +188,8 @@ where
                     match runtime.reject_promise(promise_state_id, exception) {
                         Ok(()) => {}
                         Err(
-                            error @ (ResolvePromiseError::AlreadyResolved(_)
-                            | ResolvePromiseError::PromiseStateNotFound(_)),
+                            error @ (SettlePromiseError::AlreadySettled(_)
+                            | SettlePromiseError::PromiseStateNotFound(_)),
                         ) => {
                             tracing::info!(
                                 ?promise_state_id,

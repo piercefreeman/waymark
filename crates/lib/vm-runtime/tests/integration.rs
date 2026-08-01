@@ -1,6 +1,6 @@
 use waymark_vm_runtime::{CallSpec, RunError};
 use waymark_vm_runtime_core::{
-    CaptureRuntimeView, FullRuntimeView, RegisterId, ResolvePromiseError,
+    CaptureRuntimeView, FullRuntimeView, RegisterId, SettlePromiseError,
 };
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_exception::Exception;
@@ -206,7 +206,7 @@ fn resolve_promise_rejects_unknown_promise_ids_without_disturbing_waiting_work()
         .resolve_promise(PromiseStateId(9), TestReadyValue::Int(41))
         .expect_err("unknown promise IDs should be rejected");
 
-    let ResolvePromiseError::PromiseStateNotFound(err) = err else {
+    let SettlePromiseError::PromiseStateNotFound(err) = err else {
         panic!("invalid promise IDs should surface a not-found error");
     };
     assert_eq!(err.promise_state_id, PromiseStateId(9));
@@ -243,10 +243,10 @@ fn resolve_promise_preserves_the_first_value_when_duplicate_resolution_occurs() 
 
     let err = runtime
         .resolve_promise(PromiseStateId(0), TestReadyValue::Int(11))
-        .expect_err("already-ready promise should reject a new value");
+        .expect_err("already-settled promise should reject a new value");
 
-    let ResolvePromiseError::AlreadyResolved(err) = err else {
-        panic!("duplicate resolutions should report already-resolved errors");
+    let SettlePromiseError::AlreadySettled(err) = err else {
+        panic!("duplicate resolutions should report already-settled errors");
     };
 
     assert_eq!(err.new_value, TestReadyValue::Int(11));
