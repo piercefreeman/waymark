@@ -6006,12 +6006,27 @@ dependencies = [
  "tracing",
  "waymark-vm-executable",
  "waymark-vm-interpreter",
+ "waymark-vm-runtime-callspec",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
 ]
+
+[[package]]
+name = "waymark-vm-runtime-builder"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "thiserror",
+ "waymark-vm-compiler-metadata",
+ "waymark-vm-runtime-callspec",
+]
+
+[[package]]
+name = "waymark-vm-runtime-callspec"
+version = "0.1.0"
 
 [[package]]
 name = "waymark-vm-runtime-core"
