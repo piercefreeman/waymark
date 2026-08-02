@@ -7,6 +7,7 @@
 mod support;
 
 mod dict_ops;
+mod exception_ops;
 mod length_ops;
 mod list_ops;
 mod scalar_ops;

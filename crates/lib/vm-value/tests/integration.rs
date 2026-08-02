@@ -6,9 +6,10 @@ use waymark_vm_interpreter_extcallset::value::{
     CaptureActionCallArgument as _, SleepDuration as _,
 };
 use waymark_vm_interpreter_pureset::value::{
-    AsDictKey as _, AsDictKeyError, BinaryOperationError, BinaryOps as _, DotOp as _,
-    DotOperationError, FromLengthError, IndexOp as _, IndexOperationError, Length as _,
-    LengthError, MakeDict as _, MakeList as _, UnaryOps as _,
+    AsDictKey as _, AsDictKeyError, AsExceptionTypeId as _, AsExceptionTypeIdError,
+    BinaryOperationError, BinaryOps as _, DotOp as _, DotOperationError, FromLengthError,
+    IndexOp as _, IndexOperationError, Length as _, LengthError, MakeDict as _, MakeException as _,
+    MakeList as _, UnaryOps as _,
 };
 use waymark_vm_runtime_exception::{AsException as _, Exception, IntoException as _};
 use waymark_vm_value::{ReadyValue, Value, extcallset};
@@ -456,6 +457,27 @@ fn length_operations_follow_runtime_semantics() {
             Err(FromLengthError::ResultOutOfBounds)
         ));
     }
+}
+
+#[test]
+fn exception_operations_follow_runtime_semantics() {
+    assert_eq!(
+        ReadyValue::make_exception("ValueError".to_owned(), Value::Ready(ReadyValue::Int(41))),
+        ReadyValue::Exception(Box::new(Exception {
+            type_id: "ValueError".to_owned(),
+            details: Value::Ready(ReadyValue::Int(41)),
+        }))
+    );
+    assert_eq!(
+        ReadyValue::String("ValueError".to_owned())
+            .as_exception_type_id()
+            .unwrap(),
+        "ValueError"
+    );
+    assert!(matches!(
+        ReadyValue::Int(3).as_exception_type_id(),
+        Err(AsExceptionTypeIdError::UnsupportedTypeIdType)
+    ));
 }
 
 #[test]
