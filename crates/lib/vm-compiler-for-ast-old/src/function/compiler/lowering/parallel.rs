@@ -150,6 +150,8 @@ mod tests {
     use waymark_vm_runtime_core::RegisterId;
 
     use crate::Marked;
+    use crate::function::extras::ExtraFunctions;
+
     use crate::function::compiler::{
         CompilerContextMut,
         bytecode::emitter::FunctionEmitter,
@@ -163,6 +165,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
         let assignment = ParallelAssignmentPlan::<TestSpec>::build::<TestLowering, _>(
             nonempty_collections::NESlice::try_from_slice(&["results".to_owned()]).unwrap(),
             &[],
@@ -183,6 +186,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 ));
 
@@ -214,6 +218,7 @@ mod tests {
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
         let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
         let calls = [
             Call::Function(function_call("child", vec![int(1)])),
             Call::Function(function_call("child", vec![int(2)])),
@@ -238,6 +243,7 @@ mod tests {
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
+                    &mut extra_fns,
                     &mut flow_state,
                 ));
 
