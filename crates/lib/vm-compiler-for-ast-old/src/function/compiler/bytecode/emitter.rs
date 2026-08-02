@@ -86,6 +86,23 @@ where
         self.emit(waymark_vm_instructions_pureset::PureSet::MakeDict { dst, entries }.into());
     }
 
+    /// Emits an exception-construction instruction.
+    pub fn emit_make_exception(
+        &mut self,
+        dst: RegisterId,
+        type_id: RegisterId,
+        details: RegisterId,
+    ) {
+        self.emit(
+            waymark_vm_instructions_pureset::PureSet::MakeException {
+                dst,
+                type_id,
+                details,
+            }
+            .into(),
+        );
+    }
+
     /// Emits an indexed-access instruction.
     pub fn emit_index(&mut self, dst: RegisterId, object: RegisterId, index: RegisterId) {
         self.emit(waymark_vm_instructions_pureset::PureSet::Index { dst, object, index }.into());
@@ -183,6 +200,14 @@ where
         );
     }
 
+    /// Emits a select instruction over several promise arms.
+    pub fn emit_select(
+        &mut self,
+        arms: Vec<waymark_vm_instructions_coreset::SelectArm<RegisterId, StateId>>,
+    ) {
+        self.emit(waymark_vm_instructions_coreset::CoreSet::Select { arms }.into());
+    }
+
     /// Emits a push of one exception-handler block.
     pub fn emit_push_exception_handlers(
         &mut self,
@@ -206,6 +231,12 @@ where
     /// Emits an unconditional jump and terminates the current state.
     pub fn emit_jump(&mut self, target_state: StateId) {
         self.emit(waymark_vm_instructions_coreset::CoreSet::Jump { target_state }.into());
+        self.function_states.terminate();
+    }
+
+    /// Emits a raise and terminates the current state.
+    pub fn emit_raise(&mut self, src: RegisterId) {
+        self.emit(waymark_vm_instructions_coreset::CoreSet::Raise { src }.into());
         self.function_states.terminate();
     }
 

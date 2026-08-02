@@ -10,16 +10,84 @@ fn main(input: [value], output: []):
 ---
 f0: [4 registers]
   s0:
-    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_instance_retry"), args: [r0], resume: s1 })
+    CoreSet(Call { dst: r1, function_id: f1, args: [r0] })
+    CoreSet(Await { dst: r1, src: r1, resume: s1 })
   s1:
-    CoreSet(Await { dst: r1, src: r1, resume: s2 })
+    CoreSet(Call { dst: r2, function_id: f2, args: [r1] })
+    CoreSet(Await { dst: r2, src: r2, resume: s2 })
   s2:
-    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("action_with_instance_timeout"), args: [r1], resume: s3 })
+    CoreSet(Call { dst: r3, function_id: f3, args: [r2] })
+    CoreSet(Await { dst: r3, src: r3, resume: s3 })
   s3:
-    CoreSet(Await { dst: r2, src: r2, resume: s4 })
-  s4:
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("action_with_both_policies"), args: [r2], resume: s5 })
-  s5:
-    CoreSet(Await { dst: r3, src: r3, resume: s6 })
-  s6:
     CoreSet(Return { src: r3 })
+f1: [11 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: Int(0) })
+    PureSet(LoadConst { dst: r2, value: Int(1) })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }] })
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_instance_retry"), args: [r0], resume: s4 })
+  s2:
+    PureSet(LoadConst { dst: r6, value: Int(2) })
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r7, a: r1, b: r6 } })
+    CoreSet(JumpIf { target_state: s3, cond: r7 })
+    CoreSet(Raise { src: r3 })
+  s3:
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
+    PureSet(LoadConst { dst: r8, value: Int(10) })
+    ExtCallSet(Sleep { dst: r9, duration: r8, resume: s6, unskippable: false })
+  s4:
+    CoreSet(Await { dst: r5, src: r4, resume: s5 })
+  s5:
+    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Return { src: r5 })
+  s6:
+    CoreSet(Await { dst: r10, src: r9, resume: s7 })
+  s7:
+    CoreSet(Jump { target_state: s1 })
+f2: [9 registers]
+  s0:
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_instance_timeout"), args: [r0], resume: s1 })
+  s1:
+    PureSet(LoadConst { dst: r2, value: Int(120) })
+    ExtCallSet(Sleep { dst: r3, duration: r2, resume: s2, unskippable: true })
+  s2:
+    CoreSet(Select { arms: [SelectArm { src: r1, dst: r4, resume: s3 }, SelectArm { src: r3, dst: r5, resume: s4 }] })
+  s3:
+    CoreSet(Return { src: r4 })
+  s4:
+    PureSet(LoadConst { dst: r6, value: String("ActionTimeout") })
+    PureSet(LoadConst { dst: r7, value: None })
+    PureSet(MakeException { dst: r8, type_id: r6, details: r7 })
+    CoreSet(Raise { src: r8 })
+f3: [14 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: Int(0) })
+    PureSet(LoadConst { dst: r2, value: Int(1) })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }] })
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_both_policies"), args: [r0], resume: s4 })
+  s2:
+    PureSet(LoadConst { dst: r9, value: Int(1) })
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r10, a: r1, b: r9 } })
+    CoreSet(JumpIf { target_state: s3, cond: r10 })
+    CoreSet(Raise { src: r3 })
+  s3:
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
+    CoreSet(Jump { target_state: s1 })
+  s4:
+    PureSet(LoadConst { dst: r5, value: Int(120) })
+    ExtCallSet(Sleep { dst: r6, duration: r5, resume: s6, unskippable: true })
+  s5:
+    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Return { src: r7 })
+  s6:
+    CoreSet(Select { arms: [SelectArm { src: r4, dst: r7, resume: s5 }, SelectArm { src: r6, dst: r8, resume: s7 }] })
+  s7:
+    CoreSet(PopExceptionHandlers { count: 1 })
+    PureSet(LoadConst { dst: r11, value: String("ActionTimeout") })
+    PureSet(LoadConst { dst: r12, value: None })
+    PureSet(MakeException { dst: r13, type_id: r11, details: r12 })
+    CoreSet(Raise { src: r13 })
