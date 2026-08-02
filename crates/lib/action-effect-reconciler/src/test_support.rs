@@ -275,8 +275,5 @@ pub(crate) fn action_ref(name: &str) -> waymark_action_core::ActionRef {
         action_name: name.to_owned(),
         module_name: None,
         call_args: vec!["value".to_owned()],
-        timeout_seconds: 300,
-        max_retries: 0,
-        exception_types: Vec::new(),
     }
 }

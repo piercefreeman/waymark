@@ -67,7 +67,7 @@ where
             action_name: request.action_ref.action_name,
             module_name: request.action_ref.module_name,
             kwargs,
-            timeout_seconds: request.action_ref.timeout_seconds,
+            timeout_seconds: 0,
             attempt_number: 1,
             dispatch_token: uuid::Uuid::new_v4(),
             metadata: encoded_metadata,
@@ -126,9 +126,6 @@ mod tests {
                     action_name: "act".to_owned(),
                     module_name: None,
                     call_args: Vec::new(),
-                    timeout_seconds: 1,
-                    max_retries: 0,
-                    exception_types: Vec::new(),
                 },
                 arguments: Vec::new(),
                 // Sixteen zero bytes are a valid correlation encoding; the

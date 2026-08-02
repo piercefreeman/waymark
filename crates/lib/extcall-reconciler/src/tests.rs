@@ -93,9 +93,6 @@ async fn effect_handler_dispatches_action_call() {
             action_name: "test".into(),
             module_name: None,
             call_args: vec!["arg".into()],
-            timeout_seconds: 30,
-            max_retries: 0,
-            exception_types: vec![],
         },
         args: vec![waymark_vm_value::ReadyValue::String("hi".into())],
     };
