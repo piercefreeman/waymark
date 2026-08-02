@@ -20,6 +20,7 @@ fn runtime_emits_a_sleep_effect_and_queues_the_resumed_frame() {
                         dst: RegisterId(1),
                         duration: RegisterId(0),
                         resume: StateId(1),
+                        unskippable: false,
                     }
                     .into(),
                 ],
@@ -35,12 +36,14 @@ fn runtime_emits_a_sleep_effect_and_queues_the_resumed_frame() {
     let TestEffect::ExtCallSet(Effect::Sleep {
         promise_state_id,
         duration,
+        skip_allowed,
     }) = emitted_effect.effect
     else {
         panic!("first run should emit a sleep effect");
     };
 
     assert_eq!(duration, NonZeroDuration::from_secs(5).unwrap());
+    assert!(skip_allowed);
 
     let emitted_effect = runtime
         .run()
@@ -50,4 +53,32 @@ fn runtime_emits_a_sleep_effect_and_queues_the_resumed_frame() {
     };
 
     assert_eq!(resumed_promise_state_id, promise_state_id);
+}
+
+#[test]
+fn unskippable_sleep_emits_an_effect_with_skip_disallowed() {
+    let mut runtime = new_runtime_with_args(
+        executable(vec![function::<RuntimeInstruction>(
+            2,
+            vec![vec![
+                ExtCallSet::Sleep {
+                    dst: RegisterId(1),
+                    duration: RegisterId(0),
+                    resume: StateId(1),
+                    unskippable: true,
+                }
+                .into(),
+            ]],
+        )]),
+        vec![TestReadyValue(5)],
+    );
+
+    let emitted_effect = runtime
+        .run()
+        .expect("first run should emit the sleep effect");
+    let TestEffect::ExtCallSet(Effect::Sleep { skip_allowed, .. }) = emitted_effect.effect else {
+        panic!("first run should emit a sleep effect");
+    };
+
+    assert!(!skip_allowed);
 }

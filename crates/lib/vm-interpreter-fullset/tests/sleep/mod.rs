@@ -26,6 +26,7 @@ fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
                     dst: RegisterId(1),
                     duration: RegisterId(0),
                     resume: StateId(1),
+                    unskippable: false,
                 }
                 .into(),
             ],
@@ -58,6 +59,7 @@ fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::Sleep {
             promise_state_id,
             duration,
+            skip_allowed: _,
         }) => {
             assert_eq!(duration, NonZeroDuration::from_secs(2).unwrap());
             promise_state_id

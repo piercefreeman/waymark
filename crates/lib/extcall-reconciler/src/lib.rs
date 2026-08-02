@@ -118,9 +118,15 @@ where
             Effect::Sleep {
                 promise_state_id,
                 duration,
+                skip_allowed,
             } => {
                 self.sleep
-                    .record_sleep(emitted_effect.number, promise_state_id, duration)
+                    .record_sleep(
+                        emitted_effect.number,
+                        promise_state_id,
+                        duration,
+                        skip_allowed,
+                    )
                     .await
                     .map_err(HandleEffectError::Sleep)?;
             }

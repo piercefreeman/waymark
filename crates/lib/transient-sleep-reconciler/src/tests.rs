@@ -16,6 +16,7 @@ async fn record_and_collect_single_sleep() {
     handler.record(
         psid,
         NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+        true,
     );
 
     // Should collect immediately.
@@ -33,10 +34,12 @@ async fn multiple_sleeps_collected_in_order() {
     handler.record(
         a,
         NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+        true,
     );
     handler.record(
         b,
         NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+        true,
     );
 
     let settlements = poller.poll::<crate::Ack>().await.unwrap();
@@ -55,6 +58,7 @@ async fn poll_waits_for_new_sleep() {
         h.record(
             psid,
             NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+            true,
         );
     });
 
@@ -86,6 +90,7 @@ async fn sleep_resolution_is_null_value() {
     handler.record(
         psid,
         NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+        true,
     );
 
     let settlements = poller.poll::<crate::Ack>().await.unwrap();
@@ -107,6 +112,7 @@ async fn skip_sleep_resolves_immediately() {
     handler.record(
         psid,
         NonZeroDuration::try_from(Duration::from_secs(5)).unwrap(),
+        true,
     );
 
     let settlements = poller.poll::<crate::Ack>().await.unwrap();
@@ -123,14 +129,37 @@ async fn skip_sleep_multiple_resolve_immediately() {
     handler.record(
         a,
         NonZeroDuration::try_from(Duration::from_secs(60)).unwrap(),
+        true,
     );
     handler.record(
         b,
         NonZeroDuration::try_from(Duration::from_secs(120)).unwrap(),
+        true,
     );
 
     let settlements = poller.poll::<crate::Ack>().await.unwrap();
     assert_eq!(settlements.len().get(), 2);
+}
+
+#[tokio::test]
+async fn skip_sleep_does_not_skip_when_skip_not_allowed() {
+    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(true);
+    let psid = PromiseStateId(0);
+
+    // A 60-second sleep recorded with `skip_allowed: false` must keep its
+    // full deadline even though skip_sleep is on.
+    handler.record(
+        psid,
+        NonZeroDuration::try_from(Duration::from_secs(60)).unwrap(),
+        false,
+    );
+
+    tokio::select! {
+        _ = poller.poll::<crate::Ack>() => {
+            panic!("a skip-disallowed sleep must not settle early");
+        }
+        _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+    }
 }
 
 #[tokio::test]
@@ -143,6 +172,7 @@ async fn skip_sleep_flag_is_independent_per_handler() {
     skip_handler.record(
         skip_psid,
         NonZeroDuration::try_from(Duration::from_secs(5)).unwrap(),
+        true,
     );
     let skip_settlements = skip_poller.poll::<crate::Ack>().await.unwrap();
     assert_eq!(skip_settlements[0].promise_state_id, skip_psid);
@@ -152,6 +182,7 @@ async fn skip_sleep_flag_is_independent_per_handler() {
     normal_handler.record(
         normal_psid,
         NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+        true,
     );
     let normal_settlements = normal_poller.poll::<crate::Ack>().await.unwrap();
     assert_eq!(normal_settlements[0].promise_state_id, normal_psid);
@@ -167,10 +198,12 @@ async fn re_record_keeps_the_original_deadline() {
     handler.record(
         psid,
         NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+        true,
     );
     handler.record(
         psid,
         NonZeroDuration::try_from(Duration::from_secs(3600)).unwrap(),
+        true,
     );
 
     tokio::select! {
@@ -195,6 +228,7 @@ async fn ack_makes_the_promise_recordable_again() {
     handler.record(
         psid,
         NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+        true,
     );
 
     let settlements = poller.poll::<crate::Ack>().await.unwrap();
@@ -207,6 +241,7 @@ async fn ack_makes_the_promise_recordable_again() {
     handler.record(
         psid,
         NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+        true,
     );
 
     let settlements = poller.poll::<crate::Ack>().await.unwrap();
@@ -222,10 +257,12 @@ async fn re_record_yields_a_single_settlement() {
     handler.record(
         psid,
         NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+        true,
     );
     handler.record(
         psid,
         NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
+        true,
     );
 
     let settlements = poller.poll::<crate::Ack>().await.unwrap();
