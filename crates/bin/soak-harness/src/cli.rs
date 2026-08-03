@@ -72,6 +72,9 @@ pub struct SoakArgs {
     #[arg(long, default_value_t = 5.try_into().unwrap())]
     pub actions_per_workflow: NonZeroUsize,
 
+    #[arg(long, default_value_t = 500.try_into().unwrap())]
+    pub queue_batch_size: NonZeroUsize,
+
     #[arg(long, default_value_t = 50_000)]
     pub target_ready_queue: i64,
 
