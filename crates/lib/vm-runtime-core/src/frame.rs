@@ -46,3 +46,29 @@ pub enum FrameKind {
         ret: PromiseStateId,
     },
 }
+
+impl<FunctionId, StateId, Value> Frame<FunctionId, StateId, Value> {
+    /// Raise a runtime exception on this frame.
+    ///
+    /// If an exception is already pending on the frame, keeps the pending
+    /// exception and discards the provided one.
+    pub fn raise_exception(&mut self, exception: Exception<Value>) {
+        self.exception.get_or_insert(exception);
+    }
+
+    /// Raise a typed runtime exception on this frame.
+    ///
+    /// See [`Frame::raise_exception`].
+    pub fn raise_typed_exception<TypedException>(&mut self, exception: TypedException)
+    where
+        TypedException: waymark_vm_runtime_exception::TypedException,
+        Value: waymark_vm_runtime_value::RootValueAccess<RootValue = Value>,
+        Value: waymark_vm_runtime_exception::ExceptionFromIntermediate<
+                TypedException::IntermediateDetails,
+            >,
+    {
+        self.raise_exception(Value::from_intermediate_exception(
+            exception.into_intermediate_exception(),
+        ));
+    }
+}

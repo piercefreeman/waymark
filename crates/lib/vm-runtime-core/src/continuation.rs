@@ -125,7 +125,7 @@ impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, Resume
 
         // Register the exception in the frame, without
         // overriding an already existing exception.
-        prepared_resume_frame.exception.get_or_insert(exception);
+        prepared_resume_frame.raise_exception(exception);
 
         prepared_resume_frame
     }
@@ -141,7 +141,7 @@ impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, Resume
 
         // Register the exception in the frame, without
         // overriding an already existing exception.
-        frame.exception.get_or_insert(exception);
+        frame.raise_exception(exception);
     }
 }
 
