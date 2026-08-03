@@ -1,8 +1,6 @@
 //! `Length` and its error paths (including overflow and unusable values).
 
 use waymark_vm_instructions_pureset::PureSet;
-use waymark_vm_interpreter_pureset::Error;
-use waymark_vm_runtime::RunError;
 use waymark_vm_runtime_core::RegisterId;
 
 use crate::support::{RuntimeInstruction, TestConstValue, TestValue, run};
@@ -41,8 +39,8 @@ fn runtime_executes_length_to_a_terminal_effect() {
 }
 
 #[test]
-fn runtime_surfaces_length_errors_from_the_pureset_interpreter() {
-    let result = run(
+fn runtime_raises_a_type_error_for_an_unsupported_length_value() {
+    let value = run(
         2,
         vec![
             PureSet::LoadConst {
@@ -55,21 +53,25 @@ fn runtime_surfaces_length_errors_from_the_pureset_interpreter() {
                 src: RegisterId(0),
             }
             .into(),
-            RuntimeInstruction::EmitRegister(RegisterId(1)),
+            RuntimeInstruction::EmitPendingException,
         ],
-    );
+    )
+    .expect("runtime should emit the pending exception");
 
-    assert!(matches!(
-        result,
-        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::Length(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
-        )))
-    ));
+    assert_eq!(
+        value,
+        TestValue::Exception {
+            type_id: "TypeError".to_owned(),
+            details: Box::new(TestValue::Text(
+                "determining length is not supported for this value".to_owned()
+            )),
+        }
+    );
 }
 
 #[test]
-fn runtime_surfaces_from_length_errors_from_the_pureset_interpreter() {
-    let result = run(
+fn runtime_raises_an_overflow_error_for_an_unrepresentable_length_result() {
+    let value = run(
         2,
         vec![
             PureSet::LoadConst {
@@ -82,23 +84,23 @@ fn runtime_surfaces_from_length_errors_from_the_pureset_interpreter() {
                 src: RegisterId(0),
             }
             .into(),
-            RuntimeInstruction::EmitRegister(RegisterId(1)),
+            RuntimeInstruction::EmitPendingException,
         ],
-    );
+    )
+    .expect("runtime should emit the pending exception");
 
-    assert!(matches!(
-        result,
-        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::FromLength(
-                waymark_vm_interpreter_pureset::value::FromLengthError::ResultOutOfBounds
-            )
-        )))
-    ));
+    assert_eq!(
+        value,
+        TestValue::Exception {
+            type_id: "OverflowError".to_owned(),
+            details: Box::new(TestValue::Text("length result is out of bounds".to_owned())),
+        }
+    );
 }
 
 #[test]
-fn runtime_surfaces_length_errors_from_unusable_values() {
-    let result = run(
+fn runtime_raises_a_type_error_for_an_unusable_length_value() {
+    let value = run(
         2,
         vec![
             RuntimeInstruction::SetUnusable { dst: RegisterId(0) },
@@ -107,14 +109,18 @@ fn runtime_surfaces_length_errors_from_unusable_values() {
                 src: RegisterId(0),
             }
             .into(),
-            RuntimeInstruction::EmitRegister(RegisterId(1)),
+            RuntimeInstruction::EmitPendingException,
         ],
-    );
+    )
+    .expect("runtime should emit the pending exception");
 
-    assert!(matches!(
-        result,
-        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::Length(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
-        )))
-    ));
+    assert_eq!(
+        value,
+        TestValue::Exception {
+            type_id: "TypeError".to_owned(),
+            details: Box::new(TestValue::Text(
+                "determining length is not supported for this value".to_owned()
+            )),
+        }
+    );
 }

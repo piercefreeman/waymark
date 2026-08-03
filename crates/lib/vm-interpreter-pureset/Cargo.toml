@@ -9,6 +9,7 @@ waymark-vm-instructions-pureset = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
 waymark-vm-interpreter-utils = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-value = { workspace = true }
 
 derive-where = { workspace = true }

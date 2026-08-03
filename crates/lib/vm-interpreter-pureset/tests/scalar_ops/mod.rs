@@ -2,8 +2,6 @@
 //! `Unary::Not`, and their failure modes.
 
 use waymark_vm_instructions_pureset::{BinaryOp, BinaryOpKind, PureSet, UnaryOp, UnaryOpKind};
-use waymark_vm_interpreter_pureset::{BinaryOperandPosition, Error};
-use waymark_vm_runtime::RunError;
 use waymark_vm_runtime_core::RegisterId;
 
 use crate::support::{RuntimeInstruction, TestConstValue, TestValue, run};
@@ -104,12 +102,12 @@ fn runtime_converts_non_numeric_constants_through_the_spec_type() {
     )
     .expect("runtime should emit the converted constant");
 
-    assert_eq!(value, TestValue::Text("hello"));
+    assert_eq!(value, TestValue::Text("hello".to_owned()));
 }
 
 #[test]
-fn runtime_surfaces_add_errors_from_the_pureset_interpreter() {
-    let result = run(
+fn runtime_raises_a_type_error_for_an_unsupported_add() {
+    let value = run(
         2,
         vec![
             PureSet::LoadConst {
@@ -131,27 +129,25 @@ fn runtime_surfaces_add_errors_from_the_pureset_interpreter() {
                 },
             }
             .into(),
-            RuntimeInstruction::EmitRegister(RegisterId(0)),
+            RuntimeInstruction::EmitPendingException,
         ],
-    );
+    )
+    .expect("runtime should emit the pending exception");
 
-    assert!(matches!(
-        result,
-        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::BinaryOperation {
-                operation: BinaryOpKind::Add,
-                source:
-                    waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                        operation: BinaryOpKind::Add,
-                    },
-            }
-        )))
-    ));
+    assert_eq!(
+        value,
+        TestValue::Exception {
+            type_id: "TypeError".to_owned(),
+            details: Box::new(TestValue::Text(
+                "+ is not supported for these operands".to_owned()
+            )),
+        }
+    );
 }
 
 #[test]
-fn runtime_surfaces_unusable_add_operand_errors_from_unusable_values() {
-    let result = run(
+fn runtime_raises_a_type_error_for_an_unusable_add_operand() {
+    let value = run(
         2,
         vec![
             RuntimeInstruction::SetUnusable { dst: RegisterId(0) },
@@ -169,18 +165,16 @@ fn runtime_surfaces_unusable_add_operand_errors_from_unusable_values() {
                 },
             }
             .into(),
-            RuntimeInstruction::EmitRegister(RegisterId(0)),
+            RuntimeInstruction::EmitPendingException,
         ],
-    );
+    )
+    .expect("runtime should emit the pending exception");
 
-    assert!(matches!(
-        result,
-        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::UnusableBinaryOperand {
-                operation: BinaryOpKind::Add,
-                operand_pos: BinaryOperandPosition::First,
-                source: waymark_vm_interpreter_pureset::value::AsScalarError::NotAScalar,
-            }
-        )))
-    ));
+    assert_eq!(
+        value,
+        TestValue::Exception {
+            type_id: "TypeError".to_owned(),
+            details: Box::new(TestValue::Text("not a scalar".to_owned())),
+        }
+    );
 }
