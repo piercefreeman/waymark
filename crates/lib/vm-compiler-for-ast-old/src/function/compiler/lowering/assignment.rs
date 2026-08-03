@@ -17,7 +17,7 @@ use super::plan::assignment::AssignmentStatementPlan;
 
 /// The exception type raised when an unpacked value's length does not match
 /// the assignment target count.
-const UNPACK_MISMATCH_TYPE_ID: &str = "ValueError";
+const UNPACK_MISMATCH_TYPE_ID: &str = waymark_vm_exception_type_ids::VALUE_ERROR;
 
 /// Lowers assignment statements into bytecode.
 pub struct AssignmentCompiler<'borrow, 'table, Spec, Lowering>

@@ -117,6 +117,7 @@ waymark-vm-driver = { path = "crates/lib/vm-driver" }
 waymark-vm-driver-core = { path = "crates/lib/vm-driver-core" }
 waymark-vm-driver-thread = { path = "crates/lib/vm-driver-thread" }
 waymark-vm-exception-handler = { path = "crates/lib/vm-exception-handler" }
+waymark-vm-exception-type-ids = { path = "crates/lib/vm-exception-type-ids" }
 waymark-vm-executable = { path = "crates/lib/vm-executable" }
 waymark-vm-instructions-coreset = { path = "crates/lib/vm-instructions-coreset" }
 waymark-vm-instructions-extcallset = { path = "crates/lib/vm-instructions-extcallset" }

@@ -20,7 +20,6 @@ pub use self::length::*;
 pub use self::list::*;
 pub use self::load_const::*;
 pub use self::scalar::*;
-pub use self::typed_exceptions::*;
 
 /// A unifying trait for all value requirements.
 pub trait Value:
