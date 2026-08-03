@@ -5793,6 +5793,7 @@ dependencies = [
  "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-compiler-for-ast-old-test-support",
  "waymark-vm-exception-handler",
+ "waymark-vm-exception-type-ids",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-fullset",
@@ -5927,6 +5928,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-exception-type-ids"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-vm-executable"
 version = "0.1.0"
 
@@ -6040,6 +6045,7 @@ dependencies = [
  "derive-where",
  "static_assertions",
  "thiserror",
+ "waymark-vm-exception-type-ids",
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter",
  "waymark-vm-interpreter-coreset",
