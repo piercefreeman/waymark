@@ -23,6 +23,7 @@ waymark-workflow-completion-convert-proto = { workspace = true }
 waymark-workflow-initialization-convert-proto = { workspace = true }
 waymark-workflow-service-vm-executables = { workspace = true }
 waymark-workflow-service-vm-runtimes = { workspace = true }
+waymark-workflow-service-vm-runtimes-backend = { workspace = true }
 
 anyhow = { workspace = true }
 envfury = { workspace = true }

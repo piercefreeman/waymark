@@ -174,7 +174,8 @@ message RegisterWorkflowBatchRequest {
   WorkflowArguments inputs = 3;
   // Per-instance inputs (overrides count/inputs when provided).
   repeated WorkflowArguments inputs_list = 4;
-  // Batch size for database inserts.
+  // Batch size for database inserts, clamped to a server-side maximum;
+  // 0 means the server default.
   uint32 batch_size = 5;
   // Whether to return instance IDs in the response.
   bool include_instance_ids = 6;

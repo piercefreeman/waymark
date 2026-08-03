@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -108,6 +109,69 @@ impl WorkflowStore {
             .register_vm(vm_id, executable_id, |ser| runtime.snapshot(ser))
             .await
             .map_err(|err| anyhow::anyhow!("register vm: {err}"))
+    }
+
+    /// Register all instances, in chunks of at most `batch_max`.
+    ///
+    /// Each chunk is one atomic backend batch, but the call as a whole is
+    /// not atomic: if a chunk fails, the preceding chunks stay durably
+    /// registered.
+    pub async fn register_vm_runtimes(
+        &self,
+        executable_id: WorkflowVersionId,
+        executable: Arc<waymark_system_vm::Executable>,
+        batch_max: NonZeroUsize,
+        vms: nonempty_collections::NEVec<(
+            InstanceId,
+            waymark_vm_runtime::CallSpec<
+                <waymark_system_vm::Executable as waymark_vm_executable::Functions>::FunctionId,
+                waymark_system_vm::Value,
+            >,
+        )>,
+    ) -> Result<()> {
+        let mut vms = vms.into_iter();
+        loop {
+            let chunk: Vec<_> = vms.by_ref().take(batch_max.get()).collect();
+            if chunk.is_empty() {
+                break;
+            }
+
+            let mut batch = Vec::with_capacity(chunk.len());
+            for (vm_id, call_spec) in chunk {
+                let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::<
+                    waymark_system_vm::Spec,
+                    Arc<waymark_system_vm::Executable>,
+                    waymark_system_vm::Value,
+                >::default();
+                let runtime: waymark_vm_runtime::Runtime<_, _, waymark_system_vm::Value> =
+                    waymark_vm_runtime::Runtime::with_custom_entrypoint(
+                        interpreter,
+                        Arc::clone(&executable),
+                        call_spec,
+                    )
+                    .map_err(|err| anyhow::anyhow!("create runtime: {err}"))?;
+                batch.push((vm_id, executable_id, runtime));
+            }
+
+            let success = self
+                .registration
+                .register_vms(
+                    nonempty_collections::NEVec::try_from_vec(batch)
+                        .expect("chunks of a non-empty list are non-empty"),
+                    |runtime, serializer| runtime.snapshot(serializer),
+                )
+                .await
+                .map_err(|err| anyhow::anyhow!("register vm runtimes: {err}"))?;
+            assert!(
+                matches!(
+                    success,
+                    waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegistrationSuccess::AllRegistered,
+                ),
+                "freshly minted instance ids can never be already registered",
+            );
+        }
+
+        Ok(())
     }
 
     /// Poll for the outcome of a workflow instance.
