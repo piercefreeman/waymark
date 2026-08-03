@@ -5341,6 +5341,7 @@ dependencies = [
  "chrono",
  "clap",
  "color-eyre",
+ "nonempty-collections",
  "prost 0.12.6",
  "rand 0.9.3",
  "serde",
@@ -5364,6 +5365,7 @@ dependencies = [
  "waymark-vm-runtime-builder",
  "waymark-workflow-service-vm-executables",
  "waymark-workflow-service-vm-runtimes",
+ "waymark-workflow-service-vm-runtimes-backend",
 ]
 
 [[package]]

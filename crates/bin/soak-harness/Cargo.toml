@@ -19,10 +19,12 @@ waymark-vm-compiler-for-ast-old-core = { workspace = true }
 waymark-vm-runtime-builder = { workspace = true }
 waymark-workflow-service-vm-executables = { workspace = true }
 waymark-workflow-service-vm-runtimes = { workspace = true }
+waymark-workflow-service-vm-runtimes-backend = { workspace = true }
 
 chrono = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 color-eyre = { workspace = true }
+nonempty-collections = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
