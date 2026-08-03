@@ -6015,6 +6015,7 @@ dependencies = [
  "thiserror",
  "waymark-nonzero-duration",
  "waymark-vm-bytecode",
+ "waymark-vm-exception-handler",
  "waymark-vm-executable",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-extcallset",
@@ -6045,6 +6046,7 @@ dependencies = [
  "waymark-vm-interpreter-utils",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",
 ]

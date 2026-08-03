@@ -9,6 +9,7 @@ mod length;
 mod list;
 mod load_const;
 mod scalar;
+mod typed_exceptions;
 
 pub use self::capture_copy::*;
 pub use self::dict::*;
@@ -19,6 +20,7 @@ pub use self::length::*;
 pub use self::list::*;
 pub use self::load_const::*;
 pub use self::scalar::*;
+pub use self::typed_exceptions::*;
 
 /// A unifying trait for all value requirements.
 pub trait Value:
@@ -34,6 +36,7 @@ pub trait Value:
     + Length
     + IndexOp
     + DotOp
+    + waymark_vm_runtime_exception::ExceptionFromIntermediate<String>
 {
 }
 
@@ -50,5 +53,6 @@ impl<T> Value for T where
         + Length
         + IndexOp
         + DotOp
+        + waymark_vm_runtime_exception::ExceptionFromIntermediate<String>
 {
 }

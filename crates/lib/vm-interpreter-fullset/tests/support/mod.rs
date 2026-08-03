@@ -83,6 +83,7 @@ pub enum TestSleepDurationError {
 pub enum TestReadyValue {
     Int(i64),
     Bool(bool),
+    Text(String),
     List(Vec<TestValue>),
     Exception(Box<Exception<TestValue>>),
 }
@@ -95,6 +96,7 @@ fn is_truthy(value: &TestReadyValue) -> bool {
     match value {
         TestReadyValue::Int(value) => *value != 0,
         TestReadyValue::Bool(value) => *value,
+        TestReadyValue::Text(value) => !value.is_empty(),
         TestReadyValue::List(items) => !items.is_empty(),
         TestReadyValue::Exception(_) => true,
     }
@@ -234,13 +236,22 @@ impl waymark_vm_interpreter_pureset::value::MakeException for TestReadyValue {
     }
 }
 
+impl waymark_vm_runtime_exception::ExceptionFromIntermediate<String> for TestReadyValue {
+    fn from_intermediate_exception(exception: Exception<String>) -> Exception<Self::RootValue> {
+        Exception {
+            type_id: exception.type_id,
+            details: TestValue::Ready(Self::Text(exception.details)),
+        }
+    }
+}
+
 impl waymark_vm_interpreter_pureset::value::Length for TestReadyValue {
     type Length = usize;
 
     fn length(&self) -> Result<usize, waymark_vm_interpreter_pureset::value::LengthError> {
         match self {
             Self::List(items) => Ok(items.len()),
-            Self::Int(_) | Self::Bool(_) | Self::Exception(_) => {
+            Self::Int(_) | Self::Bool(_) | Self::Text(_) | Self::Exception(_) => {
                 Err(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
             }
         }
@@ -269,7 +280,7 @@ impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestReadyValue 
                 let seconds: u64 = (*value).try_into().map_err(|_| Self::Error::Negative)?;
                 NonZeroDuration::from_secs(seconds).ok_or(Self::Error::Zero)
             }
-            Self::Bool(_) | Self::List(_) | Self::Exception(_) => {
+            Self::Bool(_) | Self::Text(_) | Self::List(_) | Self::Exception(_) => {
                 Err(Self::Error::UnsupportedValue)
             }
         }
@@ -545,6 +556,20 @@ impl waymark_vm_interpreter_pureset::value::AsExceptionTypeId for TestValue {
 impl waymark_vm_interpreter_pureset::value::MakeException for TestValue {
     fn make_exception(type_id: String, details: Self::RootValue) -> Self {
         Self::Ready(TestReadyValue::make_exception(type_id, details))
+    }
+}
+
+impl<IntermediateDetails>
+    waymark_vm_runtime_exception::ExceptionFromIntermediate<IntermediateDetails> for TestValue
+where
+    TestReadyValue: waymark_vm_runtime_exception::ExceptionFromIntermediate<IntermediateDetails>,
+{
+    fn from_intermediate_exception(
+        exception: Exception<IntermediateDetails>,
+    ) -> Exception<Self::RootValue> {
+        <TestReadyValue as waymark_vm_runtime_exception::ExceptionFromIntermediate<
+            IntermediateDetails,
+        >>::from_intermediate_exception(exception)
     }
 }
 
