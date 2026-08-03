@@ -1,18 +1,33 @@
+use std::marker::PhantomData;
+
 use waymark_action_runtime_metadata_codec::Encode;
 use waymark_convert_core::TryConvert;
 
 /// Dispatches action calls through a [`waymark_worker_core::BaseWorkerPool`].
-pub struct WorkerPoolActionRequester<Pool, VmId> {
+///
+/// The request's correlation metadata is encoded verbatim into the dispatch
+/// and echoed back by the worker, so a
+/// [`WorkerPoolActionCallCompletionsProvider`](crate::WorkerPoolActionCallCompletionsProvider)
+/// instantiated with the same `Metadata` recovers exactly what was attached
+/// here.  Deployments that need to route completions back to a VM inject the
+/// VM id into the metadata before it reaches this requester (e.g. via
+/// [`waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester`]).
+pub struct WorkerPoolActionRequester<Pool, Metadata> {
     /// The worker pool to submit action requests to.
     pub pool: Pool,
 
-    /// The VM instance that owns the calls this requester dispatches.
-    ///
-    /// It is encoded into each dispatch's correlation metadata (via
-    /// [`WithVmId`](waymark_action_runtime_metadata::WithVmId)) so completions
-    /// can be routed back to this VM, and travels end-to-end through the worker
-    /// rather than being recovered from the worker pool's `executor_id` field.
-    pub vm_id: VmId,
+    /// Phantom data for the metadata type parameter.
+    pub _metadata: PhantomData<Metadata>,
+}
+
+impl<Pool, Metadata> WorkerPoolActionRequester<Pool, Metadata> {
+    /// Create a new requester backed by the given worker pool.
+    pub fn new(pool: Pool) -> Self {
+        Self {
+            pool,
+            _metadata: PhantomData,
+        }
+    }
 }
 
 /// Errors that can occur when requesting an action call through
@@ -28,17 +43,17 @@ pub enum RequestActionCallError {
     PoolQueue(#[source] waymark_worker_core::WorkerPoolError),
 }
 
-impl<Pool, VmId> waymark_action_runtime_core::ActionCallRequester
-    for WorkerPoolActionRequester<Pool, VmId>
+impl<Pool, Metadata> waymark_action_runtime_core::ActionCallRequester
+    for WorkerPoolActionRequester<Pool, Metadata>
 where
     Pool: waymark_worker_core::BaseWorkerPool + Send + Sync + 'static,
-    VmId: Copy + Encode + Sync,
+    Metadata: Encode + Send + Sync,
 {
     type Error = RequestActionCallError;
 
     type Argument = waymark_vm_value::ReadyValue;
 
-    type Metadata = waymark_action_runtime_metadata::ActionCallCorrelation;
+    type Metadata = Metadata;
 
     async fn request_action_call(
         &self,
@@ -50,16 +65,8 @@ where
         ))
         .map_err(RequestActionCallError::ArgumentsConversion)?;
 
-        // The vm id rides in the correlation metadata itself — encoded here and
-        // recovered by the completions provider — so routing never depends on
-        // the worker pool's `executor_id` field.
-        let metadata = waymark_action_runtime_metadata::WithVmId::<VmId, _> {
-            vm_id: self.vm_id,
-            inner: request.metadata,
-        };
-
         let mut encoded_metadata = Vec::new();
-        metadata.encode(&mut encoded_metadata);
+        request.metadata.encode(&mut encoded_metadata);
 
         let worker_request = waymark_worker_core::ActionRequest {
             executor_id: waymark_ids::InstanceId::new_uuid_v4(),
@@ -88,6 +95,7 @@ mod tests {
     use waymark_action_runtime_core::{ActionCallRequest, ActionCallRequester as _};
     use waymark_action_runtime_metadata::{ActionCallCorrelation, WithVmId};
     use waymark_action_runtime_metadata_codec::Decode;
+    use waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester;
     use waymark_ids::InstanceId;
 
     use super::*;
@@ -112,31 +120,63 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn queued_request_encodes_the_vm_id_into_the_metadata() {
-        let vm_id = InstanceId::new_uuid_v4();
-        let requester = WorkerPoolActionRequester::<_, InstanceId> {
-            pool: RecordingPool::default(),
-            vm_id,
-        };
+    fn action_call_request<Metadata>(
+        metadata: Metadata,
+    ) -> ActionCallRequest<waymark_vm_value::ReadyValue, Metadata> {
+        ActionCallRequest {
+            action_ref: ActionRef {
+                action_name: "act".to_owned(),
+                module_name: None,
+                call_args: Vec::new(),
+            },
+            arguments: Vec::new(),
+            metadata,
+        }
+    }
 
+    /// Sixteen zero bytes are a valid correlation encoding; the correlation's
+    /// contents are irrelevant to tests that only assert on the wrapping.
+    fn correlation() -> ActionCallCorrelation {
+        ActionCallCorrelation::decode(&mut &[0u8; 16][..]).unwrap()
+    }
+
+    #[tokio::test]
+    async fn queued_request_encodes_the_metadata_verbatim() {
+        let requester =
+            WorkerPoolActionRequester::<_, ActionCallCorrelation>::new(RecordingPool::default());
+
+        let metadata = correlation();
         requester
-            .request_action_call(ActionCallRequest {
-                action_ref: ActionRef {
-                    action_name: "act".to_owned(),
-                    module_name: None,
-                    call_args: Vec::new(),
-                },
-                arguments: Vec::new(),
-                // Sixteen zero bytes are a valid correlation encoding; the
-                // correlation's contents are irrelevant to this test, which only
-                // asserts on the separately-carried vm id.
-                metadata: ActionCallCorrelation::decode(&mut &[0u8; 16][..]).unwrap(),
-            })
+            .request_action_call(action_call_request(metadata))
             .await
             .expect("queueing succeeds");
 
         let queued = requester.pool.queued.lock().unwrap();
+        let [request] = &queued[..] else {
+            panic!("expected exactly one queued request, got {}", queued.len());
+        };
+        let decoded = ActionCallCorrelation::decode(&mut request.metadata.as_slice())
+            .expect("metadata decodes");
+        assert_eq!(decoded, metadata);
+    }
+
+    #[tokio::test]
+    async fn with_vm_id_requester_encodes_the_vm_id_into_the_metadata() {
+        let vm_id = InstanceId::new_uuid_v4();
+        let requester = WithVmIdActionCallRequester {
+            vm_id,
+            action_call_requester: WorkerPoolActionRequester::<
+                _,
+                WithVmId<InstanceId, ActionCallCorrelation>,
+            >::new(RecordingPool::default()),
+        };
+
+        requester
+            .request_action_call(action_call_request(correlation()))
+            .await
+            .expect("queueing succeeds");
+
+        let queued = requester.action_call_requester.pool.queued.lock().unwrap();
         let [request] = &queued[..] else {
             panic!("expected exactly one queued request, got {}", queued.len());
         };

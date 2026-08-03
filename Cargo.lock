@@ -4365,6 +4365,14 @@ name = "waymark-action-runtime-metadata-codec"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-action-runtime-metadata-compat"
+version = "0.1.0"
+dependencies = [
+ "waymark-action-runtime-core",
+ "waymark-action-runtime-metadata",
+]
+
+[[package]]
 name = "waymark-action-runtime-worker-pool"
 version = "0.1.0"
 dependencies = [
@@ -4379,6 +4387,7 @@ dependencies = [
  "waymark-action-runtime-core",
  "waymark-action-runtime-metadata",
  "waymark-action-runtime-metadata-codec",
+ "waymark-action-runtime-metadata-compat",
  "waymark-convert-core",
  "waymark-ids",
  "waymark-runner-executor-core",
@@ -4705,6 +4714,8 @@ dependencies = [
  "waymark-action-completions-reconciler-backend",
  "waymark-action-effect-reconciler",
  "waymark-action-effect-reconciler-backend",
+ "waymark-action-runtime-metadata",
+ "waymark-action-runtime-metadata-compat",
  "waymark-action-runtime-worker-pool",
  "waymark-execution-driver",
  "waymark-extcall-reconciler",
