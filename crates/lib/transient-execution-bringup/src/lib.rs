@@ -1,21 +1,14 @@
-//! In-memory transient workflow execution bringup — wires the
-//! [`waymark_execution_effector`] with
-//! [`waymark_action_runtime_worker_stream`] channels and spawns the VM
-//! driver on a dedicated OS thread.
+//! In-memory transient workflow execution bringup — assembles the VM
+//! effect-reconciler stack over a caller-provided action transport and
+//! spawns the VM driver on a dedicated OS thread.
 //!
 //! This is the bringup counterpart to [`waymark_execution_bringup`] for
-//! the bridge's in-memory / streaming execution path.
+//! transient execution: no snapshot persistence and no backend — the
+//! workflow outcome is delivered in-process.
 
 #![warn(missing_docs)]
 
-use prost::Message as _;
-use tokio::sync::mpsc;
-use tonic::Status;
-use waymark_action_runtime_metadata::ActionCallCorrelation;
-use waymark_convert_core::TryConvert as _;
-use waymark_proto::messages as proto;
 use waymark_vm_driver_core::SnapshotPersister;
-use waymark_workflow_completion_core::Outcome;
 
 // ---------------------------------------------------------------------------
 // No-op snapshot persister (transient execution does not persist state)
@@ -36,39 +29,62 @@ impl SnapshotPersister for NoopPersister {
 // Runtime setup
 // ---------------------------------------------------------------------------
 
-/// Compile a [`proto::WorkflowRegistration`] into a ready-to-run
+/// Errors that can occur in [`setup_runtime`].
+#[derive(Debug, thiserror::Error)]
+pub enum SetupRuntimeError {
+    /// Compiling the AST program into an executable failed.
+    #[error("compile: {0}")]
+    Compile(
+        #[source]
+        waymark_vm_compiler_for_ast_old::CompileErrorFor<
+            waymark_system_vm::Spec,
+            waymark_system_vm::Lowering,
+        >,
+    ),
+
+    /// Selecting the entry function failed.
+    #[error("select entry function: {0}")]
+    SelectEntryFunction(#[source] waymark_vm_runtime_builder::NoFunctionsError),
+
+    /// Matching the entry function arguments failed.
+    #[error("match entry function arguments: {0}")]
+    MatchArguments(#[source] waymark_vm_runtime_builder::MissingArgumentsError),
+
+    /// The entry function was not found in the executable.
+    #[error("invalid entrypoint: {0}")]
+    Entrypoint(
+        #[source] waymark_vm_runtime::FunctionNotFoundError<waymark_vm_bytecode_core::FunctionId>,
+    ),
+}
+
+/// Compile a [`waymark_vm_ast_old::Program`] into a ready-to-run
 /// [`waymark_system_vm::Runtime`], entirely in memory, without any database
 /// backend.
 ///
 /// The entry function (function 0, the first function in source order)
-/// receives its arguments from [`proto::WorkflowRegistration::initial_context`]
-/// when present.  Each keyword argument is mapped to a positional argument
-/// by matching the entry function's input names.
-pub async fn setup_runtime(
-    registration: &waymark_proto::messages::WorkflowRegistration,
-) -> Result<waymark_system_vm::Runtime, Box<dyn std::error::Error + Send + Sync>> {
-    let ir_program = waymark_proto::ast::Program::decode(&registration.ir[..])
-        .map_err(|err| anyhow::anyhow!("decode IR: {err}"))?;
-    let ast_program = waymark_vm_ast_old_proto::convert(ir_program)
-        .map_err(|err| anyhow::anyhow!("convert IR to AST: {err}"))?;
-
+/// receives its arguments from `arguments`, matched by input name; every
+/// input name must be present.
+pub fn setup_runtime(
+    program: &waymark_vm_ast_old::Program,
+    arguments: std::collections::HashMap<String, waymark_system_vm::Value>,
+) -> Result<waymark_system_vm::Runtime, SetupRuntimeError> {
     let (executable, metadata) = waymark_vm_compiler_for_ast_old::compile_with_metadata::<
         waymark_system_vm::Spec,
         waymark_system_vm::Lowering,
-    >(&ast_program)
-    .map_err(|err| anyhow::anyhow!("compile: {err}"))?;
-
+    >(program)
+    .map_err(SetupRuntimeError::Compile)?;
     let executable = std::sync::Arc::new(executable);
+
+    let call_spec = waymark_vm_runtime_builder::builder(&metadata)
+        .first_fn()
+        .map_err(SetupRuntimeError::SelectEntryFunction)?
+        .args(arguments)
+        .map_err(SetupRuntimeError::MatchArguments)?;
+
     let interpreter = waymark_system_vm::Interpreter::default();
-
-    let call_spec =
-        waymark_workflow_initialization_convert_proto::InitialContextConverter::try_convert((
-            registration.initial_context.as_ref(),
-            &metadata,
-        ))?;
-
     let runtime =
-        waymark_system_vm::Runtime::with_custom_entrypoint(interpreter, executable, call_spec)?;
+        waymark_system_vm::Runtime::with_custom_entrypoint(interpreter, executable, call_spec)
+            .map_err(SetupRuntimeError::Entrypoint)?;
     Ok(runtime)
 }
 
@@ -76,58 +92,105 @@ pub async fn setup_runtime(
 // Execution bringup
 // ---------------------------------------------------------------------------
 
-/// Channels returned by [`execute`].
-pub struct ExecuteChannels {
-    /// Receives action dispatches and the final workflow result.
-    /// Convert to a gRPC response stream via
-    /// [`tokio_stream::wrappers::ReceiverStream`].
-    pub out_rx: mpsc::Receiver<Result<proto::WorkflowStreamResponse, Status>>,
+/// The effector assembled by [`execute_with`]: the workflow completion is
+/// delivered in-process through a oneshot channel, action calls go through
+/// the caller-provided transport, and sleeps are handled by the transient
+/// sleep reconciler.
+pub type EffectorFor<ActionCallRequester, ActionCallCompletionsProvider> = (
+    waymark_fullset_effect_handler::EffectHandler<
+        waymark_workflow_completion_direct::DirectHandler<waymark_system_vm::ReadyValue>,
+        waymark_extcall_reconciler::EffectHandler<
+            waymark_extcall_reconciler_action_compat::EffectHandler<ActionCallRequester>,
+            waymark_transient_sleep_reconciler::Handler,
+        >,
+    >,
+    waymark_extcall_reconciler::PromiseSettler<
+        waymark_extcall_reconciler_action_compat::PromiseSettler<ActionCallCompletionsProvider>,
+        waymark_transient_sleep_reconciler::Poller<waymark_sleep_compat::ReadyValueSleepProvider>,
+    >,
+);
 
-    /// Sender for feeding [`proto::ActionResult`] messages back into the
-    /// execution.  The caller should forward every action result received
-    /// on the gRPC input stream into this sender.
-    pub action_result_tx: mpsc::Sender<proto::ActionResult>,
+/// The VM driver thread handle type produced by [`execute_with`] for
+/// the given action transport.
+pub type DriverHandleFor<ActionCallRequester, ActionCallCompletionsProvider> =
+    waymark_vm_driver_thread::HandleFor<
+        waymark_system_vm::Interpreter,
+        waymark_vm_codec_rmp::RmpCodec,
+        NoopPersister,
+        EffectorFor<ActionCallRequester, ActionCallCompletionsProvider>,
+    >;
+
+/// A launched transient workflow execution.
+pub struct Execution<DriverHandle> {
+    /// Resolves with the workflow outcome when the workflow completes.
+    ///
+    /// If this resolves with a receive error, the driver terminated before
+    /// producing a workflow outcome — await [`Self::driver_handle`] for the
+    /// terminal error.
+    pub workflow_outcome_rx: tokio::sync::oneshot::Receiver<
+        waymark_workflow_completion_core::Outcome<waymark_system_vm::ReadyValue>,
+    >,
+
+    /// Join handle for the VM driver thread.
+    ///
+    /// The driver loop only ever terminates with an error — including after
+    /// a successful workflow completion — so awaiting this handle always
+    /// produces an `Err`.
+    pub driver_handle: DriverHandle,
 }
 
-/// Wire up and launch transient workflow execution for the given runtime.
+/// Wire up and launch transient workflow execution for the given runtime
+/// over a caller-provided action transport.
 ///
-/// Wires the [`waymark_execution_effector`] with
-/// [`waymark_action_runtime_worker_stream`] channels, spawns the VM driver
-/// on a dedicated OS thread, and spawns a background task that awaits the
-/// workflow outcome (delivered via a oneshot channel) and emits it on `out_rx`.
-///
-/// The caller must feed [`proto::ActionResult`]s into
-/// [`ExecuteChannels::action_result_tx`] (typically by forwarding them from
-/// the gRPC bidir input stream) and convert
-/// [`ExecuteChannels::out_rx`] into the gRPC response stream.
+/// Assembles the effect-reconciler stack (action calls via
+/// `action_call_requester` / `action_call_completions_provider`, sleeps via
+/// the transient sleep reconciler, workflow completion via a oneshot
+/// channel) and spawns the VM driver on a dedicated OS thread.
 ///
 /// When `skip_sleep` is true, every sleep in the workflow resolves
 /// immediately instead of waiting for its deadline.
-pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> ExecuteChannels {
+///
+/// Cancelling `cancel` requests the driver loop to stop.
+pub fn execute_with<ActionCallRequester, ActionCallCompletionsProvider>(
+    runtime: waymark_system_vm::Runtime,
+    action_call_requester: ActionCallRequester,
+    action_call_completions_provider: ActionCallCompletionsProvider,
+    skip_sleep: bool,
+    cancel: tokio_util::sync::CancellationToken,
+) -> Execution<DriverHandleFor<ActionCallRequester, ActionCallCompletionsProvider>>
+where
+    ActionCallRequester: waymark_action_runtime_core::ActionCallRequester<
+            Argument = waymark_system_vm::ReadyValue,
+            Metadata = waymark_action_runtime_metadata::ActionCallCorrelation,
+        >,
+    ActionCallRequester: Send + Sync + 'static,
+    ActionCallRequester::Error: Send,
+    ActionCallCompletionsProvider: waymark_action_runtime_core::ActionCallCompletionsProvider<
+            Value = waymark_system_vm::ReadyValue,
+            Metadata = waymark_action_runtime_metadata::ActionCallCorrelation,
+        >,
+    ActionCallCompletionsProvider: Send + Sync + 'static,
+    ActionCallCompletionsProvider::Error: Send,
+{
     let codec = waymark_vm_codec_rmp::RmpCodec;
 
-    let (out_tx, out_rx) = mpsc::channel::<Result<proto::WorkflowStreamResponse, Status>>(32);
-    let (action_result_tx, action_result_rx) = mpsc::channel::<proto::ActionResult>(32);
-    let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();
+    let (workflow_outcome_tx, workflow_outcome_rx) = tokio::sync::oneshot::channel();
 
-    let requester = waymark_action_runtime_worker_stream::WorkerStreamActionRequester::<
-        ActionCallCorrelation,
-    >::new(out_tx.clone());
-    let provider = waymark_action_runtime_worker_stream::WorkerStreamActionCallCompletionsProvider::<
-        ActionCallCorrelation,
-    >::new(action_result_rx);
-
-    let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
-    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
+    let action_handler =
+        waymark_extcall_reconciler_action_compat::EffectHandler::new(action_call_requester);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(
+        action_call_completions_provider,
+    );
     let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
         waymark_sleep_compat::ReadyValueSleepProvider,
     >(skip_sleep);
     let (extcall_handler, extcall_settler) =
         waymark_extcall_reconciler::new(action_handler, sleep_handler, action_poller, sleep_poller);
-    let completion_handler = waymark_workflow_completion_direct::DirectHandler::new(completion_tx);
+    let workflow_completion_handler =
+        waymark_workflow_completion_direct::DirectHandler::new(workflow_outcome_tx);
 
     let handler = waymark_fullset_effect_handler::EffectHandler {
-        core: completion_handler,
+        core: workflow_completion_handler,
         extcall: extcall_handler,
     };
 
@@ -138,56 +201,11 @@ pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> Execute
         effector,
         persister: NoopPersister,
         codec,
-        cancel: tokio_util::sync::CancellationToken::new(),
+        cancel,
     });
 
-    // Wait for the driver to finish, then await the completion outcome
-    // and forward it to out_tx.
-    tokio::spawn(async move {
-        let Err(err) = driver_handle.await;
-        tracing::warn!(?err, "vm driver exited");
-
-        let response = match completion_rx.await {
-            Ok(outcome) => convert_outcome_to_stream_response(outcome),
-            Err(_recv_error) => {
-                tracing::error!("completion sender dropped without sending outcome");
-                Err(Status::internal(
-                    "workflow driver exited without recording a result",
-                ))
-            }
-        };
-
-        let _ = out_tx.send(response).await;
-    });
-
-    ExecuteChannels {
-        out_rx,
-        action_result_tx,
+    Execution {
+        workflow_outcome_rx,
+        driver_handle,
     }
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/// Convert a typed [`Outcome`] to a [`proto::WorkflowStreamResponse`].
-///
-/// A conversion failure is surfaced to the caller as an error [`Status`]
-/// rather than being masked as an empty payload.
-#[allow(
-    clippy::result_large_err,
-    reason = "the outcome feeds a tonic::Status gRPC response stream"
-)]
-fn convert_outcome_to_stream_response(
-    outcome: Outcome<waymark_system_vm::ReadyValue>,
-) -> Result<proto::WorkflowStreamResponse, Status> {
-    let payload = waymark_workflow_completion_convert_proto::Converter::try_convert(outcome)
-        .map_err(|err| Status::internal(format!("convert workflow outcome: {err}")))?
-        .encode_to_vec();
-
-    Ok(proto::WorkflowStreamResponse {
-        kind: Some(proto::workflow_stream_response::Kind::WorkflowResult(
-            proto::WorkflowExecutionResult { payload },
-        )),
-    })
 }

@@ -94,6 +94,7 @@ waymark-timed-channel = { path = "crates/lib/timed-channel" }
 waymark-timed-future = { path = "crates/lib/timed-future" }
 waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
 waymark-transient-execution-bringup = { path = "crates/lib/transient-execution-bringup" }
+waymark-transient-execution-worker-stream-bringup = { path = "crates/lib/transient-execution-worker-stream-bringup" }
 waymark-transient-sleep-reconciler = { path = "crates/lib/transient-sleep-reconciler" }
 waymark-typed-vec-serde = { path = "crates/lib/typed-vec-serde" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
@@ -129,6 +130,7 @@ waymark-vm-interpreter-fullset = { path = "crates/lib/vm-interpreter-fullset" }
 waymark-vm-interpreter-pureset = { path = "crates/lib/vm-interpreter-pureset" }
 waymark-vm-interpreter-utils = { path = "crates/lib/vm-interpreter-utils" }
 waymark-vm-runtime = { path = "crates/lib/vm-runtime" }
+waymark-vm-runtime-builder = { path = "crates/lib/vm-runtime-builder" }
 waymark-vm-runtime-callspec = { path = "crates/lib/vm-runtime-callspec" }
 waymark-vm-runtime-core = { path = "crates/lib/vm-runtime-core" }
 waymark-vm-runtime-effect = { path = "crates/lib/vm-runtime-effect" }
