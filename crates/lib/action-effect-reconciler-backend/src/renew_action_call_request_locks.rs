@@ -19,6 +19,14 @@ pub trait RenewActionCallRequestLocks: HasVmId + HasLockOwnerId + HasTimestamp {
     /// purged; [`RenewalStatus::HeldElsewhere`] means the lock expired and
     /// another owner took it — the attempt may now run duplicated there
     /// (accepted at-least-once semantics).
+    ///
+    /// [`RenewalStatus::HeldElsewhere`] must be **verified against a
+    /// current read**, never concluded from state that may predate a
+    /// concurrent removal: a completion recorded while the renewal runs
+    /// must classify as [`RenewalStatus::Missing`].  When ownership is
+    /// confirmed but the expiry extension is not, the implementation
+    /// reports [`RenewalStatus::Unconfirmed`] and the caller retries at
+    /// its next heartbeat.
     fn renew_action_call_request_locks<'a>(
         &'a self,
         lock: RequestLockFor<Self>,
@@ -49,4 +57,10 @@ pub enum RenewalStatus {
     /// The row is locked by a different owner.  Prune local tracking; the
     /// attempt may run duplicated there.
     HeldElsewhere,
+
+    /// The lock is still owned by the caller, but this pass could not
+    /// confirm the expiry extension (the row changed under the renewal
+    /// statement).  Keep local tracking unchanged — the existing fence
+    /// deadline stands — and retry at the next heartbeat.
+    Unconfirmed,
 }

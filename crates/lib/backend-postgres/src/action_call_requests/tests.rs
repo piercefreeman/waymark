@@ -230,6 +230,56 @@ async fn renew_reports_per_key_status() {
     assert_eq!(status_of(3), RenewalStatus::Missing);
 }
 
+/// A completion removing the request row while the renewal statement is
+/// already running must classify as [`RenewalStatus::Missing`]: the
+/// renewal statement's snapshot still shows the row, and concluding
+/// "held elsewhere" from that stale read would breach the fence over a
+/// successfully completed call.
+#[serial(postgres)]
+#[tokio::test]
+async fn renew_racing_a_row_removal_reports_missing() {
+    let backend = setup_backend().await;
+    let vm = InstanceId::new_uuid_v4();
+    let owner = uuid::Uuid::new_v4();
+
+    let records = NEVec::try_from_vec(vec![record(vm, 1, 10, b"racing")]).unwrap();
+    backend
+        .record_action_call_requests(live_lock(owner), records.as_nonempty_slice())
+        .await
+        .expect("record request");
+
+    // Hold the row lock with an uncommitted removal — standing in for the
+    // completion trigger's DELETE — so the renewal statement blocks on the
+    // row while its snapshot predates the removal.
+    let mut removal_transaction = backend.pool().begin().await.expect("begin removal");
+    sqlx::query("DELETE FROM action_call_requests WHERE vm_id = $1 AND promise_state_id = $2")
+        .bind(vm)
+        .bind(1i64)
+        .execute(&mut *removal_transaction)
+        .await
+        .expect("delete request row");
+
+    let renew_backend = backend.clone();
+    let renew_task = tokio::spawn(async move {
+        renew_backend
+            .renew_action_call_request_locks(
+                live_lock(owner),
+                NEVec::try_from_vec(vec![key(vm, 1)])
+                    .unwrap()
+                    .as_nonempty_slice(),
+            )
+            .await
+    });
+
+    // Let the renewal reach the locked row, then let the removal win.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    removal_transaction.commit().await.expect("commit removal");
+
+    let statuses = renew_task.await.expect("join renew").expect("renew");
+    assert_eq!(statuses.len().get(), 1);
+    assert_eq!(statuses.first().status, RenewalStatus::Missing);
+}
+
 #[serial(postgres)]
 #[tokio::test]
 async fn unlock_releases_own_locks_only() {
