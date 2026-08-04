@@ -1,7 +1,9 @@
 //! Call planning.
 
 use nonempty_collections::{IntoNonEmptyIterator as _, NESlice, NEVec, NonEmptyIterator as _};
-use waymark_vm_ast_old::{ActionCall, Call, Expr, FunctionCall, Kwarg, PolicyBracket, Spanned};
+use waymark_vm_ast_old::{
+    ActionCall, Call, Expr, FunctionCall, GlobalFunction, Kwarg, PolicyBracket, Spanned,
+};
 use waymark_vm_bytecode_core::FunctionId;
 use waymark_vm_compiler_for_ast_old_core::lowering;
 
@@ -74,9 +76,21 @@ impl<'a> FunctionCallPlan<'a> {
         call: &'a FunctionCall,
         function_table: &FunctionTable,
     ) -> Result<Self, Error<LiteralLoweringError, ActionLoweringError>> {
-        if call.global_function.is_some() {
+        if let Some(global_function) = &call.global_function {
+            let name = if call.name.is_empty() {
+                match global_function {
+                    GlobalFunction::Range => "range",
+                    GlobalFunction::Len => "len",
+                    GlobalFunction::Enumerate => "enumerate",
+                    GlobalFunction::IsException => "is_exception",
+                }
+                .to_owned()
+            } else {
+                call.name.clone()
+            };
+
             return Err(Unsupported::FunctionCall {
-                name: call.name.clone(),
+                name,
                 reason: UnsupportedFunctionCall::GlobalFunction,
             }
             .into());

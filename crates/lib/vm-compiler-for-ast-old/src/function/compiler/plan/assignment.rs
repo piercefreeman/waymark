@@ -1,7 +1,7 @@
 //! Assignment planning.
 
 use nonempty_collections::NESlice;
-use waymark_vm_ast_old::{ActionCall, Expr, Spanned};
+use waymark_vm_ast_old::{ActionCall, Expr, FunctionCall, GlobalFunction, Spanned};
 
 use super::ErrorFor;
 use super::parallel::ParallelAssignmentPlan;
@@ -65,6 +65,15 @@ where
 
         /// Expression evaluated once and unpacked into the targets by index.
         value: &'a Spanned<Expr>,
+    },
+
+    /// An assignment materializing a `range(...)` call into a list.
+    RangeValues {
+        /// Assignment target that will receive the materialized list.
+        target: Marked<LocalSlot, AssignmentTargetMarker>,
+
+        /// The `range(...)` call to materialize.
+        call: &'a FunctionCall,
     },
 }
 
@@ -133,6 +142,15 @@ where
         }
 
         if targets.len().get() == 1 {
+            if let Expr::FunctionCall { call } = &value.value
+                && call.global_function == Some(GlobalFunction::Range)
+            {
+                return Ok(Self::RangeValues {
+                    target: resolve_target(&targets[0]),
+                    call,
+                });
+            }
+
             return Ok(Self::Direct {
                 target: resolve_target(&targets[0]),
                 value,
@@ -215,6 +233,9 @@ mod tests {
             }
             AssignmentStatementPlan::Unpack { .. } => {
                 panic!("single-target assignments should not build unpack plans")
+            }
+            AssignmentStatementPlan::RangeValues { .. } => {
+                panic!("literal assignments should not build range-values plans")
             }
         }
     }
@@ -341,6 +362,9 @@ mod tests {
             AssignmentStatementPlan::Unpack { .. } => {
                 panic!("parallel expressions should not build unpack plans")
             }
+            AssignmentStatementPlan::RangeValues { .. } => {
+                panic!("parallel expressions should not build range-values plans")
+            }
         }
     }
 
@@ -400,6 +424,9 @@ mod tests {
             AssignmentStatementPlan::Unpack { .. } => {
                 panic!("discard spread should not build an unpack plan")
             }
+            AssignmentStatementPlan::RangeValues { .. } => {
+                panic!("discard spread should not build a range-values plan")
+            }
         }
     }
 
@@ -453,6 +480,9 @@ mod tests {
             AssignmentStatementPlan::Unpack { .. } => {
                 panic!("targeted spread expressions should not build unpack plans")
             }
+            AssignmentStatementPlan::RangeValues { .. } => {
+                panic!("targeted spread expressions should not build range-values plans")
+            }
         }
     }
 
@@ -486,6 +516,40 @@ mod tests {
                 assert!(matches!(value.value, Expr::Variable { ref name } if name == "pair"));
             }
             other => panic!("multi-target assignments should build unpack plans, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn single_target_range_assignment_builds_range_values_plan() {
+        let function_table = build_function_table();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let targets = vec!["values".to_owned()];
+        let mut call = waymark_vm_ast_old_helpers::function_call("range", vec![int(3)]);
+        call.global_function = Some(GlobalFunction::Range);
+        let value = waymark_vm_ast_old_helpers::spanned(Expr::FunctionCall { call });
+
+        let plan = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(
+            &targets,
+            &value,
+            &function_table,
+            |target| {
+                Marked::<LocalSlot, AssignmentTargetMarker>::get_or_declare(
+                    &mut local_frame,
+                    &mut flow_state,
+                    target,
+                )
+            },
+        )
+        .expect("range assignment should build");
+
+        match plan {
+            AssignmentStatementPlan::RangeValues { target, call } => {
+                assert_eq!(target.register(), RegisterId(0));
+                assert_eq!(call.global_function, Some(GlobalFunction::Range));
+                assert_eq!(call.args.len(), 1);
+            }
+            other => panic!("range assignments should build range-values plans, got {other:?}"),
         }
     }
 
