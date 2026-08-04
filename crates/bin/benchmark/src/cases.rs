@@ -45,14 +45,9 @@ pub fn build_cases(base: i64) -> Result<HashMap<String, BenchmarkCase>, color_ey
             build_try_except_program()
                 .map_err(|err| eyre!(err))
                 .wrap_err("build try_except program")?,
-            // No value may equal 2: the program divides by `item - 2`, and a
-            // division-by-zero fault is not yet catchable by `except` — it
-            // kills the VM, and the released workload crash-loops forever
-            // (see "Missing feature: catchable runtime exceptions" in
-            // notes/postponed.md).
             HashMap::from([(
                 "values".to_string(),
-                serde_json::Value::Array(vec![1.into(), 3.into(), 4.into()]),
+                serde_json::Value::Array(vec![1.into(), 2.into(), 3.into()]),
             )]),
         ),
         (
