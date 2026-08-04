@@ -56,7 +56,6 @@ waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-b
 waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settlement-demand-registry" }
 waymark-proto = { path = "crates/lib/proto" }
 waymark-python-workflow-ir-reader = { path = "crates/lib/python-workflow-ir-reader" }
-waymark-runloop = { path = "crates/lib/runloop" }
 waymark-runner = { path = "crates/lib/runner" }
 waymark-runner-execution-core = { path = "crates/lib/runner-execution-core" }
 waymark-runner-executor-core = { path = "crates/lib/runner-executor-core" }
