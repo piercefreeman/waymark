@@ -48,6 +48,12 @@ pub struct Config<NodeId> {
     /// Maximum number of unpinned-workload poll queries per second.
     pub workload_poll_rate_limit: NonZeroU32,
 
+    /// Maximum number of VM snapshots coalesced into one batched write.
+    pub snapshot_batch_max: NonZeroUsize,
+
+    /// Longest a snapshot waits to be batched before its write is flushed.
+    pub snapshot_batch_delay: NonZeroDuration,
+
     /// How long the durable-sleeps demand poller waits between polls
     /// while demand is registered.
     pub sleep_poll_interval: NonZeroDuration,
@@ -96,6 +102,9 @@ pub struct Handles {
 
     /// Join handle for the action-call request lock renewal heartbeat.
     pub action_effect_reconciler_lock_renewal: tokio::task::JoinHandle<()>,
+
+    /// Join handle for the VM snapshot write batcher.
+    pub snapshot_batcher: tokio::task::JoinHandle<()>,
 }
 
 /// Start the execution subsystem.
@@ -137,7 +146,7 @@ where
     Backend: waymark_state_vm_runtimes_backend::HasVmId<VmId = waymark_ids::InstanceId>,
     <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId:
         Eq + Hash + Clone + Send + Sync + core::fmt::Debug + 'static,
-    Backend: waymark_state_vm_runtimes_backend::StoreSnapshot,
+    Backend: waymark_state_vm_runtimes_backend::StoreSnapshots,
     Backend: waymark_state_vm_runtimes_backend::LoadForRevive,
     Backend: waymark_state_vm_runtimes_backend::HasExecutableId<
             ExecutableId = waymark_ids::WorkflowVersionId,
@@ -185,7 +194,7 @@ where
     <Backend as waymark_workload_pinning_backend::PollUnpinnedWorkloads>::Error: Send,
     <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error: Send,
     <Backend as waymark_workload_pinning_backend::UnpinWorkloads>::Error: Send,
-    <Backend as waymark_state_vm_runtimes_backend::StoreSnapshot>::Error: Send + 'static,
+    <Backend as waymark_state_vm_runtimes_backend::StoreSnapshots>::Error: Send + 'static,
     <Backend as waymark_state_vm_runtimes_backend::LoadForRevive>::Error: Send + 'static,
     <Backend as waymark_workflow_completion_backend::RecordCompletion>::Error: Send + 'static,
     <Backend as waymark_workflow_completion_backend::RecordException>::Error: Send + 'static,
@@ -200,6 +209,8 @@ where
         pinning_heartbeat,
         pinning_fencing_margin,
         workload_poll_rate_limit,
+        snapshot_batch_max,
+        snapshot_batch_delay,
         sleep_poll_interval,
         vm_retention,
         vm_sweep_interval,
@@ -462,12 +473,52 @@ where
         }
     });
 
+    let (snapshot_batcher, snapshot_batcher_loop) = waymark_batcher::write_batcher(
+        waymark_batcher::Policy {
+            max_batch: snapshot_batch_max,
+            max_delay: snapshot_batch_delay,
+        },
+        {
+            let backend = Arc::clone(&backend);
+            move |batch: nonempty_collections::NEVec<
+                waymark_state_vm_runtimes::SnapshotJob<waymark_ids::InstanceId>,
+            >| {
+                let backend = Arc::clone(&backend);
+                async move {
+                    let outcome = {
+                        let items: Vec<_> = batch
+                            .iter()
+                            .map(|(vm_id, snapshot)| {
+                                waymark_state_vm_runtimes_backend::StoreSnapshotsItem {
+                                    vm_id,
+                                    snapshot: snapshot.as_slice(),
+                                }
+                            })
+                            .collect();
+                        backend.store_snapshots(&items).await
+                    };
+                    let result = outcome.map_err(|error| {
+                        tracing::warn!(?error, "storing a snapshot batch failed");
+                        waymark_state_vm_runtimes::SnapshotBatchError::Store
+                    });
+                    nonempty_collections::NEVec::from_elem(result, batch.len())
+                }
+            }
+        },
+        {
+            let shutdown = shutdown_token.child_token();
+            async move { shutdown.cancelled_owned().await }
+        },
+    );
+    let snapshot_batcher_handle = tokio::spawn(snapshot_batcher_loop);
+
     let vm_runtimes_factory = waymark_state_vm_runtimes::SpawningFactory::new(
         Arc::clone(&backend),
         Arc::clone(&codec),
         executable_state,
         interpreter_provider,
         effector_provider,
+        snapshot_batcher,
     );
 
     // Reconcile-before-produce: at VM revival, pending request rows whose
@@ -546,6 +597,7 @@ where
         durable_sleeps_poller: durable_sleeps_poller_handle,
         durable_sleeps_acker: durable_sleeps_acker_handle,
         action_effect_reconciler_lock_renewal: action_effect_reconciler_lock_renewal_handle,
+        snapshot_batcher: snapshot_batcher_handle,
     })
 }
 
