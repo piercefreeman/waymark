@@ -12,32 +12,6 @@ pub trait HasVmId {
     type VmId;
 }
 
-/// Records successful workflow completions.
-pub trait RecordCompletion: HasVmId {
-    /// The error type for completion operations.
-    type Error: core::fmt::Debug;
-
-    /// Record that a workflow completed successfully with the given value.
-    fn record_completion<'a>(
-        &'a self,
-        vm_id: &'a Self::VmId,
-        value: impl AsRef<[u8]> + Send + 'a,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a;
-}
-
-/// Records workflow terminations due to unhandled exceptions.
-pub trait RecordException: HasVmId {
-    /// The error type for exception-recording operations.
-    type Error: core::fmt::Debug;
-
-    /// Record that a workflow terminated with an unhandled exception.
-    fn record_exception<'a>(
-        &'a self,
-        vm_id: &'a Self::VmId,
-        exception: impl AsRef<[u8]> + Send + 'a,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a;
-}
-
 /// The outcome of a completed workflow execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -45,6 +19,63 @@ pub enum Outcome {
     Completion(Vec<u8>),
     /// The workflow terminated with an unhandled exception.
     Exception(Vec<u8>),
+}
+
+/// One VM's terminal outcome to record, passed to
+/// [`RecordOutcomes::record_outcomes`].
+#[derive(Debug)]
+pub struct RecordOutcomesItem<'a, VmId> {
+    /// The VM whose outcome this is.
+    pub vm_id: &'a VmId,
+
+    /// The serialized terminal outcome.
+    pub outcome: &'a Outcome,
+}
+
+// Both fields are references, so the item is copyable for any `VmId` — no
+// `VmId: Copy`/`Clone` bound, unlike what `derive` would impose.
+impl<VmId> Clone for RecordOutcomesItem<'_, VmId> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<VmId> Copy for RecordOutcomesItem<'_, VmId> {}
+
+/// Records workflow terminal outcomes — completions and unhandled-exception
+/// terminations — in a batch.
+///
+/// Recording is first-write-wins and idempotent per VM: a VM whose stored
+/// outcome is byte-identical to the incoming one is silently accepted (a
+/// revived VM replaying its terminal effect).  A VM whose stored outcome
+/// differs is a **per-row** condition, not a failure of the recording: its
+/// row is left untouched and the key is reported via
+/// [`RecordingSuccess::SomeConflicted`] — the caller decides that VM's
+/// fate.  An `Err` means the recording itself failed (database,
+/// connection, etc.); nothing of the batch landed and the whole batch is
+/// retryable.
+pub trait RecordOutcomes: HasVmId {
+    /// The error type for outcome-recording operations.
+    type Error: core::fmt::Debug;
+
+    /// Durably record the given terminal outcomes in one batch.
+    fn record_outcomes<'a>(
+        &'a self,
+        outcomes: nonempty_collections::NESlice<'a, RecordOutcomesItem<'a, Self::VmId>>,
+    ) -> impl Future<Output = Result<RecordingSuccess<Self::VmId>, Self::Error>> + Send + 'a;
+}
+
+/// The successful outcome of recording a batch of terminal outcomes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecordingSuccess<VmId> {
+    /// Every outcome was freshly recorded or identically re-recorded.
+    AllRecorded,
+
+    /// The batch was fully processed, but these VMs already hold
+    /// **different** stored outcomes — first-write-wins kept the stored
+    /// value and the incoming one was discarded.  Every VM not named here
+    /// was durably recorded.
+    SomeConflicted(nonempty_collections::NEVec<VmId>),
 }
 
 /// Polls for the outcome of a workflow execution.
@@ -63,6 +94,6 @@ pub trait PollOutcome: HasVmId {
 }
 
 /// Convenience trait: a backend that includes all traits from this crate.
-pub trait WorkflowCompletionBackend: RecordCompletion + RecordException + PollOutcome {}
+pub trait WorkflowCompletionBackend: RecordOutcomes + PollOutcome {}
 
-impl<T> WorkflowCompletionBackend for T where T: RecordCompletion + RecordException + PollOutcome {}
+impl<T> WorkflowCompletionBackend for T where T: RecordOutcomes + PollOutcome {}

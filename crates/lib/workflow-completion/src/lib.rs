@@ -2,43 +2,39 @@
 //!
 //! Provides an [`waymark_vm_driver_core::EffectHandler`] implementation that
 //! takes [`waymark_vm_interpreter_coreset::Effect`] values directly and
-//! persists completion or exception outcomes via
-//! [`waymark_workflow_completion_backend::RecordCompletion`] and
-//! [`waymark_workflow_completion_backend::RecordException`].
+//! persists completion or exception outcomes through the shared
+//! [`outcome_batcher`], which coalesces them into batched
+//! [`waymark_workflow_completion_backend::RecordOutcomes`] statements.
 
 #![warn(missing_docs)]
 
+pub mod outcome_batcher;
+
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 use waymark_vm_interpreter_coreset::Effect as CoreSetEffect;
 
 /// Error returned by [`EffectHandler::handle_effect`].
 #[derive(Debug, thiserror::Error)]
-pub enum HandleEffectError<CodecError, CompletionError, ExceptionError> {
+pub enum HandleEffectError<CodecError> {
     /// Serialization of the completion value or exception failed.
     #[error("codec: {0:?}")]
     Codec(#[source] CodecError),
 
-    /// The backend failed to record a completion.
-    #[error("persisting completion: {0}")]
-    BackendCompletion(#[source] CompletionError),
-
-    /// The backend failed to record an exception.
-    #[error("persisting exception: {0}")]
-    BackendException(#[source] ExceptionError),
+    /// Recording the terminal outcome failed fatally — a different outcome
+    /// is already stored, or the batcher is gone.
+    #[error("persisting outcome: {0}")]
+    Record(#[source] crate::outcome_batcher::RecordError),
 }
 
 /// An [`waymark_vm_driver_core::EffectHandler`] that records workflow
-/// completion outcomes to a backend.
+/// completion outcomes through the shared outcome batcher.
 ///
-/// Values are serialized via the given `Codec` before being persisted.
-pub struct EffectHandler<Backend, Codec, ReadyValue>
-where
-    Backend: waymark_workflow_completion_backend::HasVmId,
-{
-    backend: Arc<Backend>,
-    vm_id: Backend::VmId,
+/// Values are serialized via the given `Codec` before being submitted.
+pub struct EffectHandler<VmId, Codec, ReadyValue> {
+    /// The shared recorder durably persisting terminal outcomes in batches.
+    recorder: crate::outcome_batcher::OutcomeRecorderHandle<VmId>,
+    vm_id: VmId,
     codec: Codec,
     // The handler never owns a `ReadyValue`; it only receives one per effect.
     // `fn() -> ReadyValue` keeps covariance without borrowing the type's
@@ -46,14 +42,15 @@ where
     _phantom_data: PhantomData<fn() -> ReadyValue>,
 }
 
-impl<Backend, Codec, ReadyValue> EffectHandler<Backend, Codec, ReadyValue>
-where
-    Backend: waymark_workflow_completion_backend::HasVmId,
-{
+impl<VmId, Codec, ReadyValue> EffectHandler<VmId, Codec, ReadyValue> {
     /// Create a new handler.
-    pub fn new(backend: Arc<Backend>, vm_id: Backend::VmId, codec: Codec) -> Self {
+    pub fn new(
+        recorder: crate::outcome_batcher::OutcomeRecorderHandle<VmId>,
+        vm_id: VmId,
+        codec: Codec,
+    ) -> Self {
         Self {
-            backend,
+            recorder,
             vm_id,
             codec,
             _phantom_data: PhantomData,
@@ -61,39 +58,29 @@ where
     }
 }
 
-impl<Backend, Codec, ReadyValue> waymark_vm_driver_core::EffectHandler
-    for EffectHandler<Backend, Codec, ReadyValue>
+impl<VmId, Codec, ReadyValue> waymark_vm_driver_core::EffectHandler
+    for EffectHandler<VmId, Codec, ReadyValue>
 where
-    Backend: waymark_workflow_completion_backend::RecordCompletion,
-    Backend: waymark_workflow_completion_backend::RecordException,
-    Backend: Send + Sync,
-    Backend::VmId: Send,
+    VmId: Clone + Send + Sync,
     Codec: waymark_vm_codec_core::SerializerProvider + Send,
     ReadyValue: serde::Serialize + Send,
     waymark_vm_runtime_exception::Exception<ReadyValue>: serde::Serialize,
 {
     type Effect = CoreSetEffect<ReadyValue>;
-    type Error = HandleEffectError<
-        Codec::Error,
-        <Backend as waymark_workflow_completion_backend::RecordCompletion>::Error,
-        <Backend as waymark_workflow_completion_backend::RecordException>::Error,
-    >;
+    type Error = HandleEffectError<Codec::Error>;
 
     async fn handle_effect(
         &mut self,
         emitted_effect: waymark_vm_runtime_effect::EmittedEffect<Self::Effect>,
     ) -> Result<(), Self::Error> {
-        match emitted_effect.effect {
+        let outcome = match emitted_effect.effect {
             CoreSetEffect::Complete(value) => {
                 tracing::info!("workflow completed successfully");
                 let mut buf = Vec::new();
                 self.codec
                     .with_serializer(&mut buf, |ser| serde::Serialize::serialize(&value, ser))
                     .map_err(HandleEffectError::Codec)?;
-                self.backend
-                    .record_completion(&self.vm_id, buf)
-                    .await
-                    .map_err(HandleEffectError::BackendCompletion)
+                waymark_workflow_completion_backend::Outcome::Completion(buf)
             }
             CoreSetEffect::UnhandledException(exception) => {
                 tracing::info!(
@@ -104,11 +91,16 @@ where
                 self.codec
                     .with_serializer(&mut buf, |ser| serde::Serialize::serialize(&exception, ser))
                     .map_err(HandleEffectError::Codec)?;
-                self.backend
-                    .record_exception(&self.vm_id, buf)
-                    .await
-                    .map_err(HandleEffectError::BackendException)
+                waymark_workflow_completion_backend::Outcome::Exception(buf)
             }
+        };
+
+        match self.recorder.submit((self.vm_id.clone(), outcome)).await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(HandleEffectError::Record(error)),
+            Err(waymark_batcher::Closed) => Err(HandleEffectError::Record(
+                crate::outcome_batcher::RecordError::Closed,
+            )),
         }
     }
 }
@@ -123,12 +115,7 @@ mod tests {
     // `ReadyValue` (`Rc`), the handler remains both.
     #[test]
     fn handler_is_send_sync_independent_of_ready_value() {
-        struct StubBackend;
-        impl waymark_workflow_completion_backend::HasVmId for StubBackend {
-            type VmId = ();
-        }
-
         fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<EffectHandler<StubBackend, (), std::rc::Rc<()>>>();
+        assert_send_sync::<EffectHandler<(), (), std::rc::Rc<()>>>();
     }
 }
