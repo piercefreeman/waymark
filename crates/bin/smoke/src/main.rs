@@ -101,6 +101,7 @@ async fn run_smoke(base: i64) -> i32 {
         return 1;
     }
 
+    let mut failures = 0;
     let mut cases = Vec::new();
     let examples = vec![
         ("smoke", Ok(build_program())),
@@ -114,6 +115,7 @@ async fn run_smoke(base: i64) -> i32 {
             Ok(value) => value,
             Err(err) => {
                 println!("Failed to build {name} program: {err}");
+                failures += 1;
                 continue;
             }
         };
@@ -121,6 +123,7 @@ async fn run_smoke(base: i64) -> i32 {
             Ok(value) => value,
             Err(err) => {
                 println!("Failed to convert {name} program to the AST: {err}");
+                failures += 1;
                 continue;
             }
         };
@@ -152,7 +155,6 @@ async fn run_smoke(base: i64) -> i32 {
         });
     }
 
-    let mut failures = 0;
     for case in &cases {
         if let Err(err) = run_program_smoke(case, Arc::clone(&worker_pool)).await {
             failures += 1;
