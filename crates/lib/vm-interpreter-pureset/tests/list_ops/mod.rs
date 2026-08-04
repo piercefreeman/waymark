@@ -1,8 +1,6 @@
 //! `MakeList` / `Index` happy paths and failure modes.
 
 use waymark_vm_instructions_pureset::PureSet;
-use waymark_vm_interpreter_pureset::Error;
-use waymark_vm_runtime::RunError;
 use waymark_vm_runtime_core::RegisterId;
 
 use crate::support::{RuntimeInstruction, TestConstValue, TestValue, run};
@@ -34,7 +32,7 @@ fn runtime_executes_make_list_to_a_terminal_effect() {
 
     assert_eq!(
         value,
-        TestValue::List(vec![TestValue::Int(2), TestValue::Text("hello")])
+        TestValue::List(vec![TestValue::Int(2), TestValue::Text("hello".to_owned())])
     );
 }
 
@@ -73,8 +71,8 @@ fn runtime_executes_index_to_a_terminal_effect() {
 }
 
 #[test]
-fn runtime_surfaces_index_errors_from_unusable_values() {
-    let result = run(
+fn runtime_raises_a_type_error_for_an_unusable_index_operand() {
+    let value = run(
         4,
         vec![
             PureSet::LoadConst {
@@ -94,19 +92,60 @@ fn runtime_surfaces_index_errors_from_unusable_values() {
                 index: RegisterId(2),
             }
             .into(),
-            RuntimeInstruction::EmitRegister(RegisterId(3)),
+            RuntimeInstruction::EmitPendingException,
         ],
-    );
+    )
+    .expect("runtime should emit the pending exception");
 
-    assert!(matches!(
-        result,
-        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::IndexOperation {
-                source:
-                    waymark_vm_interpreter_pureset::value::IndexOperationError::UnsupportedOperation,
+    assert_eq!(
+        value,
+        TestValue::Exception {
+            type_id: "TypeError".to_owned(),
+            details: Box::new(TestValue::Text(
+                "indexed access is not supported for these operands".to_owned()
+            )),
+        }
+    );
+}
+
+#[test]
+fn runtime_raises_an_index_error_for_an_out_of_bounds_index() {
+    let value = run(
+        4,
+        vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Int(2),
             }
-        )))
-    ));
+            .into(),
+            PureSet::MakeList {
+                dst: RegisterId(1),
+                items: vec![RegisterId(0)],
+            }
+            .into(),
+            PureSet::LoadConst {
+                dst: RegisterId(2),
+                value: TestConstValue::Int(1),
+            }
+            .into(),
+            PureSet::Index {
+                dst: RegisterId(3),
+                object: RegisterId(1),
+                index: RegisterId(2),
+            }
+            .into(),
+            RuntimeInstruction::EmitPendingException,
+        ],
+    )
+    .expect("runtime should emit the pending exception");
+
+    assert_eq!(
+        value,
+        TestValue::Exception {
+            type_id: "IndexError".to_owned(),
+            details: Box::new(TestValue::Text("index is out of bounds".to_owned())),
+        }
+    );
 }
 
 #[test]

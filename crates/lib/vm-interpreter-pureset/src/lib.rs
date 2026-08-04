@@ -94,8 +94,10 @@ where
                     |items| Value::make_list(items.by_ref()),
                 )?;
 
-                let list = make_list_result.map_err(Error::MakeList)?;
-                frame.regs.set(*dst, list);
+                match make_list_result {
+                    Ok(list) => frame.regs.set(*dst, list),
+                    Err(error) => frame.raise_typed_exception(error),
+                }
             }
             waymark_vm_instructions_pureset::PureSet::ListAppend { dst, list, item } => {
                 let list_value = frame
@@ -106,21 +108,27 @@ where
                     .regs
                     .get(*item)
                     .ok_or(Error::MissingListAppendItem { register: *item })?;
-                let grown = Value::list_append(list_value, item_value.capture_copy())
-                    .map_err(Error::ListAppend)?;
-                frame.regs.set(*dst, grown);
+                match Value::list_append(list_value, item_value.capture_copy()) {
+                    Ok(grown) => frame.regs.set(*dst, grown),
+                    Err(error) => frame.raise_typed_exception(error),
+                }
             }
             waymark_vm_instructions_pureset::PureSet::MakeDict { dst, entries } => {
                 let mut resolved_entries = Vec::with_capacity(entries.len());
+                let mut raised_key_error = None;
 
                 for (entry_pos, entry) in entries.iter().enumerate() {
                     let key = frame.regs.get(entry.key).ok_or(Error::MissingDictKey {
                         entry_pos,
                         register: entry.key,
                     })?;
-                    let key = key
-                        .as_dict_key()
-                        .map_err(|source| Error::UnusableDictKey { entry_pos, source })?;
+                    let key = match key.as_dict_key() {
+                        Ok(key) => key,
+                        Err(error) => {
+                            raised_key_error = Some(error);
+                            break;
+                        }
+                    };
 
                     let value = frame.regs.get(entry.value).ok_or(Error::MissingDictValue {
                         entry_pos,
@@ -130,8 +138,15 @@ where
                     resolved_entries.push((key.to_owned(), value.capture_copy()));
                 }
 
-                let dict = Value::make_dict(resolved_entries).map_err(Error::MakeDict)?;
-                frame.regs.set(*dst, dict);
+                if let Some(error) = raised_key_error {
+                    frame.raise_typed_exception(error);
+                    return Ok(ExecutionOutcome::Continue(frame));
+                }
+
+                match Value::make_dict(resolved_entries) {
+                    Ok(dict) => frame.regs.set(*dst, dict),
+                    Err(error) => frame.raise_typed_exception(error),
+                }
             }
             waymark_vm_instructions_pureset::PureSet::MakeException {
                 dst,
@@ -177,28 +192,28 @@ where
             operand_pos: BinaryOperandPosition::First,
             register: a,
         })?;
-        let x = x
-            .as_scalar()
-            .map_err(|source| Error::UnusableBinaryOperand {
-                operation,
-                operand_pos: BinaryOperandPosition::First,
-                source,
-            })?;
+        let x = match x.as_scalar() {
+            Ok(scalar) => scalar,
+            Err(error) => {
+                frame.raise_typed_exception(error);
+                return Ok(());
+            }
+        };
 
         let y = frame.regs.get(b).ok_or(Error::MissingBinaryOperand {
             operation,
             operand_pos: BinaryOperandPosition::Second,
             register: b,
         })?;
-        let y = y
-            .as_scalar()
-            .map_err(|source| Error::UnusableBinaryOperand {
-                operation,
-                operand_pos: BinaryOperandPosition::Second,
-                source,
-            })?;
+        let y = match y.as_scalar() {
+            Ok(scalar) => scalar,
+            Err(error) => {
+                frame.raise_typed_exception(error);
+                return Ok(());
+            }
+        };
 
-        let value = match operation {
+        let operation_result = match operation {
             BinaryOpKind::Add => Value::Scalar::add(x, y),
             BinaryOpKind::Sub => Value::Scalar::sub(x, y),
             BinaryOpKind::Mul => Value::Scalar::mul(x, y),
@@ -215,10 +230,12 @@ where
             BinaryOpKind::NotIn => Value::Scalar::not_contains(x, y),
             BinaryOpKind::And => Value::Scalar::and(x, y),
             BinaryOpKind::Or => Value::Scalar::or(x, y),
-        }
-        .map_err(|source| Error::BinaryOperation { operation, source })?;
+        };
 
-        frame.regs.set(dst, Value::from_scalar(value));
+        match operation_result {
+            Ok(value) => frame.regs.set(dst, Value::from_scalar(value)),
+            Err(error) => frame.raise_typed_exception(error),
+        }
         Ok(())
     }
 
@@ -232,17 +249,23 @@ where
             operation,
             register: src,
         })?;
-        let value = value
-            .as_scalar()
-            .map_err(|source| Error::UnusableUnaryOperand { operation, source })?;
+        let value = match value.as_scalar() {
+            Ok(scalar) => scalar,
+            Err(error) => {
+                frame.raise_typed_exception(error);
+                return Ok(());
+            }
+        };
 
-        let value = match operation {
+        let operation_result = match operation {
             UnaryOpKind::Neg => Value::Scalar::neg(value),
             UnaryOpKind::Not => Value::Scalar::not(value),
-        }
-        .map_err(|source| Error::UnaryOperation { operation, source })?;
+        };
 
-        frame.regs.set(dst, Value::from_scalar(value));
+        match operation_result {
+            Ok(value) => frame.regs.set(dst, Value::from_scalar(value)),
+            Err(error) => frame.raise_typed_exception(error),
+        }
         Ok(())
     }
 
@@ -256,10 +279,17 @@ where
             .get(src)
             .ok_or(Error::MissingLengthValue { register: src })?;
 
-        let length = <Value as value::Length>::length(value).map_err(Error::Length)?;
-        let value = <Value as value::Length>::from_length(length).map_err(Error::FromLength)?;
-
-        frame.regs.set(dst, value);
+        let length = match <Value as value::Length>::length(value) {
+            Ok(length) => length,
+            Err(error) => {
+                frame.raise_typed_exception(error);
+                return Ok(());
+            }
+        };
+        match <Value as value::Length>::from_length(length) {
+            Ok(value) => frame.regs.set(dst, value),
+            Err(error) => frame.raise_typed_exception(error),
+        }
         Ok(())
     }
 
@@ -279,10 +309,10 @@ where
             .get(index)
             .ok_or(Error::MissingIndexOperand { register: index })?;
 
-        let value = Value::index(object_value, index_value)
-            .map_err(|source| Error::IndexOperation { source })?;
-
-        frame.regs.set(dst, value);
+        match Value::index(object_value, index_value) {
+            Ok(value) => frame.regs.set(dst, value),
+            Err(error) => frame.raise_typed_exception(error),
+        }
         Ok(())
     }
 
@@ -300,12 +330,10 @@ where
                 register: object,
             })?;
 
-        let value = Value::dot(object_value, attribute).map_err(|source| Error::DotOperation {
-            attribute: attribute.to_owned(),
-            source,
-        })?;
-
-        frame.regs.set(dst, value);
+        match Value::dot(object_value, attribute) {
+            Ok(value) => frame.regs.set(dst, value),
+            Err(error) => frame.raise_typed_exception(error),
+        }
         Ok(())
     }
 }

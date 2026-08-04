@@ -3,8 +3,6 @@
 use std::collections::BTreeMap;
 
 use waymark_vm_instructions_pureset::{DictEntry, PureSet};
-use waymark_vm_interpreter_pureset::Error;
-use waymark_vm_runtime::RunError;
 use waymark_vm_runtime_core::RegisterId;
 
 use crate::support::{RuntimeInstruction, TestConstValue, TestValue, run};
@@ -41,7 +39,7 @@ fn runtime_executes_make_dict_to_a_terminal_effect() {
         value,
         TestValue::Dict(BTreeMap::from([(
             "key".to_owned(),
-            TestValue::Text("hello"),
+            TestValue::Text("hello".to_owned()),
         )]))
     );
 }
@@ -84,8 +82,8 @@ fn runtime_executes_dot_to_a_terminal_effect() {
 }
 
 #[test]
-fn runtime_surfaces_make_dict_key_type_errors_from_the_pureset_interpreter() {
-    let result = run(
+fn runtime_raises_a_type_error_for_an_unsupported_dict_key_type() {
+    let value = run(
         4,
         vec![
             PureSet::LoadConst {
@@ -106,24 +104,25 @@ fn runtime_surfaces_make_dict_key_type_errors_from_the_pureset_interpreter() {
                 }],
             }
             .into(),
-            RuntimeInstruction::EmitRegister(RegisterId(2)),
+            RuntimeInstruction::EmitPendingException,
         ],
-    );
+    )
+    .expect("runtime should emit the pending exception");
 
-    assert!(matches!(
-        result,
-        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::UnusableDictKey {
-                entry_pos,
-                source: waymark_vm_interpreter_pureset::value::AsDictKeyError::UnsupportedKeyType,
-            }
-        ))) if entry_pos == 0
-    ));
+    assert_eq!(
+        value,
+        TestValue::Exception {
+            type_id: "TypeError".to_owned(),
+            details: Box::new(TestValue::Text(
+                "dict keys of this type are not supported".to_owned()
+            )),
+        }
+    );
 }
 
 #[test]
-fn runtime_surfaces_missing_dot_attribute_errors_from_the_pureset_interpreter() {
-    let result = run(
+fn runtime_raises_an_attribute_error_for_a_missing_dot_attribute() {
+    let value = run(
         4,
         vec![
             PureSet::LoadConst {
@@ -150,25 +149,71 @@ fn runtime_surfaces_missing_dot_attribute_errors_from_the_pureset_interpreter() 
                 attribute: "missing".to_owned(),
             }
             .into(),
-            RuntimeInstruction::EmitRegister(RegisterId(3)),
+            RuntimeInstruction::EmitPendingException,
         ],
-    );
+    )
+    .expect("runtime should emit the pending exception");
 
-    assert!(matches!(
-        result,
-        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::DotOperation {
-                attribute,
-                source:
-                    waymark_vm_interpreter_pureset::value::DotOperationError::MissingAttribute,
-            }
-        ))) if attribute == "missing"
-    ));
+    assert_eq!(
+        value,
+        TestValue::Exception {
+            type_id: "AttributeError".to_owned(),
+            details: Box::new(TestValue::Text("attribute is missing".to_owned())),
+        }
+    );
 }
 
 #[test]
-fn runtime_surfaces_unusable_make_dict_key_errors_from_unusable_values() {
-    let result = run(
+fn runtime_raises_a_key_error_for_a_missing_dict_key() {
+    let value = run(
+        5,
+        vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Text("present"),
+            }
+            .into(),
+            PureSet::LoadConst {
+                dst: RegisterId(1),
+                value: TestConstValue::Int(9),
+            }
+            .into(),
+            PureSet::MakeDict {
+                dst: RegisterId(2),
+                entries: vec![DictEntry {
+                    key: RegisterId(0),
+                    value: RegisterId(1),
+                }],
+            }
+            .into(),
+            PureSet::LoadConst {
+                dst: RegisterId(3),
+                value: TestConstValue::Text("missing"),
+            }
+            .into(),
+            PureSet::Index {
+                dst: RegisterId(4),
+                object: RegisterId(2),
+                index: RegisterId(3),
+            }
+            .into(),
+            RuntimeInstruction::EmitPendingException,
+        ],
+    )
+    .expect("runtime should emit the pending exception");
+
+    assert_eq!(
+        value,
+        TestValue::Exception {
+            type_id: "KeyError".to_owned(),
+            details: Box::new(TestValue::Text("key is missing".to_owned())),
+        }
+    );
+}
+
+#[test]
+fn runtime_raises_a_type_error_for_an_unusable_dict_key() {
+    let value = run(
         3,
         vec![
             RuntimeInstruction::SetUnusable { dst: RegisterId(0) },
@@ -185,17 +230,18 @@ fn runtime_surfaces_unusable_make_dict_key_errors_from_unusable_values() {
                 }],
             }
             .into(),
-            RuntimeInstruction::EmitRegister(RegisterId(2)),
+            RuntimeInstruction::EmitPendingException,
         ],
-    );
+    )
+    .expect("runtime should emit the pending exception");
 
-    assert!(matches!(
-        result,
-        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::UnusableDictKey {
-                entry_pos,
-                source: waymark_vm_interpreter_pureset::value::AsDictKeyError::UnsupportedKeyType,
-            }
-        ))) if entry_pos == 0
-    ));
+    assert_eq!(
+        value,
+        TestValue::Exception {
+            type_id: "TypeError".to_owned(),
+            details: Box::new(TestValue::Text(
+                "dict keys of this type are not supported".to_owned()
+            )),
+        }
+    );
 }

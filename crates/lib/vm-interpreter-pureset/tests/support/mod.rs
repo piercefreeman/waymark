@@ -39,7 +39,7 @@ pub enum TestConstValue {
 pub enum TestValue {
     Int(i64),
     Bool(bool),
-    Text(&'static str),
+    Text(String),
     List(Vec<TestValue>),
     Dict(BTreeMap<String, TestValue>),
     Exception {
@@ -75,7 +75,7 @@ impl waymark_vm_interpreter_pureset::value::LoadConst<&TestConstValue> for TestV
     fn load_const(const_value: &TestConstValue) -> Self {
         match const_value {
             TestConstValue::Int(value) => Self::Int(*value),
-            TestConstValue::Text(value) => Self::Text(value),
+            TestConstValue::Text(value) => Self::Text((*value).to_owned()),
             TestConstValue::OverflowLength => Self::OverflowLength,
         }
     }
@@ -243,6 +243,17 @@ impl waymark_vm_interpreter_pureset::value::MakeException for TestValue {
     }
 }
 
+impl waymark_vm_runtime_exception::ExceptionFromIntermediate<String> for TestValue {
+    fn from_intermediate_exception(
+        exception: waymark_vm_runtime_exception::Exception<String>,
+    ) -> waymark_vm_runtime_exception::Exception<Self::RootValue> {
+        waymark_vm_runtime_exception::Exception {
+            type_id: exception.type_id,
+            details: Self::Text(exception.details),
+        }
+    }
+}
+
 pub enum TestLength {
     Valid(i64),
     Overflow,
@@ -304,7 +315,7 @@ impl waymark_vm_interpreter_pureset::value::IndexOp for TestValue {
                 Ok(items[index].clone())
             }
             (Self::Dict(entries), Self::Text(key)) => entries
-                .get(*key)
+                .get(key)
                 .cloned()
                 .ok_or(waymark_vm_interpreter_pureset::value::IndexOperationError::MissingKey),
             _ => Err(
@@ -336,8 +347,17 @@ impl waymark_vm_interpreter_pureset::value::DotOp for TestValue {
 #[derive(Debug)]
 pub enum RuntimeInstruction {
     Pure(PureSet<TestSpec>),
-    SetUnusable { dst: RegisterId },
+    SetUnusable {
+        dst: RegisterId,
+    },
     EmitRegister(RegisterId),
+    /// Emit the exception pending on the frame as the terminal effect.
+    ///
+    /// The pureset interpreter raises by recording the exception on
+    /// the frame; this test runtime has no exception handling machinery,
+    /// so tests surface the pending exception for assertions with this
+    /// instruction.
+    EmitPendingException,
 }
 
 impl From<PureSet<TestSpec>> for RuntimeInstruction {
@@ -400,6 +420,18 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
             RuntimeInstruction::EmitRegister(register) => {
                 let value = frame.regs[*register].clone();
                 Ok(ExecutionOutcome::ExitFrameWithEffect(value))
+            }
+            RuntimeInstruction::EmitPendingException => {
+                let exception = frame
+                    .exception
+                    .take()
+                    .expect("a pending exception should be present on the frame");
+                Ok(ExecutionOutcome::ExitFrameWithEffect(
+                    TestValue::Exception {
+                        type_id: exception.type_id,
+                        details: Box::new(exception.details),
+                    },
+                ))
             }
         }
     }

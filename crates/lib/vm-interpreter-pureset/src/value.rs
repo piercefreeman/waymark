@@ -9,6 +9,7 @@ mod length;
 mod list;
 mod load_const;
 mod scalar;
+mod typed_exceptions;
 
 pub use self::capture_copy::*;
 pub use self::dict::*;
@@ -34,6 +35,7 @@ pub trait Value:
     + Length
     + IndexOp
     + DotOp
+    + waymark_vm_runtime_exception::ExceptionFromIntermediate<String>
 {
 }
 
@@ -50,5 +52,6 @@ impl<T> Value for T where
         + Length
         + IndexOp
         + DotOp
+        + waymark_vm_runtime_exception::ExceptionFromIntermediate<String>
 {
 }

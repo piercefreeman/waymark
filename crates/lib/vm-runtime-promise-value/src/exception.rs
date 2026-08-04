@@ -43,3 +43,15 @@ where
         Self::Ready(T::from_exception(exception))
     }
 }
+
+impl<T, IntermediateDetails>
+    waymark_vm_runtime_exception::ExceptionFromIntermediate<IntermediateDetails> for PromiseValue<T>
+where
+    T: waymark_vm_runtime_exception::ExceptionFromIntermediate<IntermediateDetails>,
+{
+    fn from_intermediate_exception(
+        exception: Exception<IntermediateDetails>,
+    ) -> Exception<Self::RootValue> {
+        T::from_intermediate_exception(exception)
+    }
+}
