@@ -81,6 +81,36 @@ def test_while_loop_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
     assert payload["iterations"] == 4
 
 
+def test_zero_division_workflow_catches_the_vm_raised_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A zero denominator raises `ZeroDivisionError` from the VM; the workflow catches it."""
+    _enable_real_cluster(monkeypatch)
+
+    client = TestClient(app)
+    response = client.post("/api/zero-division", json={"denominator": 0})
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["caught"] is True
+    assert payload["quotient"] == -1
+
+
+def test_zero_division_workflow_divides_normally_when_denominator_is_nonzero(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A nonzero denominator takes the ordinary division path."""
+    _enable_real_cluster(monkeypatch)
+
+    client = TestClient(app)
+    response = client.post("/api/zero-division", json={"denominator": 5})
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["caught"] is False
+    assert payload["quotient"] == 2
+
+
 def test_retry_counter_workflow_eventual_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

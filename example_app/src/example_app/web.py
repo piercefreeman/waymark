@@ -77,6 +77,9 @@ from example_app.workflows import (
     WhileLoopRequest,
     WhileLoopResult,
     WhileLoopWorkflow,
+    ZeroDivisionRequest,
+    ZeroDivisionResult,
+    ZeroDivisionWorkflow,
 )
 
 app = FastAPI(title="Waymark Example")
@@ -202,6 +205,15 @@ async def run_exception_metadata_workflow(payload: ErrorRequest) -> ErrorResult:
     """Run the exception metadata workflow demonstrating captured values."""
     workflow = ExceptionMetadataWorkflow()
     return await workflow.run(should_fail=payload.should_fail)
+
+
+@app.post("/api/zero-division", response_model=ZeroDivisionResult)
+async def run_zero_division_workflow(
+    payload: ZeroDivisionRequest,
+) -> ZeroDivisionResult:
+    """Run the zero division workflow demonstrating VM-raised exceptions."""
+    workflow = ZeroDivisionWorkflow()
+    return await workflow.run(denominator=payload.denominator)
 
 
 # =============================================================================
@@ -395,6 +407,7 @@ WORKFLOW_REGISTRY = {
     "LoopExceptionWorkflow": LoopExceptionWorkflow,
     "ErrorHandlingWorkflow": ErrorHandlingWorkflow,
     "ExceptionMetadataWorkflow": ExceptionMetadataWorkflow,
+    "ZeroDivisionWorkflow": ZeroDivisionWorkflow,
     "RetryCounterWorkflow": RetryCounterWorkflow,
     "TimeoutProbeWorkflow": TimeoutProbeWorkflow,
     "DurableSleepWorkflow": DurableSleepWorkflow,
