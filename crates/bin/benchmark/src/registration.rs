@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use color_eyre::eyre::WrapErr as _;
+use color_eyre::eyre::{WrapErr as _, eyre};
 use rand::seq::SliceRandom;
 use waymark_backend_postgres::PostgresBackend;
 
@@ -33,24 +33,18 @@ pub async fn register_benchmark_vms(
 ) -> Result<usize, color_eyre::eyre::Report> {
     let mut compiled = HashMap::new();
     for (name, case) in cases {
-        match executables
+        let (executable_id, executable, metadata) = executables
             .compile_and_store(name, &case.ir_hash, &case.program)
             .await
-        {
-            Ok((executable_id, executable, metadata)) => {
-                compiled.insert(
-                    name.clone(),
-                    CompiledCase {
-                        executable_id,
-                        executable: Arc::new(executable),
-                        metadata,
-                    },
-                );
-            }
-            Err(err) => {
-                eprintln!("Skipping IR job '{name}': compilation failed: {err}");
-            }
-        }
+            .map_err(|err| eyre!("compile IR job '{name}': {err}"))?;
+        compiled.insert(
+            name.clone(),
+            CompiledCase {
+                executable_id,
+                executable: Arc::new(executable),
+                metadata,
+            },
+        );
     }
 
     let mut case_names = Vec::new();
