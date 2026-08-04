@@ -9,12 +9,11 @@ mod registration;
 mod report;
 mod setup_db;
 
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use clap::Parser as _;
-use sqlx::PgPool;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_observability::obs;
 use waymark_secret_string::SecretStr;
@@ -36,6 +35,7 @@ async fn run_benchmark(
     base: i64,
     dsn: &SecretStr,
     max_pinned: NonZeroUsize,
+    pool_size: NonZeroU32,
 ) -> BenchmarkStats {
     let cases = cases::build_cases(base);
     if dsn.expose_secret() == LOCAL_POSTGRES_DSN.expose_secret() {
@@ -43,7 +43,9 @@ async fn run_benchmark(
             .await
             .expect("bootstrap local postgres");
     }
-    let pool = PgPool::connect(dsn.expose_secret())
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(pool_size.get())
+        .connect(dsn.expose_secret())
         .await
         .expect("connect postgres");
     setup_db::drop_benchmark_tables(&pool).await;
@@ -134,8 +136,12 @@ fn main() {
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
     let _span = tracing::info_span!("benchmark_main").entered();
     let max_pinned = cli::benchmark_max_pinned();
+    let pool_size = cli::benchmark_db_pool_size();
     println!("max_pinned = {max_pinned}");
-    let stats = runtime.block_on(run_benchmark(args.count, args.base, &args.dsn, max_pinned));
+    println!("db_pool_size = {pool_size}");
+    let stats = runtime.block_on(run_benchmark(
+        args.count, args.base, &args.dsn, max_pinned, pool_size,
+    ));
     println!("Benchmark completed in {:.2?}", stats.elapsed);
     println!("{}", report::format_query_counts(stats.query_counts));
     println!("{}", report::format_batch_size_counts(stats.batch_counts));
