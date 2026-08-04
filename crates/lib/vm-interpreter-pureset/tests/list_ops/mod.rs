@@ -109,6 +109,46 @@ fn runtime_raises_a_type_error_for_an_unusable_index_operand() {
 }
 
 #[test]
+fn runtime_raises_an_index_error_for_an_out_of_bounds_index() {
+    let value = run(
+        4,
+        vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Int(2),
+            }
+            .into(),
+            PureSet::MakeList {
+                dst: RegisterId(1),
+                items: vec![RegisterId(0)],
+            }
+            .into(),
+            PureSet::LoadConst {
+                dst: RegisterId(2),
+                value: TestConstValue::Int(1),
+            }
+            .into(),
+            PureSet::Index {
+                dst: RegisterId(3),
+                object: RegisterId(1),
+                index: RegisterId(2),
+            }
+            .into(),
+            RuntimeInstruction::EmitPendingException,
+        ],
+    )
+    .expect("runtime should emit the pending exception");
+
+    assert_eq!(
+        value,
+        TestValue::Exception {
+            type_id: "IndexError".to_owned(),
+            details: Box::new(TestValue::Text("index is out of bounds".to_owned())),
+        }
+    );
+}
+
+#[test]
 fn runtime_copies_unusable_make_list_items_to_a_terminal_effect() {
     let value = run(
         2,
