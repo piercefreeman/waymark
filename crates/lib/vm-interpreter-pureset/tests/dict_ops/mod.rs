@@ -164,6 +164,54 @@ fn runtime_raises_an_attribute_error_for_a_missing_dot_attribute() {
 }
 
 #[test]
+fn runtime_raises_a_key_error_for_a_missing_dict_key() {
+    let value = run(
+        5,
+        vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Text("present"),
+            }
+            .into(),
+            PureSet::LoadConst {
+                dst: RegisterId(1),
+                value: TestConstValue::Int(9),
+            }
+            .into(),
+            PureSet::MakeDict {
+                dst: RegisterId(2),
+                entries: vec![DictEntry {
+                    key: RegisterId(0),
+                    value: RegisterId(1),
+                }],
+            }
+            .into(),
+            PureSet::LoadConst {
+                dst: RegisterId(3),
+                value: TestConstValue::Text("missing"),
+            }
+            .into(),
+            PureSet::Index {
+                dst: RegisterId(4),
+                object: RegisterId(2),
+                index: RegisterId(3),
+            }
+            .into(),
+            RuntimeInstruction::EmitPendingException,
+        ],
+    )
+    .expect("runtime should emit the pending exception");
+
+    assert_eq!(
+        value,
+        TestValue::Exception {
+            type_id: "KeyError".to_owned(),
+            details: Box::new(TestValue::Text("key is missing".to_owned())),
+        }
+    );
+}
+
+#[test]
 fn runtime_raises_a_type_error_for_an_unusable_dict_key() {
     let value = run(
         3,
