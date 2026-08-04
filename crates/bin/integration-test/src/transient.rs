@@ -18,29 +18,42 @@ pub async fn run_transient_mode(
     worker_count: NonZeroUsize,
     timeout: Duration,
 ) -> Result<Vec<String>, color_eyre::eyre::Report> {
-    let shutdown_token = tokio_util::sync::CancellationToken::new();
-    let (worker_pool, bridge_server_task) = setup_worker_pool(
-        shutdown_token.clone(),
-        repo_root,
-        prepared_cases,
-        worker_count,
-    )
-    .await
-    .wrap_err("start transient worker pool")?;
-    worker_pool
-        .launch()
-        .await
-        .wrap_err("launch transient worker pool")?;
-
     let mut failures = Vec::new();
     for prepared in prepared_cases {
+        // The worker-pool transport round-trips correlation metadata verbatim
+        // with no per-VM filtering, so an action that outlives its case — a
+        // harness timeout, or a workflow that settles while an action is
+        // still in flight (e.g. a VM-level action timeout) — would deliver
+        // its completion into whatever case polls the pool next. Bound every
+        // completion's lifetime by its case: each case gets its own pool.
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
+        let (worker_pool, bridge_server_task) = setup_worker_pool(
+            shutdown_token.clone(),
+            repo_root,
+            std::slice::from_ref(prepared),
+            worker_count,
+        )
+        .await
+        .wrap_err_with(|| {
+            format!(
+                "start transient worker pool for case '{}'",
+                prepared.case.id
+            )
+        })?;
+        worker_pool.launch().await.wrap_err_with(|| {
+            format!(
+                "launch transient worker pool for case '{}'",
+                prepared.case.id
+            )
+        })?;
+
         let actual = run_case_transient(prepared, Arc::clone(&worker_pool), timeout).await;
+        teardown_worker_pool(shutdown_token, bridge_server_task, worker_pool).await;
+
         if let Some(mismatch) = check_case_outcome(prepared, actual) {
             failures.push(mismatch);
         }
     }
-
-    teardown_worker_pool(shutdown_token, bridge_server_task, worker_pool).await;
 
     Ok(failures)
 }
