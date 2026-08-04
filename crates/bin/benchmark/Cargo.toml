@@ -32,6 +32,8 @@ waymark-workflow-service-vm-runtimes = { workspace = true }
 waymark-workflow-service-vm-runtimes-backend = { workspace = true }
 
 clap = { workspace = true, features = ["derive"] }
+color-eyre = { workspace = true }
+envfury = { workspace = true }
 nonempty-collections = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }

@@ -1,8 +1,9 @@
 //! Database reset for a from-scratch benchmark run.
 
+use color_eyre::eyre::WrapErr as _;
 use sqlx::PgPool;
 
-pub async fn drop_benchmark_tables(pool: &PgPool) {
+pub async fn drop_benchmark_tables(pool: &PgPool) -> Result<(), color_eyre::eyre::Report> {
     sqlx::query(
         r#"
         DROP TABLE IF EXISTS
@@ -27,7 +28,7 @@ pub async fn drop_benchmark_tables(pool: &PgPool) {
     )
     .execute(pool)
     .await
-    .expect("drop benchmark tables");
+    .wrap_err("drop benchmark tables")?;
 
     // The migrations also create trigger functions; they survive the table
     // drops and would fail the re-run with "function already exists".
@@ -41,5 +42,6 @@ pub async fn drop_benchmark_tables(pool: &PgPool) {
     )
     .execute(pool)
     .await
-    .expect("drop benchmark trigger functions");
+    .wrap_err("drop benchmark trigger functions")?;
+    Ok(())
 }

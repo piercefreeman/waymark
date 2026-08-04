@@ -4539,6 +4539,8 @@ name = "waymark-benchmark"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "color-eyre",
+ "envfury",
  "nonempty-collections",
  "prost 0.12.6",
  "rand 0.9.3",
@@ -5456,8 +5458,8 @@ version = "0.1.0"
 name = "waymark-support-integration"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "sqlx",
+ "thiserror",
  "tokio",
  "waymark-backend-postgres-migrations",
  "waymark-secret-string",
