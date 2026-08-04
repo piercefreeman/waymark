@@ -9,6 +9,10 @@ pub(crate) fn test_pinning_ttl() -> NonZeroDuration {
     NonZeroDuration::new(Duration::from_secs(30)).unwrap()
 }
 
+pub(crate) fn test_poll_rate_limit() -> core::num::NonZeroU32 {
+    core::num::NonZeroU32::new(1000).unwrap()
+}
+
 pub(crate) fn test_max_concurrent() -> NonZeroUsize {
     NonZeroUsize::new(3).unwrap()
 }

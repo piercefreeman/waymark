@@ -22,7 +22,7 @@ waymark-workload-pinning-backend = { workspace = true }
 
 chrono = { workspace = true, default-features = false, features = ["clock"] }
 mockall = { workspace = true }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "test-util"] }
 
 [lib]
 doctest = false

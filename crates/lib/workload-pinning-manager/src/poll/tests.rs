@@ -7,7 +7,9 @@ use nonempty_collections::nev;
 use tokio_util::sync::CancellationToken;
 
 use super::{PollParams, poll_and_pin, run_poll_loop};
-use crate::test_utils::helpers::{test_max_concurrent, test_node_id, test_pinning_ttl};
+use crate::test_utils::helpers::{
+    test_max_concurrent, test_node_id, test_pinning_ttl, test_poll_rate_limit,
+};
 use crate::test_utils::mock::MockBackend;
 
 #[tokio::test]
@@ -84,6 +86,53 @@ async fn poll_and_pin_propagates_error() {
     assert!(result.is_err());
 }
 
+/// The poll loop must not spin: with an always-empty poll result, the
+/// number of poll queries stays bounded by the configured rate limit.
+#[tokio::test(start_paused = true)]
+async fn poll_loop_respects_the_poll_rate_limit() {
+    let poll_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let poll_counter = Arc::clone(&poll_count);
+
+    let mut backend = MockBackend::new();
+    backend.expect_poll_unpinned().returning(move |_, _, _| {
+        poll_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(std::future::ready(Ok(None)))
+    });
+    let backend = Arc::new(backend);
+
+    let (_pinned_tx, _pinned_rx) = tokio::sync::mpsc::channel(1);
+    let (_evict_tx, _evict_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (_batch_tx, _batch_rx) = tokio::sync::mpsc::channel(1);
+    let (_count_tx, count_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(1),
+        run_poll_loop(PollParams {
+            backend,
+            node_id: test_node_id(),
+            pinned_tx: _pinned_tx,
+            evict_tx: _evict_tx,
+            batch_tx: _batch_tx,
+            count_rx,
+            shutdown_token: CancellationToken::new(),
+            max_pinned: test_max_concurrent(),
+            pinning_ttl: test_pinning_ttl(),
+            poll_rate_limit: core::num::NonZeroU32::new(100).unwrap(),
+        }),
+    )
+    .await;
+    assert!(result.is_err(), "poll loop should keep running");
+
+    // One virtual second at 100 polls/second: the immediate first tick
+    // allows one extra query, and nothing should come close to the
+    // thousands an unlimited loop would issue.
+    let polls = poll_count.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(
+        (50..=101).contains(&polls),
+        "expected rate-limited poll count, got {polls}"
+    );
+}
+
 /// Dropping all count_tx senders must not cause the poll loop to exit —
 /// it should continue polling. The count channel is advisory, not a
 /// liveness signal.
@@ -116,6 +165,7 @@ async fn poll_loop_continues_when_count_channel_closes() {
             shutdown_token: CancellationToken::new(),
             max_pinned: test_max_concurrent(),
             pinning_ttl: test_pinning_ttl(),
+            poll_rate_limit: test_poll_rate_limit(),
         }),
     )
     .await;
@@ -164,6 +214,7 @@ async fn poll_loop_exits_on_pinned_receiver_closed() {
         shutdown_token: CancellationToken::new(),
         max_pinned: test_max_concurrent(),
         pinning_ttl: test_pinning_ttl(),
+        poll_rate_limit: test_poll_rate_limit(),
     })
     .await;
 

@@ -9,7 +9,7 @@
 #![warn(missing_docs)]
 
 use std::hash::Hash;
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
@@ -44,6 +44,9 @@ pub struct Config<NodeId> {
     /// cannot be re-confirmed — the margin budgets the eviction latency
     /// between the fence signal and the workload actually stopping.
     pub pinning_fencing_margin: NonZeroDuration,
+
+    /// Maximum number of unpinned-workload poll queries per second.
+    pub workload_poll_rate_limit: NonZeroU32,
 
     /// How long the durable-sleeps demand poller waits between polls
     /// while demand is registered.
@@ -196,6 +199,7 @@ where
         pinning_ttl,
         pinning_heartbeat,
         pinning_fencing_margin,
+        workload_poll_rate_limit,
         sleep_poll_interval,
         vm_retention,
         vm_sweep_interval,
@@ -504,6 +508,7 @@ where
         pinned_tx,
         max_pinned,
         pinning_ttl,
+        poll_rate_limit: workload_poll_rate_limit,
         pinning_heartbeat,
         // TODO: surface through `Config` and the env.
         unpin_retry_interval: NonZeroDuration::new(std::time::Duration::from_secs(5))
