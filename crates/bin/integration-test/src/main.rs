@@ -2,199 +2,32 @@
 //!
 //! For each curated fixture case:
 //! 1. Ask a Python helper for ground-truth inline execution and compiled IR.
-//! 2. Execute that IR through Rust runtime backends.
-//! 3. Assert backend output matches inline Python output.
+//! 2. Execute that IR through the VM over a Python worker pool — transiently
+//!    (in-memory, no persistence) and durably (postgres-backed snapshots,
+//!    action calls, and sleeps via the execution subsystem).
+//! 3. Assert the VM workflow outcome matches inline Python output.
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::{Arc, Mutex};
+mod cases;
+mod cli;
+mod durable;
+mod ground_truth;
+mod outcome;
+mod transient;
+mod worker_pool;
+
+use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow, bail};
-use clap::Parser;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use sqlx::Row;
-use waymark_ids::{InstanceId, LockId, WorkflowVersionId};
-use waymark_runner_executor_core::{ExecutionException, ExecutionSuccess};
-use waymark_secret_string::SecretString;
-
-use waymark_backend_memory::MemoryBackend;
-use waymark_backend_postgres::PostgresBackend;
-use waymark_core_backend::{CoreBackend, QueuedInstance};
-use waymark_dag::DAG;
-use waymark_dag_builder::convert_to_dag;
-use waymark_ir_conversions::literal_from_json_value;
-use waymark_proto::ast as ir;
-use waymark_runloop::{RunLoop, RunLoopConfig};
-use waymark_runner_state::RunnerState;
-use waymark_support_integration::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
-use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
-
-#[derive(Parser, Debug)]
-#[command(name = "integration_test")]
-struct Args {
-    /// Comma-separated backend list. Supported: in-memory,postgres.
-    #[arg(long, default_value = "in-memory,postgres")]
-    backends: String,
-
-    /// Optional fixture case IDs to run.
-    #[arg(long = "case")]
-    cases: Vec<String>,
-
-    /// Number of Python workers for backend execution.
-    #[arg(long, default_value_t = 2.try_into().unwrap())]
-    worker_count: NonZeroUsize,
-
-    /// Timeout per backend execution, in seconds.
-    #[arg(long, default_value_t = 120)]
-    timeout_seconds: u64,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum BackendKind {
-    InMemory,
-    Postgres,
-}
-
-impl BackendKind {
-    fn label(self) -> &'static str {
-        match self {
-            Self::InMemory => "in-memory",
-            Self::Postgres => "postgres",
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-struct FixtureCase {
-    id: &'static str,
-    module_name: &'static str,
-    workflow_class: &'static str,
-    kwargs_json: &'static str,
-}
-
-const CASES: &[FixtureCase] = &[
-    FixtureCase {
-        id: "simple",
-        module_name: "simple_workflow",
-        workflow_class: "SimpleWorkflow",
-        kwargs_json: r#"{"name":"world"}"#,
-    },
-    FixtureCase {
-        id: "sequential",
-        module_name: "sequential_workflow",
-        workflow_class: "SequentialWorkflow",
-        kwargs_json: r#"{}"#,
-    },
-    FixtureCase {
-        id: "conditional",
-        module_name: "conditional_workflow",
-        workflow_class: "ConditionalWorkflow",
-        kwargs_json: r#"{"tier":"high"}"#,
-    },
-    FixtureCase {
-        id: "immediate-conditional",
-        module_name: "immediate_conditional_workflow",
-        workflow_class: "ImmediateConditionalWorkflow",
-        kwargs_json: r#"{"value":17}"#,
-    },
-    FixtureCase {
-        id: "chain",
-        module_name: "chain_workflow",
-        workflow_class: "ChainWorkflow",
-        kwargs_json: r#"{"text":"hello"}"#,
-    },
-    FixtureCase {
-        id: "for-loop",
-        module_name: "for_loop_workflow",
-        workflow_class: "ForLoopWorkflow",
-        kwargs_json: r#"{"items":["alpha","beta","gamma"]}"#,
-    },
-    FixtureCase {
-        id: "parallel",
-        module_name: "parallel_workflow",
-        workflow_class: "ParallelWorkflow",
-        kwargs_json: r#"{"value":7}"#,
-    },
-    FixtureCase {
-        id: "gather-listcomp",
-        module_name: "integration_gather_listcomp",
-        workflow_class: "GatherListCompWorkflow",
-        kwargs_json: r#"{"items":[1,2,3]}"#,
-    },
-    FixtureCase {
-        id: "tuple-unpack-fn-call",
-        module_name: "integration_tuple_unpack_fn_call",
-        workflow_class: "TupleUnpackFnCallWorkflow",
-        kwargs_json: r#"{"user_id":"user_42"}"#,
-    },
-    FixtureCase {
-        id: "nested-conditionals",
-        module_name: "integration_nested_conditionals",
-        workflow_class: "NestedConditionalsWorkflow",
-        kwargs_json: r#"{"user_id":"user_c"}"#,
-    },
-    FixtureCase {
-        id: "data-pipeline",
-        module_name: "integration_data_pipeline",
-        workflow_class: "DataPipelineWorkflow",
-        kwargs_json: r#"{"source":"sales","threshold":100}"#,
-    },
-    FixtureCase {
-        id: "string-processing",
-        module_name: "integration_string_processing",
-        workflow_class: "StringProcessingWorkflow",
-        kwargs_json: r#"{"text":"Alpha123"}"#,
-    },
-    FixtureCase {
-        id: "timeout",
-        module_name: "integration_timeout_workflow",
-        workflow_class: "TimeoutWorkflow",
-        kwargs_json: r#"{}"#,
-    },
-];
-
-#[derive(Clone, Debug, Deserialize)]
-struct HelperRegistration {
-    workflow_name: String,
-    workflow_version: String,
-    ir_hash: String,
-    concurrent: bool,
-    ir_bytes: Vec<u8>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct HelperOutput {
-    expected: CaseOutcome,
-    registration: HelperRegistration,
-}
-
-#[derive(Clone, Debug)]
-struct PreparedCase {
-    case: FixtureCase,
-    kwargs: HashMap<String, Value>,
-    expected: CaseOutcome,
-    registration: WorkflowRegistration,
-    program: ir::Program,
-    dag: Arc<DAG>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-struct CaseOutcome {
-    status: String,
-    value: Value,
-}
+use anyhow::{Context, Result, bail};
+use clap::Parser as _;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     waymark_fn_main_common::init()?;
 
-    let args = Args::parse();
-    let backend_kinds = parse_backends(&args.backends)?;
-    let selected_cases = select_cases(&args.cases)?;
+    let args = cli::Args::parse();
+    let modes = cli::parse_modes(&args.modes)?;
+    let selected_cases = cases::select_cases(&args.cases)?;
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let timeout = Duration::from_secs(args.timeout_seconds);
 
@@ -202,90 +35,52 @@ async fn main() -> Result<()> {
         bail!("no fixture cases selected");
     }
 
-    let shutdown_token = tokio_util::sync::CancellationToken::new();
-
     let mut prepared_cases = Vec::new();
     for case in selected_cases {
-        prepared_cases.push(prepare_case(&repo_root, case.clone()).with_context(|| {
-            format!(
-                "prepare fixture case '{}' ({}::{})",
-                case.id, case.module_name, case.workflow_class
-            )
-        })?);
+        prepared_cases.push(
+            ground_truth::prepare_case(&repo_root, case.clone()).with_context(|| {
+                format!(
+                    "prepare fixture case '{}' ({}::{})",
+                    case.id, case.module_name, case.workflow_class
+                )
+            })?,
+        );
     }
-
-    let maybe_postgres_backend = if backend_kinds.contains(&BackendKind::Postgres) {
-        Some(connect_postgres_backend().await?)
-    } else {
-        None
-    };
-
-    let (worker_process_pool, bridge_server_task) = setup_worker_pool(
-        shutdown_token.clone(),
-        &repo_root,
-        &prepared_cases,
-        args.worker_count,
-    )
-    .await
-    .context("start integration worker pool")?;
-
-    let worker_process_pool = Arc::new(worker_process_pool);
-    let worker_pool =
-        waymark_worker_remote_pool::RemoteWorkerPool::new(Arc::clone(&worker_process_pool));
-    let worker_pool = Arc::new(worker_pool);
 
     let mut failures = Vec::new();
     let mut comparisons = 0usize;
 
-    for prepared in &prepared_cases {
-        for backend_kind in &backend_kinds {
-            let actual = match backend_kind {
-                BackendKind::InMemory => {
-                    run_case_in_memory(prepared, worker_pool.clone(), timeout).await?
-                }
-                BackendKind::Postgres => {
-                    let backend = maybe_postgres_backend
-                        .as_ref()
-                        .context("postgres backend requested but not initialized")?;
-                    run_case_postgres(prepared, backend, worker_pool.clone(), timeout).await?
-                }
-            };
-            comparisons += 1;
-
-            let mismatch = if prepared.case.id == "timeout" {
-                validate_timeout_outcome(&actual)
-            } else if actual != prepared.expected {
-                Some(format!(
-                    "expected={}\nactual={}",
-                    serde_json::to_string(&prepared.expected).expect("serialize expected"),
-                    serde_json::to_string(&actual).expect("serialize actual"),
-                ))
-            } else {
-                None
-            };
-
-            if let Some(mismatch) = mismatch {
-                failures.push(format!(
-                    "case={} backend={}\n{}",
-                    prepared.case.id,
-                    backend_kind.label(),
-                    mismatch,
-                ));
+    for mode in &modes {
+        let mode_failures = match mode {
+            cli::ExecutionMode::Transient => {
+                transient::run_transient_mode(
+                    &repo_root,
+                    &prepared_cases,
+                    args.worker_count,
+                    timeout,
+                )
+                .await
+            }
+            cli::ExecutionMode::Durable => {
+                durable::run_durable_mode(&repo_root, &prepared_cases, args.worker_count, timeout)
+                    .await
             }
         }
-    }
-    bridge_server_task.abort();
-    let _ = bridge_server_task.await;
+        .with_context(|| format!("run {} execution mode", mode.label()))?;
 
-    if let Err(err) = worker_pool.shutdown_arc().await {
-        eprintln!("failed to shutdown worker pool: {err}");
+        comparisons += prepared_cases.len();
+        failures.extend(
+            mode_failures
+                .into_iter()
+                .map(|failure| format!("mode={}\n{}", mode.label(), failure)),
+        );
     }
 
     if !failures.is_empty() {
         eprintln!(
             "fixture integration parity failed: {} mismatches across {} comparisons",
             failures.len(),
-            comparisons
+            comparisons,
         );
         for failure in failures {
             eprintln!(
@@ -297,507 +92,10 @@ async fn main() -> Result<()> {
     }
 
     println!(
-        "fixture integration parity passed: {} cases across {} backend comparisons",
+        "fixture integration parity passed: {} cases across {} mode comparisons",
         prepared_cases.len(),
-        comparisons
+        comparisons,
     );
 
     Ok(())
-}
-
-fn parse_backends(raw: &str) -> Result<Vec<BackendKind>> {
-    let mut parsed = Vec::new();
-    for item in raw.split(',') {
-        let trimmed = item.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        match trimmed {
-            "in-memory" => parsed.push(BackendKind::InMemory),
-            "postgres" => parsed.push(BackendKind::Postgres),
-            other => bail!("unsupported backend '{other}'"),
-        }
-    }
-
-    if parsed.is_empty() {
-        bail!("no backends requested")
-    }
-
-    Ok(parsed)
-}
-
-fn select_cases(filters: &[String]) -> Result<Vec<FixtureCase>> {
-    if filters.is_empty() {
-        return Ok(CASES.to_vec());
-    }
-
-    let mut selected = Vec::new();
-    for filter in filters {
-        let Some(case) = CASES.iter().find(|candidate| candidate.id == filter) else {
-            bail!("unknown fixture case '{filter}'")
-        };
-        selected.push(case.clone());
-    }
-    Ok(selected)
-}
-
-fn helper_python(repo_root: &Path) -> Result<PathBuf> {
-    let python = repo_root.join(".venv").join("bin").join("python");
-    if python.exists() {
-        Ok(python)
-    } else {
-        bail!(
-            "python helper interpreter not found at {}; run 'uv sync'",
-            python.display()
-        )
-    }
-}
-
-fn prepare_case(repo_root: &Path, case: FixtureCase) -> Result<PreparedCase> {
-    let kwargs_value: Value = serde_json::from_str(case.kwargs_json)
-        .with_context(|| format!("parse kwargs JSON for case '{}'", case.id))?;
-    let kwargs = match kwargs_value {
-        Value::Object(map) => map.into_iter().collect::<HashMap<String, Value>>(),
-        _ => bail!("case '{}' kwargs JSON must be an object", case.id),
-    };
-
-    let helper = run_python_helper(repo_root, &case)?;
-
-    let program = <ir::Program as prost::Message>::decode(&helper.registration.ir_bytes[..])
-        .with_context(|| {
-            format!(
-                "decode IR bytes for case '{}' ({})",
-                case.id, case.workflow_class
-            )
-        })?;
-
-    let dag = Arc::new(
-        convert_to_dag(&program).map_err(|err| anyhow!("convert DAG for {}: {}", case.id, err))?,
-    );
-
-    let registration = WorkflowRegistration {
-        workflow_name: helper.registration.workflow_name,
-        workflow_version: helper.registration.workflow_version,
-        ir_hash: helper.registration.ir_hash,
-        program_proto: helper.registration.ir_bytes,
-        concurrent: helper.registration.concurrent,
-    };
-
-    Ok(PreparedCase {
-        case,
-        kwargs,
-        expected: canonicalize_outcome(helper.expected),
-        registration,
-        program,
-        dag,
-    })
-}
-
-fn run_python_helper(repo_root: &Path, case: &FixtureCase) -> Result<HelperOutput> {
-    let helper_script = repo_root.join("scripts").join("fixture_ground_truth.py");
-    let python = helper_python(repo_root)?;
-
-    let output = Command::new(python)
-        .arg(&helper_script)
-        .arg("--module")
-        .arg(case.module_name)
-        .arg("--workflow-class")
-        .arg(case.workflow_class)
-        .arg("--kwargs-json")
-        .arg(case.kwargs_json)
-        .current_dir(repo_root)
-        .output()
-        .with_context(|| format!("run python helper for case '{}'", case.id))?;
-
-    if !output.status.success() {
-        bail!(
-            "python helper failed for case '{}'\nstdout:\n{}\nstderr:\n{}",
-            case.id,
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        )
-    }
-
-    let stdout = String::from_utf8(output.stdout)
-        .with_context(|| format!("decode python helper stdout for case '{}'", case.id))?;
-    let payload = stdout
-        .lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .with_context(|| format!("python helper produced no payload for case '{}'", case.id))?;
-
-    serde_json::from_str(payload)
-        .with_context(|| format!("parse python helper JSON payload for case '{}'", case.id))
-}
-
-async fn setup_worker_pool(
-    shutdown_token: tokio_util::sync::CancellationToken,
-    repo_root: &Path,
-    cases: &[PreparedCase],
-    worker_count: NonZeroUsize,
-) -> Result<(
-    waymark_worker_process_pool::Pool<waymark_worker_python::Spec>,
-    tokio::task::JoinHandle<()>,
-)> {
-    let mut modules = cases
-        .iter()
-        .map(|prepared| prepared.case.module_name.to_string())
-        .collect::<Vec<_>>();
-    modules.sort();
-    modules.dedup();
-
-    let config = waymark_worker_python::Config::new()
-        .with_user_modules(modules)
-        .with_python_paths(vec![
-            repo_root.join("python"),
-            repo_root.join("tests"),
-            repo_root.join("tests/integration_tests"),
-        ]);
-
-    let (pool, task) = waymark_worker_remote_bringup::start(
-        shutdown_token,
-        None,
-        |bridge_server_addr| waymark_worker_python::Spec {
-            bridge_server_addr,
-            config,
-        },
-        worker_count,
-        None,
-        10.try_into().unwrap(),
-    )
-    .await
-    .context("create remote worker pool")?;
-
-    Ok((pool, task))
-}
-
-async fn connect_postgres_backend() -> Result<PostgresBackend> {
-    let dsn = std::env::var("WAYMARK_DATABASE_URL")
-        .map(SecretString::from)
-        .unwrap_or_else(|_| SecretString::from(LOCAL_POSTGRES_DSN));
-
-    if dsn.expose_secret() == LOCAL_POSTGRES_DSN.expose_secret() {
-        ensure_local_postgres()
-            .await
-            .context("auto-bootstrap local postgres for integration runner")?;
-    }
-
-    let pool = connect_pool(&dsn)
-        .await
-        .with_context(|| format!("connect postgres backend: {dsn}"))?;
-    waymark_backend_postgres_migrations::run(&pool)
-        .await
-        .context("run postgres migrations for integration runner")?;
-    Ok(PostgresBackend::new(pool))
-}
-
-async fn run_case_in_memory<Spec>(
-    prepared: &PreparedCase,
-    worker_pool: Arc<waymark_worker_remote_pool::RemoteWorkerPool<Spec>>,
-    timeout: Duration,
-) -> Result<CaseOutcome>
-where
-    Spec: waymark_worker_process_spec::Spec + Send + Sync + 'static,
-    waymark_worker_remote_pool::RemoteWorkerPool<Spec>: waymark_worker_core::BaseWorkerPool,
-{
-    let queue = Arc::new(Mutex::new(VecDeque::new()));
-    let backend = MemoryBackend::with_queue(queue);
-
-    let workflow_version_id =
-        WorkflowRegistryBackend::upsert_workflow_version(&backend, &prepared.registration)
-            .await
-            .map_err(|err| anyhow!(err.to_string()))
-            .context("register workflow version in memory backend")?;
-
-    let instance_id = InstanceId::new_uuid_v4();
-    let queued = build_queued_instance(
-        instance_id,
-        workflow_version_id,
-        Arc::clone(&prepared.dag),
-        &prepared.kwargs,
-    )?;
-
-    CoreBackend::queue_instances(&backend, &[queued])
-        .await
-        .map_err(|err| anyhow!(err.to_string()))
-        .context("queue in-memory instance")?;
-
-    run_runloop(worker_pool, backend.clone(), timeout).await?;
-
-    let done = backend
-        .instances_done()
-        .into_iter()
-        .find(|candidate| candidate.executor_id == instance_id)
-        .with_context(|| {
-            format!(
-                "missing completed in-memory instance for case '{}'",
-                prepared.case.id
-            )
-        })?;
-
-    Ok(canonicalize_outcome(outcome_from_payload(
-        &prepared.program,
-        done.result,
-        done.error,
-    )))
-}
-
-async fn run_case_postgres<Spec>(
-    prepared: &PreparedCase,
-    backend: &PostgresBackend,
-    worker_pool: Arc<waymark_worker_remote_pool::RemoteWorkerPool<Spec>>,
-    timeout: Duration,
-) -> Result<CaseOutcome>
-where
-    Spec: waymark_worker_process_spec::Spec + Send + Sync + 'static,
-    waymark_worker_remote_pool::RemoteWorkerPool<Spec>: waymark_worker_core::BaseWorkerPool,
-{
-    backend
-        .clear_all()
-        .await
-        .map_err(|err| anyhow!(err.to_string()))
-        .context("clear postgres runner tables")?;
-
-    let workflow_version_id =
-        WorkflowRegistryBackend::upsert_workflow_version(backend, &prepared.registration)
-            .await
-            .map_err(|err| anyhow!(err.to_string()))
-            .context("register workflow version in postgres backend")?;
-
-    let instance_id = InstanceId::new_uuid_v4();
-    let queued = build_queued_instance(
-        instance_id,
-        workflow_version_id,
-        Arc::clone(&prepared.dag),
-        &prepared.kwargs,
-    )?;
-
-    CoreBackend::queue_instances(backend, &[queued])
-        .await
-        .map_err(|err| anyhow!(err.to_string()))
-        .context("queue postgres instance")?;
-
-    run_runloop(worker_pool, backend.clone(), timeout).await?;
-
-    let row = sqlx::query("SELECT result, error FROM runner_instances WHERE instance_id = $1")
-        .bind(instance_id)
-        .fetch_optional(backend.pool())
-        .await
-        .context("fetch postgres instance outcome row")?
-        .with_context(|| {
-            format!(
-                "missing runner_instances row for case '{}' instance {}",
-                prepared.case.id, instance_id
-            )
-        })?;
-
-    let result_payload: Option<Vec<u8>> = row.get("result");
-    let error_payload: Option<Vec<u8>> = row.get("error");
-
-    let result = result_payload
-        .as_deref()
-        .map(rmp_serde::from_slice::<Value>)
-        .transpose()
-        .context("decode postgres result payload")?;
-    let result = result.map(ExecutionSuccess);
-    let error = error_payload
-        .as_deref()
-        .map(rmp_serde::from_slice::<Value>)
-        .transpose()
-        .context("decode postgres error payload")?;
-    let error = error.map(ExecutionException);
-
-    Ok(canonicalize_outcome(outcome_from_payload(
-        &prepared.program,
-        result,
-        error,
-    )))
-}
-
-async fn run_runloop<Backend, Spec>(
-    worker_pool: Arc<waymark_worker_remote_pool::RemoteWorkerPool<Spec>>,
-    backend: Backend,
-    timeout: Duration,
-) -> Result<()>
-where
-    Backend: CoreBackend + WorkflowRegistryBackend + Clone + Send + Sync + 'static,
-    <Backend as CoreBackend>::PollQueuedInstancesError: Send + Sync + 'static,
-    <Backend as CoreBackend>::PollQueuedInstancesError: core::error::Error,
-    Spec: waymark_worker_process_spec::Spec + Send + Sync + 'static,
-    waymark_worker_remote_pool::RemoteWorkerPool<Spec>: waymark_worker_core::BaseWorkerPool,
-{
-    let runloop = RunLoop::<waymark_worker_remote_pool::RemoteWorkerPool<Spec>, _, _>::new(
-        worker_pool,
-        backend,
-        RunLoopConfig {
-            max_concurrent_instances: 16.try_into().unwrap(),
-            executor_shards: 1.try_into().unwrap(),
-            instance_done_batch_size: Some(16.try_into().unwrap()),
-            poll_interval: Some(Duration::from_millis(10).try_into().unwrap()),
-            persistence_interval: Some(Duration::from_millis(20).try_into().unwrap()),
-            lock_uuid: LockId::new_uuid_v4(),
-            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
-            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
-            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
-            skip_sleep: false,
-            active_instance_gauge: None,
-        },
-    );
-
-    tokio::time::timeout(timeout, runloop.run())
-        .await
-        .with_context(|| format!("runloop timed out after {}s", timeout.as_secs()))??;
-
-    Ok(())
-}
-
-fn build_queued_instance(
-    instance_id: InstanceId,
-    workflow_version_id: WorkflowVersionId,
-    dag: Arc<DAG>,
-    kwargs: &HashMap<String, Value>,
-) -> Result<QueuedInstance> {
-    let mut state = RunnerState::from_dag(Arc::clone(&dag));
-
-    for (name, value) in kwargs {
-        let expr = literal_from_json_value(value);
-        let label = format!("input {name} = {value}");
-        let _ = state
-            .record_assignment(vec![name.clone()], &expr, None, Some(label))
-            .map_err(|err| anyhow!(err.0))?;
-    }
-
-    let entry_template = dag
-        .entry_node
-        .clone()
-        .ok_or_else(|| anyhow!("DAG entry node not found"))?;
-    let entry_exec = state
-        .queue_template_node(&entry_template, None)
-        .map_err(|err| anyhow!(err.0))?;
-
-    Ok(QueuedInstance {
-        workflow_version_id,
-        schedule_id: None,
-        entry_node: entry_exec.node_id,
-        graph: state.graph,
-        action_results: HashMap::new(),
-        instance_id,
-        scheduled_at: None,
-    })
-}
-
-fn outcome_from_payload(
-    program: &ir::Program,
-    result: Option<ExecutionSuccess>,
-    error: Option<ExecutionException>,
-) -> CaseOutcome {
-    if let Some(error) = error {
-        return CaseOutcome {
-            status: "error".to_string(),
-            value: error.0,
-        };
-    }
-
-    let raw_result = result.map(|result| result.0).unwrap_or(Value::Null);
-    CaseOutcome {
-        status: "ok".to_string(),
-        value: normalize_runtime_result(program, raw_result),
-    }
-}
-
-fn normalize_runtime_result(program: &ir::Program, result: Value) -> Value {
-    let Value::Object(map) = result else {
-        return result;
-    };
-
-    let Some(main_fn) = program.functions.first() else {
-        return Value::Object(map);
-    };
-
-    if let Some(io) = &main_fn.io {
-        for output_name in &io.outputs {
-            if let Some(value) = map.get(output_name) {
-                return value.clone();
-            }
-        }
-    }
-
-    if let Some(value) = map.get("result") {
-        return value.clone();
-    }
-
-    if map.len() == 1
-        && let Some(value) = map.values().next()
-    {
-        return value.clone();
-    }
-
-    Value::Object(map)
-}
-
-fn canonicalize_outcome(outcome: CaseOutcome) -> CaseOutcome {
-    CaseOutcome {
-        status: outcome.status,
-        value: canonicalize_json(outcome.value),
-    }
-}
-
-fn validate_timeout_outcome(actual: &CaseOutcome) -> Option<String> {
-    if actual.status != "error" {
-        return Some(format!(
-            "expected timeout status=error\nactual={}",
-            serde_json::to_string(actual).expect("serialize actual")
-        ));
-    }
-
-    let Value::Object(payload) = &actual.value else {
-        return Some(format!(
-            "expected timeout payload object\nactual={}",
-            serde_json::to_string(actual).expect("serialize actual")
-        ));
-    };
-
-    let error_type = payload.get("type").and_then(Value::as_str);
-    if error_type != Some("ActionTimeout") {
-        return Some(format!(
-            "expected error type ActionTimeout\nactual={}",
-            serde_json::to_string(actual).expect("serialize actual")
-        ));
-    }
-
-    let timeout_seconds = payload.get("timeout_seconds").and_then(Value::as_i64);
-    if timeout_seconds != Some(1) {
-        return Some(format!(
-            "expected timeout_seconds=1\nactual={}",
-            serde_json::to_string(actual).expect("serialize actual")
-        ));
-    }
-
-    let attempt = payload.get("attempt").and_then(Value::as_i64);
-    if attempt != Some(1) {
-        return Some(format!(
-            "expected attempt=1\nactual={}",
-            serde_json::to_string(actual).expect("serialize actual")
-        ));
-    }
-
-    None
-}
-
-fn canonicalize_json(value: Value) -> Value {
-    match value {
-        Value::Array(items) => Value::Array(items.into_iter().map(canonicalize_json).collect()),
-        Value::Object(map) => {
-            let mut ordered = BTreeMap::new();
-            for (key, item) in map {
-                ordered.insert(key, canonicalize_json(item));
-            }
-            let mut normalized = serde_json::Map::new();
-            for (key, item) in ordered {
-                normalized.insert(key, item);
-            }
-            Value::Object(normalized)
-        }
-        other => other,
-    }
 }

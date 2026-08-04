@@ -103,9 +103,9 @@ Integration fixtures are run by the Rust entrypoint binary `crates/bin/integrati
 It runs curated fixtures from `tests/waymark-integration-tests` and checks parity:
 
 - Baseline execution via direct inline Python workflow logic
-- Runtime execution via Rust DAG execution + in-memory backend
-- Runtime execution via Rust DAG execution + Postgres backend
-- Backend results must exactly match the inline baseline (result or error payload)
+- Runtime execution via the VM in transient mode (in-memory, no persistence)
+- Runtime execution via the VM in durable mode (Postgres-backed execution subsystem)
+- Mode results must exactly match the inline baseline (result or error payload)
 
 Commands:
 
@@ -113,14 +113,14 @@ Commands:
 # Everything (unit + integration)
 cargo test
 
-# Run fixture integration parity (default backends: in-memory,postgres)
+# Run fixture integration parity (default modes: transient,durable)
 cargo run --bin waymark-integration-test
 
 # Run selected fixture case IDs only
 cargo run --bin waymark-integration-test -- --case simple --case parallel
 
-# Restrict parity backends (comma-separated)
-cargo run --bin waymark-integration-test -- --backends in-memory
+# Restrict parity modes (comma-separated)
+cargo run --bin waymark-integration-test -- --modes transient
 ```
 
 Prereqs:

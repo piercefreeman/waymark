@@ -507,7 +507,7 @@ jobs:
         env:
           WAYMARK_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
           WAYMARK_SKIP_UV_SYNC: "1"
-        run: cargo run --bin waymark-integration-test -- --backends in-memory,postgres
+        run: cargo run --bin waymark-integration-test -- --modes transient,durable
 
       - name: Run soak smoke test
         env:
