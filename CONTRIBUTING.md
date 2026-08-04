@@ -51,7 +51,9 @@ $ make benchmark
 writes a tracing-chrome file, and prints a pyinstrument-style summary
 via `scripts/parse_chrome_trace.py`. Override the trace path
 with `BENCH_TRACE=...`, the summary size with `BENCH_TRACE_TOP=...`, or benchmark args with
-`BENCH_ARGS="--count 200 --batch-size 50"`. Set `BENCH_RELEASE=1` to run the benchmark binary
+`BENCH_ARGS="--count 200 --base 10"`. Registration and persistence batch sizes are environment
+knobs (`WAYMARK_REGISTRATION_BATCH_MAX`, `WAYMARK_SNAPSHOT_BATCH_MAX`, …), not CLI flags.
+Set `BENCH_RELEASE=1` to run the benchmark binary
 from the release profile. `make benchmark-trace` is an alias if you want the explicit target
 name.
 

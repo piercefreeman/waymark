@@ -254,34 +254,56 @@ async fn register_instances(
     count: usize,
     rng: &mut StdRng,
 ) -> Result<usize, color_eyre::eyre::Report> {
-    for _ in 0..count {
-        let item = sample_work_item(args, rng);
-        let inputs = build_instance_inputs(&item)?;
+    let mut registered = 0usize;
 
-        let call_spec = waymark_vm_runtime_builder::builder(&workflow.metadata)
-            .first_fn()
-            .map_err(|err| eyre!("select soak entry function: {err}"))?
-            .args(inputs)
-            .map_err(|err| eyre!("match soak entry function arguments: {err}"))?;
-        let runtime = waymark_system_vm::Runtime::with_custom_entrypoint(
-            waymark_system_vm::Interpreter::default(),
-            Arc::clone(&workflow.executable),
-            call_spec,
-        )
-        .map_err(|err| eyre!("create soak VM runtime: {err}"))?;
+    while registered < count {
+        let take = (count - registered).min(args.queue_batch_size.get());
+        let mut vms = Vec::with_capacity(take);
 
-        services
-            .registration
-            .register_vm(
+        for _ in 0..take {
+            let item = sample_work_item(args, rng);
+            let inputs = build_instance_inputs(&item)?;
+
+            let call_spec = waymark_vm_runtime_builder::builder(&workflow.metadata)
+                .first_fn()
+                .map_err(|err| eyre!("select soak entry function: {err}"))?
+                .args(inputs)
+                .map_err(|err| eyre!("match soak entry function arguments: {err}"))?;
+            let runtime = waymark_system_vm::Runtime::with_custom_entrypoint(
+                waymark_system_vm::Interpreter::default(),
+                Arc::clone(&workflow.executable),
+                call_spec,
+            )
+            .map_err(|err| eyre!("create soak VM runtime: {err}"))?;
+
+            vms.push((
                 InstanceId::new_uuid_v4(),
                 workflow.workflow_version_id,
-                |serializer| runtime.snapshot(serializer),
+                runtime,
+            ));
+        }
+
+        let success = services
+            .registration
+            .register_vms(
+                nonempty_collections::NEVec::try_from_vec(vms)
+                    .expect("the batch takes at least one instance"),
+                |runtime, serializer| runtime.snapshot(serializer),
             )
             .await
-            .map_err(|err| eyre!("register soak VM: {err}"))?;
+            .map_err(|err| eyre!("register soak VMs: {err}"))?;
+        assert!(
+            matches!(
+                success,
+                waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegistrationSuccess::AllRegistered,
+            ),
+            "freshly minted instance ids can never be already registered",
+        );
+
+        registered += take;
     }
 
-    Ok(count)
+    Ok(registered)
 }
 
 #[derive(Debug, Clone)]
