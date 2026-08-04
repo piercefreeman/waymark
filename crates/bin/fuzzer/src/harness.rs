@@ -3,23 +3,26 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::{Result, bail};
+use color_eyre::eyre::bail;
 use waymark_ir_parser::parse_program;
 use waymark_worker_core::WorkerPoolError;
 use waymark_worker_inline::{ActionCallable, InlineWorkerPool};
 
 use super::generator::GeneratedCase;
 
-pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
+pub async fn run_case(
+    case_index: usize,
+    case: &GeneratedCase,
+) -> Result<(), color_eyre::eyre::Report> {
     let program = parse_program(case.source.trim()).map_err(|err| {
-        anyhow::anyhow!(
+        color_eyre::eyre::eyre!(
             "case {case_index} failed to parse: {err}\n--- program ---\n{}",
             case.source
         )
     })?;
 
     let program = waymark_vm_ast_old_proto::convert(program).map_err(|err| {
-        anyhow::anyhow!(
+        color_eyre::eyre::eyre!(
             "case {case_index} failed to convert to the VM AST: {err}\n--- program ---\n{}",
             case.source
         )
@@ -32,7 +35,7 @@ pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
 
     let runtime =
         waymark_transient_execution_bringup::setup_runtime(&program, inputs).map_err(|err| {
-            anyhow::anyhow!(
+            color_eyre::eyre::eyre!(
                 "case {case_index} failed to compile: {err}\n--- program ---\n{}",
                 case.source
             )
@@ -70,7 +73,7 @@ pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
     tracing::debug!(?driver_exit, "vm driver exited");
 
     let workflow_outcome = workflow_outcome.map_err(|_recv_error| {
-        anyhow::anyhow!(
+        color_eyre::eyre::eyre!(
             "case {case_index}: vm driver exited without delivering a workflow outcome\n--- program ---\n{}",
             case.source
         )

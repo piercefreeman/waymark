@@ -30,8 +30,8 @@ waymark-workflow-completion-core = { workspace = true }
 waymark-workflow-service-vm-executables = { workspace = true }
 waymark-workflow-service-vm-runtimes = { workspace = true }
 
-anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+color-eyre = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

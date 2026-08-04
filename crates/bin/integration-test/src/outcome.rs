@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{Context, Result};
+use color_eyre::eyre::WrapErr as _;
 use serde::{Deserialize, Serialize};
 use waymark_convert_core::TryConvert;
 
@@ -14,7 +14,10 @@ pub struct CaseOutcome {
     pub value: serde_json::Value,
 }
 
-pub fn check_case_outcome(prepared: &PreparedCase, actual: Result<CaseOutcome>) -> Option<String> {
+pub fn check_case_outcome(
+    prepared: &PreparedCase,
+    actual: Result<CaseOutcome, color_eyre::eyre::Report>,
+) -> Option<String> {
     let mismatch = match actual {
         Ok(actual) if prepared.case.id == "timeout" => validate_timeout_outcome(&actual),
         Ok(actual) if actual != prepared.expected => Some(format!(
@@ -31,12 +34,12 @@ pub fn check_case_outcome(prepared: &PreparedCase, actual: Result<CaseOutcome>) 
 
 pub fn outcome_from_vm(
     outcome: waymark_workflow_completion_core::Outcome<waymark_system_vm::ReadyValue>,
-) -> Result<CaseOutcome> {
+) -> Result<CaseOutcome, color_eyre::eyre::Report> {
     match outcome {
         waymark_workflow_completion_core::Outcome::Completion(value) => {
             let value: serde_json::Value =
                 waymark_vm_value_convert_json::Converter::try_convert(value)
-                    .context("convert workflow completion value to JSON")?;
+                    .wrap_err("convert workflow completion value to JSON")?;
             Ok(CaseOutcome {
                 status: "ok".to_string(),
                 value,
@@ -45,7 +48,7 @@ pub fn outcome_from_vm(
         waymark_workflow_completion_core::Outcome::Exception(exception) => {
             let value: serde_json::Value =
                 waymark_vm_value_convert_json::Converter::try_convert(exception)
-                    .context("convert workflow exception to JSON")?;
+                    .wrap_err("convert workflow exception to JSON")?;
             Ok(CaseOutcome {
                 status: "error".to_string(),
                 value,

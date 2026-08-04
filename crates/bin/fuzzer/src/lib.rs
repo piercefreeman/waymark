@@ -5,8 +5,8 @@ mod harness;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Result, anyhow};
 use clap::Parser;
+use color_eyre::eyre::eyre;
 use proptest::test_runner::{Config, RngSeed, TestRunner};
 
 /// CLI args for the fuzz harness.
@@ -29,7 +29,7 @@ pub struct FuzzArgs {
 
 /// Run randomized workflow fuzz cases end-to-end through parse, VM
 /// compilation, and transient execution.
-pub async fn run(args: FuzzArgs) -> Result<()> {
+pub async fn run(args: FuzzArgs) -> Result<(), color_eyre::eyre::Report> {
     let seed = args.seed.unwrap_or_else(seed_from_clock);
     let total = args.cases.max(1);
     let mut config = Config {
@@ -46,7 +46,7 @@ pub async fn run(args: FuzzArgs) -> Result<()> {
 
     for idx in 0..total {
         let case = generator::generate_case(&mut runner, args.max_steps.max(1), idx)
-            .map_err(|err| anyhow!("failed to generate case {idx}: {err}"))?;
+            .map_err(|err| eyre!("failed to generate case {idx}: {err}"))?;
         harness::run_case(idx, &case).await?;
     }
 

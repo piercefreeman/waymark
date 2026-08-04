@@ -7,7 +7,7 @@ edition = "2024"
 [dependencies]
 waymark-fn-main-common = { workspace = true }
 
-anyhow = { workspace = true }
+color-eyre = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tonic = { workspace = true }
 tonic-health = { workspace = true }

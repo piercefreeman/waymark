@@ -25,7 +25,7 @@ waymark-workflow-service-vm-executables = { workspace = true }
 waymark-workflow-service-vm-runtimes = { workspace = true }
 waymark-workflow-service-vm-runtimes-backend = { workspace = true }
 
-anyhow = { workspace = true }
+color-eyre = { workspace = true }
 envfury = { workspace = true }
 futures-core = { workspace = true }
 nonempty-collections = { workspace = true }

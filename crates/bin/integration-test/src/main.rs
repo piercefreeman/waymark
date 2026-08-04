@@ -18,11 +18,11 @@ mod worker_pool;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
 use clap::Parser as _;
+use color_eyre::eyre::{WrapErr as _, bail};
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), waymark_fn_main_common::Error> {
     waymark_fn_main_common::init()?;
 
     let args = cli::Args::parse();
@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
     let mut prepared_cases = Vec::new();
     for case in selected_cases {
         prepared_cases.push(
-            ground_truth::prepare_case(&repo_root, case.clone()).with_context(|| {
+            ground_truth::prepare_case(&repo_root, case.clone()).wrap_err_with(|| {
                 format!(
                     "prepare fixture case '{}' ({}::{})",
                     case.id, case.module_name, case.workflow_class
@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
                     .await
             }
         }
-        .with_context(|| format!("run {} execution mode", mode.label()))?;
+        .wrap_err_with(|| format!("run {} execution mode", mode.label()))?;
 
         comparisons += prepared_cases.len();
         failures.extend(

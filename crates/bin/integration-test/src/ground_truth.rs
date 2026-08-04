@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result, bail};
+use color_eyre::eyre::{ContextCompat as _, WrapErr as _, bail};
 use serde::Deserialize;
 use waymark_convert_core::Convert;
 use waymark_proto::ast as ir;
@@ -34,9 +34,12 @@ pub struct PreparedCase {
     pub program: waymark_vm_ast_old::Program,
 }
 
-pub fn prepare_case(repo_root: &Path, case: FixtureCase) -> Result<PreparedCase> {
+pub fn prepare_case(
+    repo_root: &Path,
+    case: FixtureCase,
+) -> Result<PreparedCase, color_eyre::eyre::Report> {
     let kwargs_value: serde_json::Value = serde_json::from_str(case.kwargs_json)
-        .with_context(|| format!("parse kwargs JSON for case '{}'", case.id))?;
+        .wrap_err_with(|| format!("parse kwargs JSON for case '{}'", case.id))?;
     let serde_json::Value::Object(kwargs) = kwargs_value else {
         bail!("case '{}' kwargs JSON must be an object", case.id)
     };
@@ -44,13 +47,13 @@ pub fn prepare_case(repo_root: &Path, case: FixtureCase) -> Result<PreparedCase>
     let helper = run_python_helper(repo_root, &case)?;
 
     let program = <ir::Program as prost::Message>::decode(&helper.registration.ir_bytes[..])
-        .with_context(|| {
+        .wrap_err_with(|| {
             format!(
                 "decode IR bytes for case '{}' ({})",
                 case.id, case.workflow_class
             )
         })?;
-    let program = waymark_vm_ast_old_proto::convert(program).with_context(|| {
+    let program = waymark_vm_ast_old_proto::convert(program).wrap_err_with(|| {
         format!(
             "convert IR to the VM AST for case '{}' ({})",
             case.id, case.workflow_class
@@ -74,7 +77,7 @@ pub fn prepare_case(repo_root: &Path, case: FixtureCase) -> Result<PreparedCase>
     })
 }
 
-fn helper_python(repo_root: &Path) -> Result<PathBuf> {
+fn helper_python(repo_root: &Path) -> Result<PathBuf, color_eyre::eyre::Report> {
     let python = repo_root.join(".venv").join("bin").join("python");
     if python.exists() {
         Ok(python)
@@ -86,7 +89,10 @@ fn helper_python(repo_root: &Path) -> Result<PathBuf> {
     }
 }
 
-fn run_python_helper(repo_root: &Path, case: &FixtureCase) -> Result<HelperOutput> {
+fn run_python_helper(
+    repo_root: &Path,
+    case: &FixtureCase,
+) -> Result<HelperOutput, color_eyre::eyre::Report> {
     let helper_script = repo_root.join("scripts").join("fixture_ground_truth.py");
     let python = helper_python(repo_root)?;
 
@@ -100,7 +106,7 @@ fn run_python_helper(repo_root: &Path, case: &FixtureCase) -> Result<HelperOutpu
         .arg(case.kwargs_json)
         .current_dir(repo_root)
         .output()
-        .with_context(|| format!("run python helper for case '{}'", case.id))?;
+        .wrap_err_with(|| format!("run python helper for case '{}'", case.id))?;
 
     if !output.status.success() {
         bail!(
@@ -112,7 +118,7 @@ fn run_python_helper(repo_root: &Path, case: &FixtureCase) -> Result<HelperOutpu
     }
 
     let stdout = String::from_utf8(output.stdout)
-        .with_context(|| format!("decode python helper stdout for case '{}'", case.id))?;
+        .wrap_err_with(|| format!("decode python helper stdout for case '{}'", case.id))?;
     let payload = stdout
         .lines()
         .rev()
@@ -120,5 +126,5 @@ fn run_python_helper(repo_root: &Path, case: &FixtureCase) -> Result<HelperOutpu
         .with_context(|| format!("python helper produced no payload for case '{}'", case.id))?;
 
     serde_json::from_str(payload)
-        .with_context(|| format!("parse python helper JSON payload for case '{}'", case.id))
+        .wrap_err_with(|| format!("parse python helper JSON payload for case '{}'", case.id))
 }
