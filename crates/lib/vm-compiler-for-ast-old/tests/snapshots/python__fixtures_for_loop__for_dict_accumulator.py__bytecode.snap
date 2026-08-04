@@ -1,11 +1,50 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_for_loop/for_dict_accumulator.py [compilation error]"
+expression: bytecode for python/tests/fixtures_for_loop/for_dict_accumulator.py
 ---
-FunctionCompiler(
-    Unsupported(
-        AssignmentTargetCount {
-            count: 2,
-        },
-    ),
-)
+fn main(input: [items], output: []):
+    result = {}
+    for item in items:
+        key, value = @for_dict_accumulator.dict_accum_get_key_value(item=item)
+        result[key] = value
+    return result
+---
+f0: [18 registers]
+  s0:
+    PureSet(MakeDict { dst: r1, entries: [] })
+    PureSet(Copy { dst: r2, src: r0 })
+    PureSet(LoadConst { dst: r3, value: Int(0) })
+    PureSet(Length { dst: r4, src: r2 })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r5, a: r3, b: r4 } })
+    CoreSet(JumpIf { target_state: s2, cond: r5 })
+    CoreSet(Jump { target_state: s4 })
+  s2:
+    PureSet(Index { dst: r5, object: r2, index: r3 })
+    PureSet(Copy { dst: r6, src: r5 })
+    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("dict_accum_get_key_value"), args: [r6], resume: s5 })
+  s3:
+    PureSet(LoadConst { dst: r5, value: Int(1) })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r3, a: r3, b: r5 } })
+    CoreSet(Jump { target_state: s1 })
+  s4:
+    CoreSet(Return { src: r1 })
+  s5:
+    CoreSet(Await { dst: r5, src: r5, resume: s6 })
+  s6:
+    PureSet(Length { dst: r9, src: r5 })
+    PureSet(LoadConst { dst: r10, value: Int(2) })
+    PureSet(Binary { kind: Eq, op: BinaryOp { dst: r11, a: r9, b: r10 } })
+    CoreSet(JumpIf { target_state: s7, cond: r11 })
+    PureSet(LoadConst { dst: r12, value: String("ValueError") })
+    PureSet(LoadConst { dst: r13, value: None })
+    PureSet(MakeException { dst: r14, type_id: r12, details: r13 })
+    CoreSet(Raise { src: r14 })
+  s7:
+    PureSet(LoadConst { dst: r15, value: Int(0) })
+    PureSet(Index { dst: r7, object: r5, index: r15 })
+    PureSet(LoadConst { dst: r16, value: Int(1) })
+    PureSet(Index { dst: r8, object: r5, index: r16 })
+    PureSet(Copy { dst: r17, src: r8 })
+    CoreSet(Jump { target_state: s3 })
