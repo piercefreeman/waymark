@@ -193,12 +193,19 @@ where
         call: FunctionCallPlan<'_>,
         dst: &Marked<RegisterHandle, PromiseMarker>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        // Arguments compile in source order — any effects nested in them run
+        // as written — and bind to the callee's input slots by the plan's
+        // input bindings.
         let args = compile_expr_registers(
             call.args(),
-            |arg| arg,
+            |arg| *arg,
             |arg| self.compile_expr(arg, ResultTarget::Allocate),
         )?;
-        let arg_registers = args.iter().map(RegisterHandle::register).collect();
+        let arg_registers = call
+            .input_bindings()
+            .iter()
+            .map(|&argument_index| args[argument_index].register())
+            .collect();
         self.context
             .emitter
             .emit_call(dst.marked(), call.function_id(), arg_registers);

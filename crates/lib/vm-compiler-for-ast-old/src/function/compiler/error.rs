@@ -37,17 +37,37 @@ pub enum Error<LiteralLoweringError, ActionLoweringError> {
         name: String,
     },
 
-    /// A function call used the wrong number of positional arguments.
-    #[error("function `{function}` expects {expected} positional arguments but received {actual}")]
+    /// A function call supplied the wrong number of arguments.
+    #[error("function `{function}` expects {expected} arguments but received {actual}")]
     FunctionArityMismatch {
         /// The function name.
         function: String,
 
-        /// The expected positional arity.
+        /// The number of inputs the function declares.
         expected: usize,
 
-        /// The provided positional arity.
+        /// The number of arguments supplied, positional and keyword combined.
         actual: usize,
+    },
+
+    /// A function call passed a keyword argument the callee does not declare.
+    #[error("function `{function}` does not declare an input named `{keyword}`")]
+    UnknownKeywordArgument {
+        /// The function name.
+        function: String,
+
+        /// The undeclared keyword argument name.
+        keyword: String,
+    },
+
+    /// A function call bound the same callee input more than once.
+    #[error("function `{function}` received more than one value for input `{input}`")]
+    DuplicateFunctionArgument {
+        /// The function name.
+        function: String,
+
+        /// The input name bound more than once.
+        input: String,
     },
 
     /// A timeout policy duration cannot be represented in bytecode.
