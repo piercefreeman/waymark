@@ -19,7 +19,6 @@ waymark-action-runtime-metadata-codec = { path = "crates/lib/action-runtime-meta
 waymark-action-runtime-metadata-compat = { path = "crates/lib/action-runtime-metadata-compat" }
 waymark-action-runtime-worker-pool = { path = "crates/lib/action-runtime-worker-pool" }
 waymark-action-runtime-worker-stream = { path = "crates/lib/action-runtime-worker-stream" }
-waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
 waymark-backend-memory = { path = "crates/lib/backend-memory" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
 waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migrations" }
@@ -86,9 +85,7 @@ waymark-support-test = { path = "crates/lib/support-test" }
 waymark-support-test-python = { path = "crates/lib/support-test-python" }
 waymark-synthetic-exception = { path = "crates/lib/synthetic-exception" }
 waymark-system-vm = { path = "crates/lib/system-vm" }
-waymark-tick-loop = { path = "crates/lib/tick-loop" }
 waymark-timed = { path = "crates/lib/timed" }
-waymark-timed-channel = { path = "crates/lib/timed-channel" }
 waymark-timed-future = { path = "crates/lib/timed-future" }
 waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
 waymark-transient-execution-bringup = { path = "crates/lib/transient-execution-bringup" }
@@ -97,7 +94,6 @@ waymark-transient-execution-worker-stream-bringup = { path = "crates/lib/transie
 waymark-transient-sleep-reconciler = { path = "crates/lib/transient-sleep-reconciler" }
 waymark-typed-vec-serde = { path = "crates/lib/typed-vec-serde" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
-waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-vm-ast-old = { path = "crates/lib/vm-ast-old" }
 waymark-vm-ast-old-fmt = { path = "crates/lib/vm-ast-old-fmt" }
 waymark-vm-ast-old-helpers = { path = "crates/lib/vm-ast-old-helpers" }
