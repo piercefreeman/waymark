@@ -9,13 +9,9 @@ waymark-action-completions-reconciler-backend = { workspace = true }
 waymark-action-effect-reconciler-backend = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-backends-core = { workspace = true }
-waymark-core-backend = { workspace = true }
-waymark-dag = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-metrics-util = { workspace = true }
 waymark-observability = { workspace = true }
-waymark-runner-execution-core = { workspace = true }
-waymark-runner-state = { workspace = true }
 waymark-secret-string = { workspace = true }
 waymark-sleep-reconciler-backend = { workspace = true }
 waymark-state-vm-executables-backend = { workspace = true }
@@ -25,10 +21,8 @@ waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 waymark-webapp-backend = { workspace = true }
 waymark-webapp-core = { workspace = true }
-waymark-worker-core = { workspace = true }
 waymark-worker-status-backend = { workspace = true }
 waymark-workflow-completion-backend = { workspace = true }
-waymark-workflow-registry-backend = { workspace = true }
 waymark-workflow-service-vm-executables-backend = { workspace = true }
 waymark-workflow-service-vm-runtimes-backend = { workspace = true }
 waymark-workload-pinning-backend = { workspace = true }
@@ -38,13 +32,9 @@ chrono = { workspace = true }
 function_name = { workspace = true }
 metrics = { workspace = true }
 nonempty-collections = { workspace = true }
-rmp-serde = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "uuid", "chrono", "runtime-tokio"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
-tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
