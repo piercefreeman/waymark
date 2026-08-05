@@ -131,7 +131,7 @@ mod tests {
     use waymark_action_runtime_metadata::{ActionCallCorrelation, WithVmId};
     use waymark_action_runtime_metadata_codec::Encode as _;
     use waymark_ids::{ExecutionId, InstanceId};
-    use waymark_runner_executor_core::UncheckedExecutionResult;
+    use waymark_worker_core::UncheckedExecutionResult;
 
     use super::*;
 

@@ -16,7 +16,6 @@ use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::ast as ir;
 use waymark_runner::replay_action_kwargs;
 use waymark_runner_execution_core::{ExecutionNode, NodeStatus};
-use waymark_runner_executor_core::UncheckedExecutionResult;
 use waymark_runner_expr_fmt::format_value;
 use waymark_runner_state::{ActionCallSpec, RunnerState, ValueExpr};
 use waymark_timed_future::TimedFutureExt as _;
@@ -25,6 +24,7 @@ use waymark_webapp_core::{
     InstanceSummary, ScheduleDetail, ScheduleInvocationSummary, ScheduleSummary, TimelineEntry,
     WorkerActionRow, WorkerAggregateStats, WorkerStatus,
 };
+use waymark_worker_core::UncheckedExecutionResult;
 
 const INSTANCE_STATUS_FALLBACK_SQL: &str = r#"
 CASE
