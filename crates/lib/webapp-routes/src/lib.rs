@@ -293,18 +293,37 @@ mod tests {
         body::Body,
         http::{Request, StatusCode},
     };
+    use chrono::Utc;
     use http_body_util::BodyExt;
     use serial_test::serial;
     use sqlx::postgres::PgPoolOptions;
     use tower::util::ServiceExt;
     use uuid::Uuid;
-    use waymark_backend_memory::MemoryBackend;
     use waymark_backend_postgres::PostgresBackend;
-    use waymark_worker_status_backend::{WorkerStatusBackend as _, WorkerStatusUpdate};
+    use waymark_webapp_core::WorkerStatus;
+    use waymark_worker_status_backend::WorkerStatusUpdate;
 
     use super::{WebappState, build_router, init_templates};
 
     use waymark_support_test::postgres_setup;
+
+    /// In-memory `WebappBackend` double serving canned worker statuses.
+    struct StubWebappBackend {
+        statuses: Vec<WorkerStatus>,
+    }
+
+    impl waymark_webapp_backend::WebappBackend for StubWebappBackend {
+        async fn worker_status_table_exists(&self) -> bool {
+            true
+        }
+
+        async fn get_worker_statuses(
+            &self,
+            _window_minutes: i64,
+        ) -> waymark_backends_core::BackendResult<Vec<WorkerStatus>> {
+            Ok(self.statuses.clone())
+        }
+    }
 
     async fn call_route<WebappBackend>(
         backend: Arc<WebappBackend>,
@@ -343,31 +362,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn high_level_pages_resolve_with_memory_backend() {
-        let backend = MemoryBackend::new();
-        backend
-            .upsert_worker_status(&WorkerStatusUpdate {
-                pool_id: Uuid::new_v4(),
+    async fn high_level_pages_resolve_with_stub_backend() {
+        let pool_id = Uuid::new_v4();
+        let backend = Arc::new(StubWebappBackend {
+            statuses: vec![WorkerStatus {
+                pool_id,
+                active_workers: 2,
                 throughput_per_min: 120.0,
+                actions_per_sec: 2.0,
                 total_completed: 42,
                 last_action_at: None,
+                updated_at: Utc::now(),
                 median_dequeue_ms: Some(5),
                 median_handling_ms: Some(18),
-                dispatch_queue_size: 3,
-                total_in_flight: 1,
-                active_workers: 2,
-                actions_per_sec: 2.0,
+                dispatch_queue_size: Some(3),
+                total_in_flight: Some(1),
                 median_instance_duration_secs: Some(0.25),
                 active_instance_count: 1,
                 total_instances_completed: 7,
                 instances_per_sec: 0.2,
                 instances_per_min: 12.0,
                 time_series: None,
-            })
-            .await
-            .expect("worker status upsert");
-
-        let backend = Arc::new(backend);
+            }],
+        });
         let routes: Vec<(String, &str)> = vec![
             ("/".to_string(), "Workers"),
             ("/workers".to_string(), "Workers"),
