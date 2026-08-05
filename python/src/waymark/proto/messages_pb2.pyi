@@ -1207,7 +1207,7 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
 
     @property
     def registration(self) -> Global___WorkflowRegistration:
-        """Optional: workflow registration to register the DAG before scheduling.
+        """Optional: workflow registration to register the workflow before scheduling.
         If provided, the workflow version will be registered (or updated) before
         the schedule is created. This ensures the workflow can execute when the
         schedule fires.

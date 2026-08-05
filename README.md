@@ -73,7 +73,7 @@ async def welcome_users(user_ids: list[str]):
     await workflow.run(user_ids)
 ```
 
-When you call `await workflow.run()`, we parse the AST of your `run()` method and compile it into the Waymark Runtime Language. The `for` loop becomes a filter node, the `asyncio.gather` becomes a parallel fan-out. None of this executes inline in your webserver, instead it's queued to Postgres and orchestrated by the Rust runtime across your worker cluster.
+When you call `await workflow.run()`, we parse the AST of your `run()` method and compile it into the Waymark Runtime Language. The `for` loop becomes a loop in the compiled program, the `asyncio.gather` becomes a parallel fan-out. None of this executes inline in your webserver, instead it's queued to Postgres and orchestrated by the Rust runtime across your worker cluster.
 
 **Actions** are the distributed work: network calls, database queries, anything that can fail and should be retried independently.
 
@@ -103,7 +103,7 @@ Workflows can get much more complex than the example above:
 
 1. Branching control flows
 
-    Use if statements, for loops, or any other Python primitives within the control logic. We will automatically detect these branches and compile them into a DAG node that gets executed just like your other actions.
+    Use if statements, for loops, or any other Python primitives within the control logic. We will automatically detect these branches and compile them into the workflow program, so they're executed by the runtime just like your actions.
 
     ```python
     async def run(self, user_id: str) -> Summary:
@@ -160,8 +160,7 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN for worker runtime state/backend | required |
 | `WAYMARK_WORKER_COUNT` | Number of Python worker processes | host CPU count (`available_parallelism`) |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per Python worker | `10` |
-| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max in-memory instances across runloop shards | `500` |
-| `WAYMARK_EXECUTOR_SHARDS` | Number of executor shards | host CPU count (`available_parallelism`) |
+| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently | `500` |
 | `WAYMARK_USER_MODULE` | Comma-separated Python modules preloaded in workers | unset |
 | `WAYMARK_MAX_ACTION_LIFECYCLE` | Max actions per worker before worker recycle | unset (no recycle limit) |
 | `WAYMARK_WEBAPP_ENABLED` | Enable embedded webapp | `false` |
@@ -172,16 +171,8 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
 | `WAYMARK_WORKER_GRPC_ADDR` | gRPC bind addr used by the Python worker bridge server | `127.0.0.1:24118` |
-| `WAYMARK_POLL_INTERVAL_MS` | Queue poll interval for runloop | `100` |
-| `WAYMARK_INSTANCE_DONE_BATCH_SIZE` | Batch size for persisting completed instances | unset (uses `WAYMARK_MAX_CONCURRENT_INSTANCES`) |
-| `WAYMARK_PERSIST_INTERVAL_MS` | Persistence flush interval | `500` |
-| `WAYMARK_LOCK_TTL_MS` | Queue lock TTL | `15000` |
-| `WAYMARK_LOCK_HEARTBEAT_MS` | Queue lock heartbeat interval | `5000` |
-| `WAYMARK_EVICT_SLEEP_THRESHOLD_MS` | Sleep threshold for evicting idle instances from memory | `10000` |
-| `WAYMARK_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS` | Expired lock reclaim sweep interval | `15000` (clamped to min `1`) |
-| `WAYMARK_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE` | Max locks reclaimed per sweep | `1000` (clamped to min `1`) |
-| `WAYMARK_SCHEDULER_POLL_INTERVAL_MS` | Scheduler poll interval | `1000` |
-| `WAYMARK_SCHEDULER_BATCH_SIZE` | Scheduler due-item batch size | `100` |
+| `WAYMARK_LOCK_TTL_MS` | Workload pinning TTL | `15000` |
+| `WAYMARK_LOCK_HEARTBEAT_MS` | Workload pinning heartbeat interval | `5000` |
 | `WAYMARK_RUNNER_PROFILE_INTERVAL_MS` | Worker status/profile publish interval | `5000` (clamped to min `1`) |
 
 If you need to customize Python startup/bootstrap behavior (for example custom boot commands), see `Bootstrap / Python SDK overrides` below.
@@ -227,7 +218,7 @@ Waymark is in an early alpha. Particular areas of focus include:
 1. Performance tuning
 1. Unit and integration tests
 
-If you have a particular workflow that you think should be working but isn't yet producing the correct DAG (you can visualize it via CLI by `.visualize()`) please file an issue.
+If you have a particular workflow that you think should be working but isn't yet compiling correctly, please file an issue.
 
 ## Philosophy
 
@@ -250,9 +241,9 @@ Waymark takes a different approach from replay-based workflow engines like Tempo
 | Approach | How it works | Constraint on users |
 |----------|-------------|-------------------|
 | **Temporal/Vercel Workflows** | Replay-based. Your workflow code re-executes from the beginning on each step; completed activities return cached results. | Code must be deterministic. No `random()`, no `datetime.now()`, no side effects in workflow logic. |
-| **Waymark** | Compile-once. Parse your Python AST → intermediate representation → DAG. Execute the DAG directly. Your code never re-runs. | Code must use supported patterns. But once parsed, a node is self-aware where it lives in the computation graph. |
+| **Waymark** | Compile-once. Parse your Python AST → intermediate representation → bytecode. A durable VM executes the bytecode. Your code never re-runs. | Code must use supported patterns. But once compiled, the runtime always knows exactly where the workflow is in its execution. |
 
-When you decorate a class with `@workflow`, Waymark parses the `run()` method's AST and compiles it to an intermediate representation (IR). This IR captures your control flow—loops, conditionals, parallel branches—as a static directed graph. The DAG is stored in Postgres and executed by the Rust runtime. Your original Python run definition is never re-executed during workflow recovery.
+When you decorate a class with `@workflow`, Waymark parses the `run()` method's AST and compiles it to an intermediate representation (IR). This IR captures your control flow—loops, conditionals, parallel branches—and is lowered to bytecode for a durable virtual machine. The bytecode is stored in Postgres and executed by the Rust runtime, which snapshots VM state as it goes. Your original Python run definition is never re-executed during workflow recovery.
 
 This is convenient in practice because it means that if your workflow compiles, your workflow will run as advertised. There's no need to hack around stdlib functions that are non-deterministic (like time/uuid/etc) because you'll get an error on compilation to switch these into an explicit `@action` where all non-determinism should live.
 
