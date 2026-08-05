@@ -5844,7 +5844,6 @@ name = "waymark-webapp-routes"
 version = "0.1.0"
 dependencies = [
  "axum",
- "chrono",
  "http-body-util",
  "serde",
  "serde_json",
@@ -5857,7 +5856,6 @@ dependencies = [
  "uuid",
  "waymark-backend-memory",
  "waymark-backend-postgres",
- "waymark-ids",
  "waymark-pool-status",
  "waymark-support-test",
  "waymark-webapp-backend",
