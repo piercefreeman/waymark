@@ -4391,27 +4391,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-backend-memory"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "nonempty-collections",
- "rmp-serde",
- "serde_json",
- "thiserror",
- "uuid",
- "waymark-backends-core",
- "waymark-core-backend",
- "waymark-ids",
- "waymark-scheduler-backend",
- "waymark-scheduler-core",
- "waymark-webapp-backend",
- "waymark-webapp-core",
- "waymark-worker-status-backend",
- "waymark-workflow-registry-backend",
-]
-
-[[package]]
 name = "waymark-backend-postgres"
 version = "0.1.0"
 dependencies = [
@@ -4419,7 +4398,6 @@ dependencies = [
  "function_name",
  "metrics",
  "nonempty-collections",
- "prost 0.12.6",
  "rmp-serde",
  "serde",
  "serde_json",
@@ -4435,16 +4413,10 @@ dependencies = [
  "waymark-backends-core",
  "waymark-core-backend",
  "waymark-dag",
- "waymark-dag-builder",
  "waymark-ids",
- "waymark-ir-conversions",
- "waymark-ir-parser",
  "waymark-metrics-util",
  "waymark-observability",
- "waymark-proto",
- "waymark-runner",
  "waymark-runner-execution-core",
- "waymark-runner-expr-fmt",
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
@@ -6026,7 +5998,6 @@ name = "waymark-webapp-backend"
 version = "0.1.0"
 dependencies = [
  "waymark-backends-core",
- "waymark-ids",
  "waymark-webapp-core",
 ]
 
@@ -6056,7 +6027,6 @@ dependencies = [
  "chrono",
  "serde",
  "uuid",
- "waymark-ids",
 ]
 
 [[package]]
@@ -6064,6 +6034,7 @@ name = "waymark-webapp-routes"
 version = "0.1.0"
 dependencies = [
  "axum 0.8.8",
+ "chrono",
  "http-body-util",
  "serde",
  "serde_json",
@@ -6074,8 +6045,8 @@ dependencies = [
  "tower 0.5.3",
  "tracing",
  "uuid",
- "waymark-backend-memory",
  "waymark-backend-postgres",
+ "waymark-backends-core",
  "waymark-pool-status",
  "waymark-support-test",
  "waymark-webapp-backend",
