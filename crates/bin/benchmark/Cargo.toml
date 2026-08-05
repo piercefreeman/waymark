@@ -6,7 +6,6 @@ edition = "2024"
 
 [dependencies]
 waymark-backend-postgres = { workspace = true }
-waymark-backend-postgres-migrations = { workspace = true }
 waymark-convert-core = { workspace = true }
 waymark-execution-bringup = { workspace = true }
 waymark-fn-main-common = { workspace = true }

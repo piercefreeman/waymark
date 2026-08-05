@@ -3,6 +3,7 @@
 mod action_call_completions;
 mod action_call_requests;
 mod macros;
+pub mod reset;
 mod sleep_requests;
 mod state_vm_executables;
 #[cfg(test)]
