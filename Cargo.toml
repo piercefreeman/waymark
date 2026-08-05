@@ -38,8 +38,6 @@ waymark-extcall-reconciler-action-compat = { path = "crates/lib/extcall-reconcil
 waymark-extcall-reconciler-core = { path = "crates/lib/extcall-reconciler-core" }
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-fullset-effect-handler = { path = "crates/lib/fullset-effect-handler" }
-waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backend" }
-waymark-garbage-collector-config = { path = "crates/lib/garbage-collector-config" }
 waymark-ids = { path = "crates/lib/ids" }
 waymark-ir-conversions = { path = "crates/lib/ir-conversions" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
