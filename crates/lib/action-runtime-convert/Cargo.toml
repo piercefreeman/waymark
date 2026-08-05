@@ -9,10 +9,10 @@ waymark-action-runtime-core = { workspace = true }
 waymark-convert-core = { workspace = true }
 waymark-message-conversions = { workspace = true }
 waymark-proto = { workspace = true }
-waymark-runner-executor-core = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-value = { workspace = true }
 waymark-vm-value-convert-core = { workspace = true }
 waymark-vm-value-convert-json = { workspace = true }
+waymark-worker-core = { workspace = true }
 
 serde_json = { workspace = true }
