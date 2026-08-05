@@ -4380,7 +4380,6 @@ dependencies = [
  "envfury",
  "thiserror",
  "waymark-nonzero-duration",
- "waymark-scheduler-config",
  "waymark-secret-string",
  "waymark-webapp-config",
 ]
@@ -4861,10 +4860,6 @@ dependencies = [
  "waymark-ids",
  "waymark-scheduler-core",
 ]
-
-[[package]]
-name = "waymark-scheduler-config"
-version = "0.1.0"
 
 [[package]]
 name = "waymark-scheduler-core"
