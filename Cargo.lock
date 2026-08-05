@@ -653,12 +653,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
-name = "const-sub-array"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e798d55ecd6c99d12d04e12831bbced2a44e2a8197493dd741818999698dcc0d"
-
-[[package]]
 name = "const_fn"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3104,12 +3098,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha1_smol"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
-
-[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3994,19 +3982,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
-name = "typle"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad39ef9a1dca242cfd2ff54175b03fbccc389423bc66a360c651a8ed00afe69c"
-dependencies = [
- "either",
- "proc-macro2",
- "quote",
- "syn",
- "zip_clone",
-]
-
-[[package]]
 name = "ucd-trie"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4665,29 +4640,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-core-backend-metadata"
-version = "0.1.0"
-dependencies = [
- "derive-where",
- "typle",
-]
-
-[[package]]
-name = "waymark-core-backend2"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "derive-where",
- "either",
- "nonempty-collections",
- "serde",
- "waymark-core-backend-metadata",
- "waymark-ids",
- "waymark-runner-execution-core",
- "waymark-runner-executor-core",
-]
-
-[[package]]
 name = "waymark-dag"
 version = "0.1.0"
 dependencies = [
@@ -4716,14 +4668,6 @@ dependencies = [
  "waymark-dag-builder",
  "waymark-ir-parser",
  "waymark-proto",
-]
-
-[[package]]
-name = "waymark-dag-viz"
-version = "0.1.0"
-dependencies = [
- "thiserror",
- "waymark-dag",
 ]
 
 [[package]]
@@ -4950,30 +4894,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-ir-format"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "waymark-ir-parser",
- "waymark-proto",
-]
-
-[[package]]
 name = "waymark-ir-parser"
 version = "0.1.0"
 dependencies = [
  "regex",
  "waymark-proto",
-]
-
-[[package]]
-name = "waymark-jsonlines"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
 ]
 
 [[package]]
@@ -5114,17 +5039,6 @@ dependencies = [
  "waymark-dag",
  "waymark-ids",
  "waymark-runner-expr",
-]
-
-[[package]]
-name = "waymark-runner-execution-id"
-version = "0.1.0"
-dependencies = [
- "const-sub-array",
- "serde",
- "sha1_smol",
- "uuid",
- "waymark-ids",
 ]
 
 [[package]]
@@ -7131,12 +7045,6 @@ dependencies = [
  "quote",
  "syn",
 ]
-
-[[package]]
-name = "zip_clone"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a3369cd8e772810a22f0f20bee39772ade077ee8aabc6d914911e53c181e458"
 
 [[package]]
 name = "zmij"
