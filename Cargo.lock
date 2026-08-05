@@ -4415,7 +4415,6 @@ dependencies = [
  "uuid",
  "waymark-backends-core",
  "waymark-core-backend",
- "waymark-garbage-collector-backend",
  "waymark-ids",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
@@ -4450,7 +4449,6 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
- "waymark-garbage-collector-backend",
  "waymark-ids",
  "waymark-ir-conversions",
  "waymark-ir-parser",
@@ -4614,7 +4612,6 @@ version = "0.1.0"
 dependencies = [
  "envfury",
  "thiserror",
- "waymark-garbage-collector-config",
  "waymark-nonzero-duration",
  "waymark-scheduler-config",
  "waymark-secret-string",
@@ -4820,18 +4817,6 @@ dependencies = [
  "waymark-worker-inline",
  "waymark-workflow-completion-core",
 ]
-
-[[package]]
-name = "waymark-garbage-collector-backend"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "waymark-backends-core",
-]
-
-[[package]]
-name = "waymark-garbage-collector-config"
-version = "0.1.0"
 
 [[package]]
 name = "waymark-ids"

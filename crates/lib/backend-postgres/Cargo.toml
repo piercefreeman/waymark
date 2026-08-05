@@ -12,7 +12,6 @@ waymark-backends-core = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-dag-builder = { workspace = true }
-waymark-garbage-collector-backend = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-ir-conversions = { workspace = true }
 waymark-metrics-util = { workspace = true }

@@ -4,9 +4,7 @@ mod parse;
 
 use std::net::SocketAddr;
 use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
-use std::time::Duration;
 
-use waymark_garbage_collector_config::GarbageCollectorConfig;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_scheduler_config::SchedulerConfig;
 use waymark_secret_string::SecretString;
@@ -43,7 +41,6 @@ pub struct WorkerConfig {
     pub expired_lock_reclaimer_interval: NonZeroDuration,
     pub expired_lock_reclaimer_batch_size: NonZeroUsize,
     pub scheduler: SchedulerConfig,
-    pub garbage_collector: GarbageCollectorConfig,
     pub webapp: waymark_webapp_config::WebappConfig,
     pub profile_interval: NonZeroDuration,
     pub vm_retention: NonZeroDuration,
@@ -170,26 +167,6 @@ impl WorkerConfig {
             }
         };
 
-        let garbage_collector = {
-            let FromMillisMin::<_, 1>(interval) = envfury::or_into(
-                "WAYMARK_GARBAGE_COLLECTOR_INTERVAL_MS",
-                Duration::from_millis(5 * 60 * 1000),
-            )?;
-
-            let batch_size: NonZeroUsize =
-                envfury::or_parse("WAYMARK_GARBAGE_COLLECTOR_BATCH_SIZE", "100")?;
-
-            let retention_hours: NonZeroU64 =
-                envfury::or_parse("WAYMARK_GARBAGE_COLLECTOR_RETENTION_HOURS", "24")?;
-            let retention = Duration::from_secs(retention_hours.get() * 60 * 60);
-
-            GarbageCollectorConfig {
-                interval,
-                batch_size: batch_size.get(),
-                retention,
-            }
-        };
-
         let webapp = waymark_webapp_config::WebappConfig::from_env();
 
         let FromMillisMin::<_, 1>(profile_interval) =
@@ -237,7 +214,6 @@ impl WorkerConfig {
             expired_lock_reclaimer_interval,
             expired_lock_reclaimer_batch_size,
             scheduler,
-            garbage_collector,
             webapp,
             profile_interval,
             vm_retention,
