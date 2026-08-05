@@ -160,8 +160,7 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN for worker runtime state/backend | required |
 | `WAYMARK_WORKER_COUNT` | Number of Python worker processes | host CPU count (`available_parallelism`) |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per Python worker | `10` |
-| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max in-memory instances across runloop shards | `500` |
-| `WAYMARK_EXECUTOR_SHARDS` | Number of executor shards | host CPU count (`available_parallelism`) |
+| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently | `500` |
 | `WAYMARK_USER_MODULE` | Comma-separated Python modules preloaded in workers | unset |
 | `WAYMARK_MAX_ACTION_LIFECYCLE` | Max actions per worker before worker recycle | unset (no recycle limit) |
 | `WAYMARK_WEBAPP_ENABLED` | Enable embedded webapp | `false` |
@@ -172,16 +171,8 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
 | `WAYMARK_WORKER_GRPC_ADDR` | gRPC bind addr used by the Python worker bridge server | `127.0.0.1:24118` |
-| `WAYMARK_POLL_INTERVAL_MS` | Queue poll interval for runloop | `100` |
-| `WAYMARK_INSTANCE_DONE_BATCH_SIZE` | Batch size for persisting completed instances | unset (uses `WAYMARK_MAX_CONCURRENT_INSTANCES`) |
-| `WAYMARK_PERSIST_INTERVAL_MS` | Persistence flush interval | `500` |
-| `WAYMARK_LOCK_TTL_MS` | Queue lock TTL | `15000` |
-| `WAYMARK_LOCK_HEARTBEAT_MS` | Queue lock heartbeat interval | `5000` |
-| `WAYMARK_EVICT_SLEEP_THRESHOLD_MS` | Sleep threshold for evicting idle instances from memory | `10000` |
-| `WAYMARK_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS` | Expired lock reclaim sweep interval | `15000` (clamped to min `1`) |
-| `WAYMARK_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE` | Max locks reclaimed per sweep | `1000` (clamped to min `1`) |
-| `WAYMARK_SCHEDULER_POLL_INTERVAL_MS` | Scheduler poll interval | `1000` |
-| `WAYMARK_SCHEDULER_BATCH_SIZE` | Scheduler due-item batch size | `100` |
+| `WAYMARK_LOCK_TTL_MS` | Workload pinning TTL | `15000` |
+| `WAYMARK_LOCK_HEARTBEAT_MS` | Workload pinning heartbeat interval | `5000` |
 | `WAYMARK_RUNNER_PROFILE_INTERVAL_MS` | Worker status/profile publish interval | `5000` (clamped to min `1`) |
 
 If you need to customize Python startup/bootstrap behavior (for example custom boot commands), see `Bootstrap / Python SDK overrides` below.
