@@ -28,7 +28,6 @@ waymark-blocking-future = { path = "crates/lib/blocking-future" }
 waymark-config = { path = "crates/lib/config" }
 waymark-convert-core = { path = "crates/lib/convert-core" }
 waymark-core-backend = { path = "crates/lib/core-backend" }
-waymark-core-backend-metadata = { path = "crates/lib/core-backend-metadata" }
 waymark-dag = { path = "crates/lib/dag" }
 waymark-dag-builder = { path = "crates/lib/dag-builder" }
 waymark-dag-validator = { path = "crates/lib/dag-validator" }
@@ -181,7 +180,6 @@ chrono = { version = "0.4", default-features = false }
 clap = "4.5"
 color-eyre = "0.6"
 console-subscriber = "0.5"
-const-sub-array = "0.1"
 cron = "0.12"
 dashmap = "6"
 derive-where = "1"
@@ -212,7 +210,6 @@ rustc-hash = "2"
 serde = "1"
 serde_json = "1"
 serial_test = "2"
-sha1_smol = "1"
 sha2 = "0.10"
 slotmap = "1"
 sqlx = { version = "0.8", default-features = false }
@@ -235,6 +232,5 @@ tracing-chrome = "0.7"
 tracing-futures = "0.2"
 tracing-subscriber = "0.3"
 typed_floats = "1"
-typle = "0.13"
 uuid = "1.23"
 zeroize = "1"
