@@ -39,6 +39,7 @@ pub(super) async fn reset_database(pool: &PgPool) {
                  action_call_requests,
                  sleep_requests,
                  vm_executables,
+                 vm_execution_results,
                  vm_runtime_snapshots,
                  runnable_workloads,
                  worker_status
