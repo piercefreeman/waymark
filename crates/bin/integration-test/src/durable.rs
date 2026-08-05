@@ -102,23 +102,11 @@ async fn connect_durable_stack() -> Result<DurableStack, color_eyre::eyre::Repor
         .await
         .wrap_err("run postgres migrations for integration runner")?;
 
-    // Reset the durable-VM tables so stale runnable workloads from prior
+    // Reset the durable tables so stale runnable workloads from prior
     // (crashed) runs cannot be revived into this run's execution subsystem.
-    sqlx::query(
-        r#"
-        TRUNCATE action_call_completions,
-                 action_call_requests,
-                 sleep_requests,
-                 vm_executables,
-                 vm_runtime_snapshots,
-                 runnable_workloads,
-                 vm_execution_results
-        RESTART IDENTITY CASCADE
-        "#,
-    )
-    .execute(&pool)
-    .await
-    .wrap_err("truncate durable-VM tables")?;
+    waymark_backend_postgres::reset::truncate_all(&pool)
+        .await
+        .wrap_err("truncate durable tables")?;
 
     let backend = waymark_backend_postgres::PostgresBackend::new(pool);
     let codec = waymark_vm_codec_rmp::RmpCodec;
