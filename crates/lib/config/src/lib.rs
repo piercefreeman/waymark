@@ -6,7 +6,6 @@ use std::net::SocketAddr;
 use std::num::{NonZeroU64, NonZeroUsize};
 
 use waymark_nonzero_duration::NonZeroDuration;
-use waymark_scheduler_config::SchedulerConfig;
 use waymark_secret_string::SecretString;
 
 #[derive(Debug, Clone)]
@@ -17,11 +16,7 @@ pub struct WorkerConfig {
     pub concurrent_per_worker: NonZeroUsize,
     pub user_modules: Vec<String>,
     pub max_action_lifecycle: Option<NonZeroU64>,
-    pub poll_interval: Option<NonZeroDuration>,
     pub max_concurrent_instances: NonZeroUsize,
-    pub executor_shards: NonZeroUsize,
-    pub instance_done_batch_size: Option<NonZeroUsize>,
-    pub persistence_interval: Option<NonZeroDuration>,
     pub lock_ttl: NonZeroDuration,
     pub lock_heartbeat: NonZeroDuration,
     pub pinning_fencing_margin: NonZeroDuration,
@@ -36,11 +31,7 @@ pub struct WorkerConfig {
     pub action_effect_reconciler_lock_batch_delay: NonZeroDuration,
     pub action_effect_reconciler_lock_ttl: NonZeroDuration,
     pub action_effect_reconciler_lock_heartbeat: NonZeroDuration,
-    pub evict_sleep_threshold: NonZeroDuration,
     pub sleep_poll_interval: NonZeroDuration,
-    pub expired_lock_reclaimer_interval: NonZeroDuration,
-    pub expired_lock_reclaimer_batch_size: NonZeroUsize,
-    pub scheduler: SchedulerConfig,
     pub webapp: waymark_webapp_config::WebappConfig,
     pub profile_interval: NonZeroDuration,
     pub vm_retention: NonZeroDuration,
@@ -89,19 +80,8 @@ impl WorkerConfig {
 
         let max_action_lifecycle = envfury::maybe("WAYMARK_MAX_ACTION_LIFECYCLE")?;
 
-        let FromMillis(poll_interval) = envfury::or_parse("WAYMARK_POLL_INTERVAL_MS", "100")?;
-        let poll_interval = Some(poll_interval);
-
         let max_concurrent_instances =
             envfury::or_parse("WAYMARK_MAX_CONCURRENT_INSTANCES", "500")?;
-
-        let executor_shards = envfury::or_else("WAYMARK_EXECUTOR_SHARDS", default_executor_shards)?;
-
-        let instance_done_batch_size = envfury::maybe("WAYMARK_INSTANCE_DONE_BATCH_SIZE")?;
-
-        let FromMillis(persistence_interval) =
-            envfury::or_parse("WAYMARK_PERSIST_INTERVAL_MS", "500")?;
-        let persistence_interval = Some(persistence_interval);
 
         let FromMillis(lock_ttl) = envfury::or_parse("WAYMARK_LOCK_TTL_MS", "15000")?;
 
@@ -146,28 +126,8 @@ impl WorkerConfig {
         let FromMillis(action_effect_reconciler_lock_heartbeat) =
             envfury::or_parse("WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_HEARTBEAT_MS", "5000")?;
 
-        let FromMillis(evict_sleep_threshold) =
-            envfury::or_parse("WAYMARK_EVICT_SLEEP_THRESHOLD_MS", "10000")?;
-
         let FromMillis(sleep_poll_interval) =
             envfury::or_parse("WAYMARK_SLEEP_POLL_INTERVAL_MS", "250")?;
-
-        let FromMillisMin::<_, 1>(expired_lock_reclaimer_interval) =
-            envfury::or_parse("WAYMARK_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS", "15000")?;
-
-        let expired_lock_reclaimer_batch_size: NonZeroUsize =
-            envfury::or_parse("WAYMARK_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE", "1000")?;
-
-        let scheduler = {
-            let FromMillis(poll_interval) =
-                envfury::or_parse("WAYMARK_SCHEDULER_POLL_INTERVAL_MS", "1000")?;
-            let batch_size = envfury::or_parse("WAYMARK_SCHEDULER_BATCH_SIZE", "100")?;
-
-            SchedulerConfig {
-                poll_interval,
-                batch_size,
-            }
-        };
 
         let webapp = waymark_webapp_config::WebappConfig::from_env();
 
@@ -192,11 +152,7 @@ impl WorkerConfig {
             concurrent_per_worker,
             user_modules,
             max_action_lifecycle,
-            poll_interval,
             max_concurrent_instances,
-            executor_shards,
-            instance_done_batch_size,
-            persistence_interval,
             lock_ttl,
             lock_heartbeat,
             pinning_fencing_margin,
@@ -211,11 +167,7 @@ impl WorkerConfig {
             action_effect_reconciler_lock_batch_delay,
             action_effect_reconciler_lock_ttl,
             action_effect_reconciler_lock_heartbeat,
-            evict_sleep_threshold,
             sleep_poll_interval,
-            expired_lock_reclaimer_interval,
-            expired_lock_reclaimer_batch_size,
-            scheduler,
             webapp,
             profile_interval,
             vm_retention,
@@ -227,9 +179,5 @@ impl WorkerConfig {
 }
 
 fn default_worker_count() -> NonZeroUsize {
-    std::thread::available_parallelism().unwrap_or(1.try_into().unwrap())
-}
-
-fn default_executor_shards() -> NonZeroUsize {
     std::thread::available_parallelism().unwrap_or(1.try_into().unwrap())
 }

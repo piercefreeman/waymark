@@ -1,11 +1,12 @@
-//! Start Workers - Runs the core runloop with Python worker pool.
+//! Start Workers - Runs the durable VM execution subsystem with a Python worker pool.
 //!
 //! This binary starts the worker infrastructure:
 //! - Connects to the database
 //! - Starts the WorkerBridge gRPC server for worker connections
 //! - Spawns a pool of Python workers
-//! - Runs the core runloop to process queued workflow instances
-//! - Optionally starts the scheduler and web dashboard
+//! - Runs the durable VM execution subsystem (workload pinning, VM drivers,
+//!   action/sleep reconcilers, completion writers, snapshot/request batchers)
+//! - Optionally starts the web dashboard
 //!
 //! Configuration is via environment variables:
 //! - WAYMARK_DATABASE_URL: PostgreSQL connection string (required)
@@ -13,23 +14,20 @@
 //! - WAYMARK_USER_MODULE: Python module(s) to preload (comma-separated)
 //! - WAYMARK_WORKER_COUNT: Number of workers (default: num_cpus)
 //! - WAYMARK_CONCURRENT_PER_WORKER: Max concurrent actions per worker (default: 10)
-//! - WAYMARK_POLL_INTERVAL_MS: Poll interval for queued instances (default: 100)
 //! - WAYMARK_MAX_CONCURRENT_INSTANCES: Max workflow instances held concurrently (default: 500)
-//! - WAYMARK_EXECUTOR_SHARDS: Executor shard thread count (default: num_cpus)
-//! - WAYMARK_INSTANCE_DONE_BATCH_SIZE: Instance completion flush batch size (default: claim size)
-//! - WAYMARK_PERSIST_INTERVAL_MS: Result persistence tick (default: 500)
-//! - WAYMARK_LOCK_TTL_MS: Instance lock TTL (default: 15000)
-//! - WAYMARK_LOCK_HEARTBEAT_MS: Lock refresh heartbeat interval (default: 5000)
-//! - WAYMARK_PINNING_FENCING_MARGIN_MS: How early a pinning is fenced before its ttl (default: 1000)
-//! - WAYMARK_EVICT_SLEEP_THRESHOLD_MS: Sleep duration before evicting idle instances (default: 10000)
-//! - WAYMARK_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS: Sweep interval for expired queue locks (default: 15000)
-//! - WAYMARK_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE: Max expired locks to reclaim per sweep (default: 1000)
 //! - WAYMARK_MAX_ACTION_LIFECYCLE: Max actions per worker before recycling
-//! - WAYMARK_SCHEDULER_POLL_INTERVAL_MS: Scheduler poll interval (default: 1000)
-//! - WAYMARK_SCHEDULER_BATCH_SIZE: Scheduler batch size (default: 100)
-//! - WAYMARK_GARBAGE_COLLECTOR_INTERVAL_MS: Garbage collector interval (default: 300000)
-//! - WAYMARK_GARBAGE_COLLECTOR_BATCH_SIZE: Garbage collector batch size (default: 100)
-//! - WAYMARK_GARBAGE_COLLECTOR_RETENTION_HOURS: Done-instance retention window (default: 24)
+//! - WAYMARK_LOCK_TTL_MS: Workload pinning TTL (default: 15000)
+//! - WAYMARK_LOCK_HEARTBEAT_MS: Pinning refresh heartbeat interval (default: 5000)
+//! - WAYMARK_PINNING_FENCING_MARGIN_MS: How early a pinning is fenced before its ttl (default: 1000)
+//! - WAYMARK_WORKLOAD_POLL_INTERVAL_NS: Min interval between unpinned-workload polls (default: 1000000)
+//! - WAYMARK_SNAPSHOT_BATCH_MAX / WAYMARK_SNAPSHOT_BATCH_DELAY_MS: Snapshot write batching
+//! - WAYMARK_ACTION_EFFECT_RECONCILER_REQUEST_BATCH_MAX / _DELAY_MS: Request write batching
+//! - WAYMARK_WORKFLOW_COMPLETION_BATCH_MAX / _DELAY_MS: Workflow outcome write batching
+//! - WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_BATCH_MAX / _DELAY_MS: Request lock batching
+//! - WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_TTL_MS / _HEARTBEAT_MS: Request lock lease timing
+//! - WAYMARK_SLEEP_POLL_INTERVAL_MS: Durable sleep poll interval (default: 250)
+//! - WAYMARK_VM_RETENTION_MS / WAYMARK_VM_SWEEP_INTERVAL_MS: Cached VM eviction
+//! - WAYMARK_EXECUTABLE_RETENTION_MS / WAYMARK_EXECUTABLE_SWEEP_INTERVAL_MS: Cached executable eviction
 //! - WAYMARK_WEBAPP_ENABLED / WAYMARK_WEBAPP_ADDR: Web dashboard configuration
 //! - WAYMARK_RUNNER_PROFILE_INTERVAL_MS: Status reporting interval (default: 5000)
 
