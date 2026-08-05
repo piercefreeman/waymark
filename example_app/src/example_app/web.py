@@ -745,13 +745,15 @@ async def reset_database() -> ResetResponse:
         conn = await asyncpg.connect(database_url)
         try:
             # Truncate all data.
-            # See also src/backends/postgres/test_helpers.rs
+            # See also crates/lib/backend-postgres/src/test_helpers.rs
             await conn.execute("""
-                TRUNCATE runner_actions_done,
-                    queued_instances,
-                    runner_instances,
-                    workflow_versions,
-                    workflow_schedules,
+                TRUNCATE action_call_completions,
+                    action_call_requests,
+                    sleep_requests,
+                    vm_executables,
+                    vm_runtime_snapshots,
+                    vm_execution_results,
+                    runnable_workloads,
                     worker_status
                 RESTART IDENTITY CASCADE
             """)
