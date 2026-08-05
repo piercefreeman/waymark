@@ -26,9 +26,6 @@ waymark-batcher = { path = "crates/lib/batcher" }
 waymark-blocking-future = { path = "crates/lib/blocking-future" }
 waymark-config = { path = "crates/lib/config" }
 waymark-convert-core = { path = "crates/lib/convert-core" }
-waymark-dag = { path = "crates/lib/dag" }
-waymark-dag-builder = { path = "crates/lib/dag-builder" }
-waymark-dag-validator = { path = "crates/lib/dag-validator" }
 waymark-execution-bringup = { path = "crates/lib/execution-bringup" }
 waymark-execution-driver = { path = "crates/lib/execution-driver" }
 waymark-extcall-reconciler = { path = "crates/lib/extcall-reconciler" }
@@ -185,7 +182,6 @@ quote = "1"
 rand = "0.9"
 regex = "1"
 rmp-serde = "1"
-rustc-hash = "2"
 serde = "1"
 serde_json = "1"
 serial_test = "2"
