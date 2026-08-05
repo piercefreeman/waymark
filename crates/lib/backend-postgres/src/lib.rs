@@ -1,17 +1,15 @@
-//! Postgres backend for persisting runner state and action results.
+//! Postgres backend for persisting VM execution state and action results.
 
 mod action_call_completions;
 mod action_call_requests;
-mod codec;
-mod core;
 mod macros;
-mod registry;
 mod sleep_requests;
 mod state_vm_executables;
 #[cfg(test)]
 mod test_helpers;
 mod vm_runtimes;
 mod webapp;
+mod worker_status;
 mod workflow_completion;
 mod workflow_service_vm_executables;
 mod workflow_service_vm_runtimes;
@@ -25,7 +23,6 @@ use waymark_backends_core::{BackendError, BackendResult};
 use waymark_metrics_util::Val as MetricsVal;
 use waymark_observability::obs;
 use waymark_secret_string::SecretStr;
-use waymark_timed_future::TimedFutureExt as _;
 
 /// Persist runner state and action results in Postgres.
 #[derive(Clone)]
@@ -55,39 +52,6 @@ impl PostgresBackend {
 
     pub fn pool(&self) -> &PgPool {
         &self.pool
-    }
-
-    /// Delete all queued instances from the backing table.
-    #[obs]
-    #[function_name::named]
-    pub async fn clear_queue(&self) -> BackendResult<()> {
-        Self::count_query(&self.query_counts, "delete:queued_instances_all");
-        sqlx::query("DELETE FROM queued_instances")
-            .execute(&self.pool)
-            .timed(crate::query_timing_histogram!(
-                "delete:queued_instances_all"
-            ))
-            .await?;
-        Ok(())
-    }
-
-    /// Delete all persisted runner data for a clean benchmark run.
-    #[obs]
-    #[function_name::named]
-    pub async fn clear_all(&self) -> BackendResult<()> {
-        Self::count_query(&self.query_counts, "truncate:runner_tables");
-        sqlx::query(
-            r#"
-            TRUNCATE runner_actions_done,
-                     runner_instances,
-                     queued_instances
-            RESTART IDENTITY
-            "#,
-        )
-        .execute(&self.pool)
-        .timed(crate::query_timing_histogram!("truncate:runner_tables"))
-        .await?;
-        Ok(())
     }
 
     pub fn query_counts(&self) -> HashMap<String, usize> {
@@ -134,10 +98,6 @@ impl PostgresBackend {
             "fn_name" => fn_name,
             "label" => label
         )
-    }
-
-    pub(crate) fn serialize<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, BackendError> {
-        codec::serialize(value).map_err(|e| BackendError::Message(e.to_string()))
     }
 }
 
