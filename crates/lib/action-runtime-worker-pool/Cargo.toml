@@ -23,7 +23,6 @@ uuid = { workspace = true, features = ["v4"] }
 [dev-dependencies]
 waymark-action-core = { workspace = true }
 waymark-action-runtime-metadata-compat = { workspace = true }
-waymark-runner-executor-core = { workspace = true }
 
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }

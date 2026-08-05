@@ -9,14 +9,13 @@ default = ["either"]
 
 [dependencies]
 waymark-ids = { workspace = true }
-waymark-runner-executor-core = { workspace = true }
 
 either = { workspace = true, optional = true }
 nonempty-collections = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 
 [lib]
-test = false
 doctest = false
