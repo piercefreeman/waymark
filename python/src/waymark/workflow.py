@@ -67,9 +67,6 @@ class Workflow:
     version: ClassVar[Optional[str]] = None
     """Optional workflow version identifier. Defaults to IR hash when unset."""
 
-    concurrent: ClassVar[bool] = False
-    """When True, downstream engines may respect DAG-parallel execution; False preserves sequential semantics."""
-
     _workflow_ir: ClassVar[Optional[ir.Program]] = None
     _ir_lock: ClassVar[RLock] = RLock()
     _workflow_version_id: ClassVar[Optional[str]] = None
@@ -161,7 +158,6 @@ class Workflow:
             ir=ir_bytes,
             ir_hash=ir_hash,
             workflow_version=workflow_version,
-            concurrent=cls.concurrent,
         )
 
         if initial_context:

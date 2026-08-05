@@ -152,9 +152,12 @@ message WorkflowRegistration {
   string ir_hash = 3;                // Hash of the IR for immutability checks
   string workflow_version = 7;       // User-defined version identifier
   WorkflowArguments initial_context = 4;
-  bool concurrent = 5;               // Whether multiple instances can run
   // Priority for queue ordering (higher values are processed first, default 0)
   optional int32 priority = 6;
+
+  // Field 5 was `bool concurrent`, retired with the legacy DAG runner.
+  reserved 5;
+  reserved "concurrent";
 }
 
 message RegisterWorkflowRequest {

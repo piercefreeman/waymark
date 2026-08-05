@@ -785,7 +785,6 @@ class WorkflowRegistration(google.protobuf.message.Message):
     IR_HASH_FIELD_NUMBER: builtins.int
     WORKFLOW_VERSION_FIELD_NUMBER: builtins.int
     INITIAL_CONTEXT_FIELD_NUMBER: builtins.int
-    CONCURRENT_FIELD_NUMBER: builtins.int
     PRIORITY_FIELD_NUMBER: builtins.int
     workflow_name: builtins.str
     ir: builtins.bytes
@@ -794,8 +793,6 @@ class WorkflowRegistration(google.protobuf.message.Message):
     """Hash of the IR for immutability checks"""
     workflow_version: builtins.str
     """User-defined version identifier"""
-    concurrent: builtins.bool
-    """Whether multiple instances can run"""
     priority: builtins.int
     """Priority for queue ordering (higher values are processed first, default 0)"""
     @property
@@ -808,7 +805,6 @@ class WorkflowRegistration(google.protobuf.message.Message):
         ir_hash: builtins.str = ...,
         workflow_version: builtins.str = ...,
         initial_context: Global___WorkflowArguments | None = ...,
-        concurrent: builtins.bool = ...,
         priority: builtins.int | None = ...,
     ) -> None: ...
     def HasField(
@@ -827,8 +823,6 @@ class WorkflowRegistration(google.protobuf.message.Message):
         field_name: typing.Literal[
             "_priority",
             b"_priority",
-            "concurrent",
-            b"concurrent",
             "initial_context",
             b"initial_context",
             "ir",
