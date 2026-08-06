@@ -11,7 +11,7 @@ waymark-vm-instructions-coreset = { workspace = true }
 waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-instructions-fullset = { workspace = true }
 waymark-vm-instructions-pureset = { workspace = true }
-waymark-vm-interpreter = { workspace = true }
+waymark-vm-interpreter-composite = { workspace = true }
 waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-extcallset = { workspace = true }
 waymark-vm-interpreter-pureset = { workspace = true }
@@ -20,12 +20,14 @@ waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
 derive-where = { workspace = true }
-thiserror = { workspace = true }
 
 [dev-dependencies]
 waymark-nonzero-duration = { workspace = true }
 waymark-vm-bytecode = { workspace = true }
 waymark-vm-exception-handler = { workspace = true }
+waymark-vm-interpreter = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }
 waymark-vm-runtime-value = { workspace = true }
+
+thiserror = { workspace = true }
