@@ -22,6 +22,7 @@ pub use self::load_const::*;
 pub use self::scalar::*;
 
 /// A unifying trait for all value requirements.
+#[waymark_blanket_impl_macros::blanket_impl]
 pub trait Value:
     waymark_vm_runtime_value::RootValueAccess<RootValue = Self>
     + CaptureCopy
@@ -36,22 +37,5 @@ pub trait Value:
     + IndexOp
     + DotOp
     + waymark_vm_runtime_exception::ExceptionFromIntermediate<String>
-{
-}
-
-impl<T> Value for T where
-    T: waymark_vm_runtime_value::RootValueAccess<RootValue = Self>
-        + CaptureCopy
-        + AsScalar
-        + MakeList
-        + ListAppend
-        + AsDictKey
-        + MakeDict
-        + AsExceptionTypeId
-        + MakeException
-        + Length
-        + IndexOp
-        + DotOp
-        + waymark_vm_runtime_exception::ExceptionFromIntermediate<String>
 {
 }
