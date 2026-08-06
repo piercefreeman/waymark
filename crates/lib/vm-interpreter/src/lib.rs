@@ -88,6 +88,27 @@ pub trait Interpreter {
     ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error>;
 }
 
+/// Capture an interpreter's runtime view from an exclusive borrow of
+/// a source view.
+///
+/// Implemented by an interpreter for every source view it can capture its
+/// own (typically reduced) [`Interpreter::RuntimeView`] from. The runtime
+/// uses this to hand the interpreter the view it actually needs, from
+/// whatever view the runtime holds; a composite interpreter uses it the
+/// same way for each of its sub-interpreters.
+///
+/// Capturing borrows the source exclusively rather than consuming it, so
+/// one source view can serve any number of sequential captures — which is
+/// what lets a composite drive all of its sub-interpreters from the single
+/// view it holds.
+pub trait CaptureRuntimeView<'source, SourceView> {
+    /// The captured runtime view.
+    type Captured;
+
+    /// Capture the runtime view from the source view.
+    fn capture_runtime_view(source: &'source mut SourceView) -> Self::Captured;
+}
+
 /// The outcome of an execution of a single instruction or hook.
 pub enum ExecutionOutcome<Frame, Effect> {
     /// Continue executing this frame.

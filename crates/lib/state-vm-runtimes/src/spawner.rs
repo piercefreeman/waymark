@@ -139,12 +139,16 @@ where
             Instruction = Executable::Instruction,
         >,
     Interpreter: Send + 'static,
-    Interpreter: for<'r> waymark_vm_runtime_core::CaptureRuntimeView<
-            Executable,
-            Executable::FunctionId,
-            Executable::StateId,
-            Value,
-            RuntimeView<'r> = <Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'r>,
+    Interpreter: for<'r> waymark_vm_interpreter::CaptureRuntimeView<
+            'r,
+            waymark_vm_runtime_core::FullRuntimeView<
+                'r,
+                Executable,
+                Executable::FunctionId,
+                Executable::StateId,
+                Value,
+            >,
+            Captured = <Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'r>,
         >,
     Value: Clone + Send + 'static,
     Value: serde::Serialize,
