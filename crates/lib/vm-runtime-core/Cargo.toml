@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 waymark-typed-vec-serde = { workspace = true, optional = true }
 waymark-vm-exception-handler = { workspace = true }
+waymark-vm-interpreter-composite-core = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
