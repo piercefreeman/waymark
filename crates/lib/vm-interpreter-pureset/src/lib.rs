@@ -338,20 +338,22 @@ where
     }
 }
 
-impl<Spec, Executable, FunctionId, StateId, Value>
-    waymark_vm_runtime_core::CaptureRuntimeView<Executable, FunctionId, StateId, Value>
-    for PureSetInterpreter<Spec, FunctionId, StateId, Value>
+impl<'s, 'r, Spec, Executable, FunctionId, StateId, Value>
+    waymark_vm_interpreter::CaptureRuntimeView<
+        's,
+        waymark_vm_runtime_core::FullRuntimeView<'r, Executable, FunctionId, StateId, Value>,
+    > for PureSetInterpreter<Spec, FunctionId, StateId, Value>
 {
-    type RuntimeView<'v>
-        = ()
-    where
-        Executable: 'v,
-        FunctionId: 'v,
-        StateId: 'v,
-        Value: 'v;
+    type Captured = ();
 
-    fn capture_runtime_view<'r>(
-        _view: waymark_vm_runtime_core::FullRuntimeView<'r, Executable, FunctionId, StateId, Value>,
-    ) -> Self::RuntimeView<'r> {
+    fn capture_runtime_view(
+        _source: &'s mut waymark_vm_runtime_core::FullRuntimeView<
+            'r,
+            Executable,
+            FunctionId,
+            StateId,
+            Value,
+        >,
+    ) -> Self::Captured {
     }
 }
