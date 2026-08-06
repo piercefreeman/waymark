@@ -5562,6 +5562,10 @@ name = "waymark-vm-interpreter"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-vm-interpreter-composite-core"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-vm-interpreter-coreset"
 version = "0.1.0"
 dependencies = [
@@ -5697,6 +5701,7 @@ dependencies = [
  "thiserror",
  "waymark-typed-vec-serde",
  "waymark-vm-exception-handler",
+ "waymark-vm-interpreter-composite-core",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
