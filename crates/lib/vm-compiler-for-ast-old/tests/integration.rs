@@ -18,7 +18,11 @@ use waymark_vm_interpreter_fullset::Effect;
 
 fn completed_int(
     emitted_effect: waymark_vm_runtime_effect::EmittedEffect<
-        Effect<TestReadyValue, TestActionRef, TestReadyValue>,
+        Effect<
+            waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
+            waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
+            core::convert::Infallible,
+        >,
     >,
 ) -> i64 {
     match completed_value(emitted_effect) {
@@ -29,7 +33,11 @@ fn completed_int(
 
 fn completed_value(
     emitted_effect: waymark_vm_runtime_effect::EmittedEffect<
-        Effect<TestReadyValue, TestActionRef, TestReadyValue>,
+        Effect<
+            waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
+            waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
+            core::convert::Infallible,
+        >,
     >,
 ) -> TestReadyValue {
     match emitted_effect.effect {
