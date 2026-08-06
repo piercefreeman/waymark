@@ -4460,6 +4460,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-blanket-impl-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "waymark-blocking-future"
 version = "0.1.0"
 dependencies = [
