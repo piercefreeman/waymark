@@ -11,6 +11,7 @@ waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-instructions-pureset = { workspace = true }
 
 derive-where = { workspace = true }
+derive_more = { workspace = true, features = ["from"] }
 serde = { workspace = true, optional = true }
 
 [features]
