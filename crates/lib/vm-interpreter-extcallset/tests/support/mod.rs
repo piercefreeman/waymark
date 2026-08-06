@@ -17,14 +17,13 @@
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_bytecode::Executable;
 use waymark_vm_instructions_extcallset::ExtCallSet;
+use waymark_vm_interpreter::CaptureRuntimeView;
 use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_interpreter_extcallset::{
     Effect, Error as InterpreterError, ExtCallSetInterpreter, RuntimeView,
 };
 use waymark_vm_runtime::{CallSpec, Runtime};
-use waymark_vm_runtime_core::{
-    CaptureRuntimeView, Frame, FullRuntimeView, PromiseState, RegisterId,
-};
+use waymark_vm_runtime_core::{Frame, FullRuntimeView, PromiseState, RegisterId};
 use waymark_vm_runtime_promise_core::{
     PromiseStateId, Resolvable, Suspendable, UnresolvedPromiseError,
 };
@@ -177,20 +176,17 @@ pub struct RuntimeInterpreter {
     extcall: ExtCallSetInterpreter<TestSpec, FunctionId, StateId, TestValue>,
 }
 
-impl<E> CaptureRuntimeView<E, FunctionId, StateId, TestValue> for RuntimeInterpreter {
-    type RuntimeView<'r>
-        = RuntimeView<'r, FunctionId, StateId, TestValue>
-    where
-        E: 'r,
-        FunctionId: 'r,
-        StateId: 'r,
-        TestValue: 'r;
+impl<'s, 'r, E> CaptureRuntimeView<'s, FullRuntimeView<'r, E, FunctionId, StateId, TestValue>>
+    for RuntimeInterpreter
+{
+    type Captured = RuntimeView<'s, FunctionId, StateId, TestValue>;
 
-    fn capture_runtime_view<'r>(
-        view: FullRuntimeView<'r, E, FunctionId, StateId, TestValue>,
-    ) -> Self::RuntimeView<'r> {
-        let FullRuntimeView { state, .. } = view;
-        RuntimeView { state }
+    fn capture_runtime_view(
+        source: &'s mut FullRuntimeView<'r, E, FunctionId, StateId, TestValue>,
+    ) -> Self::Captured {
+        RuntimeView {
+            state: &mut *source.state,
+        }
     }
 }
 

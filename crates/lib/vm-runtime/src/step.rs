@@ -38,12 +38,16 @@ where
             Frame = FrameFor<Executable, Value>,
             Instruction = Executable::Instruction,
         >,
-    Interpreter: for<'v> waymark_vm_runtime_core::CaptureRuntimeView<
-            Executable,
-            Executable::FunctionId,
-            Executable::StateId,
-            Value,
-            RuntimeView<'v> = <Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'v>,
+    Interpreter: for<'v> waymark_vm_interpreter::CaptureRuntimeView<
+            'v,
+            waymark_vm_runtime_core::FullRuntimeView<
+                'v,
+                Executable,
+                Executable::FunctionId,
+                Executable::StateId,
+                Value,
+            >,
+            Captured = <Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'v>,
         >,
     Value: 'static,
     Interpreter::Instruction: core::fmt::Debug,
@@ -62,8 +66,9 @@ where
 
         'state_loop: loop {
             let current_state = frame.state;
-            let full_runtime_view = waymark_vm_runtime_core::FullRuntimeView { executable, state };
-            let runtime_view = Interpreter::capture_runtime_view(full_runtime_view);
+            let mut full_runtime_view =
+                waymark_vm_runtime_core::FullRuntimeView { executable, state };
+            let runtime_view = Interpreter::capture_runtime_view(&mut full_runtime_view);
             let outcome = interpreter
                 .enter_state(runtime_view, frame)
                 .map_err(Error::Execution)?;
@@ -96,9 +101,9 @@ where
                 );
 
                 let current_state = frame.state;
-                let full_runtime_view =
+                let mut full_runtime_view =
                     waymark_vm_runtime_core::FullRuntimeView { executable, state };
-                let runtime_view = Interpreter::capture_runtime_view(full_runtime_view);
+                let runtime_view = Interpreter::capture_runtime_view(&mut full_runtime_view);
                 let outcome = interpreter
                     .before_execute(runtime_view, frame)
                     .map_err(Error::Execution)?;
@@ -120,9 +125,9 @@ where
                     }
                 };
 
-                let full_runtime_view =
+                let mut full_runtime_view =
                     waymark_vm_runtime_core::FullRuntimeView { executable, state };
-                let runtime_view = Interpreter::capture_runtime_view(full_runtime_view);
+                let runtime_view = Interpreter::capture_runtime_view(&mut full_runtime_view);
                 let outcome = interpreter
                     .execute(runtime_view, frame, instruction)
                     .map_err(Error::Execution)?;
@@ -146,9 +151,9 @@ where
                     }
                 };
 
-                let full_runtime_view =
+                let mut full_runtime_view =
                     waymark_vm_runtime_core::FullRuntimeView { executable, state };
-                let runtime_view = Interpreter::capture_runtime_view(full_runtime_view);
+                let runtime_view = Interpreter::capture_runtime_view(&mut full_runtime_view);
                 let outcome = interpreter
                     .after_execute(runtime_view, frame)
                     .map_err(Error::Execution)?;
