@@ -98,6 +98,7 @@ waymark-vm-instructions-extcallset = { path = "crates/lib/vm-instructions-extcal
 waymark-vm-instructions-fullset = { path = "crates/lib/vm-instructions-fullset" }
 waymark-vm-instructions-pureset = { path = "crates/lib/vm-instructions-pureset" }
 waymark-vm-interpreter = { path = "crates/lib/vm-interpreter" }
+waymark-vm-interpreter-composite-core = { path = "crates/lib/vm-interpreter-composite-core" }
 waymark-vm-interpreter-coreset = { path = "crates/lib/vm-interpreter-coreset" }
 waymark-vm-interpreter-extcallset = { path = "crates/lib/vm-interpreter-extcallset" }
 waymark-vm-interpreter-fullset = { path = "crates/lib/vm-interpreter-fullset" }
