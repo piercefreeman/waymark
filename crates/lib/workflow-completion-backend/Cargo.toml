@@ -6,3 +6,4 @@ publish.workspace = true
 
 [dependencies]
 nonempty-collections = { workspace = true }
+waymark-blanket-impl-macros = { workspace = true }

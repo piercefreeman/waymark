@@ -31,15 +31,9 @@ where
 }
 
 /// Combined lowering for the full instruction set.
+#[waymark_blanket_impl_macros::blanket_impl]
 pub trait FullSet<Spec>: ExtCallSet<Spec> + PureSet<Spec>
 where
-    Spec: waymark_vm_instructions_fullset::Spec,
-{
-}
-
-impl<Spec, T> FullSet<Spec> for T
-where
-    T: ExtCallSet<Spec> + PureSet<Spec>,
     Spec: waymark_vm_instructions_fullset::Spec,
 {
 }
