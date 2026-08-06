@@ -11,8 +11,8 @@ use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as
 use sqlx::{Postgres, QueryBuilder, Row};
 use tracing::warn;
 use uuid::Uuid;
+use waymark_backends_core::{BackendError, BackendResult};
 use waymark_ids::{ExecutionId, InstanceId, LockId, WorkflowVersionId};
-use waymark_scheduler_backend::{BackendError, BackendResult};
 use waymark_worker_core::{ExecutionSuccess, UncheckedExecutionResult};
 use waymark_worker_status_backend::{WorkerStatusBackend, WorkerStatusUpdate};
 
