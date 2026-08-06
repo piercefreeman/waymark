@@ -2,27 +2,74 @@
 
 #![warn(missing_docs)]
 
-mod error;
 pub mod value;
 
 use derive_where::derive_where;
-use waymark_vm_interpreter::{CaptureRuntimeView as _, ExecutionOutcome};
-use waymark_vm_runtime_core::Frame;
 
-pub use self::error::*;
 pub use self::value::Value;
 
 type FunctionIdFor<Spec> = <Spec as waymark_vm_instructions_coreset::Spec>::FunctionId;
 type StateIdFor<Spec> = <Spec as waymark_vm_instructions_coreset::Spec>::StateId;
 type ActionRefFor<Spec> = <Spec as waymark_vm_instructions_extcallset::Spec>::ActionRef;
 
+/// The runtime view for the [`FullSetInterpreter`].
+pub use waymark_vm_runtime_core::FullRuntimeView as RuntimeView;
+
 /// An interpreter for the "full" instructions set.
 #[derive_where(Default)]
+#[derive(waymark_vm_interpreter_composite::Interpreter)]
+#[interpreter(
+    instruction = waymark_vm_instructions_fullset::FullSet<Spec>,
+    frame = waymark_vm_runtime_core::Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Value>,
+    view = waymark_vm_runtime_core::FullRuntimeView<
+        'r,
+        Executable,
+        FunctionIdFor<Spec>,
+        StateIdFor<Spec>,
+        Value,
+    >,
+    bound(
+        Executable: 'static,
+        Executable: waymark_vm_executable::FunctionInfo<FunctionId = FunctionIdFor<Spec>>,
+        Spec: waymark_vm_instructions_coreset::Spec<
+            RegisterId = waymark_vm_runtime_core::RegisterId,
+        >,
+        Spec: waymark_vm_instructions_extcallset::Spec<
+            RegisterId = waymark_vm_runtime_core::RegisterId,
+            StateId = StateIdFor<Spec>,
+        >,
+        Spec: waymark_vm_instructions_pureset::Spec<
+            RegisterId = waymark_vm_runtime_core::RegisterId,
+        >,
+        Spec: 'static,
+        FunctionIdFor<Spec>: Copy,
+        StateIdFor<Spec>: Copy + Default + PartialEq,
+        ActionRefFor<Spec>: Clone,
+        Value: Clone + 'static,
+        Value: waymark_vm_interpreter_coreset::Value,
+        Value: waymark_vm_interpreter_extcallset::Value,
+        Value: waymark_vm_interpreter_pureset::Value,
+        Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
+        Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,
+        Value: for<'a> waymark_vm_interpreter_pureset::value::LoadConst<&'a Spec::ConstValue>,
+        Value: waymark_vm_runtime_promise_core::Resolvable,
+        Value: waymark_vm_runtime_promise_core::Suspendable,
+        Value::ReadyValue: Clone,
+    ),
+)]
 pub struct FullSetInterpreter<Spec: waymark_vm_instructions_fullset::Spec, Executable, Value> {
     /// The coreset interpreter used for core instructions.
+    #[interpreter(
+        variant = CoreSet,
+        instruction = waymark_vm_instructions_coreset::CoreSet<Spec>,
+    )]
     pub core_set: waymark_vm_interpreter_coreset::CoreSetInterpreter<Spec, Executable, Value>,
 
     /// The extcallset interpreter used for extcall instructions.
+    #[interpreter(
+        variant = ExtCallSet,
+        instruction = waymark_vm_instructions_extcallset::ExtCallSet<Spec>,
+    )]
     pub extcall_set: waymark_vm_interpreter_extcallset::ExtCallSetInterpreter<
         Spec,
         FunctionIdFor<Spec>,
@@ -31,342 +78,14 @@ pub struct FullSetInterpreter<Spec: waymark_vm_instructions_fullset::Spec, Execu
     >,
 
     /// The pureset interpreter used for pure instructions.
+    #[interpreter(
+        variant = PureSet,
+        instruction = waymark_vm_instructions_pureset::PureSet<Spec>,
+    )]
     pub pure_set: waymark_vm_interpreter_pureset::PureSetInterpreter<
         Spec,
         FunctionIdFor<Spec>,
         StateIdFor<Spec>,
         Value,
     >,
-}
-
-/// The runtime view for the [`FullSetInterpreter`].
-pub use waymark_vm_runtime_core::FullRuntimeView as RuntimeView;
-
-/// The effect for the [`FullSetInterpreter`].
-#[derive(Debug)]
-pub enum Effect<Value, ActionRef, ActionCallArgument> {
-    /// An effect produced while executing a coreset instruction.
-    CoreSet(waymark_vm_interpreter_coreset::Effect<Value>),
-
-    /// An effect produced while executing an extcallset instruction.
-    ExtCallSet(waymark_vm_interpreter_extcallset::Effect<ActionRef, ActionCallArgument>),
-
-    /// An impossible effect produced while executing a pureset instruction.
-    PureSet(core::convert::Infallible),
-}
-
-impl<Spec, Executable, Value> waymark_vm_interpreter::Interpreter
-    for FullSetInterpreter<Spec, Executable, Value>
-where
-    Spec: waymark_vm_instructions_fullset::Spec,
-    Executable: 'static,
-    Executable: waymark_vm_executable::FunctionInfo<FunctionId = FunctionIdFor<Spec>>,
-    Spec: waymark_vm_instructions_coreset::Spec<RegisterId = waymark_vm_runtime_core::RegisterId>,
-    Spec: waymark_vm_instructions_extcallset::Spec<
-            RegisterId = waymark_vm_runtime_core::RegisterId,
-            StateId = StateIdFor<Spec>,
-        >,
-    Spec: waymark_vm_instructions_pureset::Spec<RegisterId = waymark_vm_runtime_core::RegisterId>,
-    Spec: 'static,
-    FunctionIdFor<Spec>: Copy,
-    StateIdFor<Spec>: Copy + Default + PartialEq,
-    ActionRefFor<Spec>: Clone,
-    Value: Clone + 'static,
-    Value: waymark_vm_interpreter_coreset::Value,
-    Value: waymark_vm_interpreter_extcallset::Value,
-    Value: waymark_vm_interpreter_pureset::Value,
-    Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
-    Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,
-    Value: for<'a> waymark_vm_interpreter_pureset::value::LoadConst<&'a Spec::ConstValue>,
-    Value: waymark_vm_runtime_promise_core::Resolvable,
-    Value: waymark_vm_runtime_promise_core::Suspendable,
-    Value::ReadyValue: Clone,
-{
-    type RuntimeView<'r> =
-        &'r mut RuntimeView<'r, Executable, FunctionIdFor<Spec>, StateIdFor<Spec>, Value>;
-    type Frame = Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Value>;
-    type Instruction = waymark_vm_instructions_fullset::FullSet<Spec>;
-    type Error = Error<Spec, Value>;
-    type Effect = Effect<Value::ReadyValue, ActionRefFor<Spec>, Value::ActionCallArgument>;
-
-    fn enter_state<'r>(
-        &self,
-        runtime_view: Self::RuntimeView<'r>,
-        mut frame: Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Value>,
-    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
-        let state_before = frame.state;
-        let sub_runtime_view = waymark_vm_interpreter_coreset::CoreSetInterpreter::<
-            Spec,
-            Executable,
-            Value,
-        >::capture_runtime_view(&mut *runtime_view);
-        let outcome = waymark_vm_interpreter::Interpreter::enter_state(
-            &self.core_set,
-            sub_runtime_view,
-            frame,
-        )
-        .map_err(Error::CoreSet)?
-        .map_effect(Effect::CoreSet);
-        match outcome {
-            ExecutionOutcome::Continue(next_frame) if next_frame.state == state_before => {
-                frame = next_frame;
-            }
-            outcome => return Ok(outcome),
-        }
-
-        let state_before = frame.state;
-        let sub_runtime_view = waymark_vm_interpreter_extcallset::ExtCallSetInterpreter::<
-            Spec,
-            FunctionIdFor<Spec>,
-            StateIdFor<Spec>,
-            Value,
-        >::capture_runtime_view(&mut *runtime_view);
-        let outcome = waymark_vm_interpreter::Interpreter::enter_state(
-            &self.extcall_set,
-            sub_runtime_view,
-            frame,
-        )
-        .map_err(Error::ExtCallSet)?
-        .map_effect(Effect::ExtCallSet);
-        match outcome {
-            ExecutionOutcome::Continue(next_frame) if next_frame.state == state_before => {
-                frame = next_frame;
-            }
-            outcome => return Ok(outcome),
-        }
-
-        let state_before = frame.state;
-        #[allow(clippy::let_unit_value)]
-        let sub_runtime_view = waymark_vm_interpreter_pureset::PureSetInterpreter::<
-            Spec,
-            FunctionIdFor<Spec>,
-            StateIdFor<Spec>,
-            Value,
-        >::capture_runtime_view(&mut *runtime_view);
-        let outcome = waymark_vm_interpreter::Interpreter::enter_state(
-            &self.pure_set,
-            sub_runtime_view,
-            frame,
-        )
-        .map_err(Error::PureSet)?
-        .map_effect(Effect::PureSet);
-        match outcome {
-            ExecutionOutcome::Continue(next_frame) if next_frame.state == state_before => {
-                Ok(ExecutionOutcome::Continue(next_frame))
-            }
-            outcome => Ok(outcome),
-        }
-    }
-
-    fn before_execute<'r>(
-        &self,
-        runtime_view: Self::RuntimeView<'r>,
-        mut frame: Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Value>,
-    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
-        let state_before = frame.state;
-        let sub_runtime_view = waymark_vm_interpreter_coreset::CoreSetInterpreter::<
-            Spec,
-            Executable,
-            Value,
-        >::capture_runtime_view(&mut *runtime_view);
-        let outcome = waymark_vm_interpreter::Interpreter::before_execute(
-            &self.core_set,
-            sub_runtime_view,
-            frame,
-        )
-        .map_err(Error::CoreSet)?
-        .map_effect(Effect::CoreSet);
-        match outcome {
-            ExecutionOutcome::Continue(next_frame) if next_frame.state == state_before => {
-                frame = next_frame;
-            }
-            outcome => return Ok(outcome),
-        }
-
-        let state_before = frame.state;
-        let sub_runtime_view = waymark_vm_interpreter_extcallset::ExtCallSetInterpreter::<
-            Spec,
-            FunctionIdFor<Spec>,
-            StateIdFor<Spec>,
-            Value,
-        >::capture_runtime_view(&mut *runtime_view);
-        let outcome = waymark_vm_interpreter::Interpreter::before_execute(
-            &self.extcall_set,
-            sub_runtime_view,
-            frame,
-        )
-        .map_err(Error::ExtCallSet)?
-        .map_effect(Effect::ExtCallSet);
-        match outcome {
-            ExecutionOutcome::Continue(next_frame) if next_frame.state == state_before => {
-                frame = next_frame;
-            }
-            outcome => return Ok(outcome),
-        }
-
-        let state_before = frame.state;
-        #[allow(clippy::let_unit_value)]
-        let sub_runtime_view = waymark_vm_interpreter_pureset::PureSetInterpreter::<
-            Spec,
-            FunctionIdFor<Spec>,
-            StateIdFor<Spec>,
-            Value,
-        >::capture_runtime_view(&mut *runtime_view);
-        let outcome = waymark_vm_interpreter::Interpreter::before_execute(
-            &self.pure_set,
-            sub_runtime_view,
-            frame,
-        )
-        .map_err(Error::PureSet)?
-        .map_effect(Effect::PureSet);
-        match outcome {
-            ExecutionOutcome::Continue(next_frame) if next_frame.state == state_before => {
-                Ok(ExecutionOutcome::Continue(next_frame))
-            }
-            outcome => Ok(outcome),
-        }
-    }
-
-    fn after_execute<'r>(
-        &self,
-        runtime_view: Self::RuntimeView<'r>,
-        mut frame: Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Value>,
-    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
-        let state_before = frame.state;
-        let sub_runtime_view = waymark_vm_interpreter_coreset::CoreSetInterpreter::<
-            Spec,
-            Executable,
-            Value,
-        >::capture_runtime_view(&mut *runtime_view);
-        let outcome = waymark_vm_interpreter::Interpreter::after_execute(
-            &self.core_set,
-            sub_runtime_view,
-            frame,
-        )
-        .map_err(Error::CoreSet)?
-        .map_effect(Effect::CoreSet);
-        match outcome {
-            ExecutionOutcome::Continue(next_frame) if next_frame.state == state_before => {
-                frame = next_frame;
-            }
-            outcome => return Ok(outcome),
-        }
-
-        let state_before = frame.state;
-        let sub_runtime_view = waymark_vm_interpreter_extcallset::ExtCallSetInterpreter::<
-            Spec,
-            FunctionIdFor<Spec>,
-            StateIdFor<Spec>,
-            Value,
-        >::capture_runtime_view(&mut *runtime_view);
-        let outcome = waymark_vm_interpreter::Interpreter::after_execute(
-            &self.extcall_set,
-            sub_runtime_view,
-            frame,
-        )
-        .map_err(Error::ExtCallSet)?
-        .map_effect(Effect::ExtCallSet);
-        match outcome {
-            ExecutionOutcome::Continue(next_frame) if next_frame.state == state_before => {
-                frame = next_frame;
-            }
-            outcome => return Ok(outcome),
-        }
-
-        let state_before = frame.state;
-        #[allow(clippy::let_unit_value)]
-        let sub_runtime_view = waymark_vm_interpreter_pureset::PureSetInterpreter::<
-            Spec,
-            FunctionIdFor<Spec>,
-            StateIdFor<Spec>,
-            Value,
-        >::capture_runtime_view(&mut *runtime_view);
-        let outcome = waymark_vm_interpreter::Interpreter::after_execute(
-            &self.pure_set,
-            sub_runtime_view,
-            frame,
-        )
-        .map_err(Error::PureSet)?
-        .map_effect(Effect::PureSet);
-        match outcome {
-            ExecutionOutcome::Continue(next_frame) if next_frame.state == state_before => {
-                Ok(ExecutionOutcome::Continue(next_frame))
-            }
-            outcome => Ok(outcome),
-        }
-    }
-
-    fn execute<'r>(
-        &self,
-        runtime_view: Self::RuntimeView<'r>,
-        frame: Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Value>,
-        instruction: &Self::Instruction,
-    ) -> Result<
-        ExecutionOutcome<Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Value>, Self::Effect>,
-        Self::Error,
-    > {
-        Ok(match instruction {
-            waymark_vm_instructions_fullset::FullSet::CoreSet(instruction) => {
-                let runtime_view = waymark_vm_interpreter_coreset::CoreSetInterpreter::<
-                    Spec,
-                    Executable,
-                    Value,
-                >::capture_runtime_view(runtime_view);
-                self.core_set
-                    .execute(runtime_view, frame, instruction)?
-                    .map_effect(Effect::CoreSet)
-            }
-            waymark_vm_instructions_fullset::FullSet::ExtCallSet(instruction) => {
-                let runtime_view = waymark_vm_interpreter_extcallset::ExtCallSetInterpreter::<
-                    Spec,
-                    FunctionIdFor<Spec>,
-                    StateIdFor<Spec>,
-                    Value,
-                >::capture_runtime_view(runtime_view);
-                self.extcall_set
-                    .execute(runtime_view, frame, instruction)?
-                    .map_effect(Effect::ExtCallSet)
-            }
-            waymark_vm_instructions_fullset::FullSet::PureSet(instruction) => {
-                #[allow(clippy::let_unit_value)]
-                let runtime_view = waymark_vm_interpreter_pureset::PureSetInterpreter::<
-                    Spec,
-                    FunctionIdFor<Spec>,
-                    StateIdFor<Spec>,
-                    Value,
-                >::capture_runtime_view(runtime_view);
-                self.pure_set
-                    .execute(runtime_view, frame, instruction)?
-                    .map_effect(Effect::PureSet)
-            }
-        })
-    }
-}
-
-impl<'r, Spec: waymark_vm_instructions_fullset::Spec, Executable: 'static, Value: 'static>
-    waymark_vm_interpreter::CaptureRuntimeView<
-        'r,
-        waymark_vm_runtime_core::FullRuntimeView<
-            'r,
-            Executable,
-            FunctionIdFor<Spec>,
-            StateIdFor<Spec>,
-            Value,
-        >,
-    > for FullSetInterpreter<Spec, Executable, Value>
-{
-    type Captured =
-        &'r mut RuntimeView<'r, Executable, FunctionIdFor<Spec>, StateIdFor<Spec>, Value>;
-
-    fn capture_runtime_view(
-        source: &'r mut waymark_vm_runtime_core::FullRuntimeView<
-            'r,
-            Executable,
-            FunctionIdFor<Spec>,
-            StateIdFor<Spec>,
-            Value,
-        >,
-    ) -> Self::Captured {
-        source
-    }
 }
