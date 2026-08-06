@@ -150,13 +150,17 @@ where
             Frame = FrameFor<Executable, Value>,
             Instruction = Executable::Instruction,
         >,
-    Interpreter: for<'r> waymark_vm_runtime_core::CaptureRuntimeView<
-            Executable,
-            Executable::FunctionId,
-            Executable::StateId,
-            Value,
-            RuntimeView<'r> = <Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'r>,
-        >,
+    for<'view, 'runtime> <Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'view>:
+        waymark_vm_runtime_view_capture::CaptureRuntimeView<
+                'view,
+                waymark_vm_runtime_core::FullRuntimeView<
+                    'runtime,
+                    Executable,
+                    Executable::FunctionId,
+                    Executable::StateId,
+                    Value,
+                >,
+            >,
     Value: 'static,
     // Debug
     Interpreter::Instruction: core::fmt::Debug,

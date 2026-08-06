@@ -118,6 +118,7 @@ waymark-vm-runtime-promise-core = { path = "crates/lib/vm-runtime-promise-core" 
 waymark-vm-runtime-promise-value = { path = "crates/lib/vm-runtime-promise-value" }
 waymark-vm-runtime-test = { path = "crates/lib/vm-runtime-test" }
 waymark-vm-runtime-value = { path = "crates/lib/vm-runtime-value" }
+waymark-vm-runtime-view-capture = { path = "crates/lib/vm-runtime-view-capture" }
 waymark-vm-value = { path = "crates/lib/vm-value" }
 waymark-vm-value-convert-core = { path = "crates/lib/vm-value-convert-core" }
 waymark-vm-value-convert-json = { path = "crates/lib/vm-value-convert-json" }

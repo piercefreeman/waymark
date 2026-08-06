@@ -40,3 +40,4 @@ waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }
+waymark-vm-runtime-view-capture = { workspace = true }

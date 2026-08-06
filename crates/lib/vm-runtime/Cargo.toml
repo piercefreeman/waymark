@@ -12,6 +12,7 @@ waymark-vm-runtime-core = { workspace = true, features = ["serde"] }
 waymark-vm-runtime-effect = { workspace = true, features = ["serde"] }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
+waymark-vm-runtime-view-capture = { workspace = true }
 
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }

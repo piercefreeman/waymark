@@ -7,9 +7,10 @@ use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_interpreter_coreset::CoreSetInterpreter;
 use waymark_vm_interpreter_extcallset::ExtCallSetInterpreter;
 use waymark_vm_runtime::{CallSpec, Runtime};
-use waymark_vm_runtime_core::{CaptureRuntimeView, Frame, FullRuntimeView, RegisterId};
+use waymark_vm_runtime_core::{Frame, FullRuntimeView, RegisterId};
 use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
+use waymark_vm_runtime_view_capture::CaptureRuntimeView;
 use waymark_vm_value::{ReadyValue, Value};
 
 #[derive(Debug)]
@@ -66,24 +67,6 @@ struct RuntimeInterpreter {
     extcall_set: ExtCallSetInterpreter<TestSpec, FunctionId, StateId, Value>,
 }
 
-impl CaptureRuntimeView<Executable<Instruction>, FunctionId, StateId, Value>
-    for RuntimeInterpreter
-{
-    type RuntimeView<'r>
-        = FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, Value>
-    where
-        Executable<Instruction>: 'r,
-        FunctionId: 'r,
-        StateId: 'r,
-        Value: 'r;
-
-    fn capture_runtime_view<'r>(
-        view: FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, Value>,
-    ) -> Self::RuntimeView<'r> {
-        view
-    }
-}
-
 impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
     type RuntimeView<'r> = FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, Value>;
     type Frame = Frame<FunctionId, StateId, Value>;
@@ -93,23 +76,18 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
 
     fn enter_state<'r>(
         &self,
-        runtime_view: Self::RuntimeView<'r>,
+        mut runtime_view: Self::RuntimeView<'r>,
         mut frame: Self::Frame,
     ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
-        let FullRuntimeView { executable, state } = runtime_view;
-
         let state_before = frame.state;
-        let runtime_view =
-            CoreSetInterpreter::<TestSpec, Executable<Instruction>, Value>::capture_runtime_view(
-                FullRuntimeView {
-                    executable,
-                    state: &mut *state,
-                },
-            );
-        let outcome =
-            waymark_vm_interpreter::Interpreter::enter_state(&self.core_set, runtime_view, frame)
-                .map_err(TestError::from)?
-                .map_effect(TestEffect::CoreSet);
+        let sub_runtime_view = CaptureRuntimeView::capture_runtime_view(&mut runtime_view);
+        let outcome = waymark_vm_interpreter::Interpreter::enter_state(
+            &self.core_set,
+            sub_runtime_view,
+            frame,
+        )
+        .map_err(TestError::from)?
+        .map_effect(TestEffect::CoreSet);
         match outcome {
             ExecutionOutcome::Continue(next_frame) if next_frame.state == state_before => {
                 frame = next_frame;
@@ -118,16 +96,10 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
         }
 
         let state_before = frame.state;
-        let runtime_view =
-            ExtCallSetInterpreter::<TestSpec, FunctionId, StateId, Value>::capture_runtime_view(
-                FullRuntimeView {
-                    executable,
-                    state: &mut *state,
-                },
-            );
+        let sub_runtime_view = CaptureRuntimeView::capture_runtime_view(&mut runtime_view);
         let outcome = waymark_vm_interpreter::Interpreter::enter_state(
             &self.extcall_set,
-            runtime_view,
+            sub_runtime_view,
             frame,
         )
         .map_err(TestError::from)?
@@ -142,24 +114,20 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
 
     fn execute<'r>(
         &self,
-        runtime_view: Self::RuntimeView<'r>,
+        mut runtime_view: Self::RuntimeView<'r>,
         frame: Self::Frame,
         instruction: &Self::Instruction,
     ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
         match instruction {
             Instruction::Core(instruction) => {
-                let runtime_view = CoreSetInterpreter::<
-                    TestSpec,
-                    Executable<Instruction>,
-                    Value,
-                >::capture_runtime_view(runtime_view);
+                let runtime_view = CaptureRuntimeView::capture_runtime_view(&mut runtime_view);
                 self.core_set
                     .execute(runtime_view, frame, instruction)
                     .map(|outcome| outcome.map_effect(TestEffect::CoreSet))
                     .map_err(TestError::from)
             }
             Instruction::ExtCallSet(instruction) => {
-                let runtime_view = ExtCallSetInterpreter::<TestSpec, FunctionId, StateId, Value>::capture_runtime_view(runtime_view);
+                let runtime_view = CaptureRuntimeView::capture_runtime_view(&mut runtime_view);
                 self.extcall_set
                     .execute(runtime_view, frame, instruction)
                     .map(|outcome| outcome.map_effect(TestEffect::ExtCallSet))
