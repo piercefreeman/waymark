@@ -60,22 +60,9 @@ async fn main() -> Result<(), color_eyre::eyre::Report> {
     let backend = PostgresBackend::new(pool.clone());
     if !args.keep_existing_data {
         info!("clearing durable-VM and worker-status data before soak run");
-        sqlx::query(
-            r#"
-            TRUNCATE action_call_completions,
-                     action_call_requests,
-                     sleep_requests,
-                     vm_executables,
-                     vm_runtime_snapshots,
-                     runnable_workloads,
-                     vm_execution_results,
-                     worker_status
-            RESTART IDENTITY CASCADE
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .wrap_err("clear durable-VM tables")?;
+        waymark_backend_postgres::reset::truncate_all(&pool)
+            .await
+            .wrap_err("clear durable tables")?;
     }
     let services = setup_workflows::soak_services(&backend);
 
