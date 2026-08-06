@@ -27,6 +27,5 @@ pub use self::poll::PollUnpinnedWorkloads;
 pub use self::unpin::UnpinWorkloads;
 
 /// All workload pinning backend traits.
+#[waymark_blanket_impl_macros::blanket_impl]
 pub trait Backend: PollUnpinnedWorkloads + KeepalivePinnings + UnpinWorkloads {}
-
-impl<T> Backend for T where T: PollUnpinnedWorkloads + KeepalivePinnings + UnpinWorkloads {}
