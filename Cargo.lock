@@ -653,12 +653,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
-name = "const-sub-array"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e798d55ecd6c99d12d04e12831bbced2a44e2a8197493dd741818999698dcc0d"
-
-[[package]]
 name = "const_fn"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3104,12 +3098,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha1_smol"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
-
-[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3994,19 +3982,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
-name = "typle"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad39ef9a1dca242cfd2ff54175b03fbccc389423bc66a360c651a8ed00afe69c"
-dependencies = [
- "either",
- "proc-macro2",
- "quote",
- "syn",
- "zip_clone",
-]
-
-[[package]]
 name = "ucd-trie"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4417,18 +4392,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-backend-fault-injection"
-version = "0.1.0"
-dependencies = [
- "nonempty-collections",
- "thiserror",
- "waymark-backends-core",
- "waymark-core-backend",
- "waymark-ids",
- "waymark-workflow-registry-backend",
-]
-
-[[package]]
 name = "waymark-backend-memory"
 version = "0.1.0"
 dependencies = [
@@ -4440,7 +4403,6 @@ dependencies = [
  "uuid",
  "waymark-backends-core",
  "waymark-core-backend",
- "waymark-garbage-collector-backend",
  "waymark-ids",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
@@ -4475,7 +4437,6 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
- "waymark-garbage-collector-backend",
  "waymark-ids",
  "waymark-ir-conversions",
  "waymark-ir-parser",
@@ -4639,9 +4600,7 @@ version = "0.1.0"
 dependencies = [
  "envfury",
  "thiserror",
- "waymark-garbage-collector-config",
  "waymark-nonzero-duration",
- "waymark-scheduler-config",
  "waymark-secret-string",
  "waymark-webapp-config",
 ]
@@ -4659,29 +4618,6 @@ dependencies = [
  "nonempty-collections",
  "serde",
  "waymark-backends-core",
- "waymark-ids",
- "waymark-runner-execution-core",
- "waymark-runner-executor-core",
-]
-
-[[package]]
-name = "waymark-core-backend-metadata"
-version = "0.1.0"
-dependencies = [
- "derive-where",
- "typle",
-]
-
-[[package]]
-name = "waymark-core-backend2"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "derive-where",
- "either",
- "nonempty-collections",
- "serde",
- "waymark-core-backend-metadata",
  "waymark-ids",
  "waymark-runner-execution-core",
  "waymark-runner-executor-core",
@@ -4716,14 +4652,6 @@ dependencies = [
  "waymark-dag-builder",
  "waymark-ir-parser",
  "waymark-proto",
-]
-
-[[package]]
-name = "waymark-dag-viz"
-version = "0.1.0"
-dependencies = [
- "thiserror",
- "waymark-dag",
 ]
 
 [[package]]
@@ -4878,18 +4806,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-garbage-collector-backend"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "waymark-backends-core",
-]
-
-[[package]]
-name = "waymark-garbage-collector-config"
-version = "0.1.0"
-
-[[package]]
 name = "waymark-ids"
 version = "0.1.0"
 dependencies = [
@@ -4949,30 +4865,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-ir-format"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "waymark-ir-parser",
- "waymark-proto",
-]
-
-[[package]]
 name = "waymark-ir-parser"
 version = "0.1.0"
 dependencies = [
  "regex",
  "waymark-proto",
-]
-
-[[package]]
-name = "waymark-jsonlines"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
 ]
 
 [[package]]
@@ -5080,47 +4977,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-runloop"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "metrics",
- "mockall",
- "nonempty-collections",
- "prost 0.12.6",
- "serde_json",
- "sha2",
- "thiserror",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
- "waymark-backend-fault-injection",
- "waymark-backend-memory",
- "waymark-backends-core",
- "waymark-core-backend",
- "waymark-dag",
- "waymark-dag-builder",
- "waymark-ids",
- "waymark-ir-parser",
- "waymark-metrics-util",
- "waymark-nonzero-duration",
- "waymark-observability",
- "waymark-proto",
- "waymark-runner",
- "waymark-runner-execution-core",
- "waymark-runner-executor-core",
- "waymark-runner-state",
- "waymark-synthetic-exception",
- "waymark-tick-loop",
- "waymark-timed-channel",
- "waymark-utils-tokio-channel",
- "waymark-worker-core",
- "waymark-worker-inline",
- "waymark-workflow-registry-backend",
-]
-
-[[package]]
 name = "waymark-runner"
 version = "0.1.0"
 dependencies = [
@@ -5154,17 +5010,6 @@ dependencies = [
  "waymark-dag",
  "waymark-ids",
  "waymark-runner-expr",
-]
-
-[[package]]
-name = "waymark-runner-execution-id"
-version = "0.1.0"
-dependencies = [
- "const-sub-array",
- "serde",
- "sha1_smol",
- "uuid",
- "waymark-ids",
 ]
 
 [[package]]
@@ -5234,10 +5079,6 @@ dependencies = [
  "waymark-ids",
  "waymark-scheduler-core",
 ]
-
-[[package]]
-name = "waymark-scheduler-config"
-version = "0.1.0"
 
 [[package]]
 name = "waymark-scheduler-core"
@@ -5519,31 +5360,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-tick-loop"
-version = "0.1.0"
-dependencies = [
- "thiserror",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "waymark-timed"
-version = "0.1.0"
-dependencies = [
- "metrics",
-]
-
-[[package]]
-name = "waymark-timed-channel"
-version = "0.1.0"
-dependencies = [
- "tokio",
- "waymark-timed",
-]
-
-[[package]]
 name = "waymark-timed-future"
 version = "0.1.0"
 dependencies = [
@@ -5648,24 +5464,6 @@ version = "0.1.0"
 dependencies = [
  "index_type",
  "serde",
-]
-
-[[package]]
-name = "waymark-utils-futures"
-version = "0.1.0"
-dependencies = [
- "futures-util",
- "thiserror",
-]
-
-[[package]]
-name = "waymark-utils-tokio-channel"
-version = "0.1.0"
-dependencies = [
- "tokio",
- "tokio-util",
- "tracing",
- "waymark-utils-futures",
 ]
 
 [[package]]
@@ -7170,12 +6968,6 @@ dependencies = [
  "quote",
  "syn",
 ]
-
-[[package]]
-name = "zip_clone"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a3369cd8e772810a22f0f20bee39772ade077ee8aabc6d914911e53c181e458"
 
 [[package]]
 name = "zmij"

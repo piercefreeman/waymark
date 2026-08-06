@@ -3,9 +3,6 @@
 #[cfg(feature = "core-backend")]
 mod core_backend;
 
-#[cfg(feature = "garbage-collector-backend")]
-mod garbage_collector_backend;
-
 #[cfg(feature = "scheduler-backend")]
 mod scheduler_backend;
 
