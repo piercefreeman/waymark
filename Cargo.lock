@@ -5559,6 +5559,28 @@ name = "waymark-vm-interpreter"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-vm-interpreter-composite"
+version = "0.1.0"
+dependencies = [
+ "waymark-vm-interpreter",
+ "waymark-vm-interpreter-composite-core",
+ "waymark-vm-interpreter-composite-macros",
+]
+
+[[package]]
+name = "waymark-vm-interpreter-composite-core"
+version = "0.1.0"
+
+[[package]]
+name = "waymark-vm-interpreter-composite-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "waymark-vm-interpreter-coreset"
 version = "0.1.0"
 dependencies = [
@@ -5613,6 +5635,7 @@ dependencies = [
  "waymark-vm-instructions-fullset",
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter",
+ "waymark-vm-interpreter-composite",
  "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-pureset",
@@ -5694,6 +5717,7 @@ dependencies = [
  "thiserror",
  "waymark-typed-vec-serde",
  "waymark-vm-exception-handler",
+ "waymark-vm-interpreter-composite-core",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
