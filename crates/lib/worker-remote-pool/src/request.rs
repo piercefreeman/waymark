@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use waymark_proto::messages as proto;
-use waymark_runner_executor_core::UncheckedExecutionResult;
+use waymark_worker_core::UncheckedExecutionResult;
 use waymark_worker_core::{ActionCompletion, ActionRequest, WorkerPoolError, error_to_value};
 use waymark_worker_message_protocol::ActionDispatchPayload;
 

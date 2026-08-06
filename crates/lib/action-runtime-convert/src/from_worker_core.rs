@@ -2,13 +2,11 @@ use waymark_convert_core::TryConvert;
 
 use crate::Converter;
 
-impl TryConvert<waymark_runner_executor_core::ExecutionSuccess, waymark_vm_value::ReadyValue>
-    for Converter
-{
+impl TryConvert<waymark_worker_core::ExecutionSuccess, waymark_vm_value::ReadyValue> for Converter {
     type Error = core::convert::Infallible;
 
     fn try_convert(
-        value: waymark_runner_executor_core::ExecutionSuccess,
+        value: waymark_worker_core::ExecutionSuccess,
     ) -> Result<waymark_vm_value::ReadyValue, Self::Error> {
         waymark_vm_value_convert_json::Converter::try_convert(value.0)
     }
@@ -16,14 +14,14 @@ impl TryConvert<waymark_runner_executor_core::ExecutionSuccess, waymark_vm_value
 
 impl
     TryConvert<
-        waymark_runner_executor_core::ExecutionException,
+        waymark_worker_core::ExecutionException,
         waymark_vm_runtime_exception::Exception<waymark_vm_value::ReadyValue>,
     > for Converter
 {
     type Error = core::convert::Infallible;
 
     fn try_convert(
-        value: waymark_runner_executor_core::ExecutionException,
+        value: waymark_worker_core::ExecutionException,
     ) -> Result<waymark_vm_runtime_exception::Exception<waymark_vm_value::ReadyValue>, Self::Error>
     {
         waymark_vm_value_convert_json::Converter::try_convert(value.0)
@@ -32,14 +30,14 @@ impl
 
 impl
     TryConvert<
-        waymark_runner_executor_core::UncheckedExecutionResult,
+        waymark_worker_core::UncheckedExecutionResult,
         waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value::ReadyValue>,
     > for Converter
 {
     type Error = core::convert::Infallible;
 
     fn try_convert(
-        value: waymark_runner_executor_core::UncheckedExecutionResult,
+        value: waymark_worker_core::UncheckedExecutionResult,
     ) -> Result<
         waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value::ReadyValue>,
         Self::Error,
