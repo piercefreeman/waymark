@@ -5342,8 +5342,26 @@ name = "waymark-vm-interpreter"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-vm-interpreter-composite"
+version = "0.1.0"
+dependencies = [
+ "waymark-vm-interpreter",
+ "waymark-vm-interpreter-composite-core",
+ "waymark-vm-interpreter-composite-macros",
+]
+
+[[package]]
 name = "waymark-vm-interpreter-composite-core"
 version = "0.1.0"
+
+[[package]]
+name = "waymark-vm-interpreter-composite-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "waymark-vm-interpreter-coreset"
