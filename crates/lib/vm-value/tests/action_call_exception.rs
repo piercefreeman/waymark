@@ -3,11 +3,12 @@
 use waymark_vm_bytecode::Executable;
 use waymark_vm_instructions_coreset::CoreSet;
 use waymark_vm_instructions_extcallset::ExtCallSet;
+use waymark_vm_interpreter::CaptureRuntimeView;
 use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_interpreter_coreset::CoreSetInterpreter;
 use waymark_vm_interpreter_extcallset::ExtCallSetInterpreter;
 use waymark_vm_runtime::{CallSpec, Runtime};
-use waymark_vm_runtime_core::{CaptureRuntimeView, Frame, FullRuntimeView, RegisterId};
+use waymark_vm_runtime_core::{Frame, FullRuntimeView, RegisterId};
 use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
 use waymark_vm_value::{ReadyValue, Value};
@@ -66,26 +67,23 @@ struct RuntimeInterpreter {
     extcall_set: ExtCallSetInterpreter<TestSpec, FunctionId, StateId, Value>,
 }
 
-impl CaptureRuntimeView<Executable<Instruction>, FunctionId, StateId, Value>
+impl<'r>
+    CaptureRuntimeView<'r, FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, Value>>
     for RuntimeInterpreter
 {
-    type RuntimeView<'r>
-        = FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, Value>
-    where
-        Executable<Instruction>: 'r,
-        FunctionId: 'r,
-        StateId: 'r,
-        Value: 'r;
+    type Captured =
+        &'r mut FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, Value>;
 
-    fn capture_runtime_view<'r>(
-        view: FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, Value>,
-    ) -> Self::RuntimeView<'r> {
-        view
+    fn capture_runtime_view(
+        source: &'r mut FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, Value>,
+    ) -> Self::Captured {
+        source
     }
 }
 
 impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
-    type RuntimeView<'r> = FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, Value>;
+    type RuntimeView<'r> =
+        &'r mut FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, Value>;
     type Frame = Frame<FunctionId, StateId, Value>;
     type Instruction = Instruction;
     type Error = TestError;
@@ -96,20 +94,18 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
         runtime_view: Self::RuntimeView<'r>,
         mut frame: Self::Frame,
     ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
-        let FullRuntimeView { executable, state } = runtime_view;
-
         let state_before = frame.state;
-        let runtime_view =
+        let sub_runtime_view =
             CoreSetInterpreter::<TestSpec, Executable<Instruction>, Value>::capture_runtime_view(
-                FullRuntimeView {
-                    executable,
-                    state: &mut *state,
-                },
+                &mut *runtime_view,
             );
-        let outcome =
-            waymark_vm_interpreter::Interpreter::enter_state(&self.core_set, runtime_view, frame)
-                .map_err(TestError::from)?
-                .map_effect(TestEffect::CoreSet);
+        let outcome = waymark_vm_interpreter::Interpreter::enter_state(
+            &self.core_set,
+            sub_runtime_view,
+            frame,
+        )
+        .map_err(TestError::from)?
+        .map_effect(TestEffect::CoreSet);
         match outcome {
             ExecutionOutcome::Continue(next_frame) if next_frame.state == state_before => {
                 frame = next_frame;
@@ -118,16 +114,13 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
         }
 
         let state_before = frame.state;
-        let runtime_view =
+        let sub_runtime_view =
             ExtCallSetInterpreter::<TestSpec, FunctionId, StateId, Value>::capture_runtime_view(
-                FullRuntimeView {
-                    executable,
-                    state: &mut *state,
-                },
+                &mut *runtime_view,
             );
         let outcome = waymark_vm_interpreter::Interpreter::enter_state(
             &self.extcall_set,
-            runtime_view,
+            sub_runtime_view,
             frame,
         )
         .map_err(TestError::from)?
