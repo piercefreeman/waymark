@@ -65,9 +65,8 @@ pub trait Resolvable {
 /// Wraps a "resolved" value type with the possibilities of either it being
 /// immediately available (i.e. resolved) or being in a placeholder
 /// state waiting for a wrapped value to be resolved with.
+#[waymark_blanket_impl_macros::blanket_impl]
 pub trait Promisable: Suspendable + Resolvable {}
-
-impl<T> Promisable for T where T: Suspendable + Resolvable {}
 
 /// A resolved promise was required but the actual value was pending.
 #[derive(Debug, thiserror::Error)]
