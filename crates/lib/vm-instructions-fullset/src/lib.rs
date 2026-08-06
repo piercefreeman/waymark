@@ -21,6 +21,7 @@ pub trait Spec:
 
 /// The full instructions set.
 #[derive_where(Debug)]
+#[derive(derive_more::From)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
@@ -46,24 +47,4 @@ pub enum FullSet<Spec: self::Spec> {
 
     /// Pure instructions set.
     PureSet(waymark_vm_instructions_pureset::PureSet<Spec>),
-}
-
-impl<Spec: self::Spec> From<waymark_vm_instructions_coreset::CoreSet<Spec>> for FullSet<Spec> {
-    fn from(value: waymark_vm_instructions_coreset::CoreSet<Spec>) -> Self {
-        Self::CoreSet(value)
-    }
-}
-
-impl<Spec: self::Spec> From<waymark_vm_instructions_extcallset::ExtCallSet<Spec>>
-    for FullSet<Spec>
-{
-    fn from(value: waymark_vm_instructions_extcallset::ExtCallSet<Spec>) -> Self {
-        Self::ExtCallSet(value)
-    }
-}
-
-impl<Spec: self::Spec> From<waymark_vm_instructions_pureset::PureSet<Spec>> for FullSet<Spec> {
-    fn from(value: waymark_vm_instructions_pureset::PureSet<Spec>) -> Self {
-        Self::PureSet(value)
-    }
 }
