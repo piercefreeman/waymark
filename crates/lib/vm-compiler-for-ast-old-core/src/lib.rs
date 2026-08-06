@@ -10,6 +10,7 @@ pub mod lowering;
 
 /// Trait bound collecting the instruction set spec requirements for
 /// an AST-old compiler.
+#[waymark_blanket_impl_macros::blanket_impl]
 pub trait SpecRequirements:
     waymark_vm_instructions_coreset::Spec<
         RegisterId = waymark_vm_runtime_core::RegisterId,
@@ -20,19 +21,6 @@ pub trait SpecRequirements:
         StateId = waymark_vm_bytecode_core::StateId,
     > + waymark_vm_instructions_pureset::Spec
     + waymark_vm_instructions_fullset::Spec
-{
-}
-
-impl<T> SpecRequirements for T where
-    T: waymark_vm_instructions_coreset::Spec<
-            RegisterId = waymark_vm_runtime_core::RegisterId,
-            FunctionId = waymark_vm_bytecode_core::FunctionId,
-            StateId = waymark_vm_bytecode_core::StateId,
-        > + waymark_vm_instructions_extcallset::Spec<
-            RegisterId = waymark_vm_runtime_core::RegisterId,
-            StateId = waymark_vm_bytecode_core::StateId,
-        > + waymark_vm_instructions_pureset::Spec
-        + waymark_vm_instructions_fullset::Spec
 {
 }
 

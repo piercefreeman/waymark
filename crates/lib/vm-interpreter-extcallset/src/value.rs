@@ -25,6 +25,5 @@ pub trait CaptureActionCallArgument {
 }
 
 /// A unifying trait for extcallset value requirements.
+#[waymark_blanket_impl_macros::blanket_impl]
 pub trait Value: SleepDuration + CaptureActionCallArgument {}
-
-impl<T> Value for T where T: SleepDuration + CaptureActionCallArgument {}
