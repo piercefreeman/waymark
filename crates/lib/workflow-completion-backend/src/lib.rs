@@ -122,6 +122,5 @@ pub trait PollOutcome: HasVmId {
 }
 
 /// Convenience trait: a backend that includes all traits from this crate.
+#[waymark_blanket_impl_macros::blanket_impl]
 pub trait WorkflowCompletionBackend: RecordOutcomes + PollOutcome {}
-
-impl<T> WorkflowCompletionBackend for T where T: RecordOutcomes + PollOutcome {}
