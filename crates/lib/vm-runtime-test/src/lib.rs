@@ -7,7 +7,7 @@
 //!
 //! Concretely, this crate may depend on the core runtime traits
 //! ([`waymark_vm_interpreter::Interpreter`],
-//! [`waymark_vm_runtime_core::CaptureRuntimeView`],
+//! [`waymark_vm_interpreter::CaptureRuntimeView`],
 //! [`waymark_vm_interpreter_coreset::value::CaptureCallArgument`], etc.) that
 //! every interpreter is expected to honor, but it must not depend on the
 //! per-instruction-set crates (e.g. `waymark-vm-instructions-pureset`,
@@ -34,8 +34,8 @@ use serde::{Deserialize, Serialize};
 use waymark_vm_interpreter::{ExecutionOutcome, Interpreter};
 use waymark_vm_runtime::{CallSpec, FunctionNotFoundError, Runtime};
 use waymark_vm_runtime_core::{
-    CaptureRuntimeView, Continuation, ExceptionHandlers, Frame, FrameKind, FullRuntimeView,
-    PromiseState, RegisterId, Registers,
+    Continuation, ExceptionHandlers, Frame, FrameKind, FullRuntimeView, PromiseState, RegisterId,
+    Registers,
 };
 use waymark_vm_runtime_exception::{Exception, FromException};
 
@@ -128,13 +128,21 @@ pub fn executable<Instruction>(
     }
 }
 
-impl CaptureRuntimeView<TestExecutable, FunctionId, StateId, TestValue> for TestInterpreter {
-    type RuntimeView<'r> = FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>;
+impl<'s, 'r>
+    waymark_vm_interpreter::CaptureRuntimeView<
+        's,
+        FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>,
+    > for TestInterpreter
+{
+    type Captured = FullRuntimeView<'s, TestExecutable, FunctionId, StateId, TestValue>;
 
-    fn capture_runtime_view<'r>(
-        view: FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>,
-    ) -> Self::RuntimeView<'r> {
-        view
+    fn capture_runtime_view(
+        source: &'s mut FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>,
+    ) -> Self::Captured {
+        FullRuntimeView {
+            executable: source.executable,
+            state: &mut *source.state,
+        }
     }
 }
 

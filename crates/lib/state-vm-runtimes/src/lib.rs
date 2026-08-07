@@ -161,12 +161,16 @@ where
             Instruction = <ExecutableProvider::Value as waymark_vm_executable::InstructionsProvider>::Instruction,
         >,
     InterpreterProvider::Interpreter: Send + 'static,
-    InterpreterProvider::Interpreter: for<'r> waymark_vm_runtime_core::CaptureRuntimeView<
-            ExecutableProvider::Value,
-            <ExecutableProvider::Value as waymark_vm_executable::Functions>::FunctionId,
-            <ExecutableProvider::Value as waymark_vm_executable::FunctionStates>::StateId,
-            Value,
-            RuntimeView<'r> = <InterpreterProvider::Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'r>,
+    InterpreterProvider::Interpreter: for<'r> waymark_vm_interpreter::CaptureRuntimeView<
+            'r,
+            waymark_vm_runtime_core::FullRuntimeView<
+                'r,
+                ExecutableProvider::Value,
+                <ExecutableProvider::Value as waymark_vm_executable::Functions>::FunctionId,
+                <ExecutableProvider::Value as waymark_vm_executable::FunctionStates>::StateId,
+                Value,
+            >,
+            Captured = <InterpreterProvider::Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'r>,
         >,
     EffectorProvider: waymark_state_vm_runtimes_core::EffectorProvider<
         VmId = Backend::VmId,
