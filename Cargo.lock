@@ -5651,6 +5651,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-interpreter-operations"
+version = "0.1.0"
+dependencies = [
+ "waymark-phantom-uninhabitable",
+]
+
+[[package]]
 name = "waymark-vm-interpreter-pureset"
 version = "0.1.0"
 dependencies = [
