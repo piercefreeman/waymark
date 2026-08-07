@@ -5658,6 +5658,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-interpreter-operations-python"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-vm-interpreter-pureset"
 version = "0.1.0"
 dependencies = [
