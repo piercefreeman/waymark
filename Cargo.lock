@@ -4833,6 +4833,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-phantom-uninhabitable"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-pool-status"
 version = "0.1.0"
 dependencies = [
