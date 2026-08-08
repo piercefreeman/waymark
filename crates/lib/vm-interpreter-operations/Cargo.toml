@@ -7,12 +7,17 @@ publish.workspace = true
 [dependencies]
 waymark-nonzero-duration = { workspace = true }
 waymark-phantom-uninhabitable = { workspace = true }
+waymark-vm-exception-type-ids = { workspace = true }
 waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-extcallset = { workspace = true }
+waymark-vm-interpreter-pureset = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 waymark-vm-runtime-promise-value = { workspace = true }
+waymark-vm-runtime-value = { workspace = true }
 waymark-vm-value = { workspace = true }
 
+indexmap = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

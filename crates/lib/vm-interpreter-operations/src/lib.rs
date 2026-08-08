@@ -13,6 +13,7 @@
 pub mod coreset;
 pub mod extcallset;
 pub mod promise;
+pub mod pureset;
 
 /// The VM interpreter operations, specialized by the variation marker.
 pub struct Operations<Variation>(waymark_phantom_uninhabitable::PhantomUninhabitable<Variation>);

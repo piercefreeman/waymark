@@ -11,9 +11,6 @@ pub type Operations = waymark_vm_interpreter_operations::Operations<
 >;
 
 #[cfg(test)]
-static_assertions::assert_impl_all!(Value: waymark_vm_interpreter_fullset::Value);
-
-#[cfg(test)]
 static_assertions::assert_impl_all!(
     Operations: waymark_vm_interpreter_fullset::Operations<Value>
 );

@@ -11,11 +11,14 @@ pub enum MakeListError {
 }
 
 /// Build a list value from a sequence of items.
-pub trait MakeList: Sized + waymark_vm_runtime_value::RootValueAccess {
+pub trait MakeList<Value>
+where
+    Value: waymark_vm_runtime_value::RootValueAccess,
+{
     /// Construct a list value preserving input order.
-    fn make_list<I>(items: I) -> Result<Self, MakeListError>
+    fn make_list<I>(items: I) -> Result<Value, MakeListError>
     where
-        I: IntoIterator<Item = Self::RootValue>;
+        I: IntoIterator<Item = Value::RootValue>;
 }
 
 /// An error from [`ListAppend::list_append`].
@@ -31,7 +34,10 @@ pub enum ListAppendError {
 }
 
 /// Append one item onto a list value, producing a new list.
-pub trait ListAppend: Sized + waymark_vm_runtime_value::RootValueAccess {
+pub trait ListAppend<Value>
+where
+    Value: waymark_vm_runtime_value::RootValueAccess,
+{
     /// Returns `list` with `item` appended at the end.
-    fn list_append(list: &Self, item: Self::RootValue) -> Result<Self, ListAppendError>;
+    fn list_append(list: &Value, item: Value::RootValue) -> Result<Value, ListAppendError>;
 }

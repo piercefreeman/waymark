@@ -4,7 +4,6 @@
 
 mod error;
 pub mod operations;
-pub mod value;
 
 use derive_where::derive_where;
 use waymark_vm_interpreter::ExecutionOutcome;
@@ -13,9 +12,6 @@ use waymark_vm_runtime_core::Frame;
 
 pub use self::error::*;
 pub use self::operations::Operations;
-pub use self::value::Value;
-
-use self::value::*;
 
 use waymark_vm_instructions_pureset::{BinaryOpKind, UnaryOpKind};
 
@@ -32,10 +28,10 @@ where
         + 'static,
     Operations: self::Operations<Value>,
     Operations: self::operations::Exceptions<Value>,
+    Operations: for<'a> self::operations::LoadConst<Value, &'a Spec::ConstValue>,
     Operations: 'static,
+    Value: waymark_vm_runtime_value::RootValueAccess<RootValue = Value>,
     Value: 'static,
-    Value: value::Value,
-    Value: for<'a> value::LoadConst<&'a Spec::ConstValue>,
 {
     type RuntimeView<'r> = ();
     type Frame = Frame<FunctionId, StateId, Value>;
@@ -52,14 +48,14 @@ where
     {
         match instruction {
             waymark_vm_instructions_pureset::PureSet::LoadConst { dst, value } => {
-                frame.regs.set(*dst, Value::load_const(value));
+                frame.regs.set(*dst, Operations::load_const(value));
             }
             waymark_vm_instructions_pureset::PureSet::Copy { dst, src } => {
                 let value = frame
                     .regs
                     .get(*src)
                     .ok_or(Error::MissingCopySource { register: *src })?;
-                frame.regs.set(*dst, value.capture_copy());
+                frame.regs.set(*dst, Operations::capture_copy(value));
             }
             waymark_vm_instructions_pureset::PureSet::Binary {
                 kind,
@@ -94,14 +90,14 @@ where
                             .regs
                             .get(register)
                             .ok_or(Error::MissingListItem { item_pos, register })?;
-                        Ok(value.capture_copy())
+                        Ok(Operations::capture_copy(value))
                     },
-                    |items| Value::make_list(items.by_ref()),
+                    |items| Operations::make_list(items.by_ref()),
                 )?;
 
                 match make_list_result {
                     Ok(list) => frame.regs.set(*dst, list),
-                    Err(error) => frame.raise_typed_exception(error),
+                    Err(error) => frame.raise_typed_exception::<Operations, _>(error),
                 }
             }
             waymark_vm_instructions_pureset::PureSet::ListAppend { dst, list, item } => {
@@ -113,9 +109,9 @@ where
                     .regs
                     .get(*item)
                     .ok_or(Error::MissingListAppendItem { register: *item })?;
-                match Value::list_append(list_value, item_value.capture_copy()) {
+                match Operations::list_append(list_value, Operations::capture_copy(item_value)) {
                     Ok(grown) => frame.regs.set(*dst, grown),
-                    Err(error) => frame.raise_typed_exception(error),
+                    Err(error) => frame.raise_typed_exception::<Operations, _>(error),
                 }
             }
             waymark_vm_instructions_pureset::PureSet::MakeDict { dst, entries } => {
@@ -127,7 +123,7 @@ where
                         entry_pos,
                         register: entry.key,
                     })?;
-                    let key = match key.as_dict_key() {
+                    let key = match Operations::as_dict_key(key) {
                         Ok(key) => key,
                         Err(error) => {
                             raised_key_error = Some(error);
@@ -140,17 +136,17 @@ where
                         register: entry.value,
                     })?;
 
-                    resolved_entries.push((key.to_owned(), value.capture_copy()));
+                    resolved_entries.push((key.to_owned(), Operations::capture_copy(value)));
                 }
 
                 if let Some(error) = raised_key_error {
-                    frame.raise_typed_exception(error);
+                    frame.raise_typed_exception::<Operations, _>(error);
                     return Ok(ExecutionOutcome::Continue(frame));
                 }
 
-                match Value::make_dict(resolved_entries) {
+                match Operations::make_dict(resolved_entries) {
                     Ok(dict) => frame.regs.set(*dst, dict),
-                    Err(error) => frame.raise_typed_exception(error),
+                    Err(error) => frame.raise_typed_exception::<Operations, _>(error),
                 }
             }
             waymark_vm_instructions_pureset::PureSet::MakeException {
@@ -162,17 +158,16 @@ where
                     .regs
                     .get(*type_id)
                     .ok_or(Error::MissingExceptionTypeId { register: *type_id })?;
-                let type_id_value = type_id_value
-                    .as_exception_type_id()
+                let type_id_value = Operations::as_exception_type_id(type_id_value)
                     .map_err(|source| Error::UnusableExceptionTypeId { source })?
                     .to_owned();
                 let details_value = frame
                     .regs
                     .get(*details)
-                    .ok_or(Error::MissingExceptionDetails { register: *details })?
-                    .capture_copy();
+                    .ok_or(Error::MissingExceptionDetails { register: *details })?;
+                let details_value = Operations::capture_copy(details_value);
 
-                let exception = Value::make_exception(type_id_value, details_value);
+                let exception = Operations::make_exception(type_id_value, details_value);
                 frame.regs.set(*dst, exception);
             }
         }
@@ -184,7 +179,9 @@ where
 impl<Spec, FunctionId, StateId, Operations, Value>
     PureSetInterpreter<Spec, FunctionId, StateId, Operations, Value>
 where
-    Value: value::Value,
+    Operations: self::Operations<Value>,
+    Operations: self::operations::Exceptions<Value>,
+    Value: waymark_vm_runtime_value::RootValueAccess<RootValue = Value>,
 {
     fn execute_binary_operation(
         frame: &mut Frame<FunctionId, StateId, Value>,
@@ -198,10 +195,10 @@ where
             operand_pos: BinaryOperandPosition::First,
             register: a,
         })?;
-        let x = match x.as_scalar() {
+        let x = match Operations::as_scalar_value(x) {
             Ok(scalar) => scalar,
             Err(error) => {
-                frame.raise_typed_exception(error);
+                frame.raise_typed_exception::<Operations, _>(error);
                 return Ok(());
             }
         };
@@ -211,36 +208,36 @@ where
             operand_pos: BinaryOperandPosition::Second,
             register: b,
         })?;
-        let y = match y.as_scalar() {
+        let y = match Operations::as_scalar_value(y) {
             Ok(scalar) => scalar,
             Err(error) => {
-                frame.raise_typed_exception(error);
+                frame.raise_typed_exception::<Operations, _>(error);
                 return Ok(());
             }
         };
 
         let operation_result = match operation {
-            BinaryOpKind::Add => Value::Scalar::add(x, y),
-            BinaryOpKind::Sub => Value::Scalar::sub(x, y),
-            BinaryOpKind::Mul => Value::Scalar::mul(x, y),
-            BinaryOpKind::Div => Value::Scalar::div(x, y),
-            BinaryOpKind::FloorDiv => Value::Scalar::floor_div(x, y),
-            BinaryOpKind::Mod => Value::Scalar::modulo(x, y),
-            BinaryOpKind::Eq => Value::Scalar::eq(x, y),
-            BinaryOpKind::Ne => Value::Scalar::ne(x, y),
-            BinaryOpKind::Lt => Value::Scalar::lt(x, y),
-            BinaryOpKind::Le => Value::Scalar::le(x, y),
-            BinaryOpKind::Gt => Value::Scalar::gt(x, y),
-            BinaryOpKind::Ge => Value::Scalar::ge(x, y),
-            BinaryOpKind::In => Value::Scalar::contains(x, y),
-            BinaryOpKind::NotIn => Value::Scalar::not_contains(x, y),
-            BinaryOpKind::And => Value::Scalar::and(x, y),
-            BinaryOpKind::Or => Value::Scalar::or(x, y),
+            BinaryOpKind::Add => Operations::add(x, y),
+            BinaryOpKind::Sub => Operations::sub(x, y),
+            BinaryOpKind::Mul => Operations::mul(x, y),
+            BinaryOpKind::Div => Operations::div(x, y),
+            BinaryOpKind::FloorDiv => Operations::floor_div(x, y),
+            BinaryOpKind::Mod => Operations::modulo(x, y),
+            BinaryOpKind::Eq => Operations::eq(x, y),
+            BinaryOpKind::Ne => Operations::ne(x, y),
+            BinaryOpKind::Lt => Operations::lt(x, y),
+            BinaryOpKind::Le => Operations::le(x, y),
+            BinaryOpKind::Gt => Operations::gt(x, y),
+            BinaryOpKind::Ge => Operations::ge(x, y),
+            BinaryOpKind::In => Operations::contains(x, y),
+            BinaryOpKind::NotIn => Operations::not_contains(x, y),
+            BinaryOpKind::And => Operations::and(x, y),
+            BinaryOpKind::Or => Operations::or(x, y),
         };
 
         match operation_result {
-            Ok(value) => frame.regs.set(dst, Value::from_scalar(value)),
-            Err(error) => frame.raise_typed_exception(error),
+            Ok(value) => frame.regs.set(dst, Operations::from_scalar_value(value)),
+            Err(error) => frame.raise_typed_exception::<Operations, _>(error),
         }
         Ok(())
     }
@@ -255,22 +252,22 @@ where
             operation,
             register: src,
         })?;
-        let value = match value.as_scalar() {
+        let value = match Operations::as_scalar_value(value) {
             Ok(scalar) => scalar,
             Err(error) => {
-                frame.raise_typed_exception(error);
+                frame.raise_typed_exception::<Operations, _>(error);
                 return Ok(());
             }
         };
 
         let operation_result = match operation {
-            UnaryOpKind::Neg => Value::Scalar::neg(value),
-            UnaryOpKind::Not => Value::Scalar::not(value),
+            UnaryOpKind::Neg => Operations::neg(value),
+            UnaryOpKind::Not => Operations::not(value),
         };
 
         match operation_result {
-            Ok(value) => frame.regs.set(dst, Value::from_scalar(value)),
-            Err(error) => frame.raise_typed_exception(error),
+            Ok(value) => frame.regs.set(dst, Operations::from_scalar_value(value)),
+            Err(error) => frame.raise_typed_exception::<Operations, _>(error),
         }
         Ok(())
     }
@@ -285,16 +282,16 @@ where
             .get(src)
             .ok_or(Error::MissingLengthValue { register: src })?;
 
-        let length = match <Value as value::Length>::length(value) {
+        let length = match <Operations as self::operations::Length<Value>>::length(value) {
             Ok(length) => length,
             Err(error) => {
-                frame.raise_typed_exception(error);
+                frame.raise_typed_exception::<Operations, _>(error);
                 return Ok(());
             }
         };
-        match <Value as value::Length>::from_length(length) {
+        match <Operations as self::operations::Length<Value>>::from_length(length) {
             Ok(value) => frame.regs.set(dst, value),
-            Err(error) => frame.raise_typed_exception(error),
+            Err(error) => frame.raise_typed_exception::<Operations, _>(error),
         }
         Ok(())
     }
@@ -315,9 +312,9 @@ where
             .get(index)
             .ok_or(Error::MissingIndexOperand { register: index })?;
 
-        match Value::index(object_value, index_value) {
+        match Operations::index(object_value, index_value) {
             Ok(value) => frame.regs.set(dst, value),
-            Err(error) => frame.raise_typed_exception(error),
+            Err(error) => frame.raise_typed_exception::<Operations, _>(error),
         }
         Ok(())
     }
@@ -336,9 +333,9 @@ where
                 register: object,
             })?;
 
-        match Value::dot(object_value, attribute) {
+        match Operations::dot(object_value, attribute) {
             Ok(value) => frame.regs.set(dst, value),
-            Err(error) => frame.raise_typed_exception(error),
+            Err(error) => frame.raise_typed_exception::<Operations, _>(error),
         }
         Ok(())
     }

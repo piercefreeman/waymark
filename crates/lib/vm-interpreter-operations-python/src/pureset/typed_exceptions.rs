@@ -1,9 +1,8 @@
-//! The typed exceptions for the pureset operation errors.
+//! The typed exceptions for the Python pureset operation errors.
 
-use super::{
+use super::error::{
     AsDictKeyError, AsScalarError, BinaryOperationError, DotOperationError, FromLengthError,
-    IndexOperationError, LengthError, ListAppendError, MakeDictError, MakeListError,
-    UnaryOperationError,
+    IndexOperationError, LengthError, UnaryOperationError,
 };
 
 impl waymark_vm_runtime_exception::TypedException for AsScalarError {
@@ -99,40 +98,6 @@ impl waymark_vm_runtime_exception::TypedException for FromLengthError {
     }
 }
 
-impl waymark_vm_runtime_exception::TypedException for MakeListError {
-    type IntermediateDetails = String;
-
-    fn into_intermediate_exception(
-        self,
-    ) -> waymark_vm_runtime_exception::Exception<Self::IntermediateDetails> {
-        let type_id = match &self {
-            MakeListError::NotListable => waymark_vm_exception_type_ids::TYPE_ERROR,
-            MakeListError::ResultOutOfBounds => waymark_vm_exception_type_ids::OVERFLOW_ERROR,
-        };
-        waymark_vm_runtime_exception::Exception {
-            type_id: type_id.to_owned(),
-            details: self.to_string(),
-        }
-    }
-}
-
-impl waymark_vm_runtime_exception::TypedException for ListAppendError {
-    type IntermediateDetails = String;
-
-    fn into_intermediate_exception(
-        self,
-    ) -> waymark_vm_runtime_exception::Exception<Self::IntermediateDetails> {
-        let type_id = match &self {
-            ListAppendError::NotListable => waymark_vm_exception_type_ids::TYPE_ERROR,
-            ListAppendError::ResultOutOfBounds => waymark_vm_exception_type_ids::OVERFLOW_ERROR,
-        };
-        waymark_vm_runtime_exception::Exception {
-            type_id: type_id.to_owned(),
-            details: self.to_string(),
-        }
-    }
-}
-
 impl waymark_vm_runtime_exception::TypedException for AsDictKeyError {
     type IntermediateDetails = String;
 
@@ -141,23 +106,6 @@ impl waymark_vm_runtime_exception::TypedException for AsDictKeyError {
     ) -> waymark_vm_runtime_exception::Exception<Self::IntermediateDetails> {
         let type_id = match &self {
             AsDictKeyError::UnsupportedKeyType => waymark_vm_exception_type_ids::TYPE_ERROR,
-        };
-        waymark_vm_runtime_exception::Exception {
-            type_id: type_id.to_owned(),
-            details: self.to_string(),
-        }
-    }
-}
-
-impl waymark_vm_runtime_exception::TypedException for MakeDictError {
-    type IntermediateDetails = String;
-
-    fn into_intermediate_exception(
-        self,
-    ) -> waymark_vm_runtime_exception::Exception<Self::IntermediateDetails> {
-        let type_id = match &self {
-            MakeDictError::NotDictable => waymark_vm_exception_type_ids::TYPE_ERROR,
-            MakeDictError::ResultOutOfBounds => waymark_vm_exception_type_ids::OVERFLOW_ERROR,
         };
         waymark_vm_runtime_exception::Exception {
             type_id: type_id.to_owned(),

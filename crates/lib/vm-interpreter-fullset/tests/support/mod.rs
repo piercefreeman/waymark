@@ -34,11 +34,6 @@ pub type TestRuntime = Runtime<Executable<Instruction>, Interpreter, TestValue>;
 
 // --- Spec ---
 
-/// The operations the fullset interpreter is instantiated with in these
-/// tests. A bare local marker: the interpreter is generic over any
-/// operations type, so no wrapper machinery is involved.
-pub enum TestOperations {}
-
 #[derive(Debug)]
 pub struct TestSpec;
 
@@ -108,160 +103,145 @@ fn is_truthy(value: &TestReadyValue) -> bool {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestReadyValue {
-    fn capture_copy(&self) -> Self {
-        self.clone()
-    }
-}
+impl waymark_vm_interpreter_pureset::operations::BinaryOps<TestReadyValue> for TestOperations {
+    type Error = TestOperationError;
 
-impl waymark_vm_interpreter_pureset::value::LoadConst<&TestConstValue> for TestReadyValue {
-    fn load_const(const_value: &TestConstValue) -> Self {
-        match const_value {
-            TestConstValue::Int(val) => Self::Int(*val),
-        }
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::AsScalar for TestReadyValue {
-    type Scalar = TestReadyValue;
-
-    fn as_scalar(
-        &self,
-    ) -> Result<&Self::Scalar, waymark_vm_interpreter_pureset::value::AsScalarError> {
-        Ok(self)
-    }
-
-    fn from_scalar(scalar: Self::Scalar) -> Self {
-        scalar
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::BinaryOps for TestReadyValue {
-    fn add(
-        a: &Self,
-        b: &Self,
-    ) -> Result<Self, waymark_vm_interpreter_pureset::value::BinaryOperationError> {
+    fn add(a: &TestReadyValue, b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
         match (a, b) {
-            (Self::Int(a), Self::Int(b)) => Ok(Self::Int(*a + *b)),
-            _ => Err(
-                waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: BinaryOpKind::Add,
-                },
-            ),
+            (TestReadyValue::Int(a), TestReadyValue::Int(b)) => Ok(TestReadyValue::Int(*a + *b)),
+            _ => Err(TestOperationError::type_error(format!(
+                "{} is not supported for these operands",
+                BinaryOpKind::Add
+            ))),
         }
+    }
+
+    fn sub(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::Sub
+        )))
+    }
+
+    fn mul(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::Mul
+        )))
+    }
+
+    fn div(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::Div
+        )))
+    }
+
+    fn floor_div(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::FloorDiv
+        )))
+    }
+
+    fn modulo(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::Mod
+        )))
+    }
+
+    fn eq(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::Eq
+        )))
+    }
+
+    fn ne(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::Ne
+        )))
+    }
+
+    fn lt(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::Lt
+        )))
+    }
+
+    fn le(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::Le
+        )))
+    }
+
+    fn gt(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::Gt
+        )))
+    }
+
+    fn ge(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::Ge
+        )))
+    }
+
+    fn contains(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::In
+        )))
+    }
+
+    fn not_contains(
+        _a: &TestReadyValue,
+        _b: &TestReadyValue,
+    ) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::NotIn
+        )))
+    }
+
+    fn and(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::And
+        )))
+    }
+
+    fn or(_a: &TestReadyValue, _b: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Err(TestOperationError::type_error(format!(
+            "{} is not supported for these operands",
+            BinaryOpKind::Or
+        )))
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::UnaryOps for TestReadyValue {
-    fn neg(
-        value: &Self,
-    ) -> Result<Self, waymark_vm_interpreter_pureset::value::UnaryOperationError> {
+impl waymark_vm_interpreter_pureset::operations::UnaryOps<TestReadyValue> for TestOperations {
+    type Error = TestOperationError;
+
+    fn neg(value: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
         match value {
-            Self::Int(value) => Ok(Self::Int(-*value)),
-            _ => Err(
-                waymark_vm_interpreter_pureset::value::UnaryOperationError::UnsupportedOperation {
-                    operation: UnaryOpKind::Neg,
-                },
-            ),
+            TestReadyValue::Int(value) => Ok(TestReadyValue::Int(-*value)),
+            _ => Err(TestOperationError::type_error(format!(
+                "{} is not supported for this operand",
+                UnaryOpKind::Neg
+            ))),
         }
     }
 
-    fn not(
-        value: &Self,
-    ) -> Result<Self, waymark_vm_interpreter_pureset::value::UnaryOperationError> {
-        Ok(Self::Bool(!is_truthy(value)))
+    fn not(value: &TestReadyValue) -> Result<TestReadyValue, Self::Error> {
+        Ok(TestReadyValue::Bool(!is_truthy(value)))
     }
 }
-
-impl waymark_vm_interpreter_pureset::value::MakeList for TestReadyValue {
-    fn make_list<I>(items: I) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeListError>
-    where
-        I: IntoIterator<Item = Self::RootValue>,
-    {
-        Ok(Self::List(items.into_iter().collect()))
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::ListAppend for TestReadyValue {
-    fn list_append(
-        list: &Self,
-        item: Self::RootValue,
-    ) -> Result<Self, waymark_vm_interpreter_pureset::value::ListAppendError> {
-        let Self::List(existing) = list else {
-            return Err(waymark_vm_interpreter_pureset::value::ListAppendError::NotListable);
-        };
-        let mut grown = existing.clone();
-        grown.push(item);
-        Ok(Self::List(grown))
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::AsDictKey for TestReadyValue {
-    fn as_dict_key(&self) -> Result<&str, waymark_vm_interpreter_pureset::value::AsDictKeyError> {
-        Err(waymark_vm_interpreter_pureset::value::AsDictKeyError::UnsupportedKeyType)
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::MakeDict for TestReadyValue {
-    fn make_dict<I>(
-        entries: I,
-    ) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeDictError>
-    where
-        I: IntoIterator<Item = (String, Self::RootValue)>,
-    {
-        let _ = entries;
-        Err(waymark_vm_interpreter_pureset::value::MakeDictError::NotDictable)
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::AsExceptionTypeId for TestReadyValue {
-    fn as_exception_type_id(
-        &self,
-    ) -> Result<&str, waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError> {
-        Err(waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError::UnsupportedTypeIdType)
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::MakeException for TestReadyValue {
-    fn make_exception(type_id: String, details: Self::RootValue) -> Self {
-        Self::Exception(Box::new(Exception { type_id, details }))
-    }
-}
-
-impl waymark_vm_runtime_exception::ExceptionFromIntermediate<String> for TestReadyValue {
-    fn from_intermediate_exception(exception: Exception<String>) -> Exception<Self::RootValue> {
-        Exception {
-            type_id: exception.type_id,
-            details: TestValue::Ready(Self::Text(exception.details)),
-        }
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::Length for TestReadyValue {
-    type Length = usize;
-
-    fn length(&self) -> Result<usize, waymark_vm_interpreter_pureset::value::LengthError> {
-        match self {
-            Self::List(items) => Ok(items.len()),
-            Self::Int(_) | Self::Bool(_) | Self::Text(_) | Self::Exception(_) => {
-                Err(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
-            }
-        }
-    }
-
-    fn from_length(
-        length: usize,
-    ) -> Result<Self, waymark_vm_interpreter_pureset::value::FromLengthError> {
-        let value = i64::try_from(length).map_err(|_| {
-            waymark_vm_interpreter_pureset::value::FromLengthError::ResultOutOfBounds
-        })?;
-        Ok(Self::Int(value))
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::IndexOp for TestReadyValue {}
-
-impl waymark_vm_interpreter_pureset::value::DotOp for TestReadyValue {}
 
 impl From<&TestConstValue> for TestReadyValue {
     fn from(value: &TestConstValue) -> Self {
@@ -282,6 +262,47 @@ impl From<&TestConstValue> for TestReadyValue {
 pub enum TestValue {
     Ready(TestReadyValue),
     Pending(PromiseStateId),
+}
+
+/// The operations the fullset interpreter is instantiated with in these
+/// tests. A bare local marker: the interpreter is generic over any
+/// operations type, so no wrapper machinery is involved.
+pub enum TestOperations {}
+
+/// The error space of the test operations: a variation owns the errors
+/// of its semantic operations, including the exception type id each one
+/// raises.
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+pub struct TestOperationError {
+    pub type_id: &'static str,
+    pub message: String,
+}
+
+impl TestOperationError {
+    fn new(type_id: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            type_id,
+            message: message.into(),
+        }
+    }
+
+    fn type_error(message: impl Into<String>) -> Self {
+        Self::new("TypeError", message)
+    }
+}
+
+impl waymark_vm_runtime_exception::TypedException for TestOperationError {
+    type IntermediateDetails = String;
+
+    fn into_intermediate_exception(
+        self,
+    ) -> waymark_vm_runtime_exception::Exception<Self::IntermediateDetails> {
+        waymark_vm_runtime_exception::Exception {
+            type_id: self.type_id.to_owned(),
+            details: self.message,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -391,178 +412,168 @@ impl waymark_vm_interpreter_coreset::operations::ShouldJump<TestValue> for TestO
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestValue {
-    fn capture_copy(&self) -> Self {
-        match self {
-            Self::Ready(value) => Self::Ready(value.capture_copy()),
-            Self::Pending(promise_state_id) => Self::Pending(*promise_state_id),
-        }
+impl waymark_vm_interpreter_pureset::operations::CaptureCopy<TestValue> for TestOperations {
+    fn capture_copy(value: &TestValue) -> TestValue {
+        value.clone()
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::LoadConst<&TestConstValue> for TestValue {
-    fn load_const(const_value: &TestConstValue) -> Self {
-        Self::Ready(TestReadyValue::load_const(const_value))
+impl waymark_vm_interpreter_pureset::operations::LoadConst<TestValue, &TestConstValue>
+    for TestOperations
+{
+    fn load_const(const_value: &TestConstValue) -> TestValue {
+        TestValue::Ready(TestReadyValue::from(const_value))
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::AsScalar for TestValue {
-    type Scalar = TestReadyValue;
+impl waymark_vm_interpreter_pureset::operations::AsScalarValue<TestValue> for TestOperations {
+    type ScalarValue = TestReadyValue;
+    type Error = TestOperationError;
 
-    fn as_scalar(
-        &self,
-    ) -> Result<&Self::Scalar, waymark_vm_interpreter_pureset::value::AsScalarError> {
-        self.require_ready_ref()
-            .map_err(|_| waymark_vm_interpreter_pureset::value::AsScalarError::NotAScalar)
+    fn as_scalar_value(value: &TestValue) -> Result<&Self::ScalarValue, Self::Error> {
+        value
+            .require_ready_ref()
+            .map_err(|_| TestOperationError::type_error("not a scalar"))
     }
 
-    fn from_scalar(scalar: Self::Scalar) -> Self {
-        Self::Ready(scalar)
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
-    fn add(
-        a: &Self,
-        b: &Self,
-    ) -> Result<Self, waymark_vm_interpreter_pureset::value::BinaryOperationError> {
-        let a = a.require_ready_ref().map_err(|_| {
-            waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                operation: BinaryOpKind::Add,
-            }
-        })?;
-        let b = b.require_ready_ref().map_err(|_| {
-            waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                operation: BinaryOpKind::Add,
-            }
-        })?;
-        Ok(Self::Ready(TestReadyValue::add(a, b)?))
+    fn from_scalar_value(scalar: Self::ScalarValue) -> TestValue {
+        TestValue::Ready(scalar)
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::UnaryOps for TestValue {
-    fn neg(
-        value: &Self,
-    ) -> Result<Self, waymark_vm_interpreter_pureset::value::UnaryOperationError> {
-        let value = value.require_ready_ref().map_err(|_| {
-            waymark_vm_interpreter_pureset::value::UnaryOperationError::UnsupportedOperation {
-                operation: UnaryOpKind::Neg,
-            }
-        })?;
-        Ok(Self::Ready(TestReadyValue::neg(value)?))
-    }
-
-    fn not(
-        value: &Self,
-    ) -> Result<Self, waymark_vm_interpreter_pureset::value::UnaryOperationError> {
-        let value = value.require_ready_ref().map_err(|_| {
-            waymark_vm_interpreter_pureset::value::UnaryOperationError::UnsupportedOperation {
-                operation: UnaryOpKind::Not,
-            }
-        })?;
-        Ok(Self::Ready(TestReadyValue::not(value)?))
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::MakeList for TestValue {
-    fn make_list<I>(items: I) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeListError>
+impl waymark_vm_interpreter_pureset::operations::MakeList<TestValue> for TestOperations {
+    fn make_list<I>(
+        items: I,
+    ) -> Result<TestValue, waymark_vm_interpreter_pureset::operations::MakeListError>
     where
-        I: IntoIterator<Item = Self::RootValue>,
+        I: IntoIterator<Item = TestValue>,
     {
-        Ok(Self::Ready(TestReadyValue::List(
+        Ok(TestValue::Ready(TestReadyValue::List(
             items.into_iter().collect(),
         )))
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::ListAppend for TestValue {
+impl waymark_vm_interpreter_pureset::operations::ListAppend<TestValue> for TestOperations {
     fn list_append(
-        list: &Self,
-        item: Self::RootValue,
-    ) -> Result<Self, waymark_vm_interpreter_pureset::value::ListAppendError> {
-        let list = list
-            .require_ready_ref()
-            .map_err(|_| waymark_vm_interpreter_pureset::value::ListAppendError::NotListable)?;
-        let grown =
-            <TestReadyValue as waymark_vm_interpreter_pureset::value::ListAppend>::list_append(
-                list, item,
-            )?;
-        Ok(Self::Ready(grown))
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::AsDictKey for TestValue {
-    fn as_dict_key(&self) -> Result<&str, waymark_vm_interpreter_pureset::value::AsDictKeyError> {
-        let value = self.require_ready_ref().map_err(|_| {
-            waymark_vm_interpreter_pureset::value::AsDictKeyError::UnsupportedKeyType
+        list: &TestValue,
+        item: TestValue,
+    ) -> Result<TestValue, waymark_vm_interpreter_pureset::operations::ListAppendError> {
+        let list = list.require_ready_ref().map_err(|_| {
+            waymark_vm_interpreter_pureset::operations::ListAppendError::NotListable
         })?;
-        value.as_dict_key()
+        let TestReadyValue::List(existing) = list else {
+            return Err(waymark_vm_interpreter_pureset::operations::ListAppendError::NotListable);
+        };
+        let mut grown = existing.clone();
+        grown.push(item);
+        Ok(TestValue::Ready(TestReadyValue::List(grown)))
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::MakeDict for TestValue {
+impl waymark_vm_interpreter_pureset::operations::AsDictKey<TestValue> for TestOperations {
+    type Error = TestOperationError;
+
+    fn as_dict_key(_value: &TestValue) -> Result<&str, Self::Error> {
+        Err(TestOperationError::type_error(
+            "dict keys of this type are not supported",
+        ))
+    }
+}
+
+impl waymark_vm_interpreter_pureset::operations::MakeDict<TestValue> for TestOperations {
     fn make_dict<I>(
         entries: I,
-    ) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeDictError>
+    ) -> Result<TestValue, waymark_vm_interpreter_pureset::operations::MakeDictError>
     where
-        I: IntoIterator<Item = (String, Self::RootValue)>,
+        I: IntoIterator<Item = (String, TestValue)>,
     {
         let _ = entries;
-        Err(waymark_vm_interpreter_pureset::value::MakeDictError::NotDictable)
+        Err(waymark_vm_interpreter_pureset::operations::MakeDictError::NotDictable)
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::AsExceptionTypeId for TestValue {
+impl waymark_vm_interpreter_pureset::operations::AsExceptionTypeId<TestValue> for TestOperations {
     fn as_exception_type_id(
-        &self,
-    ) -> Result<&str, waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError> {
-        let value = self.require_ready_ref().map_err(|_| {
-            waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError::UnsupportedTypeIdType
+        value: &TestValue,
+    ) -> Result<&str, waymark_vm_interpreter_pureset::operations::AsExceptionTypeIdError> {
+        let value = value.require_ready_ref().map_err(|_| {
+            waymark_vm_interpreter_pureset::operations::AsExceptionTypeIdError::UnsupportedTypeIdType
         })?;
-        value.as_exception_type_id()
+        match value {
+            TestReadyValue::Text(value) => Ok(value),
+            _ => Err(
+                waymark_vm_interpreter_pureset::operations::AsExceptionTypeIdError::UnsupportedTypeIdType,
+            ),
+        }
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::MakeException for TestValue {
-    fn make_exception(type_id: String, details: Self::RootValue) -> Self {
-        Self::Ready(TestReadyValue::make_exception(type_id, details))
+impl waymark_vm_interpreter_pureset::operations::MakeException<TestValue> for TestOperations {
+    fn make_exception(type_id: String, details: TestValue) -> TestValue {
+        TestValue::Ready(TestReadyValue::Exception(Box::new(Exception {
+            type_id,
+            details,
+        })))
     }
 }
 
-impl<IntermediateDetails>
-    waymark_vm_runtime_exception::ExceptionFromIntermediate<IntermediateDetails> for TestValue
-where
-    TestReadyValue: waymark_vm_runtime_exception::ExceptionFromIntermediate<IntermediateDetails>,
-{
-    fn from_intermediate_exception(
-        exception: Exception<IntermediateDetails>,
-    ) -> Exception<Self::RootValue> {
-        <TestReadyValue as waymark_vm_runtime_exception::ExceptionFromIntermediate<
-            IntermediateDetails,
-        >>::from_intermediate_exception(exception)
+impl waymark_vm_runtime_exception::ExceptionFromIntermediate<String, TestValue> for TestOperations {
+    fn from_intermediate_exception(exception: Exception<String>) -> Exception<TestValue> {
+        Exception {
+            type_id: exception.type_id,
+            details: TestValue::Ready(TestReadyValue::Text(exception.details)),
+        }
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::Length for TestValue {
+impl waymark_vm_interpreter_pureset::operations::Length<TestValue> for TestOperations {
     type Length = usize;
+    type Error = TestOperationError;
+    type FromLengthError = TestOperationError;
 
-    fn length(&self) -> Result<Self::Length, waymark_vm_interpreter_pureset::value::LengthError> {
-        let value = self
-            .require_ready_ref()
-            .map_err(|_| waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)?;
-        value.length()
+    fn length(value: &TestValue) -> Result<Self::Length, Self::Error> {
+        let value = value.require_ready_ref().map_err(|_| {
+            TestOperationError::type_error("determining length is not supported for this value")
+        })?;
+        match value {
+            TestReadyValue::List(items) => Ok(items.len()),
+            TestReadyValue::Int(_)
+            | TestReadyValue::Bool(_)
+            | TestReadyValue::Text(_)
+            | TestReadyValue::Exception(_) => Err(TestOperationError::type_error(
+                "determining length is not supported for this value",
+            )),
+        }
     }
 
-    fn from_length(
-        length: Self::Length,
-    ) -> Result<Self, waymark_vm_interpreter_pureset::value::FromLengthError> {
-        Ok(Self::Ready(TestReadyValue::from_length(length)?))
+    fn from_length(length: Self::Length) -> Result<TestValue, Self::FromLengthError> {
+        let value = i64::try_from(length).map_err(|_| {
+            TestOperationError::new("OverflowError", "length result is out of bounds")
+        })?;
+        Ok(TestValue::Ready(TestReadyValue::Int(value)))
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::IndexOp for TestValue {}
+impl waymark_vm_interpreter_pureset::operations::IndexOp<TestValue> for TestOperations {
+    type Error = TestOperationError;
 
-impl waymark_vm_interpreter_pureset::value::DotOp for TestValue {}
+    fn index(_object: &TestValue, _index: &TestValue) -> Result<TestValue, Self::Error> {
+        Err(TestOperationError::type_error(
+            "indexed access is not supported for these operands",
+        ))
+    }
+}
+
+impl waymark_vm_interpreter_pureset::operations::DotOp<TestValue> for TestOperations {
+    type Error = TestOperationError;
+
+    fn dot(_object: &TestValue, _attribute: &str) -> Result<TestValue, Self::Error> {
+        Err(TestOperationError::type_error(
+            "attribute access is not supported for this value",
+        ))
+    }
+}
 
 impl waymark_vm_interpreter_extcallset::operations::SleepDuration<TestValue> for TestOperations {
     type Error = TestValueError<TestSleepDurationError>;
