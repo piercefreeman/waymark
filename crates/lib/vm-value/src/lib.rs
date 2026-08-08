@@ -7,7 +7,6 @@ use typed_floats::NonNaNFinite;
 
 pub mod coreset;
 mod exception;
-pub mod extcallset;
 pub mod pureset;
 mod pythonic;
 

@@ -4,7 +4,6 @@
 
 mod error;
 pub mod operations;
-pub mod value;
 
 use derive_where::derive_where;
 use waymark_nonzero_duration::NonZeroDuration;
@@ -14,7 +13,6 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 
 pub use self::error::*;
 pub use self::operations::Operations;
-pub use self::value::Value;
 
 /// An interpreter for the "extcall" instructions set.
 #[derive_where(Default)]
@@ -91,14 +89,15 @@ where
     Operations: self::Operations<Value>,
     Operations: self::operations::Exceptions<Value>,
     Operations: 'static,
-    Value: self::value::Value + Clone + 'static,
+    Value: 'static,
     Value: waymark_vm_runtime_promise_core::Promisable,
 {
     type RuntimeView<'r> = RuntimeView<'r, FunctionId, StateId, Value>;
     type Frame = Frame<FunctionId, StateId, Value>;
     type Instruction = waymark_vm_instructions_extcallset::ExtCallSet<Spec>;
-    type Error = Error<Value>;
-    type Effect = Effect<Spec::ActionRef, Value::ActionCallArgument>;
+    type Error = Error<Operations, Value>;
+    type Effect =
+        Effect<Spec::ActionRef, self::operations::ActionCallArgumentFor<Operations, Value>>;
 
     fn execute<'r>(
         &self,
@@ -120,9 +119,9 @@ where
                     .iter()
                     .enumerate()
                     .map(|(arg_pos, register)| {
-                        let value = frame.regs[*register].clone();
+                        let value = &frame.regs[*register];
 
-                        value.capture_action_call_argument().map_err(|source| {
+                        Operations::capture_action_call_argument(value).map_err(|source| {
                             Error::ActionCall(ActionCallError::ArgumentCapture { arg_pos, source })
                         })
                     })
@@ -144,8 +143,7 @@ where
             } => {
                 let value = &frame.regs[*duration];
 
-                let duration = value
-                    .to_sleep_duration()
+                let duration = Operations::to_sleep_duration(value)
                     .map_err(|source| Error::Sleep(SleepError::InvalidDuration { source }))?;
 
                 let promise_state_id = suspend_frame(state, frame, *dst, *resume);

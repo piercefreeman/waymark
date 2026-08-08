@@ -1,15 +1,20 @@
 /// The error for the [`crate::ExtCallSetInterpreter`].
-#[derive(Debug, thiserror::Error)]
-pub enum Error<Value: crate::Value> {
+#[derive_where::derive_where(Debug)]
+#[derive(thiserror::Error)]
+pub enum Error<Operations, Value>
+where
+    Operations: crate::operations::Operations<Value>,
+{
     /// Preparing an action call failed.
     #[error("action call: {0}")]
     ActionCall(
-        #[source] ActionCallError<<Value as crate::value::CaptureActionCallArgument>::Error>,
+        #[source]
+        ActionCallError<crate::operations::CaptureActionCallArgumentErrorFor<Operations, Value>>,
     ),
 
     /// Preparing a sleep suspension failed.
     #[error("sleep: {0}")]
-    Sleep(#[source] SleepError<<Value as crate::value::SleepDuration>::Error>),
+    Sleep(#[source] SleepError<crate::operations::SleepDurationErrorFor<Operations, Value>>),
 }
 
 /// Errors produced while preparing an action call invocation.

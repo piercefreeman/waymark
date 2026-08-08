@@ -277,32 +277,6 @@ impl waymark_vm_interpreter_pureset::value::IndexOp for TestReadyValue {}
 
 impl waymark_vm_interpreter_pureset::value::DotOp for TestReadyValue {}
 
-impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestReadyValue {
-    type Error = TestSleepDurationError;
-
-    fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
-        match self {
-            Self::Int(value) => {
-                let seconds: u64 = (*value).try_into().map_err(|_| Self::Error::Negative)?;
-                NonZeroDuration::from_secs(seconds).ok_or(Self::Error::Zero)
-            }
-            Self::Bool(_) | Self::Text(_) | Self::List(_) | Self::Exception(_) => {
-                Err(Self::Error::UnsupportedValue)
-            }
-        }
-    }
-}
-
-impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for TestReadyValue {
-    type Error = core::convert::Infallible;
-
-    type ActionCallArgument = TestReadyValue;
-
-    fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
-        Ok(self.clone())
-    }
-}
-
 impl From<&TestConstValue> for TestReadyValue {
     fn from(value: &TestConstValue) -> Self {
         match value {
@@ -600,24 +574,40 @@ impl waymark_vm_interpreter_pureset::value::IndexOp for TestValue {}
 
 impl waymark_vm_interpreter_pureset::value::DotOp for TestValue {}
 
-impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
+impl waymark_vm_interpreter_extcallset::operations::SleepDuration<TestValue> for TestOperations {
     type Error = TestValueError<TestSleepDurationError>;
 
-    fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
-        let value = self.require_ready_ref()?;
-        value.to_sleep_duration().map_err(TestValueError::Ready)
+    fn to_sleep_duration(value: &TestValue) -> Result<NonZeroDuration, Self::Error> {
+        let value = value.require_ready_ref()?;
+        match value {
+            TestReadyValue::Int(value) => {
+                let seconds: u64 = (*value)
+                    .try_into()
+                    .map_err(|_| TestValueError::Ready(TestSleepDurationError::Negative))?;
+                NonZeroDuration::from_secs(seconds)
+                    .ok_or(TestValueError::Ready(TestSleepDurationError::Zero))
+            }
+            TestReadyValue::Bool(_)
+            | TestReadyValue::Text(_)
+            | TestReadyValue::List(_)
+            | TestReadyValue::Exception(_) => Err(TestValueError::Ready(
+                TestSleepDurationError::UnsupportedValue,
+            )),
+        }
     }
 }
 
-impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for TestValue {
+impl waymark_vm_interpreter_extcallset::operations::CaptureActionCallArgument<TestValue>
+    for TestOperations
+{
     type Error = TestValueError<core::convert::Infallible>;
     type ActionCallArgument = TestReadyValue;
 
-    fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
-        let value = self.require_ready_ref()?;
-        value
-            .capture_action_call_argument()
-            .map_err(TestValueError::Ready)
+    fn capture_action_call_argument(
+        value: &TestValue,
+    ) -> Result<Self::ActionCallArgument, Self::Error> {
+        let value = value.require_ready_ref()?;
+        Ok(value.clone())
     }
 }
 
