@@ -108,20 +108,6 @@ fn is_truthy(value: &TestReadyValue) -> bool {
     }
 }
 
-impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestReadyValue {
-    fn capture_call_argument(&self) -> Self {
-        self.clone()
-    }
-}
-
-impl waymark_vm_interpreter_coreset::value::ShouldJump for TestReadyValue {
-    fn should_jump(
-        &self,
-    ) -> Result<bool, waymark_vm_interpreter_coreset::value::NotAConditionalError> {
-        Ok(is_truthy(self))
-    }
-}
-
 impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestReadyValue {
     fn capture_copy(&self) -> Self {
         self.clone()
@@ -381,23 +367,27 @@ impl IntoException for TestValue {
     }
 }
 
-impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestValue {
-    fn capture_call_argument(&self) -> Self {
-        match self {
-            Self::Ready(value) => Self::Ready(value.capture_call_argument()),
-            Self::Pending(promise_state_id) => Self::Pending(*promise_state_id),
+#[derive(Debug, thiserror::Error)]
+#[error("the value is not a conditional")]
+pub struct TestNotAConditionalError;
+
+impl waymark_vm_interpreter_coreset::operations::CaptureCallArgument<TestValue> for TestOperations {
+    fn capture_call_argument(value: &TestValue) -> TestValue {
+        match value {
+            TestValue::Ready(value) => TestValue::Ready(value.clone()),
+            TestValue::Pending(promise_state_id) => TestValue::Pending(*promise_state_id),
         }
     }
 }
 
-impl waymark_vm_interpreter_coreset::value::ShouldJump for TestValue {
-    fn should_jump(
-        &self,
-    ) -> Result<bool, waymark_vm_interpreter_coreset::value::NotAConditionalError> {
-        let value = self
+impl waymark_vm_interpreter_coreset::operations::ShouldJump<TestValue> for TestOperations {
+    type Error = TestNotAConditionalError;
+
+    fn should_jump(value: &TestValue) -> Result<bool, Self::Error> {
+        let value = value
             .require_ready_ref()
-            .map_err(|_| waymark_vm_interpreter_coreset::value::NotAConditionalError)?;
-        value.should_jump()
+            .map_err(|_| TestNotAConditionalError)?;
+        Ok(is_truthy(value))
     }
 }
 

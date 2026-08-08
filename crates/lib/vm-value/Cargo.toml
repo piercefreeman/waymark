@@ -17,7 +17,6 @@ serde = [
 
 [dependencies]
 waymark-vm-instructions-pureset = { workspace = true }
-waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-pureset = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-value = { workspace = true }

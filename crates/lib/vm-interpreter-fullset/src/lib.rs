@@ -51,7 +51,6 @@ pub use waymark_vm_runtime_core::FullRuntimeView as RuntimeView;
         Operations: self::operations::Exceptions<Value>,
         Operations: 'static,
         Value: Clone + 'static,
-        Value: waymark_vm_interpreter_coreset::Value,
         Value: waymark_vm_interpreter_pureset::Value,
         Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
         Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,

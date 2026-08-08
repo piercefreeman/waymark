@@ -5,7 +5,6 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
-waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-pureset = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }

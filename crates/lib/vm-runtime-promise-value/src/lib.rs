@@ -1,4 +1,3 @@
-mod coreset;
 mod exception;
 mod promisable;
 mod pureset;

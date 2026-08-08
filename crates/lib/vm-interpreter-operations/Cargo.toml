@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 waymark-nonzero-duration = { workspace = true }
 waymark-phantom-uninhabitable = { workspace = true }
+waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-extcallset = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 waymark-vm-runtime-promise-value = { workspace = true }

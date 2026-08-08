@@ -10,6 +10,12 @@
 
 #![warn(missing_docs)]
 
+/// [`waymark_vm_interpreter_coreset`] operations implementations.
+pub mod coreset {
+    pub mod promise;
+    pub mod ready;
+}
+
 /// [`waymark_vm_interpreter_extcallset`] operations implementations.
 pub mod extcallset {
     pub mod promise;
