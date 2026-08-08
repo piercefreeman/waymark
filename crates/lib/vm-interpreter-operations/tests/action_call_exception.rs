@@ -23,6 +23,16 @@ enum TestVariation {}
 
 type TestOperations = waymark_vm_interpreter_operations::Operations<TestVariation>;
 
+/// The coreset truthiness semantics are variation-supplied; this test
+/// exercises the extcall path, so any total definition will do.
+impl waymark_vm_interpreter_coreset::operations::ShouldJump<ReadyValue> for TestVariation {
+    type Error = core::convert::Infallible;
+
+    fn should_jump(value: &ReadyValue) -> Result<bool, Self::Error> {
+        Ok(!matches!(value, ReadyValue::None))
+    }
+}
+
 #[derive(Debug)]
 struct TestSpec;
 
@@ -65,7 +75,7 @@ enum TestEffect {
 #[derive(Debug, thiserror::Error)]
 enum TestError {
     #[error(transparent)]
-    CoreSet(#[from] waymark_vm_interpreter_coreset::Error<TestSpec>),
+    CoreSet(#[from] waymark_vm_interpreter_coreset::Error<TestSpec, TestOperations, Value>),
 
     #[error(transparent)]
     ExtCallSet(#[from] waymark_vm_interpreter_extcallset::Error<TestOperations, Value>),

@@ -10,6 +10,7 @@
 
 #![warn(missing_docs)]
 
+pub mod coreset;
 pub mod extcallset;
 pub mod promise;
 

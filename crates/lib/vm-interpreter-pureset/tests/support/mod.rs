@@ -72,12 +72,6 @@ pub enum TestVariation {}
 
 pub type TestOperations = waymark_vm_interpreter_operations::Operations<TestVariation>;
 
-impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestValue {
-    fn capture_call_argument(&self) -> Self {
-        self.clone()
-    }
-}
-
 impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestValue {
     fn capture_copy(&self) -> Self {
         self.clone()

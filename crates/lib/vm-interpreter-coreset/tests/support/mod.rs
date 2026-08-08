@@ -72,20 +72,24 @@ impl waymark_vm_runtime_value::RootValueAccess for TestValue {
     type RootValue = Self;
 }
 
-impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestValue {
-    fn capture_call_argument(&self) -> Self {
-        self.clone()
+#[derive(Debug, thiserror::Error)]
+#[error("the value is not a conditional")]
+pub struct TestNotAConditionalError;
+
+impl waymark_vm_interpreter_coreset::operations::CaptureCallArgument<TestValue> for TestOperations {
+    fn capture_call_argument(value: &TestValue) -> TestValue {
+        value.clone()
     }
 }
 
-impl waymark_vm_interpreter_coreset::value::ShouldJump for TestValue {
-    fn should_jump(
-        &self,
-    ) -> Result<bool, waymark_vm_interpreter_coreset::value::NotAConditionalError> {
-        match self {
-            Self::Ready(TestReadyValue::Int(value)) => Ok(*value != 0),
-            Self::Ready(TestReadyValue::Exception(_)) => Ok(true),
-            Self::Pending(_) => Err(waymark_vm_interpreter_coreset::value::NotAConditionalError),
+impl waymark_vm_interpreter_coreset::operations::ShouldJump<TestValue> for TestOperations {
+    type Error = TestNotAConditionalError;
+
+    fn should_jump(value: &TestValue) -> Result<bool, Self::Error> {
+        match value {
+            TestValue::Ready(TestReadyValue::Int(value)) => Ok(*value != 0),
+            TestValue::Ready(TestReadyValue::Exception(_)) => Ok(true),
+            TestValue::Pending(_) => Err(TestNotAConditionalError),
         }
     }
 }

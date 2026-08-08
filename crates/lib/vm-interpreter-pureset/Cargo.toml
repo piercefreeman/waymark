@@ -18,7 +18,6 @@ derive-where = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-operations = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }

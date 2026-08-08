@@ -1,7 +1,6 @@
 use indexmap::IndexMap;
 use typed_floats::NonNaNFinite;
 use waymark_vm_instructions_pureset::BinaryOpKind;
-use waymark_vm_interpreter_coreset::value::ShouldJump as _;
 use waymark_vm_interpreter_pureset::value::{
     AsDictKey as _, AsDictKeyError, AsExceptionTypeId as _, AsExceptionTypeIdError,
     BinaryOperationError, BinaryOps as _, DotOp as _, DotOperationError, FromLengthError,
@@ -10,36 +9,6 @@ use waymark_vm_interpreter_pureset::value::{
 };
 use waymark_vm_runtime_exception::{AsException as _, Exception, IntoException as _};
 use waymark_vm_value::{ReadyValue, Value};
-
-#[test]
-fn values_follow_truthiness() {
-    assert!(ReadyValue::String("x".to_owned()).should_jump().unwrap());
-    assert!(!ReadyValue::String(String::new()).should_jump().unwrap());
-    assert!(!ReadyValue::None.should_jump().unwrap());
-    assert!(
-        ReadyValue::Float(1.5.try_into().unwrap())
-            .should_jump()
-            .unwrap()
-    );
-    assert!(
-        !ReadyValue::Float(0.0.try_into().unwrap())
-            .should_jump()
-            .unwrap()
-    );
-    assert!(
-        ReadyValue::List(vec![Value::Ready(ReadyValue::Int(1))])
-            .should_jump()
-            .unwrap()
-    );
-    assert!(
-        ReadyValue::Dict(IndexMap::from([(
-            "key".to_owned(),
-            Value::Ready(ReadyValue::Int(1))
-        )]))
-        .should_jump()
-        .unwrap()
-    );
-}
 
 #[test]
 fn binary_and_unary_operations_cover_current_vm_value_cases() {
@@ -510,7 +479,6 @@ fn exception_values_round_trip_through_exception_traits() {
         .expect("ready value should be an exception");
     assert_eq!(exception.type_id, "ValueError");
     assert_eq!(exception.details, details);
-    assert!(value.should_jump().unwrap());
 
     let owned = value
         .clone()

@@ -5,7 +5,6 @@
 use indexmap::IndexMap;
 use typed_floats::NonNaNFinite;
 
-pub mod coreset;
 mod exception;
 pub mod pureset;
 mod pythonic;

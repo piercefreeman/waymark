@@ -5681,6 +5681,14 @@ dependencies = [
 [[package]]
 name = "waymark-vm-interpreter-operations-python"
 version = "0.1.0"
+dependencies = [
+ "indexmap 2.13.0",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-operations",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+]
 
 [[package]]
 name = "waymark-vm-interpreter-pureset"
@@ -5693,7 +5701,6 @@ dependencies = [
  "waymark-vm-exception-type-ids",
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter",
- "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-operations",
  "waymark-vm-interpreter-utils",
  "waymark-vm-runtime",
@@ -5793,7 +5800,6 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "thiserror",
- "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-pureset",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
@@ -5830,7 +5836,6 @@ dependencies = [
  "static_assertions",
  "typed_floats",
  "waymark-vm-instructions-pureset",
- "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-fullset",
  "waymark-vm-interpreter-pureset",
  "waymark-vm-runtime-exception",
