@@ -1,9 +1,13 @@
 use waymark_vm_compiler_for_ast_old_test_support::{
-    TestExecutable, TestLowering, TestReadyValue, TestSpec, TestValue,
+    TestExecutable, TestLowering, TestOperations, TestReadyValue, TestSpec, TestValue,
 };
 
-type TestInterpreter =
-    waymark_vm_interpreter_fullset::FullSetInterpreter<TestSpec, TestExecutable, TestValue>;
+type TestInterpreter = waymark_vm_interpreter_fullset::FullSetInterpreter<
+    TestSpec,
+    TestExecutable,
+    TestOperations,
+    TestValue,
+>;
 
 pub type TestRuntime = waymark_vm_runtime::Runtime<TestExecutable, TestInterpreter, TestValue>;
 

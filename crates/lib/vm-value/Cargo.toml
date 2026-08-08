@@ -37,6 +37,7 @@ waymark-vm-instructions-coreset = { workspace = true }
 waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
+waymark-vm-interpreter-operations = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }
