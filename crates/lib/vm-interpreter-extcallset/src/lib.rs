@@ -3,6 +3,7 @@
 #![warn(missing_docs)]
 
 mod error;
+pub mod operations;
 pub mod value;
 
 use derive_where::derive_where;
@@ -12,12 +13,13 @@ use waymark_vm_runtime_core::{Frame, RegisterId, RuntimeState};
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
 pub use self::error::*;
+pub use self::operations::Operations;
 pub use self::value::Value;
 
 /// An interpreter for the "extcall" instructions set.
 #[derive_where(Default)]
-pub struct ExtCallSetInterpreter<Spec, FunctionId, StateId, Value> {
-    phantom_data: core::marker::PhantomData<(Spec, FunctionId, StateId, Value)>,
+pub struct ExtCallSetInterpreter<Spec, FunctionId, StateId, Operations, Value> {
+    phantom_data: core::marker::PhantomData<(Spec, FunctionId, StateId, Operations, Value)>,
 }
 
 /// The runtime view for the [`ExtCallSetInterpreter`].
@@ -76,8 +78,8 @@ where
     promise_state_id
 }
 
-impl<Spec, FunctionId, StateId, Value> waymark_vm_interpreter::Interpreter
-    for ExtCallSetInterpreter<Spec, FunctionId, StateId, Value>
+impl<Spec, FunctionId, StateId, Operations, Value> waymark_vm_interpreter::Interpreter
+    for ExtCallSetInterpreter<Spec, FunctionId, StateId, Operations, Value>
 where
     Spec: waymark_vm_instructions_extcallset::Spec<
             RegisterId = waymark_vm_runtime_core::RegisterId,
@@ -86,6 +88,9 @@ where
     FunctionId: 'static,
     StateId: Copy + 'static,
     Spec::ActionRef: Clone,
+    Operations: self::Operations<Value>,
+    Operations: self::operations::Exceptions<Value>,
+    Operations: 'static,
     Value: self::value::Value + Clone + 'static,
     Value: waymark_vm_runtime_promise_core::Promisable,
 {
@@ -155,11 +160,11 @@ where
     }
 }
 
-impl<'s, 'r, Spec, Executable, FunctionId, StateId, Value>
+impl<'s, 'r, Spec, Executable, FunctionId, StateId, Operations, Value>
     waymark_vm_interpreter::CaptureRuntimeView<
         's,
         waymark_vm_runtime_core::FullRuntimeView<'r, Executable, FunctionId, StateId, Value>,
-    > for ExtCallSetInterpreter<Spec, FunctionId, StateId, Value>
+    > for ExtCallSetInterpreter<Spec, FunctionId, StateId, Operations, Value>
 where
     'r: 's,
 {

@@ -68,6 +68,9 @@ pub trait TypedException {
     fn into_intermediate_exception(self) -> Exception<Self::IntermediateDetails>;
 }
 
+/// The intermediate details payload of a [`TypedException`].
+pub type IntermediateDetailsOf<Error> = <Error as TypedException>::IntermediateDetails;
+
 /// Constructs a runtime exception from an intermediate typed exception.
 ///
 /// Implemented by the value types; the implementation lifts the intermediate

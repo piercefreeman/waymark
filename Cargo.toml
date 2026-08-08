@@ -105,6 +105,8 @@ waymark-vm-interpreter-composite-macros = { path = "crates/lib/vm-interpreter-co
 waymark-vm-interpreter-coreset = { path = "crates/lib/vm-interpreter-coreset" }
 waymark-vm-interpreter-extcallset = { path = "crates/lib/vm-interpreter-extcallset" }
 waymark-vm-interpreter-fullset = { path = "crates/lib/vm-interpreter-fullset" }
+waymark-vm-interpreter-operations = { path = "crates/lib/vm-interpreter-operations" }
+waymark-vm-interpreter-operations-python = { path = "crates/lib/vm-interpreter-operations-python" }
 waymark-vm-interpreter-pureset = { path = "crates/lib/vm-interpreter-pureset" }
 waymark-vm-interpreter-utils = { path = "crates/lib/vm-interpreter-utils" }
 waymark-vm-runtime = { path = "crates/lib/vm-runtime" }

@@ -27,13 +27,21 @@ use waymark_vm_runtime_promise_core::{
 use waymark_vm_runtime_test::{FunctionId, StateId};
 
 pub type Instruction = CoreSet<TestSpec>;
-pub type Interpreter = CoreSetInterpreter<TestSpec, Executable<Instruction>, TestValue>;
+pub type Interpreter =
+    CoreSetInterpreter<TestSpec, Executable<Instruction>, TestOperations, TestValue>;
 pub type TestRuntime = Runtime<Executable<Instruction>, Interpreter, TestValue>;
 
 // --- Spec ---
 
 #[derive(Debug)]
 pub struct TestSpec;
+
+/// A local variation marker: the interpreter is generic over any
+/// operations type; these tests instantiate it with the operations
+/// wrapper over this marker.
+pub enum TestVariation {}
+
+pub type TestOperations = waymark_vm_interpreter_operations::Operations<TestVariation>;
 
 impl waymark_vm_instructions_coreset::Spec for TestSpec {
     type RegisterId = RegisterId;

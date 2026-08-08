@@ -266,6 +266,7 @@ where
         waymark_vm_interpreter_fullset::FullSetInterpreter<
             waymark_system_vm::Spec,
             Arc<waymark_system_vm::Executable>,
+            waymark_system_vm::Operations,
             waymark_system_vm::Value,
         >,
         <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,

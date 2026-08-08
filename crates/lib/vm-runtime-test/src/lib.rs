@@ -2,7 +2,7 @@
 //!
 //! Everything in this crate must remain agnostic to any specific instruction
 //! set or interpreter (coreset, pureset, extcallset, fullset, …). The intent
-//! is that adding a new instruction, effect, or value-trait to one of those
+//! is that adding a new instruction, effect, or operation to one of those
 //! interpreters never forces a change here.
 //!
 //! Concretely, this crate may depend on the core runtime traits

@@ -28,10 +28,16 @@ use waymark_vm_runtime_promise_core::{PromiseStateId, UnresolvedPromiseError};
 use waymark_vm_runtime_test::{FunctionId, StateId};
 
 pub type Instruction = FullSet<TestSpec>;
-pub type Interpreter = FullSetInterpreter<TestSpec, Executable<Instruction>, TestValue>;
+pub type Interpreter =
+    FullSetInterpreter<TestSpec, Executable<Instruction>, TestOperations, TestValue>;
 pub type TestRuntime = Runtime<Executable<Instruction>, Interpreter, TestValue>;
 
 // --- Spec ---
+
+/// The operations the fullset interpreter is instantiated with in these
+/// tests. A bare local marker: the interpreter is generic over any
+/// operations type, so no wrapper machinery is involved.
+pub enum TestOperations {}
 
 #[derive(Debug)]
 pub struct TestSpec;

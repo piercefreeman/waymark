@@ -20,6 +20,12 @@ pub use waymark_vm_compiler_for_ast_old_const_value::ConstValue as TestConstValu
 /// Errors produced while lowering literals in tests.
 pub use waymark_vm_compiler_for_ast_old_const_value::LoweringError as TestLiteralLoweringError;
 
+/// Test operations type: the provided operations wrapper instantiated
+/// with the Python variation, matching the [`TestValue`] semantics.
+pub type TestOperations = waymark_vm_interpreter_operations::Operations<
+    waymark_vm_interpreter_operations_python::PythonVariation,
+>;
+
 /// Action reference used by the test VM spec.
 #[derive(Debug, Clone)]
 pub struct TestActionRef(

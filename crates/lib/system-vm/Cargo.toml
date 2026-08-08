@@ -28,9 +28,14 @@ waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-instructions-fullset = { workspace = true }
 waymark-vm-instructions-pureset = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
+waymark-vm-interpreter-operations = { workspace = true }
+waymark-vm-interpreter-operations-python = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
 waymark-vm-value = { workspace = true }
 
 [dev-dependencies]
+waymark-vm-interpreter-pureset = { workspace = true }
+waymark-vm-runtime-value = { workspace = true }
+
 static_assertions = { workspace = true }

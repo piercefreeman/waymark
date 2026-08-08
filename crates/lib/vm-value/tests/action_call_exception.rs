@@ -13,6 +13,12 @@ use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
 use waymark_vm_value::{ReadyValue, Value};
 
+/// A local variation marker: the provided operations implementations are
+/// blankets over every variation, so any marker selects them.
+enum TestVariation {}
+
+type TestOperations = waymark_vm_interpreter_operations::Operations<TestVariation>;
+
 #[derive(Debug)]
 struct TestSpec;
 
@@ -63,8 +69,8 @@ enum TestError {
 
 #[derive(Default)]
 struct RuntimeInterpreter {
-    core_set: CoreSetInterpreter<TestSpec, Executable<Instruction>, Value>,
-    extcall_set: ExtCallSetInterpreter<TestSpec, FunctionId, StateId, Value>,
+    core_set: CoreSetInterpreter<TestSpec, Executable<Instruction>, TestOperations, Value>,
+    extcall_set: ExtCallSetInterpreter<TestSpec, FunctionId, StateId, TestOperations, Value>,
 }
 
 impl<'r>
@@ -95,10 +101,12 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
         mut frame: Self::Frame,
     ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
         let state_before = frame.state;
-        let sub_runtime_view =
-            CoreSetInterpreter::<TestSpec, Executable<Instruction>, Value>::capture_runtime_view(
-                &mut *runtime_view,
-            );
+        let sub_runtime_view = CoreSetInterpreter::<
+            TestSpec,
+            Executable<Instruction>,
+            TestOperations,
+            Value,
+        >::capture_runtime_view(&mut *runtime_view);
         let outcome = waymark_vm_interpreter::Interpreter::enter_state(
             &self.core_set,
             sub_runtime_view,
@@ -114,10 +122,13 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
         }
 
         let state_before = frame.state;
-        let sub_runtime_view =
-            ExtCallSetInterpreter::<TestSpec, FunctionId, StateId, Value>::capture_runtime_view(
-                &mut *runtime_view,
-            );
+        let sub_runtime_view = ExtCallSetInterpreter::<
+            TestSpec,
+            FunctionId,
+            StateId,
+            TestOperations,
+            Value,
+        >::capture_runtime_view(&mut *runtime_view);
         let outcome = waymark_vm_interpreter::Interpreter::enter_state(
             &self.extcall_set,
             sub_runtime_view,
@@ -144,6 +155,7 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
                 let runtime_view = CoreSetInterpreter::<
                     TestSpec,
                     Executable<Instruction>,
+                    TestOperations,
                     Value,
                 >::capture_runtime_view(runtime_view);
                 self.core_set
@@ -152,7 +164,13 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
                     .map_err(TestError::from)
             }
             Instruction::ExtCallSet(instruction) => {
-                let runtime_view = ExtCallSetInterpreter::<TestSpec, FunctionId, StateId, Value>::capture_runtime_view(runtime_view);
+                let runtime_view = ExtCallSetInterpreter::<
+                    TestSpec,
+                    FunctionId,
+                    StateId,
+                    TestOperations,
+                    Value,
+                >::capture_runtime_view(runtime_view);
                 self.extcall_set
                     .execute(runtime_view, frame, instruction)
                     .map(|outcome| outcome.map_effect(TestEffect::ExtCallSet))

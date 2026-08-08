@@ -11,11 +11,13 @@ use waymark_vm_runtime_core::{FullRuntimeView, RegisterId};
 use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
 
-use crate::support::{Instruction, TestActionRef, TestReadyValue, TestSpec, TestValue};
+use crate::support::{
+    Instruction, TestActionRef, TestOperations, TestReadyValue, TestSpec, TestValue,
+};
 
 #[derive(Default)]
 struct NoPendingExceptionExecuteInterpreter {
-    inner: FullSetInterpreter<TestSpec, Executable<Instruction>, TestValue>,
+    inner: FullSetInterpreter<TestSpec, Executable<Instruction>, TestOperations, TestValue>,
 }
 
 impl<'r>
@@ -45,8 +47,8 @@ impl waymark_vm_interpreter::Interpreter for NoPendingExceptionExecuteInterprete
         &'r mut FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, TestValue>;
     type Frame = waymark_vm_runtime::FrameFor<Executable<Instruction>, TestValue>;
     type Instruction = Instruction;
-    type Error = <FullSetInterpreter<TestSpec, Executable<Instruction>, TestValue> as waymark_vm_interpreter::Interpreter>::Error;
-    type Effect = <FullSetInterpreter<TestSpec, Executable<Instruction>, TestValue> as waymark_vm_interpreter::Interpreter>::Effect;
+    type Error = <FullSetInterpreter<TestSpec, Executable<Instruction>, TestOperations, TestValue> as waymark_vm_interpreter::Interpreter>::Error;
+    type Effect = <FullSetInterpreter<TestSpec, Executable<Instruction>, TestOperations, TestValue> as waymark_vm_interpreter::Interpreter>::Effect;
 
     fn enter_state<'r>(
         &self,

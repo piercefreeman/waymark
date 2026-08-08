@@ -58,6 +58,19 @@ impl waymark_vm_runtime_value::RootValueAccess for TestValue {
 }
 
 static_assertions::assert_impl_all!(TestValue: waymark_vm_interpreter_pureset::Value);
+static_assertions::assert_impl_all!(
+    TestOperations: waymark_vm_interpreter_pureset::Operations<TestValue>
+);
+static_assertions::assert_impl_all!(
+    TestOperations: waymark_vm_interpreter_pureset::operations::Exceptions<TestValue>
+);
+
+/// A local variation marker: the interpreter is generic over any
+/// operations type; these tests instantiate it with the operations
+/// wrapper over this marker.
+pub enum TestVariation {}
+
+pub type TestOperations = waymark_vm_interpreter_operations::Operations<TestVariation>;
 
 impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestValue {
     fn capture_copy(&self) -> Self {
@@ -362,7 +375,7 @@ impl From<PureSet<TestSpec>> for RuntimeInstruction {
 
 #[derive(Default)]
 pub struct RuntimeInterpreter {
-    pure: PureSetInterpreter<TestSpec, FunctionId, StateId, TestValue>,
+    pure: PureSetInterpreter<TestSpec, FunctionId, StateId, TestOperations, TestValue>,
 }
 
 impl<'s, 'r, Executable>

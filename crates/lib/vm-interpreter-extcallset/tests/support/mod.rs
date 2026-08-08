@@ -34,6 +34,13 @@ pub type TestRuntime = Runtime<Executable<RuntimeInstruction>, RuntimeInterprete
 #[derive(Debug)]
 pub struct TestSpec;
 
+/// A local variation marker: the interpreter is generic over any
+/// operations type; these tests instantiate it with the operations
+/// wrapper over this marker.
+pub enum TestVariation {}
+
+pub type TestOperations = waymark_vm_interpreter_operations::Operations<TestVariation>;
+
 impl waymark_vm_instructions_extcallset::Spec for TestSpec {
     type RegisterId = RegisterId;
     type StateId = StateId;
@@ -167,7 +174,7 @@ pub enum TestEffect {
 
 #[derive(Default)]
 pub struct RuntimeInterpreter {
-    extcall: ExtCallSetInterpreter<TestSpec, FunctionId, StateId, TestValue>,
+    extcall: ExtCallSetInterpreter<TestSpec, FunctionId, StateId, TestOperations, TestValue>,
 }
 
 impl<'s, 'r, E> CaptureRuntimeView<'s, FullRuntimeView<'r, E, FunctionId, StateId, TestValue>>

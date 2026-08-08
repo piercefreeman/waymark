@@ -3,6 +3,7 @@
 #![warn(missing_docs)]
 
 mod error;
+pub mod operations;
 pub mod value;
 
 use derive_where::derive_where;
@@ -11,6 +12,7 @@ use waymark_vm_interpreter_utils::register_values::with_register_values;
 use waymark_vm_runtime_core::Frame;
 
 pub use self::error::*;
+pub use self::operations::Operations;
 pub use self::value::Value;
 
 use self::value::*;
@@ -19,15 +21,19 @@ use waymark_vm_instructions_pureset::{BinaryOpKind, UnaryOpKind};
 
 /// An interpreter for the "pure" instructions set.
 #[derive_where(Default)]
-pub struct PureSetInterpreter<Spec, FunctionId, StateId, Value> {
-    phantom_data: core::marker::PhantomData<(Spec, FunctionId, StateId, Value)>,
+pub struct PureSetInterpreter<Spec, FunctionId, StateId, Operations, Value> {
+    phantom_data: core::marker::PhantomData<(Spec, FunctionId, StateId, Operations, Value)>,
 }
 
-impl<Spec, FunctionId, StateId, Value> waymark_vm_interpreter::Interpreter
-    for PureSetInterpreter<Spec, FunctionId, StateId, Value>
+impl<Spec, FunctionId, StateId, Operations, Value> waymark_vm_interpreter::Interpreter
+    for PureSetInterpreter<Spec, FunctionId, StateId, Operations, Value>
 where
     Spec: waymark_vm_instructions_pureset::Spec<RegisterId = waymark_vm_runtime_core::RegisterId>
         + 'static,
+    Operations: self::Operations<Value>,
+    Operations: self::operations::Exceptions<Value>,
+    Operations: 'static,
+    Value: self::operations::ExceptionValue<Operations>,
     Value: 'static,
     Value: value::Value,
     Value: for<'a> value::LoadConst<&'a Spec::ConstValue>,
@@ -176,7 +182,8 @@ where
     }
 }
 
-impl<Spec, FunctionId, StateId, Value> PureSetInterpreter<Spec, FunctionId, StateId, Value>
+impl<Spec, FunctionId, StateId, Operations, Value>
+    PureSetInterpreter<Spec, FunctionId, StateId, Operations, Value>
 where
     Value: value::Value,
 {
@@ -338,11 +345,11 @@ where
     }
 }
 
-impl<'s, 'r, Spec, Executable, FunctionId, StateId, Value>
+impl<'s, 'r, Spec, Executable, FunctionId, StateId, Operations, Value>
     waymark_vm_interpreter::CaptureRuntimeView<
         's,
         waymark_vm_runtime_core::FullRuntimeView<'r, Executable, FunctionId, StateId, Value>,
-    > for PureSetInterpreter<Spec, FunctionId, StateId, Value>
+    > for PureSetInterpreter<Spec, FunctionId, StateId, Operations, Value>
 {
     type Captured = ();
 
