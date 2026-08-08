@@ -22,6 +22,12 @@ pub mod extcallset {
     pub mod ready;
 }
 
+/// [`waymark_vm_interpreter_pureset`] operations implementations.
+pub mod pureset {
+    pub mod promise;
+    pub mod ready;
+}
+
 pub mod promise;
 
 /// The VM interpreter operations, specialized by the variation marker.

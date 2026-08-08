@@ -3,12 +3,10 @@
 #![warn(missing_docs)]
 
 pub mod operations;
-pub mod value;
 
 use derive_where::derive_where;
 
 pub use self::operations::Operations;
-pub use self::value::Value;
 
 type FunctionIdFor<Spec> = <Spec as waymark_vm_instructions_coreset::Spec>::FunctionId;
 type StateIdFor<Spec> = <Spec as waymark_vm_instructions_coreset::Spec>::StateId;
@@ -47,14 +45,17 @@ pub use waymark_vm_runtime_core::FullRuntimeView as RuntimeView;
         FunctionIdFor<Spec>: Copy,
         StateIdFor<Spec>: Copy + Default + PartialEq,
         ActionRefFor<Spec>: Clone,
+        Value: Clone + 'static,
+        Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
+        Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,
         Operations: self::Operations<Value>,
         Operations: self::operations::Exceptions<Value>,
         Operations: 'static,
-        Value: Clone + 'static,
-        Value: waymark_vm_interpreter_pureset::Value,
-        Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
-        Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,
-        Value: for<'a> waymark_vm_interpreter_pureset::value::LoadConst<&'a Spec::ConstValue>,
+        Value: waymark_vm_interpreter_pureset::operations::ExceptionValue<Operations>,
+        Operations: for<'a> waymark_vm_interpreter_pureset::operations::LoadConst<
+            Value,
+            &'a Spec::ConstValue,
+        >,
         Value: waymark_vm_runtime_promise_core::Resolvable,
         Value: waymark_vm_runtime_promise_core::Suspendable,
         Value::ReadyValue: Clone,

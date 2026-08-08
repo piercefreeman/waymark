@@ -7,13 +7,16 @@ pub enum AsExceptionTypeIdError {
 }
 
 /// View the value as an exception type id.
-pub trait AsExceptionTypeId {
+pub trait AsExceptionTypeId<Value> {
     /// View the value as an exception type id.
-    fn as_exception_type_id(&self) -> Result<&str, AsExceptionTypeIdError>;
+    fn as_exception_type_id(value: &Value) -> Result<&str, AsExceptionTypeIdError>;
 }
 
 /// Build an exception value from a type id and a details payload.
-pub trait MakeException: Sized + waymark_vm_runtime_value::RootValueAccess {
+pub trait MakeException<Value>
+where
+    Value: waymark_vm_runtime_value::RootValueAccess,
+{
     /// Construct an exception value.
-    fn make_exception(type_id: String, details: Self::RootValue) -> Self;
+    fn make_exception(type_id: String, details: Value::RootValue) -> Value;
 }

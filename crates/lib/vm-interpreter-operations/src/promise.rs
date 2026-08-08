@@ -61,3 +61,45 @@ mod tests {
         assert!(core::error::Error::source(&error).is_none());
     }
 }
+
+/// An operand that must have been awaited was still an unresolved
+/// promise.
+///
+/// Awaiting is the workflow author's responsibility — the compiler does
+/// not inject awaits — so an unresolved operand surfaces to the user
+/// code as a catchable runtime exception, the same one an operand of the
+/// wrong type produces.
+#[derive(Debug, thiserror::Error)]
+#[error("the operand is an unresolved promise")]
+pub struct UnresolvedOperandError(
+    #[source] pub waymark_vm_runtime_promise_core::UnresolvedPromiseError,
+);
+
+impl waymark_vm_runtime_exception::TypedException for UnresolvedOperandError {
+    type IntermediateDetails = String;
+
+    fn into_intermediate_exception(
+        self,
+    ) -> waymark_vm_runtime_exception::Exception<Self::IntermediateDetails> {
+        waymark_vm_runtime_exception::Exception {
+            type_id: waymark_vm_exception_type_ids::TYPE_ERROR.to_owned(),
+            details: self.to_string(),
+        }
+    }
+}
+
+impl<InnerError> waymark_vm_runtime_exception::TypedException for MaybeUnresolvedError<InnerError>
+where
+    InnerError: waymark_vm_runtime_exception::TypedException<IntermediateDetails = String>,
+{
+    type IntermediateDetails = String;
+
+    fn into_intermediate_exception(
+        self,
+    ) -> waymark_vm_runtime_exception::Exception<Self::IntermediateDetails> {
+        match self {
+            Self::Unresolved(error) => UnresolvedOperandError(error).into_intermediate_exception(),
+            Self::Ready(error) => error.into_intermediate_exception(),
+        }
+    }
+}

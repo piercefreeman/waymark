@@ -1,23 +1,32 @@
+//! Behavioral tests for the Python variation's pureset operations over
+//! the shared value shape.
+
 use indexmap::IndexMap;
 use typed_floats::NonNaNFinite;
 use waymark_vm_instructions_pureset::BinaryOpKind;
-use waymark_vm_interpreter_pureset::value::{
-    AsDictKey as _, AsDictKeyError, AsExceptionTypeId as _, AsExceptionTypeIdError,
-    BinaryOperationError, BinaryOps as _, DotOp as _, DotOperationError, FromLengthError,
-    IndexOp as _, IndexOperationError, Length as _, LengthError, MakeDict as _, MakeException as _,
-    MakeList as _, UnaryOps as _,
+use waymark_vm_interpreter_operations::Operations;
+use waymark_vm_interpreter_operations_python::PythonVariation;
+use waymark_vm_interpreter_operations_python::pureset::error::{
+    AsDictKeyError, BinaryOperationError, DotOperationError, FromLengthError, IndexOperationError,
+    LengthError,
+};
+use waymark_vm_interpreter_pureset::operations::{
+    AsDictKey as _, AsExceptionTypeId as _, AsExceptionTypeIdError, BinaryOps as _, DotOp as _,
+    IndexOp as _, Length, MakeDict, MakeException, MakeList, UnaryOps as _,
 };
 use waymark_vm_runtime_exception::{AsException as _, Exception, IntoException as _};
 use waymark_vm_value::{ReadyValue, Value};
 
+type PythonOperations = Operations<PythonVariation>;
+
 #[test]
 fn binary_and_unary_operations_cover_current_vm_value_cases() {
     assert_eq!(
-        ReadyValue::add(&ReadyValue::Int(2), &ReadyValue::Int(3)).unwrap(),
+        PythonOperations::add(&ReadyValue::Int(2), &ReadyValue::Int(3)).unwrap(),
         ReadyValue::Int(5)
     );
     assert_eq!(
-        ReadyValue::add(
+        PythonOperations::add(
             &ReadyValue::String("hello ".to_owned()),
             &ReadyValue::String("world".to_owned())
         )
@@ -25,7 +34,7 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
         ReadyValue::String("hello world".to_owned())
     );
     assert_eq!(
-        ReadyValue::add(
+        PythonOperations::add(
             &ReadyValue::List(vec![Value::Ready(ReadyValue::Int(1))]),
             &ReadyValue::List(vec![Value::Ready(ReadyValue::Int(2))])
         )
@@ -36,7 +45,7 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
         ])
     );
     assert_eq!(
-        ReadyValue::add(
+        PythonOperations::add(
             &ReadyValue::Float(1.25.try_into().unwrap()),
             &ReadyValue::Float(2.0.try_into().unwrap()),
         )
@@ -44,7 +53,7 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
         ReadyValue::Float(3.25.try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::sub(
+        PythonOperations::sub(
             &ReadyValue::Float(3.5.try_into().unwrap()),
             &ReadyValue::Float(1.25.try_into().unwrap()),
         )
@@ -52,7 +61,7 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
         ReadyValue::Float(2.25.try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::mul(
+        PythonOperations::mul(
             &ReadyValue::Float(3.0.try_into().unwrap()),
             &ReadyValue::Float(0.5.try_into().unwrap()),
         )
@@ -60,7 +69,7 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
         ReadyValue::Float(1.5.try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::div(
+        PythonOperations::div(
             &ReadyValue::Float(3.0.try_into().unwrap()),
             &ReadyValue::Float(2.0.try_into().unwrap()),
         )
@@ -68,11 +77,11 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
         ReadyValue::Float(1.5.try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::floor_div(&ReadyValue::Int(-3), &ReadyValue::Int(2)).unwrap(),
+        PythonOperations::floor_div(&ReadyValue::Int(-3), &ReadyValue::Int(2)).unwrap(),
         ReadyValue::Int(-2)
     );
     assert_eq!(
-        ReadyValue::floor_div(
+        PythonOperations::floor_div(
             &ReadyValue::Float((-3.0).try_into().unwrap()),
             &ReadyValue::Float(2.0.try_into().unwrap()),
         )
@@ -80,11 +89,11 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
         ReadyValue::Float((-2.0).try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::modulo(&ReadyValue::Int(3), &ReadyValue::Int(-2)).unwrap(),
+        PythonOperations::modulo(&ReadyValue::Int(3), &ReadyValue::Int(-2)).unwrap(),
         ReadyValue::Int(-1)
     );
     assert_eq!(
-        ReadyValue::modulo(
+        PythonOperations::modulo(
             &ReadyValue::Float(3.5.try_into().unwrap()),
             &ReadyValue::Float(2.0.try_into().unwrap()),
         )
@@ -92,7 +101,7 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
         ReadyValue::Float(1.5.try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::modulo(
+        PythonOperations::modulo(
             &ReadyValue::Float(3.5.try_into().unwrap()),
             &ReadyValue::Float((-2.0).try_into().unwrap()),
         )
@@ -100,7 +109,7 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
         ReadyValue::Float((-0.5).try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::contains(
+        PythonOperations::contains(
             &ReadyValue::String("ell".to_owned()),
             &ReadyValue::String("hello".to_owned())
         )
@@ -108,7 +117,7 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
         ReadyValue::Bool(true)
     );
     assert_eq!(
-        ReadyValue::contains(
+        PythonOperations::contains(
             &ReadyValue::Int(2),
             &ReadyValue::List(vec![
                 Value::Ready(ReadyValue::Int(1)),
@@ -119,7 +128,7 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
         ReadyValue::Bool(true)
     );
     assert_eq!(
-        ReadyValue::contains(
+        PythonOperations::contains(
             &ReadyValue::String("key".to_owned()),
             &ReadyValue::Dict(IndexMap::from([(
                 "key".to_owned(),
@@ -130,7 +139,7 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
         ReadyValue::Bool(true)
     );
     assert_eq!(
-        ReadyValue::lt(
+        PythonOperations::lt(
             &ReadyValue::Float(1.5.try_into().unwrap()),
             &ReadyValue::Float(2.0.try_into().unwrap()),
         )
@@ -138,15 +147,15 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
         ReadyValue::Bool(true)
     );
     assert_eq!(
-        ReadyValue::neg(&ReadyValue::Int(7)).unwrap(),
+        PythonOperations::neg(&ReadyValue::Int(7)).unwrap(),
         ReadyValue::Int(-7)
     );
     assert_eq!(
-        ReadyValue::neg(&ReadyValue::Float(2.5.try_into().unwrap())).unwrap(),
+        PythonOperations::neg(&ReadyValue::Float(2.5.try_into().unwrap())).unwrap(),
         ReadyValue::Float((-2.5).try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::not(&ReadyValue::None).unwrap(),
+        PythonOperations::not(&ReadyValue::None).unwrap(),
         ReadyValue::Bool(true)
     );
 }
@@ -154,7 +163,7 @@ fn binary_and_unary_operations_cover_current_vm_value_cases() {
 #[test]
 fn mixed_numeric_operations_do_not_silently_promote_ints_to_floats() {
     assert!(matches!(
-        ReadyValue::add(
+        PythonOperations::add(
             &ReadyValue::Float(1.25.try_into().unwrap()),
             &ReadyValue::Int(2)
         ),
@@ -163,7 +172,7 @@ fn mixed_numeric_operations_do_not_silently_promote_ints_to_floats() {
         })
     ));
     assert!(matches!(
-        ReadyValue::mul(
+        PythonOperations::mul(
             &ReadyValue::Int(3),
             &ReadyValue::Float(0.5.try_into().unwrap())
         ),
@@ -172,13 +181,13 @@ fn mixed_numeric_operations_do_not_silently_promote_ints_to_floats() {
         })
     ));
     assert!(matches!(
-        ReadyValue::div(&ReadyValue::Int(3), &ReadyValue::Int(2)),
+        PythonOperations::div(&ReadyValue::Int(3), &ReadyValue::Int(2)),
         Err(BinaryOperationError::ResultOutOfBounds {
             operation: BinaryOpKind::Div,
         })
     ));
     assert!(matches!(
-        ReadyValue::floor_div(
+        PythonOperations::floor_div(
             &ReadyValue::Float((-3.0).try_into().unwrap()),
             &ReadyValue::Int(2)
         ),
@@ -187,7 +196,7 @@ fn mixed_numeric_operations_do_not_silently_promote_ints_to_floats() {
         })
     ));
     assert_eq!(
-        waymark_vm_interpreter_pureset::value::BinaryOps::eq(
+        PythonOperations::eq(
             &ReadyValue::Int(1),
             &ReadyValue::Float(1.0.try_into().unwrap()),
         )
@@ -195,7 +204,7 @@ fn mixed_numeric_operations_do_not_silently_promote_ints_to_floats() {
         ReadyValue::Bool(false)
     );
     assert!(matches!(
-        ReadyValue::lt(
+        PythonOperations::lt(
             &ReadyValue::Float(1.5.try_into().unwrap()),
             &ReadyValue::Int(2)
         ),
@@ -204,7 +213,7 @@ fn mixed_numeric_operations_do_not_silently_promote_ints_to_floats() {
         })
     ));
     assert_eq!(
-        ReadyValue::contains(
+        PythonOperations::contains(
             &ReadyValue::Float(1.0.try_into().unwrap()),
             &ReadyValue::Dict(IndexMap::from([(
                 "value".to_owned(),
@@ -219,7 +228,7 @@ fn mixed_numeric_operations_do_not_silently_promote_ints_to_floats() {
 #[test]
 fn index_and_dot_operations_follow_runtime_semantics() {
     assert_eq!(
-        ReadyValue::index(
+        PythonOperations::index(
             &ReadyValue::List(vec![
                 Value::Ready(ReadyValue::Int(1)),
                 Value::Ready(ReadyValue::Int(2))
@@ -230,11 +239,12 @@ fn index_and_dot_operations_follow_runtime_semantics() {
         Value::Ready(ReadyValue::Int(2))
     );
     assert_eq!(
-        ReadyValue::index(&ReadyValue::String("hello".to_owned()), &ReadyValue::Int(1)).unwrap(),
+        PythonOperations::index(&ReadyValue::String("hello".to_owned()), &ReadyValue::Int(1))
+            .unwrap(),
         Value::Ready(ReadyValue::String("e".to_owned()))
     );
     assert_eq!(
-        ReadyValue::index(
+        PythonOperations::index(
             &ReadyValue::Dict(IndexMap::from([(
                 "field".to_owned(),
                 Value::Ready(ReadyValue::Int(7))
@@ -245,7 +255,7 @@ fn index_and_dot_operations_follow_runtime_semantics() {
         Value::Ready(ReadyValue::Int(7))
     );
     assert_eq!(
-        ReadyValue::dot(
+        PythonOperations::dot(
             &ReadyValue::Dict(IndexMap::from([(
                 "field".to_owned(),
                 Value::Ready(ReadyValue::Int(7))
@@ -260,14 +270,14 @@ fn index_and_dot_operations_follow_runtime_semantics() {
 #[test]
 fn index_and_dot_operations_surface_expected_errors() {
     assert!(matches!(
-        ReadyValue::index(
+        PythonOperations::index(
             &ReadyValue::List(vec![Value::Ready(ReadyValue::Int(1))]),
             &ReadyValue::Int(1)
         ),
         Err(IndexOperationError::IndexOutOfBounds)
     ));
     assert!(matches!(
-        ReadyValue::index(
+        PythonOperations::index(
             &ReadyValue::Dict(IndexMap::from([(
                 "field".to_owned(),
                 Value::Ready(ReadyValue::Int(7))
@@ -277,7 +287,7 @@ fn index_and_dot_operations_surface_expected_errors() {
         Err(IndexOperationError::MissingKey)
     ));
     assert!(matches!(
-        ReadyValue::dot(
+        PythonOperations::dot(
             &ReadyValue::Dict(IndexMap::from([(
                 "field".to_owned(),
                 Value::Ready(ReadyValue::Int(7))
@@ -287,7 +297,7 @@ fn index_and_dot_operations_surface_expected_errors() {
         Err(DotOperationError::MissingAttribute)
     ));
     assert!(matches!(
-        ReadyValue::dot(&ReadyValue::List(Vec::new()), "field"),
+        PythonOperations::dot(&ReadyValue::List(Vec::new()), "field"),
         Err(DotOperationError::UnsupportedOperation)
     ));
 }
@@ -309,11 +319,11 @@ fn dict_values_compare_equal_independent_of_insertion_order() {
 #[test]
 fn logical_ops_and_lists_use_runtime_semantics() {
     assert_eq!(
-        ReadyValue::and(&ReadyValue::Int(1), &ReadyValue::String("x".to_owned())).unwrap(),
+        PythonOperations::and(&ReadyValue::Int(1), &ReadyValue::String("x".to_owned())).unwrap(),
         ReadyValue::String("x".to_owned())
     );
     assert_eq!(
-        ReadyValue::or(
+        PythonOperations::or(
             &ReadyValue::None,
             &ReadyValue::String("fallback".to_owned())
         )
@@ -321,7 +331,7 @@ fn logical_ops_and_lists_use_runtime_semantics() {
         ReadyValue::String("fallback".to_owned())
     );
     assert_eq!(
-        ReadyValue::make_list([
+        <PythonOperations as MakeList<ReadyValue>>::make_list([
             Value::Ready(ReadyValue::Int(2)),
             Value::Ready(ReadyValue::Bool(false))
         ])
@@ -332,7 +342,7 @@ fn logical_ops_and_lists_use_runtime_semantics() {
         ])
     );
     assert_eq!(
-        ReadyValue::make_dict([
+        <PythonOperations as MakeDict<ReadyValue>>::make_dict([
             ("name".to_owned(), Value::Ready(ReadyValue::Int(2))),
             ("na\"me".to_owned(), Value::Ready(ReadyValue::Bool(false))),
         ])
@@ -343,11 +353,13 @@ fn logical_ops_and_lists_use_runtime_semantics() {
         ]))
     );
     assert!(matches!(
-        ReadyValue::Int(3).as_dict_key(),
+        PythonOperations::as_dict_key(&ReadyValue::Int(3)),
         Err(AsDictKeyError::UnsupportedKeyType)
     ));
     assert!(matches!(
-        ReadyValue::List(vec![Value::Ready(ReadyValue::String("nested".to_owned()))]).as_dict_key(),
+        PythonOperations::as_dict_key(&ReadyValue::List(vec![Value::Ready(ReadyValue::String(
+            "nested".to_owned()
+        ))])),
         Err(AsDictKeyError::UnsupportedKeyType)
     ));
     let value: Result<NonNaNFinite, _> = f64::NAN.try_into();
@@ -357,34 +369,38 @@ fn logical_ops_and_lists_use_runtime_semantics() {
 #[test]
 fn length_operations_follow_runtime_semantics() {
     assert_eq!(
-        ReadyValue::List(vec![
+        PythonOperations::length(&ReadyValue::List(vec![
             Value::Ready(ReadyValue::Int(1)),
             Value::Ready(ReadyValue::Int(2))
-        ])
-        .length()
+        ]))
         .unwrap(),
         2
     );
-    assert_eq!(ReadyValue::String("hello".to_owned()).length().unwrap(), 5);
     assert_eq!(
-        ReadyValue::Dict(IndexMap::from([(
+        PythonOperations::length(&ReadyValue::String("hello".to_owned())).unwrap(),
+        5
+    );
+    assert_eq!(
+        PythonOperations::length(&ReadyValue::Dict(IndexMap::from([(
             "key".to_owned(),
             Value::Ready(ReadyValue::Int(1))
-        )]))
-        .length()
+        )])))
         .unwrap(),
         1
     );
-    assert_eq!(ReadyValue::from_length(3).unwrap(), ReadyValue::Int(3));
+    assert_eq!(
+        <PythonOperations as Length<ReadyValue>>::from_length(3).unwrap(),
+        ReadyValue::Int(3)
+    );
     assert!(matches!(
-        ReadyValue::Bool(false).length(),
+        PythonOperations::length(&ReadyValue::Bool(false)),
         Err(LengthError::UnsupportedValue)
     ));
 
     let too_large = usize::try_from(i64::MAX as u128 + 1).ok();
     if let Some(too_large) = too_large {
         assert!(matches!(
-            ReadyValue::from_length(too_large),
+            <PythonOperations as Length<ReadyValue>>::from_length(too_large),
             Err(FromLengthError::ResultOutOfBounds)
         ));
     }
@@ -393,20 +409,22 @@ fn length_operations_follow_runtime_semantics() {
 #[test]
 fn exception_operations_follow_runtime_semantics() {
     assert_eq!(
-        ReadyValue::make_exception("ValueError".to_owned(), Value::Ready(ReadyValue::Int(41))),
+        <PythonOperations as MakeException<ReadyValue>>::make_exception(
+            "ValueError".to_owned(),
+            Value::Ready(ReadyValue::Int(41))
+        ),
         ReadyValue::Exception(Box::new(Exception {
             type_id: "ValueError".to_owned(),
             details: Value::Ready(ReadyValue::Int(41)),
         }))
     );
     assert_eq!(
-        ReadyValue::String("ValueError".to_owned())
-            .as_exception_type_id()
+        PythonOperations::as_exception_type_id(&ReadyValue::String("ValueError".to_owned()))
             .unwrap(),
         "ValueError"
     );
     assert!(matches!(
-        ReadyValue::Int(3).as_exception_type_id(),
+        PythonOperations::as_exception_type_id(&ReadyValue::Int(3)),
         Err(AsExceptionTypeIdError::UnsupportedTypeIdType)
     ));
 }
@@ -414,7 +432,7 @@ fn exception_operations_follow_runtime_semantics() {
 #[test]
 fn float_operations_follow_non_nan_finite_semantics() {
     assert!(matches!(
-        ReadyValue::div(
+        PythonOperations::div(
             &ReadyValue::Float(0.0.try_into().unwrap()),
             &ReadyValue::Float(0.0.try_into().unwrap()),
         ),
@@ -423,7 +441,7 @@ fn float_operations_follow_non_nan_finite_semantics() {
         })
     ));
     assert!(matches!(
-        ReadyValue::modulo(
+        PythonOperations::modulo(
             &ReadyValue::Float(1.0.try_into().unwrap()),
             &ReadyValue::Float(0.0.try_into().unwrap()),
         ),
@@ -432,7 +450,7 @@ fn float_operations_follow_non_nan_finite_semantics() {
         })
     ));
     assert!(matches!(
-        ReadyValue::mul(
+        PythonOperations::mul(
             &ReadyValue::Float(f64::MAX.try_into().unwrap()),
             &ReadyValue::Float(2.0.try_into().unwrap()),
         ),
@@ -441,7 +459,7 @@ fn float_operations_follow_non_nan_finite_semantics() {
         })
     ));
     assert!(matches!(
-        ReadyValue::div(
+        PythonOperations::div(
             &ReadyValue::Float(1.0.try_into().unwrap()),
             &ReadyValue::Float(0.0.try_into().unwrap()),
         ),
@@ -450,7 +468,7 @@ fn float_operations_follow_non_nan_finite_semantics() {
         })
     ));
     assert!(matches!(
-        ReadyValue::floor_div(
+        PythonOperations::floor_div(
             &ReadyValue::Float((-1.0).try_into().unwrap()),
             &ReadyValue::Float(0.0.try_into().unwrap()),
         ),
