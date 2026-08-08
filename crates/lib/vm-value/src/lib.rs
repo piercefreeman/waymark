@@ -1,15 +1,17 @@
-//! Canonical VM runtime value type.
+//! The shared VM runtime value shape.
+//!
+//! Pure data: the shape every variation of the VM operates on, with no
+//! semantics attached. What a value *means* — how it adds, compares,
+//! indexes, or coerces — belongs to the operations
+//! (`waymark-vm-interpreter-operations` and the per-variation crates
+//! implementing their vocabularies), not to the types here.
 
 #![warn(missing_docs)]
 
 use indexmap::IndexMap;
 use typed_floats::NonNaNFinite;
 
-pub mod coreset;
 mod exception;
-pub mod extcallset;
-pub mod pureset;
-mod pythonic;
 
 /// The VM value that is ready.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +73,3 @@ pub type Value = PromiseValue;
 impl waymark_vm_runtime_value::RootValueAccess for ReadyValue {
     type RootValue = Value;
 }
-
-#[cfg(test)]
-static_assertions::assert_impl_all!(Value: waymark_vm_interpreter_fullset::Value);

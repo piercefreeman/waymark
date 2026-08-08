@@ -1,8 +1,5 @@
-mod coreset;
 mod exception;
-mod extcallset;
 mod promisable;
-mod pureset;
 
 use waymark_vm_runtime_promise_core::{PromiseStateId, UnresolvedPromiseError};
 

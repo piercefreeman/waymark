@@ -74,16 +74,20 @@ impl<FunctionId, StateId, Value> Frame<FunctionId, StateId, Value> {
 
     /// Raise a typed runtime exception on this frame.
     ///
+    /// The operations supply the conversion of the typed error into the
+    /// value domain.
+    ///
     /// See [`Frame::raise_exception`].
-    pub fn raise_typed_exception<TypedException>(&mut self, exception: TypedException)
+    pub fn raise_typed_exception<Operations, TypedException>(&mut self, exception: TypedException)
     where
         TypedException: waymark_vm_runtime_exception::TypedException,
         Value: waymark_vm_runtime_value::RootValueAccess<RootValue = Value>,
-        Value: waymark_vm_runtime_exception::ExceptionFromIntermediate<
+        Operations: waymark_vm_runtime_exception::ExceptionFromIntermediate<
                 TypedException::IntermediateDetails,
+                Value,
             >,
     {
-        self.raise_exception(Value::from_intermediate_exception(
+        self.raise_exception(Operations::from_intermediate_exception(
             exception.into_intermediate_exception(),
         ));
     }

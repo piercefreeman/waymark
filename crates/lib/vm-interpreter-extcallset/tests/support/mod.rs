@@ -34,6 +34,13 @@ pub type TestRuntime = Runtime<Executable<RuntimeInstruction>, RuntimeInterprete
 #[derive(Debug)]
 pub struct TestSpec;
 
+/// A local variation marker: the interpreter is generic over any
+/// operations type; these tests instantiate it with the operations
+/// wrapper over this marker.
+pub enum TestVariation {}
+
+pub type TestOperations = waymark_vm_interpreter_operations::Operations<TestVariation>;
+
 impl waymark_vm_instructions_extcallset::Spec for TestSpec {
     type RegisterId = RegisterId;
     type StateId = StateId;
@@ -58,20 +65,18 @@ impl waymark_vm_runtime_value::RootValueAccess for TestValue {
     type RootValue = Self;
 }
 
-impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestValue {
-    fn capture_call_argument(&self) -> Self {
-        self.clone()
-    }
-}
-
-impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for TestValue {
+impl waymark_vm_interpreter_extcallset::operations::CaptureActionCallArgument<TestValue>
+    for TestOperations
+{
     type ActionCallArgument = i32;
     type Error = UnresolvedPromiseError;
 
-    fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
-        match self {
-            Self::Ready(TestReadyValue(value)) => Ok(*value),
-            Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
+    fn capture_action_call_argument(
+        value: &TestValue,
+    ) -> Result<Self::ActionCallArgument, Self::Error> {
+        match value {
+            TestValue::Ready(TestReadyValue(value)) => Ok(*value),
+            TestValue::Pending(promise_state_id) => Err(UnresolvedPromiseError {
                 promise_state_id: *promise_state_id,
             }),
         }
@@ -90,16 +95,16 @@ pub enum TestSleepDurationError {
     Unresolved(PromiseStateId),
 }
 
-impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
+impl waymark_vm_interpreter_extcallset::operations::SleepDuration<TestValue> for TestOperations {
     type Error = TestSleepDurationError;
 
-    fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
-        match self {
-            Self::Ready(TestReadyValue(value)) => {
+    fn to_sleep_duration(value: &TestValue) -> Result<NonZeroDuration, Self::Error> {
+        match value {
+            TestValue::Ready(TestReadyValue(value)) => {
                 let seconds: u64 = (*value).try_into().map_err(|_| Self::Error::Negative)?;
                 NonZeroDuration::from_secs(seconds).ok_or(Self::Error::Zero)
             }
-            Self::Pending(promise_state_id) => Err(Self::Error::Unresolved(*promise_state_id)),
+            TestValue::Pending(promise_state_id) => Err(Self::Error::Unresolved(*promise_state_id)),
         }
     }
 }
@@ -173,7 +178,7 @@ pub enum TestEffect {
 
 #[derive(Default)]
 pub struct RuntimeInterpreter {
-    extcall: ExtCallSetInterpreter<TestSpec, FunctionId, StateId, TestValue>,
+    extcall: ExtCallSetInterpreter<TestSpec, FunctionId, StateId, TestOperations, TestValue>,
 }
 
 impl<'s, 'r, E> CaptureRuntimeView<'s, FullRuntimeView<'r, E, FunctionId, StateId, TestValue>>
@@ -194,7 +199,7 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
     type RuntimeView<'r> = RuntimeView<'r, FunctionId, StateId, TestValue>;
     type Frame = Frame<FunctionId, StateId, TestValue>;
     type Instruction = RuntimeInstruction;
-    type Error = InterpreterError<TestValue>;
+    type Error = InterpreterError<TestOperations, TestValue>;
     type Effect = TestEffect;
 
     fn execute<'r>(

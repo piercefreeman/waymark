@@ -6,15 +6,26 @@ use std::sync::Arc;
 pub use waymark_vm_compiler_for_ast_old_const_value::ConstValue;
 pub use waymark_vm_value::{ReadyValue, Value};
 
+pub type Operations = waymark_vm_interpreter_operations::Operations<
+    waymark_vm_interpreter_operations_python::PythonVariation,
+>;
+
 #[cfg(test)]
-static_assertions::assert_impl_all!(Value: waymark_vm_interpreter_fullset::Value);
+static_assertions::assert_impl_all!(
+    Operations: waymark_vm_interpreter_fullset::Operations<Value>
+);
+
+#[cfg(test)]
+static_assertions::assert_impl_all!(
+    Operations: waymark_vm_interpreter_fullset::operations::Exceptions<Value>
+);
 
 pub type InstructionSet = waymark_vm_instructions_fullset::FullSet<Spec>;
 
 pub type Executable = waymark_vm_bytecode::Executable<InstructionSet>;
 
 pub type Interpreter =
-    waymark_vm_interpreter_fullset::FullSetInterpreter<Spec, Arc<Executable>, Value>;
+    waymark_vm_interpreter_fullset::FullSetInterpreter<Spec, Arc<Executable>, Operations, Value>;
 
 pub type Runtime = waymark_vm_runtime::Runtime<Arc<Executable>, Interpreter, Value>;
 

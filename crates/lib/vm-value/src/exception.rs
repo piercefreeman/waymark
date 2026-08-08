@@ -30,12 +30,3 @@ impl FromException for ReadyValue {
         Self::Exception(Box::new(exception))
     }
 }
-
-impl waymark_vm_runtime_exception::ExceptionFromIntermediate<String> for ReadyValue {
-    fn from_intermediate_exception(exception: Exception<String>) -> Exception<Self::RootValue> {
-        Exception {
-            type_id: exception.type_id,
-            details: crate::Value::Ready(Self::String(exception.details)),
-        }
-    }
-}

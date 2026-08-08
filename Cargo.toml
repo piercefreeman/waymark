@@ -43,6 +43,7 @@ waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
 waymark-observability = { path = "crates/lib/observability" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }
+waymark-phantom-uninhabitable = { path = "crates/lib/phantom-uninhabitable" }
 waymark-pool-status = { path = "crates/lib/pool-status" }
 waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-bringup" }
 waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settlement-demand-registry" }
@@ -104,6 +105,8 @@ waymark-vm-interpreter-composite-macros = { path = "crates/lib/vm-interpreter-co
 waymark-vm-interpreter-coreset = { path = "crates/lib/vm-interpreter-coreset" }
 waymark-vm-interpreter-extcallset = { path = "crates/lib/vm-interpreter-extcallset" }
 waymark-vm-interpreter-fullset = { path = "crates/lib/vm-interpreter-fullset" }
+waymark-vm-interpreter-operations = { path = "crates/lib/vm-interpreter-operations" }
+waymark-vm-interpreter-operations-python = { path = "crates/lib/vm-interpreter-operations-python" }
 waymark-vm-interpreter-pureset = { path = "crates/lib/vm-interpreter-pureset" }
 waymark-vm-interpreter-utils = { path = "crates/lib/vm-interpreter-utils" }
 waymark-vm-runtime = { path = "crates/lib/vm-runtime" }

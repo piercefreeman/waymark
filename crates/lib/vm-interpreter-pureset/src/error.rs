@@ -119,7 +119,7 @@ pub enum Error {
     UnusableExceptionTypeId {
         /// The underlying representation error.
         #[source]
-        source: crate::value::AsExceptionTypeIdError,
+        source: crate::operations::AsExceptionTypeIdError,
     },
 
     /// A `MakeException` instruction referenced an unset details register.

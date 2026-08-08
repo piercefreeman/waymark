@@ -102,6 +102,7 @@ impl WorkflowStore {
         let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::<
             waymark_system_vm::Spec,
             Arc<waymark_system_vm::Executable>,
+            waymark_system_vm::Operations,
             waymark_system_vm::Value,
         >::default();
 
@@ -139,6 +140,7 @@ impl WorkflowStore {
                 let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::<
                     waymark_system_vm::Spec,
                     Arc<waymark_system_vm::Executable>,
+                    waymark_system_vm::Operations,
                     waymark_system_vm::Value,
                 >::default();
                 let runtime: waymark_vm_runtime::Runtime<_, _, waymark_system_vm::Value> =

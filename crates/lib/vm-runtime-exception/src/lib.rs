@@ -68,17 +68,21 @@ pub trait TypedException {
     fn into_intermediate_exception(self) -> Exception<Self::IntermediateDetails>;
 }
 
+/// The intermediate details payload of a [`TypedException`].
+pub type IntermediateDetailsOf<Error> = <Error as TypedException>::IntermediateDetails;
+
 /// Constructs a runtime exception from an intermediate typed exception.
 ///
-/// Implemented by the value types; the implementation lifts the intermediate
-/// exception details into the value domain — effectively a
+/// Implemented by the operations types; the implementation lifts the
+/// intermediate exception details into the value domain — effectively a
 /// `From<IntermediateDetails>` with the added context that the payload is
 /// an exception details payload and not just a raw value.
-pub trait ExceptionFromIntermediate<IntermediateDetails>:
-    waymark_vm_runtime_value::RootValueAccess
+pub trait ExceptionFromIntermediate<IntermediateDetails, Value>
+where
+    Value: waymark_vm_runtime_value::RootValueAccess,
 {
     /// Build the runtime exception from the provided intermediate exception.
     fn from_intermediate_exception(
         intermediate_exception: Exception<IntermediateDetails>,
-    ) -> Exception<Self::RootValue>;
+    ) -> Exception<Value::RootValue>;
 }

@@ -2,11 +2,11 @@
 
 #![warn(missing_docs)]
 
-pub mod value;
+pub mod operations;
 
 use derive_where::derive_where;
 
-pub use self::value::Value;
+pub use self::operations::Operations;
 
 type FunctionIdFor<Spec> = <Spec as waymark_vm_instructions_coreset::Spec>::FunctionId;
 type StateIdFor<Spec> = <Spec as waymark_vm_instructions_coreset::Spec>::StateId;
@@ -46,24 +46,33 @@ pub use waymark_vm_runtime_core::FullRuntimeView as RuntimeView;
         StateIdFor<Spec>: Copy + Default + PartialEq,
         ActionRefFor<Spec>: Clone,
         Value: Clone + 'static,
-        Value: waymark_vm_interpreter_coreset::Value,
-        Value: waymark_vm_interpreter_extcallset::Value,
-        Value: waymark_vm_interpreter_pureset::Value,
         Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
         Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,
-        Value: for<'a> waymark_vm_interpreter_pureset::value::LoadConst<&'a Spec::ConstValue>,
+        Operations: self::Operations<Value>,
+        Operations: self::operations::Exceptions<Value>,
+        Operations: 'static,
+        Operations: for<'a> waymark_vm_interpreter_pureset::operations::LoadConst<
+            Value,
+            &'a Spec::ConstValue,
+        >,
         Value: waymark_vm_runtime_promise_core::Resolvable,
         Value: waymark_vm_runtime_promise_core::Suspendable,
         Value::ReadyValue: Clone,
     ),
 )]
-pub struct FullSetInterpreter<Spec: waymark_vm_instructions_fullset::Spec, Executable, Value> {
+pub struct FullSetInterpreter<
+    Spec: waymark_vm_instructions_fullset::Spec,
+    Executable,
+    Operations,
+    Value,
+> {
     /// The coreset interpreter used for core instructions.
     #[interpreter(
         variant = CoreSet,
         instruction = waymark_vm_instructions_coreset::CoreSet<Spec>,
     )]
-    pub core_set: waymark_vm_interpreter_coreset::CoreSetInterpreter<Spec, Executable, Value>,
+    pub core_set:
+        waymark_vm_interpreter_coreset::CoreSetInterpreter<Spec, Executable, Operations, Value>,
 
     /// The extcallset interpreter used for extcall instructions.
     #[interpreter(
@@ -74,6 +83,7 @@ pub struct FullSetInterpreter<Spec: waymark_vm_instructions_fullset::Spec, Execu
         Spec,
         FunctionIdFor<Spec>,
         StateIdFor<Spec>,
+        Operations,
         Value,
     >,
 
@@ -86,6 +96,7 @@ pub struct FullSetInterpreter<Spec: waymark_vm_instructions_fullset::Spec, Execu
         Spec,
         FunctionIdFor<Spec>,
         StateIdFor<Spec>,
+        Operations,
         Value,
     >,
 }

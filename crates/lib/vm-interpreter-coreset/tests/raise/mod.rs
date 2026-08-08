@@ -7,7 +7,9 @@ use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_test::{StateId, executable, function};
 
-use crate::support::{Instruction, TestReadyValue, TestSpec, TestValue, new_runtime_with_args};
+use crate::support::{
+    Instruction, TestOperations, TestReadyValue, TestSpec, TestValue, new_runtime_with_args,
+};
 
 #[test]
 fn runtime_raises_exception_values_from_registers() {
@@ -50,9 +52,13 @@ fn raise_rejects_non_exception_values() {
 
     assert!(matches!(
         result,
-        Err(RunError::Step(step::Error::Execution(
-            Error::<TestSpec>::Raise(RaiseError::SourceNotException,)
-        )))
+        Err(RunError::Step(step::Error::Execution(Error::<
+            TestSpec,
+            TestOperations,
+            TestValue,
+        >::Raise(
+            RaiseError::SourceNotException,
+        ))))
     ));
 }
 

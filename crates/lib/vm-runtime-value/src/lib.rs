@@ -2,7 +2,7 @@
 //!
 //! # Root Value
 //!
-//! Interpreters often operate on a "ready" value representation internally
+//! The operations often work on a "ready" value representation internally
 //! while still needing operations like indexing or attribute access to return
 //! the runtime's top-level value type. [`RootValueAccess`] captures that
 //! relationship without hard-coding a concrete value implementation.

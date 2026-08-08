@@ -3,7 +3,7 @@
 #![warn(missing_docs)]
 
 mod error;
-pub mod value;
+pub mod operations;
 
 use derive_where::derive_where;
 use waymark_vm_interpreter::ExecutionOutcome;
@@ -13,12 +13,12 @@ use waymark_vm_runtime_core::{
 };
 
 pub use self::error::*;
-pub use self::value::Value;
+pub use self::operations::Operations;
 
 /// An interpreter for the "core" instructions set.
 #[derive_where(Default)]
-pub struct CoreSetInterpreter<Spec, Executable, Value> {
-    phantom_data: core::marker::PhantomData<(Spec, Executable, Value)>,
+pub struct CoreSetInterpreter<Spec, Executable, Operations, Value> {
+    phantom_data: core::marker::PhantomData<(Spec, Executable, Operations, Value)>,
 }
 
 /// The runtime view for the [`CoreSetInterpreter`].
@@ -48,11 +48,10 @@ type FrameFor<Spec, Value> = Frame<
 
 type EffectFor<Value> = Effect<<Value as waymark_vm_runtime_promise_core::Resolvable>::ReadyValue>;
 
-impl<Spec, Executable, Value> CoreSetInterpreter<Spec, Executable, Value>
+impl<Spec, Executable, Operations, Value> CoreSetInterpreter<Spec, Executable, Operations, Value>
 where
     Spec: waymark_vm_instructions_coreset::Spec,
     Spec::StateId: Copy,
-    Value: self::Value,
     Value: Clone,
     Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
     Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,
@@ -109,15 +108,17 @@ where
     }
 }
 
-impl<Spec, Executable, Value> waymark_vm_interpreter::Interpreter
-    for CoreSetInterpreter<Spec, Executable, Value>
+impl<Spec, Executable, Operations, Value> waymark_vm_interpreter::Interpreter
+    for CoreSetInterpreter<Spec, Executable, Operations, Value>
 where
     Executable: 'static,
     Executable: waymark_vm_executable::FunctionInfo<FunctionId = Spec::FunctionId>,
     Spec: waymark_vm_instructions_coreset::Spec<RegisterId = waymark_vm_runtime_core::RegisterId>,
     Spec::FunctionId: Copy,
     Spec::StateId: Copy + Default,
-    Value: self::Value,
+    Operations: self::Operations<Value>,
+    Operations: self::operations::Exceptions<Value>,
+    Operations: 'static,
     Value: Clone,
     Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
     Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,
@@ -129,7 +130,7 @@ where
     type RuntimeView<'r> = RuntimeView<'r, Executable, Spec::FunctionId, Spec::StateId, Value>;
     type Frame = Frame<Spec::FunctionId, Spec::StateId, Value>;
     type Instruction = waymark_vm_instructions_coreset::CoreSet<Spec>;
-    type Error = Error<Spec>;
+    type Error = Error<Spec, Operations, Value>;
     type Effect = Effect<Value::ReadyValue>;
 
     fn enter_state<'r>(
@@ -186,7 +187,7 @@ where
 
                 let args = args
                     .iter()
-                    .map(|arg| frame.regs[*arg].capture_call_argument())
+                    .map(|arg| Operations::capture_call_argument(&frame.regs[*arg]))
                     .collect::<Vec<_>>();
 
                 let promise_state_id = state.promise_states.prepare();
@@ -342,8 +343,7 @@ where
             waymark_vm_instructions_coreset::CoreSet::JumpIf { target_state, cond } => {
                 let value = &frame.regs[*cond];
 
-                let should_jump = value
-                    .should_jump()
+                let should_jump = Operations::should_jump(value)
                     .map_err(JumpIfError::ConditionCheck)
                     .map_err(Error::JumpIf)?;
 
@@ -397,7 +397,7 @@ where
     }
 }
 
-impl<'s, 'r, Spec, Executable: 'static, Value: 'static>
+impl<'s, 'r, Spec, Executable: 'static, Operations: 'static, Value: 'static>
     waymark_vm_interpreter::CaptureRuntimeView<
         's,
         waymark_vm_runtime_core::FullRuntimeView<
@@ -407,7 +407,7 @@ impl<'s, 'r, Spec, Executable: 'static, Value: 'static>
             Spec::StateId,
             Value,
         >,
-    > for CoreSetInterpreter<Spec, Executable, Value>
+    > for CoreSetInterpreter<Spec, Executable, Operations, Value>
 where
     'r: 's,
     Spec: waymark_vm_instructions_coreset::Spec,

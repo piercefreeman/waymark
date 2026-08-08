@@ -2,13 +2,13 @@
 //!
 //! Everything in this crate must remain agnostic to any specific instruction
 //! set or interpreter (coreset, pureset, extcallset, fullset, …). The intent
-//! is that adding a new instruction, effect, or value-trait to one of those
+//! is that adding a new instruction, effect, or operation to one of those
 //! interpreters never forces a change here.
 //!
 //! Concretely, this crate may depend on the core runtime traits
 //! ([`waymark_vm_interpreter::Interpreter`],
 //! [`waymark_vm_interpreter::CaptureRuntimeView`],
-//! [`waymark_vm_interpreter_coreset::value::CaptureCallArgument`], etc.) that
+//! [`waymark_vm_interpreter_coreset::operations::CaptureCallArgument`], etc.) that
 //! every interpreter is expected to honor, but it must not depend on the
 //! per-instruction-set crates (e.g. `waymark-vm-instructions-pureset`,
 //! `waymark-vm-interpreter-extcallset`).
@@ -24,11 +24,11 @@
 //!
 //! What does NOT belong here:
 //!
-//! - Trait impls for any `<instruction-set>::value::*` trait that isn't a
-//!   universal contract.
+//! - Trait impls for any `<instruction-set>::operations::*` trait that
+//!   isn't a universal contract.
 //! - `Spec` types or value enums tailored to a specific interpreter's needs.
-//! - Per-interpreter `TestSpec`/`TestValue` aliases — those live in each
-//!   interpreter crate's `tests/support/mod.rs`.
+//! - Per-interpreter `TestSpec`/`TestValue`/`TestOperations` aliases —
+//!   those live in each interpreter crate's `tests/support/mod.rs`.
 
 use serde::{Deserialize, Serialize};
 use waymark_vm_interpreter::{ExecutionOutcome, Interpreter};
@@ -99,9 +99,14 @@ impl FromException for TestReadyValue {
     }
 }
 
-impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestReadyValue {
-    fn capture_call_argument(&self) -> Self {
-        self.clone()
+/// The operations the test fixtures are instantiated with.
+pub enum TestOperations {}
+
+impl waymark_vm_interpreter_coreset::operations::CaptureCallArgument<TestReadyValue>
+    for TestOperations
+{
+    fn capture_call_argument(value: &TestReadyValue) -> TestReadyValue {
+        value.clone()
     }
 }
 

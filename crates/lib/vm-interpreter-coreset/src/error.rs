@@ -2,8 +2,13 @@ use waymark_vm_runtime_core::PromiseStateNotFoundError;
 use waymark_vm_runtime_promise_core::UnresolvedPromiseError;
 
 /// The error for the [`crate::CoreSetInterpreter`].
-#[derive(Debug, thiserror::Error)]
-pub enum Error<Spec: waymark_vm_instructions_coreset::Spec> {
+#[derive_where::derive_where(Debug)]
+#[derive(thiserror::Error)]
+pub enum Error<Spec, Operations, Value>
+where
+    Spec: waymark_vm_instructions_coreset::Spec,
+    Operations: crate::operations::Operations<Value>,
+{
     /// Awaiting a promise failed.
     #[error("await: {0}")]
     Await(#[source] AwaitError),
@@ -18,7 +23,7 @@ pub enum Error<Spec: waymark_vm_instructions_coreset::Spec> {
 
     /// JumpIf failed.
     #[error("jump if: {0}")]
-    JumpIf(#[source] JumpIfError),
+    JumpIf(#[source] JumpIfError<crate::operations::ShouldJumpErrorFor<Operations, Value>>),
 
     /// Managing exception-handler blocks failed.
     #[error("exception handlers: {0}")]
@@ -74,10 +79,10 @@ pub enum AwaitError {
 
 /// Errors produced while evaluating a `JumpIf` instruction.
 #[derive(Debug, thiserror::Error)]
-pub enum JumpIfError {
+pub enum JumpIfError<ConditionCheckError> {
     /// The resolved condition value could not be interpreted as conditional.
     #[error("condition check: {0}")]
-    ConditionCheck(#[source] crate::value::NotAConditionalError),
+    ConditionCheck(#[source] ConditionCheckError),
 }
 
 /// Errors produced while managing exception-handler blocks.

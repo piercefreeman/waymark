@@ -72,7 +72,7 @@ fn runtime_surfaces_non_string_type_id_errors_from_the_pureset_interpreter() {
         Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
             Error::UnusableExceptionTypeId {
                 source:
-                    waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError::UnsupportedTypeIdType,
+                    waymark_vm_interpreter_pureset::operations::AsExceptionTypeIdError::UnsupportedTypeIdType,
             }
         )))
     ));
