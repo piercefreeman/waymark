@@ -6,132 +6,19 @@ use serde_json::Value;
 
 use waymark_dag::{DAGEdge, EdgeType};
 use waymark_ids::ExecutionId;
-use waymark_ir_conversions::literal_to_json_value;
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
 use waymark_runner_executor_core::ExecutionException;
 use waymark_runner_expr_eval::ValueExprEvaluator;
-use waymark_runner_state::{
-    ActionCallSpec, ActionResultValue, BinaryOpValue, DictEntryValue, DictValue, DotValue,
-    FunctionCallValue, IndexValue, ListValue, LiteralValue, UnaryOpValue, ValueExpr, VariableValue,
-};
+use waymark_runner_state::{ActionCallSpec, ActionResultValue, FunctionCallValue, ValueExpr};
 
 use super::{RunnerExecutor, RunnerExecutorError};
 
 impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> {
     /// Convert a pure IR expression into a ValueExpr without side effects.
     pub(super) fn expr_to_value(expr: &ir::Expr) -> Result<ValueExpr, RunnerExecutorError> {
-        match expr.kind.as_ref() {
-            Some(ir::expr::Kind::Literal(lit)) => Ok(ValueExpr::Literal(LiteralValue {
-                value: literal_to_json_value(lit),
-            })),
-            Some(ir::expr::Kind::Variable(var)) => Ok(ValueExpr::Variable(VariableValue {
-                name: var.name.clone(),
-            })),
-            Some(ir::expr::Kind::BinaryOp(op)) => {
-                let left = op
-                    .left
-                    .as_ref()
-                    .ok_or_else(|| RunnerExecutorError("binary op missing left".to_string()))?;
-                let right = op
-                    .right
-                    .as_ref()
-                    .ok_or_else(|| RunnerExecutorError("binary op missing right".to_string()))?;
-                Ok(ValueExpr::BinaryOp(BinaryOpValue {
-                    left: Box::new(Self::expr_to_value(left)?),
-                    op: op.op,
-                    right: Box::new(Self::expr_to_value(right)?),
-                }))
-            }
-            Some(ir::expr::Kind::UnaryOp(op)) => {
-                let operand = op
-                    .operand
-                    .as_ref()
-                    .ok_or_else(|| RunnerExecutorError("unary op missing operand".to_string()))?;
-                Ok(ValueExpr::UnaryOp(UnaryOpValue {
-                    op: op.op,
-                    operand: Box::new(Self::expr_to_value(operand)?),
-                }))
-            }
-            Some(ir::expr::Kind::List(list)) => {
-                let mut elements = Vec::new();
-                for item in &list.elements {
-                    elements.push(Self::expr_to_value(item)?);
-                }
-                Ok(ValueExpr::List(ListValue { elements }))
-            }
-            Some(ir::expr::Kind::Dict(dict_expr)) => {
-                let mut entries = Vec::new();
-                for entry in &dict_expr.entries {
-                    let key = entry
-                        .key
-                        .as_ref()
-                        .ok_or_else(|| RunnerExecutorError("dict entry missing key".to_string()))?;
-                    let value = entry.value.as_ref().ok_or_else(|| {
-                        RunnerExecutorError("dict entry missing value".to_string())
-                    })?;
-                    entries.push(DictEntryValue {
-                        key: Self::expr_to_value(key)?,
-                        value: Self::expr_to_value(value)?,
-                    });
-                }
-                Ok(ValueExpr::Dict(DictValue { entries }))
-            }
-            Some(ir::expr::Kind::Index(index)) => {
-                let object = index.object.as_ref().ok_or_else(|| {
-                    RunnerExecutorError("index access missing object".to_string())
-                })?;
-                let index_expr = index
-                    .index
-                    .as_ref()
-                    .ok_or_else(|| RunnerExecutorError("index access missing index".to_string()))?;
-                Ok(ValueExpr::Index(IndexValue {
-                    object: Box::new(Self::expr_to_value(object)?),
-                    index: Box::new(Self::expr_to_value(index_expr)?),
-                }))
-            }
-            Some(ir::expr::Kind::Dot(dot)) => {
-                let object = dot
-                    .object
-                    .as_ref()
-                    .ok_or_else(|| RunnerExecutorError("dot access missing object".to_string()))?;
-                Ok(ValueExpr::Dot(DotValue {
-                    object: Box::new(Self::expr_to_value(object)?),
-                    attribute: dot.attribute.clone(),
-                }))
-            }
-            Some(ir::expr::Kind::FunctionCall(call)) => {
-                let mut args = Vec::new();
-                for arg in &call.args {
-                    args.push(Self::expr_to_value(arg)?);
-                }
-                let mut kwargs = HashMap::new();
-                for kw in &call.kwargs {
-                    if let Some(value) = &kw.value {
-                        kwargs.insert(kw.name.clone(), Self::expr_to_value(value)?);
-                    }
-                }
-                let global_fn = if call.global_function != 0 {
-                    Some(call.global_function)
-                } else {
-                    None
-                };
-                Ok(ValueExpr::FunctionCall(FunctionCallValue {
-                    name: call.name.clone(),
-                    args,
-                    kwargs,
-                    global_function: global_fn,
-                }))
-            }
-            Some(
-                ir::expr::Kind::ActionCall(_)
-                | ir::expr::Kind::ParallelExpr(_)
-                | ir::expr::Kind::SpreadExpr(_),
-            ) => Err(RunnerExecutorError(
-                "action/spread calls not allowed in guard expressions".to_string(),
-            )),
-            None => Ok(ValueExpr::Literal(LiteralValue { value: Value::Null })),
-        }
+        waymark_runner_pure_expr_eval::expr_to_value(expr, None)
+            .map_err(|err| RunnerExecutorError(err.to_string()))
     }
 
     /// Evaluate a guard expression using current symbolic assignments.

@@ -1,0 +1,9 @@
+[package]
+name = "waymark-runner-eval-dag"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-dag = { workspace = true }
+waymark-runner-eval-core = { workspace = true }

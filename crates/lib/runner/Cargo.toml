@@ -14,6 +14,7 @@ waymark-proto = { workspace = true }
 waymark-runner-execution-core = { workspace = true }
 waymark-runner-executor-core = { workspace = true }
 waymark-runner-expr-eval = { workspace = true }
+waymark-runner-pure-expr-eval = { workspace = true }
 waymark-runner-retry-policy = { workspace = true }
 waymark-runner-state = { workspace = true }
 waymark-synthetic-exception = { workspace = true }
