@@ -1,21 +1,15 @@
-//! [`waymark_vm_interpreter_extcallset`] trait implementations for [`Value`].
+//! The ready-level implementations.
 
 use std::time::{Duration, TryFromFloatSecsError};
 
 use waymark_nonzero_duration::{NonZeroDuration, ZeroDurationError};
+use waymark_vm_value::ReadyValue;
 
-use crate::ReadyValue;
-
-#[cfg(test)]
-static_assertions::assert_impl_all!(crate::Value: waymark_vm_interpreter_extcallset::Value);
+use crate::Operations;
 
 /// Errors returned while converting a value into a sleep duration.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum SleepDurationError {
-    /// The pending promise value cannot be used as a sleep duration.
-    #[error("a pending promise value cannot be used as a sleep duration")]
-    UnresolvedValue,
-
     /// The value type cannot be used as a sleep duration.
     #[error("the value cannot be used as a sleep duration")]
     UnsupportedValue,
@@ -33,38 +27,44 @@ pub enum SleepDurationError {
     FloatConversion(#[source] TryFromFloatSecsError),
 }
 
-impl waymark_vm_interpreter_extcallset::value::SleepDuration for ReadyValue {
+impl<Variation> waymark_vm_interpreter_extcallset::operations::SleepDuration<ReadyValue>
+    for Operations<Variation>
+{
     type Error = SleepDurationError;
 
-    fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
-        match self {
-            Self::Int(value) => {
+    fn to_sleep_duration(value: &ReadyValue) -> Result<NonZeroDuration, Self::Error> {
+        match value {
+            ReadyValue::Int(value) => {
                 let seconds: u64 = (*value).try_into().map_err(|_| Self::Error::Negative)?;
                 Duration::from_secs(seconds)
                     .try_into()
                     .map_err(Self::Error::Zero)
             }
-            Self::Float(value) => {
+            ReadyValue::Float(value) => {
                 let duration = Duration::try_from_secs_f64(value.get())
                     .map_err(Self::Error::FloatConversion)?;
 
                 duration.try_into().map_err(Self::Error::Zero)
             }
-            Self::Bool(_)
-            | Self::String(_)
-            | Self::None
-            | Self::List(_)
-            | Self::Dict(_)
-            | Self::Exception(_) => Err(Self::Error::UnsupportedValue),
+            ReadyValue::Bool(_)
+            | ReadyValue::String(_)
+            | ReadyValue::None
+            | ReadyValue::List(_)
+            | ReadyValue::Dict(_)
+            | ReadyValue::Exception(_) => Err(Self::Error::UnsupportedValue),
         }
     }
 }
 
-impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for ReadyValue {
+impl<Variation> waymark_vm_interpreter_extcallset::operations::CaptureActionCallArgument<ReadyValue>
+    for Operations<Variation>
+{
     type Error = core::convert::Infallible;
     type ActionCallArgument = ReadyValue;
 
-    fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
-        Ok(self.clone())
+    fn capture_action_call_argument(
+        value: &ReadyValue,
+    ) -> Result<Self::ActionCallArgument, Self::Error> {
+        Ok(value.clone())
     }
 }

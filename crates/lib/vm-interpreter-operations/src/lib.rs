@@ -10,5 +10,13 @@
 
 #![warn(missing_docs)]
 
+/// [`waymark_vm_interpreter_extcallset`] operations implementations.
+pub mod extcallset {
+    pub mod promise;
+    pub mod ready;
+}
+
+pub mod promise;
+
 /// The VM interpreter operations, specialized by the variation marker.
 pub struct Operations<Variation>(waymark_phantom_uninhabitable::PhantomUninhabitable<Variation>);

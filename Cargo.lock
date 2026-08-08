@@ -5662,7 +5662,22 @@ dependencies = [
 name = "waymark-vm-interpreter-operations"
 version = "0.1.0"
 dependencies = [
+ "thiserror",
+ "waymark-nonzero-duration",
  "waymark-phantom-uninhabitable",
+ "waymark-vm-bytecode",
+ "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-extcallset",
+ "waymark-vm-interpreter",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-extcallset",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-runtime-promise-value",
+ "waymark-vm-runtime-test",
+ "waymark-vm-value",
 ]
 
 [[package]]
@@ -5779,9 +5794,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "thiserror",
- "waymark-nonzero-duration",
  "waymark-vm-interpreter-coreset",
- "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-pureset",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
@@ -5816,24 +5829,13 @@ dependencies = [
  "indexmap 2.13.0",
  "serde",
  "static_assertions",
- "thiserror",
  "typed_floats",
- "waymark-nonzero-duration",
- "waymark-vm-bytecode",
- "waymark-vm-instructions-coreset",
- "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
- "waymark-vm-interpreter",
  "waymark-vm-interpreter-coreset",
- "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-fullset",
- "waymark-vm-interpreter-operations",
  "waymark-vm-interpreter-pureset",
- "waymark-vm-runtime",
- "waymark-vm-runtime-core",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-value",
- "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",
 ]
 

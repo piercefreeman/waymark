@@ -1,4 +1,8 @@
 //! Integration test for completing extcall action calls with exception errors.
+//!
+//! Runs the extcallset interpreter over the concrete `vm-value` types with
+//! the provided operations implementations from this crate (any variation
+//! marker selects them; a local one is used).
 
 use waymark_vm_bytecode::Executable;
 use waymark_vm_instructions_coreset::CoreSet;
@@ -64,7 +68,7 @@ enum TestError {
     CoreSet(#[from] waymark_vm_interpreter_coreset::Error<TestSpec>),
 
     #[error(transparent)]
-    ExtCallSet(#[from] waymark_vm_interpreter_extcallset::Error<Value>),
+    ExtCallSet(#[from] waymark_vm_interpreter_extcallset::Error<TestOperations, Value>),
 }
 
 #[derive(Default)]

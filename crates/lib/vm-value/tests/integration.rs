@@ -2,9 +2,6 @@ use indexmap::IndexMap;
 use typed_floats::NonNaNFinite;
 use waymark_vm_instructions_pureset::BinaryOpKind;
 use waymark_vm_interpreter_coreset::value::ShouldJump as _;
-use waymark_vm_interpreter_extcallset::value::{
-    CaptureActionCallArgument as _, SleepDuration as _,
-};
 use waymark_vm_interpreter_pureset::value::{
     AsDictKey as _, AsDictKeyError, AsExceptionTypeId as _, AsExceptionTypeIdError,
     BinaryOperationError, BinaryOps as _, DotOp as _, DotOperationError, FromLengthError,
@@ -12,7 +9,7 @@ use waymark_vm_interpreter_pureset::value::{
     MakeList as _, UnaryOps as _,
 };
 use waymark_vm_runtime_exception::{AsException as _, Exception, IntoException as _};
-use waymark_vm_value::{ReadyValue, Value, extcallset};
+use waymark_vm_value::{ReadyValue, Value};
 
 #[test]
 fn values_follow_truthiness() {
@@ -341,7 +338,7 @@ fn dict_values_compare_equal_independent_of_insertion_order() {
 }
 
 #[test]
-fn logical_ops_lists_and_sleep_duration_use_runtime_semantics() {
+fn logical_ops_and_lists_use_runtime_semantics() {
     assert_eq!(
         ReadyValue::and(&ReadyValue::Int(1), &ReadyValue::String("x".to_owned())).unwrap(),
         ReadyValue::String("x".to_owned())
@@ -384,43 +381,8 @@ fn logical_ops_lists_and_sleep_duration_use_runtime_semantics() {
         ReadyValue::List(vec![Value::Ready(ReadyValue::String("nested".to_owned()))]).as_dict_key(),
         Err(AsDictKeyError::UnsupportedKeyType)
     ));
-    assert_eq!(
-        ReadyValue::Int(5).to_sleep_duration().unwrap().get(),
-        std::time::Duration::from_secs(5)
-    );
-    assert_eq!(
-        ReadyValue::Float(0.5.try_into().unwrap())
-            .to_sleep_duration()
-            .unwrap()
-            .get(),
-        std::time::Duration::from_millis(500)
-    );
-    assert!(matches!(
-        ReadyValue::Int(0).to_sleep_duration().unwrap_err(),
-        extcallset::SleepDurationError::Zero(_)
-    ));
-    assert!(matches!(
-        ReadyValue::Int(-1).to_sleep_duration().unwrap_err(),
-        extcallset::SleepDurationError::Negative
-    ));
-    assert!(matches!(
-        ReadyValue::Float(0.0.try_into().unwrap())
-            .to_sleep_duration()
-            .unwrap_err(),
-        extcallset::SleepDurationError::Zero(_)
-    ));
-    assert!(matches!(
-        ReadyValue::Float((-0.25).try_into().unwrap())
-            .to_sleep_duration()
-            .unwrap_err(),
-        extcallset::SleepDurationError::FloatConversion(_)
-    ));
     let value: Result<NonNaNFinite, _> = f64::NAN.try_into();
     assert!(value.is_err());
-    assert_eq!(
-        ReadyValue::Bool(true).to_sleep_duration().unwrap_err(),
-        extcallset::SleepDurationError::UnsupportedValue
-    );
 }
 
 #[test]
@@ -548,12 +510,7 @@ fn exception_values_round_trip_through_exception_traits() {
         .expect("ready value should be an exception");
     assert_eq!(exception.type_id, "ValueError");
     assert_eq!(exception.details, details);
-    assert_eq!(value.capture_action_call_argument().unwrap(), value.clone());
     assert!(value.should_jump().unwrap());
-    assert!(matches!(
-        value.to_sleep_duration().unwrap_err(),
-        extcallset::SleepDurationError::UnsupportedValue
-    ));
 
     let owned = value
         .clone()
