@@ -8,7 +8,6 @@ publish.workspace = true
 waymark-vm-bytecode = { workspace = true }
 waymark-vm-bytecode-core = { workspace = true, features = ["serde"] }
 waymark-vm-interpreter = { workspace = true }
-waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
