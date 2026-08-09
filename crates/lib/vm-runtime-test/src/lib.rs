@@ -7,11 +7,10 @@
 //!
 //! Concretely, this crate may depend on the core runtime traits
 //! ([`waymark_vm_interpreter::Interpreter`],
-//! `waymark_vm_runtime_view_capture::CaptureRuntimeView`,
-//! [`waymark_vm_interpreter_coreset::value::CaptureCallArgument`], etc.) that
-//! every interpreter is expected to honor, but it must not depend on the
+//! `waymark_vm_runtime_view_capture::CaptureRuntimeView`, etc.) that every
+//! interpreter is expected to honor, but it must not depend on the
 //! per-instruction-set crates (e.g. `waymark-vm-instructions-pureset`,
-//! `waymark-vm-interpreter-extcallset`).
+//! `waymark-vm-interpreter-coreset`, `waymark-vm-interpreter-extcallset`).
 //!
 //! What belongs here:
 //!
@@ -96,12 +95,6 @@ impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
 impl FromException for TestReadyValue {
     fn from_exception(exception: Exception<Self::RootValue>) -> Self {
         Self::Exception(Box::new(exception))
-    }
-}
-
-impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestReadyValue {
-    fn capture_call_argument(&self) -> Self {
-        self.clone()
     }
 }
 
