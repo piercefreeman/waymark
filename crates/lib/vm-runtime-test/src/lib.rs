@@ -99,12 +99,6 @@ impl FromException for TestReadyValue {
     }
 }
 
-impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestReadyValue {
-    fn capture_call_argument(&self) -> Self {
-        self.clone()
-    }
-}
-
 pub fn function<Instruction>(
     num_regs: usize,
     states: Vec<Vec<Instruction>>,
