@@ -16,7 +16,7 @@ use waymark_action_runtime_core::{
     ActionCallCompletion, ActionCallCompletionsProvider, ActionCallRequest, ActionCallRequester,
 };
 use waymark_action_runtime_metadata::ActionCallCorrelation;
-use waymark_sleep_compat::ReadyValueSleepProvider;
+use waymark_sleep_compat_python::ReadyValueSleepProvider;
 
 /// Error type for the mock action requester.
 #[derive(Debug, thiserror::Error)]
