@@ -33,12 +33,12 @@ mock! {
 
     impl ActionCallRequester for ActionRequester {
         type Error = MockRequesterError;
-        type Argument = waymark_vm_value::ReadyValue;
+        type Argument = waymark_vm_value_python::ReadyValue;
         type Metadata = ActionCallCorrelation;
 
         async fn request_action_call(
             &self,
-            request: ActionCallRequest<waymark_vm_value::ReadyValue, ActionCallCorrelation>,
+            request: ActionCallRequest<waymark_vm_value_python::ReadyValue, ActionCallCorrelation>,
         ) -> Result<(), MockRequesterError>;
     }
 }
@@ -53,14 +53,14 @@ enum FakeCompletionsProvider {
 }
 
 impl ActionCallCompletionsProvider for FakeCompletionsProvider {
-    type Value = waymark_vm_value::ReadyValue;
+    type Value = waymark_vm_value_python::ReadyValue;
     type Error = MockProviderError;
     type Metadata = ActionCallCorrelation;
 
     async fn wait_for_completions(
         &mut self,
     ) -> Result<
-        NEVec<ActionCallCompletion<waymark_vm_value::ReadyValue, ActionCallCorrelation>>,
+        NEVec<ActionCallCompletion<waymark_vm_value_python::ReadyValue, ActionCallCorrelation>>,
         MockProviderError,
     > {
         match self {
@@ -94,7 +94,7 @@ async fn effect_handler_dispatches_action_call() {
             module_name: None,
             call_args: vec!["arg".into()],
         },
-        args: vec![waymark_vm_value::ReadyValue::String("hi".into())],
+        args: vec![waymark_vm_value_python::ReadyValue::String("hi".into())],
     };
 
     let effect_number = EffectNumber(0);

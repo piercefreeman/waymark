@@ -57,7 +57,7 @@ where
     Metadata: Decode + Send + Sync + 'static,
     Metadata::Error: core::fmt::Display,
 {
-    type Value = waymark_vm_value::ReadyValue;
+    type Value = waymark_vm_value_python::ReadyValue;
     type Error = WorkerPoolCompletionsError<Metadata::Error>;
     type Metadata = Metadata;
 
@@ -99,7 +99,7 @@ where
 /// happened), so we surface the error to the caller instead.
 fn resolve_completion<Metadata>(
     completion: waymark_worker_core::ActionCompletion,
-) -> Result<ActionCallCompletion<waymark_vm_value::ReadyValue, Metadata>, Metadata::Error>
+) -> Result<ActionCallCompletion<waymark_vm_value_python::ReadyValue, Metadata>, Metadata::Error>
 where
     Metadata: Decode,
     Metadata::Error: core::fmt::Display,

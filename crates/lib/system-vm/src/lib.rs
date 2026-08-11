@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 pub use waymark_vm_compiler_for_ast_old_const_value::ConstValue;
-pub use waymark_vm_value::{ReadyValue, Value};
+pub use waymark_vm_value_python::{ReadyValue, Value};
 
 #[cfg(test)]
 static_assertions::assert_impl_all!(Value: waymark_vm_interpreter_fullset::Value);

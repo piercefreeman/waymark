@@ -44,7 +44,7 @@ where
     Metadata: Decode + Send + 'static,
     <Metadata as Decode>::Error: Send + 'static,
 {
-    type Value = waymark_vm_value::ReadyValue;
+    type Value = waymark_vm_value_python::ReadyValue;
     type Error = ReceiveError<<Metadata as Decode>::Error>;
     type Metadata = Metadata;
 
@@ -70,7 +70,7 @@ where
 fn completion_from_result<Metadata: Decode>(
     result: &proto::ActionResult,
 ) -> Result<
-    ActionCallCompletion<waymark_vm_value::ReadyValue, Metadata>,
+    ActionCallCompletion<waymark_vm_value_python::ReadyValue, Metadata>,
     ReceiveError<Metadata::Error>,
 > {
     let mut bytes: &[u8] = &result.metadata;

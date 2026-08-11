@@ -26,7 +26,7 @@ use waymark_action_runtime_core::ActionCallOutcome;
 use waymark_promise_settlement_demand_registry::registry;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime_promise_core::PromiseStateId;
-use waymark_vm_value::ReadyValue;
+use waymark_vm_value_python::ReadyValue;
 
 /// Error returned when the shared poll loop stops on a critical failure.
 #[derive(Debug, thiserror::Error)]

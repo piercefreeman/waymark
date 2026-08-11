@@ -6,4 +6,4 @@ publish.workspace = true
 
 [dependencies]
 waymark-sleep-core = { workspace = true }
-waymark-vm-value = { workspace = true }
+waymark-vm-value-python = { workspace = true }
