@@ -7,7 +7,7 @@ use waymark_vm_runtime_exception::{
 
 use crate::ReadyValue;
 
-impl AsException for ReadyValue {
+impl<Flavor: crate::Flavor> AsException for ReadyValue<Flavor> {
     fn as_exception(&self) -> Result<&Exception<Self::RootValue>, NotAnExceptionError> {
         match self {
             Self::Exception(exception) => Ok(exception.as_ref()),
@@ -16,7 +16,7 @@ impl AsException for ReadyValue {
     }
 }
 
-impl IntoException for ReadyValue {
+impl<Flavor: crate::Flavor> IntoException for ReadyValue<Flavor> {
     fn into_exception(self) -> Result<Exception<Self::RootValue>, NotAnOwnedExceptionError<Self>> {
         match self {
             Self::Exception(exception) => Ok(*exception),
@@ -25,13 +25,15 @@ impl IntoException for ReadyValue {
     }
 }
 
-impl FromException for ReadyValue {
+impl<Flavor: crate::Flavor> FromException for ReadyValue<Flavor> {
     fn from_exception(exception: Exception<Self::RootValue>) -> Self {
         Self::Exception(Box::new(exception))
     }
 }
 
-impl waymark_vm_runtime_exception::ExceptionFromIntermediate<String> for ReadyValue {
+impl<Flavor: crate::Flavor> waymark_vm_runtime_exception::ExceptionFromIntermediate<String>
+    for ReadyValue<Flavor>
+{
     fn from_intermediate_exception(exception: Exception<String>) -> Exception<Self::RootValue> {
         Exception {
             type_id: exception.type_id,
