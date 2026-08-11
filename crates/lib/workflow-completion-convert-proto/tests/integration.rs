@@ -36,17 +36,17 @@ fn completion_dict_passes_through_verbatim() {
 
     // A dict completion is user data, even when its keys collide with the
     // argument names of the completion plane (`result`).
-    let outcome = Outcome::Completion(waymark_vm_value::ReadyValue::Dict(
+    let outcome = Outcome::Completion(waymark_vm_value_python::ReadyValue::Dict(
         [
             (
                 "result".to_string(),
-                waymark_vm_value::Value::Ready(waymark_vm_value::ReadyValue::String(
+                waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::String(
                     "inner".to_string(),
                 )),
             ),
             (
                 "other".to_string(),
-                waymark_vm_value::Value::Ready(waymark_vm_value::ReadyValue::String(
+                waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::String(
                     "kept".to_string(),
                 )),
             ),
