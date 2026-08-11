@@ -49,7 +49,7 @@ waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settle
 waymark-proto = { path = "crates/lib/proto" }
 waymark-python-workflow-ir-reader = { path = "crates/lib/python-workflow-ir-reader" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
-waymark-sleep-compat = { path = "crates/lib/sleep-compat" }
+waymark-sleep-compat-python = { path = "crates/lib/sleep-compat-python" }
 waymark-sleep-core = { path = "crates/lib/sleep-core" }
 waymark-sleep-reconciler = { path = "crates/lib/sleep-reconciler" }
 waymark-sleep-reconciler-backend = { path = "crates/lib/sleep-reconciler-backend" }
