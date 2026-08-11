@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use typed_floats::NonNaNFinite;
 use waymark_convert_core::{Convert, TryConvert};
 use waymark_vm_runtime_exception::Exception;
-use waymark_vm_value::{ReadyValue, Value};
+use waymark_vm_value_python::{ReadyValue, Value};
 
 pub use waymark_vm_value_convert_core::PendingPromiseError;
 
