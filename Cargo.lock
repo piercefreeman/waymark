@@ -4789,6 +4789,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-maybe-serde"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "waymark-message-conversions"
 version = "0.1.0"
 dependencies = [
