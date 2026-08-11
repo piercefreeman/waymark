@@ -18,7 +18,7 @@ waymark-extcall-reconciler = { workspace = true }
 waymark-fullset-effect-handler = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
-waymark-sleep-compat = { workspace = true }
+waymark-sleep-compat-python = { workspace = true }
 waymark-sleep-reconciler = { workspace = true }
 waymark-sleep-reconciler-backend = { workspace = true }
 waymark-state-manager = { workspace = true }

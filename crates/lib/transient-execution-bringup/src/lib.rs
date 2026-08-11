@@ -106,7 +106,9 @@ pub type EffectorFor<ActionCallRequester, ActionCallCompletionsProvider> = (
     >,
     waymark_extcall_reconciler::PromiseSettler<
         waymark_extcall_reconciler_action_compat::PromiseSettler<ActionCallCompletionsProvider>,
-        waymark_transient_sleep_reconciler::Poller<waymark_sleep_compat::ReadyValueSleepProvider>,
+        waymark_transient_sleep_reconciler::Poller<
+            waymark_sleep_compat_python::ReadyValueSleepProvider,
+        >,
     >,
 );
 
@@ -182,7 +184,7 @@ where
         action_call_completions_provider,
     );
     let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
-        waymark_sleep_compat::ReadyValueSleepProvider,
+        waymark_sleep_compat_python::ReadyValueSleepProvider,
     >(skip_sleep);
     let (extcall_handler, extcall_settler) =
         waymark_extcall_reconciler::new(action_handler, sleep_handler, action_poller, sleep_poller);

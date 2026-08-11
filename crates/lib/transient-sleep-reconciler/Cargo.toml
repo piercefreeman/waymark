@@ -17,7 +17,7 @@ tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
-waymark-sleep-compat = { workspace = true }
+waymark-sleep-compat-python = { workspace = true }
 waymark-vm-value-python = { workspace = true }
 
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
