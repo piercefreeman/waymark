@@ -11,7 +11,7 @@ use waymark_vm_runtime::{CallSpec, Runtime};
 use waymark_vm_runtime_core::{Frame, FullRuntimeView, RegisterId};
 use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
-use waymark_vm_value::{ReadyValue, Value};
+use waymark_vm_value_python::{ReadyValue, Value};
 
 #[derive(Debug)]
 struct TestSpec;
