@@ -1,0 +1,10 @@
+# Build-backend constraints for the waymark wheel.
+#
+# Build-system requirements resolve in isolated build environments and
+# are NOT covered by uv.lock; this file pins them so wheel builds are
+# deterministic everywhere (local, docker, CI). Wired through
+# scripts/build_wheel.py via `uv build --build-constraints`.
+#
+# hatchling 1.32.0 rejects the out-of-project readme path
+# (`readme = "../README.md"`).
+hatchling==1.31.0
