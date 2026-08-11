@@ -1,2 +1,18 @@
+[tool.uv]
+# The single source of truth for the uv version: enforced by uv itself
+# on every invocation, read by CI via `setup-uv`'s `version-file`, and
+# mirrored by the Dockerfile's UV_VERSION arg (a mismatch there fails
+# loudly since the mismatched uv refuses to run).
+required-version = "==0.12.3"
+
+# Build-backend versions are not covered by uv.lock (they resolve in
+# isolated build environments); this constrains them everywhere a
+# member gets built — `uv sync`/`uv run` editable installs and
+# `uv build` wheel builds alike.
+#
+# hatchling 1.32.0 rejects the out-of-project readme path
+# (`readme = "../README.md"`).
+build-constraint-dependencies = ["hatchling==1.31.0"]
+
 [tool.uv.workspace]
 members = ["python", "scripts", "example_app"]

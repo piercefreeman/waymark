@@ -1,5 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
+# requires-python = ">=3.10"
 # dependencies = ["click>=8", "rich>=13", "packaging>=23"]
 # ///
 """Build a distributable wheel that bundles Rust binaries and Python package."""

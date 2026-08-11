@@ -1,5 +1,11 @@
 # syntax=docker/dockerfile:1.7
 
+# Mirrors `tool.uv.required-version` in the root pyproject.toml; a
+# mismatch fails loudly (uv refuses to run under required-version).
+ARG UV_VERSION=0.12.3
+
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
 FROM rust:1.88-bookworm AS rust-base
 WORKDIR /repo
 COPY rust-toolchain.toml .
@@ -36,8 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     curl \
     && rm -rf /var/lib/apt/lists/*
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:${PATH}"
+COPY --from=uv /uv /uvx /usr/local/bin/
 
 # Copy cached dependencies from cacher stage
 COPY --from=rust-cacher /repo/target target
@@ -49,7 +54,14 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/root/.cache/uv \
-    uv run scripts/build_wheel.py --out-dir target/wheels
+    uv run --locked scripts/build_wheel.py --out-dir target/wheels
+
+# Render the locked resolution for the runtime stage: everything
+# example_app needs (waymark's own entry excluded — the locally built
+# wheel provides it), exact versions + hashes from uv.lock.
+RUN uv export --locked --package example-app --extra tests --no-dev \
+    --no-emit-project --no-emit-package waymark \
+    -o target/example-app-requirements.txt
 
 # =============================================================================
 # Stage 4: Final runtime image
@@ -61,8 +73,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:${PATH}"
+COPY --from=uv /uv /uvx /usr/local/bin/
 
 WORKDIR /app
 COPY example_app /app
@@ -72,10 +83,13 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 COPY --from=wheel-builder /repo/target/wheels /tmp/wheels
+COPY --from=wheel-builder /repo/target/example-app-requirements.txt /tmp/example-app-requirements.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
-    set -eux; wheel=$(ls /tmp/wheels/waymark-*.whl | head -n 1); uv pip install --no-cache-dir "$wheel"
+    uv pip install --no-cache-dir --require-hashes -r /tmp/example-app-requirements.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --no-cache-dir --no-sources ".[tests]"
+    set -eux; wheel=$(ls /tmp/wheels/waymark-*.whl | head -n 1); uv pip install --no-cache-dir --no-deps "$wheel"
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --no-cache-dir --no-sources --no-deps .
 
 ENV WAYMARK_HTTP_PORT=24117 \
     WAYMARK_GRPC_PORT=24118
