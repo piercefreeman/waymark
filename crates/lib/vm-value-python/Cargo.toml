@@ -11,3 +11,24 @@ serde = ["waymark-vm-value/serde"]
 
 [dependencies]
 waymark-vm-value = { workspace = true }
+
+[dev-dependencies]
+waymark-vm-bytecode = { workspace = true }
+waymark-vm-instructions-coreset = { workspace = true }
+waymark-vm-instructions-extcallset = { workspace = true }
+waymark-vm-instructions-pureset = { workspace = true }
+waymark-vm-interpreter = { workspace = true }
+waymark-vm-interpreter-coreset = { workspace = true }
+waymark-vm-interpreter-extcallset = { workspace = true }
+waymark-vm-interpreter-fullset = { workspace = true }
+waymark-vm-interpreter-pureset = { workspace = true }
+waymark-vm-runtime = { workspace = true }
+waymark-vm-runtime-core = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
+waymark-vm-runtime-test = { workspace = true }
+waymark-vm-runtime-view-capture = { workspace = true }
+
+indexmap = { workspace = true }
+static_assertions = { workspace = true }
+thiserror = { workspace = true }
+typed_floats = { workspace = true }
