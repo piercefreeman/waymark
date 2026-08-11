@@ -106,6 +106,41 @@ where
         }
     }
 
+    /// Returns a register holding the value of `source` that none of
+    /// `destinations` can overwrite.
+    ///
+    /// [`Self::compile_expr`] hands back whatever register already holds the
+    /// value — a variable expression yields the variable's own register,
+    /// without emitting anything — so a caller that writes a sequence of
+    /// destinations while still reading the result can find its source
+    /// aliased by one of its own destinations, as in `a, b = a`, where the
+    /// write to `a` clobbers the value the write to `b` has yet to read.
+    /// Copying into a fresh temporary breaks the alias.
+    ///
+    /// An unaliased source is handed straight back, so the common case emits
+    /// nothing extra. Pass every register the caller writes before its last
+    /// read of the source.
+    pub fn unalias_source(
+        &mut self,
+        source: RegisterHandle,
+        destinations: impl IntoIterator<Item = RegisterId>,
+    ) -> RegisterHandle {
+        let source_register = source.register();
+
+        if !destinations
+            .into_iter()
+            .any(|destination| destination == source_register)
+        {
+            return source;
+        }
+
+        let copy_register = self.context.local_frame.allocate_temporary_register();
+        self.context
+            .emitter
+            .emit_copy(copy_register.register(), source_register);
+        RegisterHandle::Temporary(copy_register)
+    }
+
     /// Compiles the `None` literal into a fresh register.
     pub fn compile_none_literal(&mut self) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
         self.compile_literal(&Literal::None, ResultTarget::Allocate)
@@ -600,7 +635,7 @@ mod tests {
     use index_type::IndexType;
     use waymark_vm_ast_old::{BinaryOperator, DictEntry, Expr};
     use waymark_vm_ast_old_helpers::{
-        action_call, binary_expr, function_call, int, len_expr, spanned, string,
+        action_call, binary_expr, function_call, int, len_expr, spanned, string, variable,
     };
     use waymark_vm_bytecode_core::{FunctionId, StateId};
     use waymark_vm_compiler_for_ast_old_test_support::{
@@ -1615,6 +1650,82 @@ mod tests {
 
         assert_eq!(dst.register(), result_register);
         assert!(instructions.next().is_none());
+    }
+
+    #[test]
+    fn unalias_source_copies_a_handle_that_aliases_a_destination() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
+        let destination = local_frame.allocate_register();
+
+        let dst = {
+            let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
+                    &function_table,
+                    &mut emitter,
+                    &mut local_frame,
+                    &mut extra_fns,
+                    &mut flow_state,
+                )
+                .into_ref(),
+            );
+
+            values.unalias_source(RegisterHandle::Existing(destination), [destination])
+        };
+
+        let copy_register = dst.register();
+        assert_ne!(copy_register, destination);
+
+        let states = emitter.finish();
+        let mut instructions = states[StateId(0)].instructions.iter();
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::Copy { dst, src }))
+                if *dst == copy_register && *src == destination
+        ));
+        assert!(instructions.next().is_none());
+    }
+
+    #[test]
+    fn unalias_source_passes_through_an_unaliased_variable_result() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
+        let source = local_frame
+            .declare_input(&mut flow_state, "source".to_owned())
+            .expect("source input should declare");
+        let unrelated = local_frame
+            .declare_input(&mut flow_state, "unrelated".to_owned())
+            .expect("unrelated input should declare");
+
+        let dst = {
+            let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
+                    &function_table,
+                    &mut emitter,
+                    &mut local_frame,
+                    &mut extra_fns,
+                    &mut flow_state,
+                )
+                .into_ref(),
+            );
+
+            let value_register = values
+                .compile_expr(&variable("source"), ResultTarget::Allocate)
+                .expect("variable should compile");
+            values.unalias_source(value_register, [unrelated.register()])
+        };
+
+        assert_eq!(dst.register(), source.register());
+        assert_eq!(local_frame.num_registers(), 2);
+
+        let states = emitter.finish();
+        assert!(states[StateId(0)].instructions.is_empty());
     }
 
     #[test]
