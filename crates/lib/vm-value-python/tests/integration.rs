@@ -12,7 +12,8 @@ use waymark_vm_interpreter_pureset::value::{
     MakeList as _, UnaryOps as _,
 };
 use waymark_vm_runtime_exception::{AsException as _, Exception, IntoException as _};
-use waymark_vm_value::{ReadyValue, Value, extcallset};
+use waymark_vm_value::extcallset;
+use waymark_vm_value_python::{ReadyValue, Value};
 
 #[test]
 fn values_follow_truthiness() {
