@@ -4368,7 +4368,7 @@ dependencies = [
  "waymark-fullset-effect-handler",
  "waymark-ids",
  "waymark-nonzero-duration",
- "waymark-sleep-compat",
+ "waymark-sleep-compat-python",
  "waymark-sleep-reconciler",
  "waymark-sleep-reconciler-backend",
  "waymark-state-manager",
@@ -4418,7 +4418,7 @@ dependencies = [
  "waymark-extcall-reconciler-action-compat",
  "waymark-extcall-reconciler-core",
  "waymark-nonzero-duration",
- "waymark-sleep-compat",
+ "waymark-sleep-compat-python",
  "waymark-transient-sleep-reconciler",
  "waymark-vm-driver-core",
  "waymark-vm-interpreter-extcallset",
@@ -4683,7 +4683,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-sleep-compat"
+name = "waymark-sleep-compat-python"
 version = "0.1.0"
 dependencies = [
  "waymark-sleep-core",
@@ -4707,7 +4707,7 @@ dependencies = [
  "waymark-ids",
  "waymark-nonzero-duration",
  "waymark-promise-settlement-demand-registry",
- "waymark-sleep-compat",
+ "waymark-sleep-compat-python",
  "waymark-sleep-core",
  "waymark-sleep-reconciler-backend",
  "waymark-vm-driver-core",
@@ -4964,7 +4964,7 @@ dependencies = [
  "waymark-extcall-reconciler",
  "waymark-extcall-reconciler-action-compat",
  "waymark-fullset-effect-handler",
- "waymark-sleep-compat",
+ "waymark-sleep-compat-python",
  "waymark-system-vm",
  "waymark-transient-sleep-reconciler",
  "waymark-vm-ast-old",
@@ -5026,7 +5026,7 @@ dependencies = [
  "tracing",
  "waymark-extcall-reconciler-core",
  "waymark-nonzero-duration",
- "waymark-sleep-compat",
+ "waymark-sleep-compat-python",
  "waymark-sleep-core",
  "waymark-vm-driver-core",
  "waymark-vm-runtime-effect",
