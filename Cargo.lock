@@ -5662,6 +5662,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-wire-format-serde"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "waymark-vm-codec-core",
+ "waymark-vm-codec-rmp",
+ "waymark-vm-wire-format",
+]
+
+[[package]]
 name = "waymark-webapp-backend"
 version = "0.1.0"
 dependencies = [
