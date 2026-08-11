@@ -1,0 +1,10 @@
+[package]
+name = "waymark-vm-wire-format-cbor"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-vm-wire-format = { workspace = true }
+
+minicbor = { workspace = true, features = ["alloc"] }
