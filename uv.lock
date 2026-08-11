@@ -12,6 +12,7 @@ members = [
     "waymark",
     "waymark-scripts",
 ]
+build-constraints = [{ name = "hatchling", specifier = "==1.31.0" }]
 
 [[package]]
 name = "annotated-doc"
@@ -318,7 +319,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -710,7 +711,7 @@ resolution-markers = [
     "python_full_version >= '3.12'",
 ]
 dependencies = [
-    { name = "pydantic", marker = "python_full_version >= '3.12'" },
+    { name = "pydantic" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/12/85/c2916fc2f76cc579038ab52b999e792d7fcb5a5dc7b3aba0f3270a1427d5/mountaineer_di-0.1.0.tar.gz", hash = "sha256:ad2e14c08b853eac2e26b1a4a6745adc729d534029b4cce1178e96102a7129a1", size = 29429, upload-time = "2026-03-30T03:22:45.746Z" }
 wheels = [
@@ -725,7 +726,7 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 dependencies = [
-    { name = "pydantic", marker = "python_full_version < '3.12'" },
+    { name = "pydantic" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c2/14/1990a29b4e945cb61ddee58d030dac0692a62c322d8d3facec3cb9932606/mountaineer_di-0.1.2.tar.gz", hash = "sha256:22e144e79d1aeefebd9989bcd7c63d2632396fdf5f7f6fa165343922a736260a", size = 30449, upload-time = "2026-03-30T03:36:20.36Z" }
 wheels = [

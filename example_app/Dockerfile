@@ -54,7 +54,7 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/root/.cache/uv \
-    uv run scripts/build_wheel.py --out-dir target/wheels
+    uv run --locked scripts/build_wheel.py --out-dir target/wheels
 
 # =============================================================================
 # Stage 4: Final runtime image
