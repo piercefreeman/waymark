@@ -51,7 +51,7 @@ where
 {
     type Error = RequestActionCallError;
 
-    type Argument = waymark_vm_value::ReadyValue;
+    type Argument = waymark_vm_value_python::ReadyValue;
 
     type Metadata = Metadata;
 
@@ -122,7 +122,7 @@ mod tests {
 
     fn action_call_request<Metadata>(
         metadata: Metadata,
-    ) -> ActionCallRequest<waymark_vm_value::ReadyValue, Metadata> {
+    ) -> ActionCallRequest<waymark_vm_value_python::ReadyValue, Metadata> {
         ActionCallRequest {
             action_ref: ActionRef {
                 action_name: "act".to_owned(),

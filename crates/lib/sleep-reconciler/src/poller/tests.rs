@@ -10,7 +10,7 @@ use waymark_sleep_compat::ReadyValueSleepProvider;
 use waymark_sleep_reconciler_backend::SleepKey;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement, PromiseSettlementAck as _};
 use waymark_vm_runtime_promise_core::PromiseStateId;
-use waymark_vm_value::ReadyValue;
+use waymark_vm_value_python::ReadyValue;
 
 use super::{Ack, DemandRegistrar, Params, PollSleepSettlementsError, SettlementsHandle};
 use crate::test_support::{MockBackend, key};

@@ -13,7 +13,7 @@ use waymark_ids::InstanceId;
 use waymark_vm_codec_rmp::RmpCodec;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
-use waymark_vm_value::ReadyValue;
+use waymark_vm_value_python::ReadyValue;
 
 #[derive(Debug, thiserror::Error)]
 #[error("mock record error ({kind:?})")]

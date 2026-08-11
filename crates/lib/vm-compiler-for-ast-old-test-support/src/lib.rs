@@ -7,11 +7,11 @@
 
 use waymark_vm_ast_old::{ActionCall, Literal};
 
-/// Test value type definition as an actual [`waymark_vm_value::Value`].
-pub use waymark_vm_value::Value as TestValue;
+/// Test value type definition as an actual [`waymark_vm_value_python::Value`].
+pub use waymark_vm_value_python::Value as TestValue;
 
-/// Test ready value type definition as an actual [`waymark_vm_value::ReadyValue`].
-pub use waymark_vm_value::ReadyValue as TestReadyValue;
+/// Test ready value type definition as an actual [`waymark_vm_value_python::ReadyValue`].
+pub use waymark_vm_value_python::ReadyValue as TestReadyValue;
 
 /// Test const value type definition as
 /// an actual [`waymark_vm_compiler_for_ast_old_const_value::ConstValue`].
