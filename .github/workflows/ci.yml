@@ -16,6 +16,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version-file: "pyproject.toml"
 
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
@@ -36,6 +38,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version-file: "pyproject.toml"
 
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
@@ -115,6 +119,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version-file: "pyproject.toml"
 
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
@@ -226,6 +232,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version-file: "pyproject.toml"
 
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
@@ -280,6 +288,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version-file: "pyproject.toml"
 
       - name: Download Python coverage XML
         uses: actions/download-artifact@v4
@@ -366,6 +376,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version-file: "pyproject.toml"
 
       - name: Install protoc & clients
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler postgresql-client
@@ -410,6 +422,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version-file: "pyproject.toml"
 
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
@@ -439,6 +453,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version-file: "pyproject.toml"
 
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
@@ -482,6 +498,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version-file: "pyproject.toml"
 
       - name: Install protoc & clients
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler postgresql-client
@@ -581,6 +599,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version-file: "pyproject.toml"
 
       - name: Install protoc (Linux)
         if: runner.os == 'Linux'
@@ -641,6 +661,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
+        with:
+          version-file: "pyproject.toml"
 
       - name: Download Linux x86_64 wheel
         uses: actions/download-artifact@v4

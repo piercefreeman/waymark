@@ -1,2 +1,9 @@
+[tool.uv]
+# The single source of truth for the uv version: enforced by uv itself
+# on every invocation, read by CI via `setup-uv`'s `version-file`, and
+# mirrored by the Dockerfile's UV_VERSION arg (a mismatch there fails
+# loudly since the mismatched uv refuses to run).
+required-version = "==0.12.3"
+
 [tool.uv.workspace]
 members = ["python", "scripts", "example_app"]
