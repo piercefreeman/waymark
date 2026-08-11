@@ -5,7 +5,7 @@ use std::time::Duration;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_sleep_compat::ReadyValueSleepProvider;
 use waymark_vm_runtime_promise_core::PromiseStateId;
-use waymark_vm_value::ReadyValue;
+use waymark_vm_value_python::ReadyValue;
 
 #[tokio::test]
 async fn record_and_collect_single_sleep() {

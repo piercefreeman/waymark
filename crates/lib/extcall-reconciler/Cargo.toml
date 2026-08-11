@@ -23,7 +23,7 @@ waymark-action-runtime-metadata = { workspace = true }
 waymark-extcall-reconciler-action-compat = { workspace = true }
 waymark-sleep-compat = { workspace = true }
 waymark-transient-sleep-reconciler = { workspace = true }
-waymark-vm-value = { workspace = true }
+waymark-vm-value-python = { workspace = true }
 
 mockall = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }

@@ -125,6 +125,7 @@ waymark-vm-runtime-view-capture = { path = "crates/lib/vm-runtime-view-capture" 
 waymark-vm-value = { path = "crates/lib/vm-value" }
 waymark-vm-value-convert-core = { path = "crates/lib/vm-value-convert-core" }
 waymark-vm-value-convert-json = { path = "crates/lib/vm-value-convert-json" }
+waymark-vm-value-python = { path = "crates/lib/vm-value-python" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
 waymark-webapp-config = { path = "crates/lib/webapp-config" }
