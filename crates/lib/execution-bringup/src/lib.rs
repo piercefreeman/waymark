@@ -519,8 +519,8 @@ where
                 backend: Arc::clone(&backend),
                 vm_id: *vm_id,
             };
-            let sleep_settler =
-                sleep_registrar.subscribe::<waymark_sleep_compat::ReadyValueSleepProvider>(*vm_id);
+            let sleep_settler = sleep_registrar
+                .subscribe::<waymark_sleep_compat_python::ReadyValueSleepProvider>(*vm_id);
             let (extcall_handler, extcall_settler) = waymark_extcall_reconciler::new(
                 action_handler,
                 sleep_handler,
