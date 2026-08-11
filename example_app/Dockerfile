@@ -1,5 +1,11 @@
 # syntax=docker/dockerfile:1.7
 
+# Mirrors `tool.uv.required-version` in the root pyproject.toml; a
+# mismatch fails loudly (uv refuses to run under required-version).
+ARG UV_VERSION=0.12.3
+
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
 FROM rust:1.88-bookworm AS rust-base
 WORKDIR /repo
 COPY rust-toolchain.toml .
@@ -36,8 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     curl \
     && rm -rf /var/lib/apt/lists/*
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:${PATH}"
+COPY --from=uv /uv /uvx /usr/local/bin/
 
 # Copy cached dependencies from cacher stage
 COPY --from=rust-cacher /repo/target target
@@ -61,8 +66,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:${PATH}"
+COPY --from=uv /uv /uvx /usr/local/bin/
 
 WORKDIR /app
 COPY example_app /app
