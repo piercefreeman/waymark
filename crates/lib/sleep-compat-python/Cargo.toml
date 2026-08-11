@@ -1,5 +1,5 @@
 [package]
-name = "waymark-sleep-compat"
+name = "waymark-sleep-compat-python"
 edition = "2024"
 version.workspace = true
 publish.workspace = true
