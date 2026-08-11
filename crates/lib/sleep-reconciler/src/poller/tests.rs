@@ -6,7 +6,7 @@ use std::task::{Context, Poll, Waker};
 use nonempty_collections::NEVec;
 use waymark_extcall_reconciler_core::SleepPromiseSettler;
 use waymark_ids::InstanceId;
-use waymark_sleep_compat::ReadyValueSleepProvider;
+use waymark_sleep_compat_python::ReadyValueSleepProvider;
 use waymark_sleep_reconciler_backend::SleepKey;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement, PromiseSettlementAck as _};
 use waymark_vm_runtime_promise_core::PromiseStateId;
