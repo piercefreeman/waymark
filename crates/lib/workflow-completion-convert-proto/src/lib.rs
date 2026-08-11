@@ -17,13 +17,16 @@ use waymark_workflow_completion_core::Outcome;
 /// (`WorkflowNodeResult`) rather than plain primitive/dict/list values.
 pub struct Converter;
 
-impl TryConvert<Outcome<waymark_vm_value::ReadyValue>, waymark_proto::messages::WorkflowArguments>
-    for Converter
+impl
+    TryConvert<
+        Outcome<waymark_vm_value_python::ReadyValue>,
+        waymark_proto::messages::WorkflowArguments,
+    > for Converter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
-        outcome: Outcome<waymark_vm_value::ReadyValue>,
+        outcome: Outcome<waymark_vm_value_python::ReadyValue>,
     ) -> Result<waymark_proto::messages::WorkflowArguments, PendingPromiseError> {
         match outcome {
             Outcome::Completion(value) => Converter::try_convert(value),
@@ -32,13 +35,13 @@ impl TryConvert<Outcome<waymark_vm_value::ReadyValue>, waymark_proto::messages::
     }
 }
 
-impl TryConvert<waymark_vm_value::ReadyValue, waymark_proto::messages::WorkflowArguments>
+impl TryConvert<waymark_vm_value_python::ReadyValue, waymark_proto::messages::WorkflowArguments>
     for Converter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
-        value: waymark_vm_value::ReadyValue,
+        value: waymark_vm_value_python::ReadyValue,
     ) -> Result<waymark_proto::messages::WorkflowArguments, PendingPromiseError> {
         let json = waymark_vm_value_convert_json::Converter::try_convert(value)?;
         Ok(completion_workflow_arguments(json))
@@ -47,14 +50,14 @@ impl TryConvert<waymark_vm_value::ReadyValue, waymark_proto::messages::WorkflowA
 
 impl
     TryConvert<
-        waymark_vm_runtime_exception::Exception<waymark_vm_value::ReadyValue>,
+        waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
         waymark_proto::messages::WorkflowArguments,
     > for Converter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
-        exception: waymark_vm_runtime_exception::Exception<waymark_vm_value::ReadyValue>,
+        exception: waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
     ) -> Result<waymark_proto::messages::WorkflowArguments, PendingPromiseError> {
         let error_json = waymark_vm_value_convert_json::Converter::try_convert(exception)?;
         Ok(exception_workflow_arguments(error_json))

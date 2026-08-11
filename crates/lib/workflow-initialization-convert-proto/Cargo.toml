@@ -10,7 +10,7 @@ waymark-convert-core = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-vm-compiler-metadata = { workspace = true }
 waymark-vm-runtime = { workspace = true }
-waymark-vm-value = { workspace = true }
+waymark-vm-value-python = { workspace = true }
 
 index_type = { workspace = true }
 thiserror = { workspace = true }

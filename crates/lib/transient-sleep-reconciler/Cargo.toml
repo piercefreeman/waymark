@@ -18,6 +18,6 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 waymark-sleep-compat = { workspace = true }
-waymark-vm-value = { workspace = true }
+waymark-vm-value-python = { workspace = true }
 
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }

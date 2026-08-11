@@ -10,7 +10,7 @@ fn completion_wraps_primitive_in_workflow_node_result() {
         primitive_workflow_argument::Kind as PrimitiveKind, workflow_argument_value::Kind,
     };
 
-    let outcome = Outcome::Completion(waymark_vm_value::ReadyValue::Int(42));
+    let outcome = Outcome::Completion(waymark_vm_value_python::ReadyValue::Int(42));
     let args = Converter::try_convert(outcome).expect("conversion is infallible for ready ints");
 
     assert_eq!(args.arguments.len(), 1);
@@ -62,7 +62,7 @@ fn exception_outcome_produces_single_error_argument() {
 
     let exception = waymark_vm_runtime_exception::Exception {
         type_id: "ValueError".to_string(),
-        details: waymark_vm_value::ReadyValue::String("boom".to_string()),
+        details: waymark_vm_value_python::ReadyValue::String("boom".to_string()),
     };
     let args = Converter::try_convert(Outcome::Exception(exception))
         .expect("conversion is infallible for ready exceptions");
