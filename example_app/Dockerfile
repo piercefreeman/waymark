@@ -56,6 +56,13 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cache/uv \
     uv run --locked scripts/build_wheel.py --out-dir target/wheels
 
+# Render the locked resolution for the runtime stage: everything
+# example_app needs (waymark's own entry excluded — the locally built
+# wheel provides it), exact versions + hashes from uv.lock.
+RUN uv export --locked --package example-app --extra tests --no-dev \
+    --no-emit-project --no-emit-package waymark \
+    -o target/example-app-requirements.txt
+
 # =============================================================================
 # Stage 4: Final runtime image
 # =============================================================================
@@ -76,10 +83,13 @@ ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 COPY --from=wheel-builder /repo/target/wheels /tmp/wheels
+COPY --from=wheel-builder /repo/target/example-app-requirements.txt /tmp/example-app-requirements.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
-    set -eux; wheel=$(ls /tmp/wheels/waymark-*.whl | head -n 1); uv pip install --no-cache-dir "$wheel"
+    uv pip install --no-cache-dir --require-hashes -r /tmp/example-app-requirements.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --no-cache-dir --no-sources ".[tests]"
+    set -eux; wheel=$(ls /tmp/wheels/waymark-*.whl | head -n 1); uv pip install --no-cache-dir --no-deps "$wheel"
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --no-cache-dir --no-sources --no-deps .
 
 ENV WAYMARK_HTTP_PORT=24117 \
     WAYMARK_GRPC_PORT=24118
