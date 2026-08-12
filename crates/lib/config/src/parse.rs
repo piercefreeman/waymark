@@ -42,6 +42,16 @@ impl FromStr for FromMillis<NonZeroDuration> {
     }
 }
 
+pub struct FromNanos<T>(pub T);
+
+impl FromStr for FromNanos<NonZeroDuration> {
+    type Err = core::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(NonZeroDuration::from_nonzero_nanos(s.parse()?)))
+    }
+}
+
 pub struct FromMillisMin<T, const MIN: u64>(pub T);
 
 impl<T, const MIN: u64> FromStr for FromMillisMin<T, MIN>

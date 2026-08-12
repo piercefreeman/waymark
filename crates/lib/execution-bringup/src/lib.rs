@@ -45,6 +45,11 @@ pub struct Config<NodeId> {
     /// between the fence signal and the workload actually stopping.
     pub pinning_fencing_margin: NonZeroDuration,
 
+    /// Minimum interval between unpinned-workload poll queries.
+    ///
+    /// Polling is a spin by design; this only floors how tight it can get.
+    pub workload_poll_interval: NonZeroDuration,
+
     /// How long the durable-sleeps demand poller waits between polls
     /// while demand is registered.
     pub sleep_poll_interval: NonZeroDuration,
@@ -196,6 +201,7 @@ where
         pinning_ttl,
         pinning_heartbeat,
         pinning_fencing_margin,
+        workload_poll_interval,
         sleep_poll_interval,
         vm_retention,
         vm_sweep_interval,
@@ -504,6 +510,7 @@ where
         pinned_tx,
         max_pinned,
         pinning_ttl,
+        poll_interval: workload_poll_interval,
         pinning_heartbeat,
         // TODO: surface through `Config` and the env.
         unpin_retry_interval: NonZeroDuration::new(std::time::Duration::from_secs(5))
