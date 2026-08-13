@@ -37,19 +37,22 @@ mod chrome_trace;
 mod chrome_trace {
     use super::ObservabilityOptions;
 
+    /// The no-op stand-in for the chrome-trace flush guard in builds
+    /// with chrome tracing disabled; returned by [`crate::tracing_layer`].
+    #[must_use = "the chrome trace is only flushed when this guard is dropped; bind it for the duration of the run"]
+    pub struct FlushOnDrop;
+
     pub(crate) fn layer(
         options: &ObservabilityOptions,
-    ) -> Option<tracing_subscriber::layer::Identity> {
+    ) -> (Option<tracing_subscriber::layer::Identity>, FlushOnDrop) {
         if options.chrome_trace_path.is_some() {
             eprintln!(
                 "chrome tracing disabled. Rebuild with \
                  `--cfg waymark_observability_chrome_trace` to enable it."
             );
         }
-        None
+        (None, FlushOnDrop)
     }
-
-    pub(crate) fn flush() {}
 }
 
 #[cfg(waymark_observability_tokio_console)]
@@ -72,20 +75,20 @@ mod tokio_console {
     }
 }
 
-/// Build the extra tracing layer for the requested observability options.
+pub use chrome_trace::FlushOnDrop;
+
+/// Build the extra tracing layer for the requested observability
+/// options, along with the [`FlushOnDrop`] guard that finalizes the
+/// chrome trace.
 ///
 /// Construction is effectful where the option demands it: the chrome
-/// layer registers its flush guard (see [`flush`]), and the console layer
-/// spawns its server.
+/// layer opens its trace file, and the console layer spawns its server.
 pub fn tracing_layer(
     options: &ObservabilityOptions,
-) -> impl Layer<Registry> + Send + Sync + 'static {
+) -> (impl Layer<Registry> + Send + Sync + 'static, FlushOnDrop) {
+    let (chrome_layer, flush_on_drop) = chrome_trace::layer(options);
     // The trait form: `Option`'s inherent `and_then` shadows the
     // `Layer` combinator on the method call syntax.
-    Layer::and_then(chrome_trace::layer(options), tokio_console::layer(options))
-}
-
-/// Flush and finalize the chrome trace file, if one was being written.
-pub fn flush() {
-    chrome_trace::flush();
+    let layer = Layer::and_then(chrome_layer, tokio_console::layer(options));
+    (layer, flush_on_drop)
 }
