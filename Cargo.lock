@@ -4916,6 +4916,7 @@ dependencies = [
  "waymark-worker-python",
  "waymark-worker-remote-bringup",
  "waymark-worker-remote-pool",
+ "waymark-workflow-completion-core",
 ]
 
 [[package]]
