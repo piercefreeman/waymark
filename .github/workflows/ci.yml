@@ -397,6 +397,36 @@ jobs:
           name: benchmark-pr
           path: benchmark-pr.json
 
+  smoke:
+    runs-on: ubuntu-latest
+    needs: [rust-tests]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version-file: "pyproject.toml"
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Prepare Python worker environment
+        working-directory: python
+        run: uv sync
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          shared-key: waymark
+
+      - name: Run smoke check
+        run: cargo run --release --package waymark-smoke
+
   fuzz-sanity:
     runs-on: ubuntu-latest
     needs: [rust-tests]
