@@ -374,17 +374,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version-file: "pyproject.toml"
-
-      - name: Install protoc & clients
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler postgresql-client
-
-      - name: Prepare Python worker environment
-        working-directory: python
-        run: uv sync
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -395,23 +386,16 @@ jobs:
           shared-key: waymark
 
       - name: Build release binary
-        run: cargo build --release
+        run: cargo build --release --package waymark-benchmark
 
       - name: Run benchmarks on PR branch
-        env:
-          WAYMARK_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
-        run: uv run scripts/run_benchmarks.py suite --format json --output benchmark-pr.json --benchmark-config "for-loop:1000:0,fan-out:1000:0,queue-noop:5000:0"
-
-      - name: Save benchmark code diff
-        run: git diff origin/main -- crates/bin/benchmark/ > benchmark-diff.txt || true
+        run: ./target/release/waymark-benchmark --count 200 --dsn postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons --json benchmark-pr.json
 
       - name: Upload PR benchmark results
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-pr
-          path: |
-            benchmark-pr.json
-            benchmark-diff.txt
+          path: benchmark-pr.json
 
   fuzz-sanity:
     runs-on: ubuntu-latest
