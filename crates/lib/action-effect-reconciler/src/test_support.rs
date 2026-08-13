@@ -45,6 +45,8 @@ pub(crate) struct MockBackend {
     pub fail_locks: Mutex<bool>,
     /// Fail every renew call when set.
     pub fail_renewals: Mutex<bool>,
+    /// Report every present row as [`RenewalStatus::Unconfirmed`] when set.
+    pub report_unconfirmed_renewals: Mutex<bool>,
     pub renew_calls: Mutex<u32>,
 }
 
@@ -208,12 +210,14 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for M
             return Err(MockRenewError);
         }
 
+        let report_unconfirmed = *self.report_unconfirmed_renewals.lock().unwrap();
         let mut rows = self.rows.lock().unwrap();
         let renewals = keys
             .iter()
             .map(|key| {
                 let status = match rows.get_mut(key) {
                     None => RenewalStatus::Missing,
+                    Some(_) if report_unconfirmed => RenewalStatus::Unconfirmed,
                     Some(row) if row.locked_by == Some(lock.owner) => {
                         row.lock_expires_at = Some(lock.expires_at);
                         RenewalStatus::Renewed
