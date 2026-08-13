@@ -4,12 +4,13 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 pub struct BenchmarkStats {
+    pub total: usize,
     pub elapsed: Duration,
     pub query_counts: HashMap<String, usize>,
     pub batch_counts: HashMap<String, HashMap<usize, usize>>,
 }
 
-pub fn format_query_counts(counts: HashMap<String, usize>) -> String {
+pub fn format_query_counts(counts: &HashMap<String, usize>) -> String {
     let mut keys: Vec<_> = counts.keys().cloned().collect();
     keys.sort();
     let mut lines = vec!["Postgres query counts:".to_string()];
@@ -38,7 +39,7 @@ fn median_from_counts(counts: &HashMap<usize, usize>) -> usize {
     0
 }
 
-pub fn format_batch_size_counts(batch_counts: HashMap<String, HashMap<usize, usize>>) -> String {
+pub fn format_batch_size_counts(batch_counts: &HashMap<String, HashMap<usize, usize>>) -> String {
     let mut keys: Vec<_> = batch_counts.keys().cloned().collect();
     keys.sort();
     let mut lines = vec!["Postgres batch size p50:".to_string()];
@@ -53,4 +54,37 @@ pub fn format_batch_size_counts(batch_counts: HashMap<String, HashMap<usize, usi
         }
     }
     lines.join("\n")
+}
+
+pub fn format_json(
+    stats: &BenchmarkStats,
+    count_per_case: std::num::NonZeroUsize,
+    base: i64,
+) -> String {
+    let elapsed_s = stats.elapsed.as_secs_f64();
+    let batch_p50: HashMap<&str, serde_json::Value> = stats
+        .batch_counts
+        .iter()
+        .filter(|(_, counts)| !counts.is_empty())
+        .map(|(key, counts)| {
+            let total: usize = counts.values().sum();
+            (
+                key.as_str(),
+                serde_json::json!({
+                    "p50": median_from_counts(counts),
+                    "batches": total,
+                }),
+            )
+        })
+        .collect();
+    serde_json::json!({
+        "count_per_case": count_per_case.get(),
+        "base": base,
+        "total": stats.total,
+        "elapsed_s": elapsed_s,
+        "throughput": stats.total as f64 / elapsed_s,
+        "query_counts": stats.query_counts,
+        "batch_p50": batch_p50,
+    })
+    .to_string()
 }
