@@ -159,6 +159,8 @@ async fn main() -> Result<()> {
         pinning_heartbeat: config.lock_heartbeat,
         pinning_fencing_margin: config.pinning_fencing_margin,
         workload_poll_interval: config.workload_poll_interval,
+        snapshot_batch_max: config.snapshot_batch_max,
+        snapshot_batch_delay: config.snapshot_batch_delay,
         sleep_poll_interval: config.sleep_poll_interval,
         vm_retention: config.vm_retention,
         vm_sweep_interval: config.vm_sweep_interval,
@@ -203,6 +205,7 @@ async fn main() -> Result<()> {
         execution_handles.action_effect_reconciler_lock_renewal,
     )
     .await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), execution_handles.snapshot_batcher).await;
     let _ = tokio::time::timeout(Duration::from_secs(5), bridge_task).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
 

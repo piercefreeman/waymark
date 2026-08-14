@@ -1,23 +1,33 @@
-use std::sync::Arc;
+//! The per-VM adapter feeding the shared snapshot batcher.
 
-/// Adapter that binds a VM id to a shared backend.
-pub struct SnapshotAdapter<VmId, Backend> {
+use crate::snapshot_batcher::{SnapshotBatchError, SnapshotBatcherHandle};
+
+/// Adapter that submits a VM's snapshots to the shared snapshot batcher.
+pub struct SnapshotAdapter<VmId> {
     /// The VM whose snapshots this adapter persists.
     pub vm_id: VmId,
 
-    /// The backend the snapshots are persisted to.
-    pub backend: Arc<Backend>,
+    /// Handle to the shared snapshot batcher.
+    pub batcher: SnapshotBatcherHandle<VmId>,
 }
 
-impl<VmId, Backend> waymark_vm_driver_core::SnapshotPersister for SnapshotAdapter<VmId, Backend>
+impl<VmId> waymark_vm_driver_core::SnapshotPersister for SnapshotAdapter<VmId>
 where
-    Backend: waymark_state_vm_runtimes_backend::StoreSnapshot<VmId = VmId> + Send + Sync,
-    <Backend as waymark_state_vm_runtimes_backend::StoreSnapshot>::Error: std::fmt::Debug,
-    VmId: Sync,
+    VmId: Clone + Send + Sync + 'static,
 {
-    type Error = <Backend as waymark_state_vm_runtimes_backend::StoreSnapshot>::Error;
+    type Error = SnapshotBatchError;
 
     async fn persist_snapshot<'a>(&'a self, data: &'a [u8]) -> Result<(), Self::Error> {
-        self.backend.store_snapshot(&self.vm_id, data).await
+        // The batcher owns the bytes until flush, so they must be copied here.
+        // Each driver still awaits its own submission, preserving
+        // persist-before-continue.
+        match self
+            .batcher
+            .submit((self.vm_id.clone(), data.to_vec()))
+            .await
+        {
+            Ok(outcome) => outcome,
+            Err(waymark_batcher::Closed) => Err(SnapshotBatchError::Closed),
+        }
     }
 }
