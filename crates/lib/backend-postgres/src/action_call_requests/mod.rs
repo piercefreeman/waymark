@@ -18,7 +18,7 @@ mod tests;
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
-use nonempty_collections::{NESlice, NEVec};
+use nonempty_collections::{NESlice, NEVec, NonEmptyIterator as _};
 use sqlx::Row;
 use waymark_action_effect_reconciler_backend::record_action_call_requests;
 use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::{
@@ -26,7 +26,7 @@ use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::{
 };
 use waymark_action_effect_reconciler_backend::{
     ActionCallRequestKey, ActionCallRequestRecord, RequestLock,
-    lock_vm_action_call_requests::VmLockOutcome,
+    lock_action_call_requests::VmLockOutcome,
 };
 use waymark_ids::InstanceId;
 use waymark_observability::obs;
@@ -89,6 +89,7 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
     #[function_name::named]
     async fn record_action_call_requests(
         &self,
+        now: DateTime<Utc>,
         lock: RequestLock<uuid::Uuid, DateTime<Utc>>,
         records: NESlice<'_, ActionCallRequestRecord<InstanceId>>,
     ) -> Result<record_action_call_requests::RecordingSuccess<InstanceId>, Self::Error> {
@@ -128,7 +129,7 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
         .bind(&effect_numbers)
         .bind(&requests)
         .bind(lock.owner)
-        .bind(crate::remaining_micros(Utc::now(), lock.expires_at))
+        .bind(crate::remaining_micros(now, lock.expires_at))
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!(
             "insert:action_call_requests"
@@ -219,27 +220,32 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
     }
 }
 
-impl waymark_action_effect_reconciler_backend::LockVmActionCallRequests for PostgresBackend {
+impl waymark_action_effect_reconciler_backend::LockActionCallRequests for PostgresBackend {
     type Error = error::LockError;
 
     #[obs]
     #[function_name::named]
-    async fn lock_vm_action_call_requests(
-        &self,
+    async fn lock_action_call_requests<'a>(
+        &'a self,
         now: DateTime<Utc>,
         lock: RequestLock<uuid::Uuid, DateTime<Utc>>,
-        vm_id: &InstanceId,
-    ) -> Result<VmLockOutcome<InstanceId>, Self::Error> {
+        vm_ids: NESlice<'a, InstanceId>,
+    ) -> Result<NEVec<VmLockOutcome<InstanceId>>, Self::Error> {
         Self::count_query(&self.query_counts, "update:action_call_requests_lock");
+        Self::count_batch_size(
+            &self.batch_size_counts,
+            "update:action_call_requests_lock",
+            vm_ids.len().get(),
+        );
         let locked_rows = sqlx::query(
             r#"
             UPDATE action_call_requests
             SET locked_by = $2, lock_expires_at = NOW() + ($3 * interval '1 microsecond')
-            WHERE vm_id = $1 AND (locked_by IS NULL OR lock_expires_at <= NOW())
+            WHERE vm_id = ANY($1) AND (locked_by IS NULL OR lock_expires_at <= NOW())
             RETURNING vm_id, promise_state_id, effect_number, request
             "#,
         )
-        .bind(vm_id)
+        .bind(vm_ids.as_ref())
         .bind(lock.owner)
         .bind(crate::remaining_micros(now, lock.expires_at))
         .fetch_all(&self.pool)
@@ -249,11 +255,6 @@ impl waymark_action_effect_reconciler_backend::LockVmActionCallRequests for Post
         .await
         .map_err(Self::Error::Sqlx)?;
 
-        let locked = locked_rows
-            .iter()
-            .map(|row| record_from_row(row).map_err(Self::Error::OutOfRange))
-            .collect::<Result<Vec<_>, _>>()?;
-
         Self::count_query(
             &self.query_counts,
             "select:action_call_requests_held_elsewhere",
@@ -262,10 +263,10 @@ impl waymark_action_effect_reconciler_backend::LockVmActionCallRequests for Post
             r#"
             SELECT vm_id, promise_state_id
             FROM action_call_requests
-            WHERE vm_id = $1 AND locked_by IS DISTINCT FROM $2
+            WHERE vm_id = ANY($1) AND locked_by IS DISTINCT FROM $2
             "#,
         )
-        .bind(vm_id)
+        .bind(vm_ids.as_ref())
         .bind(lock.owner)
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!(
@@ -274,23 +275,46 @@ impl waymark_action_effect_reconciler_backend::LockVmActionCallRequests for Post
         .await
         .map_err(Self::Error::Sqlx)?;
 
-        let held_elsewhere = held_rows
-            .iter()
-            .map(|row| {
-                let promise_state_id: i64 = row.get("promise_state_id");
-                Ok(ActionCallRequestKey {
-                    vm_id: row.get("vm_id"),
-                    promise_state_id: PromiseStateId(
-                        usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
-                    ),
-                })
+        // Group the flat row sets into one outcome per input VM, in input
+        // order; VMs with no rows keep their (empty, no-op) outcome.
+        let mut outcomes: NEVec<VmLockOutcome<InstanceId>> = vm_ids
+            .nonempty_iter()
+            .map(|vm_id| VmLockOutcome {
+                vm_id: *vm_id,
+                locked: Vec::new(),
+                held_elsewhere: Vec::new(),
             })
-            .collect::<Result<Vec<_>, Self::Error>>()?;
+            .collect();
+        let index_of: std::collections::HashMap<InstanceId, usize> = vm_ids
+            .iter()
+            .enumerate()
+            .map(|(index, vm_id)| (*vm_id, index))
+            .collect();
 
-        Ok(VmLockOutcome {
-            locked,
-            held_elsewhere,
-        })
+        for row in &locked_rows {
+            let record = record_from_row(row).map_err(Self::Error::OutOfRange)?;
+            let index = *index_of
+                .get(&record.vm_id)
+                .expect("every returned row belongs to an input vm");
+            outcomes[index].locked.push(record);
+        }
+
+        for row in &held_rows {
+            let vm_id: InstanceId = row.get("vm_id");
+            let promise_state_id: i64 = row.get("promise_state_id");
+            let key = ActionCallRequestKey {
+                vm_id,
+                promise_state_id: PromiseStateId(
+                    usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
+                ),
+            };
+            let index = *index_of
+                .get(&vm_id)
+                .expect("every returned row belongs to an input vm");
+            outcomes[index].held_elsewhere.push(key);
+        }
+
+        Ok(outcomes)
     }
 }
 

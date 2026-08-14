@@ -27,12 +27,16 @@
 pub mod action_call_request_payload;
 pub mod effect_handler;
 mod issuance;
+pub mod lock_batcher;
 pub mod reconciling_factory;
 pub mod renewal;
+pub mod request_batcher;
 
 #[cfg(test)]
 mod test_support;
 
 pub use self::action_call_request_payload::ActionCallRequestPayload;
 pub use self::effect_handler::EffectHandler;
+pub use self::lock_batcher::{VmLockerHandle, lock_batcher};
 pub use self::reconciling_factory::ReconcilingFactory;
+pub use self::request_batcher::{RequestRecorderHandle, request_batcher};

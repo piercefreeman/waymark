@@ -4307,6 +4307,7 @@ dependencies = [
  "waymark-action-effect-reconciler-backend",
  "waymark-action-runtime-core",
  "waymark-action-runtime-metadata",
+ "waymark-batcher",
  "waymark-extcall-reconciler-core",
  "waymark-nonzero-duration",
  "waymark-state-manager-core",
@@ -6479,9 +6480,13 @@ dependencies = [
 name = "waymark-workflow-completion"
 version = "0.1.0"
 dependencies = [
+ "nonempty-collections",
  "serde",
  "thiserror",
+ "tokio",
  "tracing",
+ "waymark-batcher",
+ "waymark-nonzero-duration",
  "waymark-vm-codec-core",
  "waymark-vm-driver-core",
  "waymark-vm-interpreter-coreset",
@@ -6493,6 +6498,9 @@ dependencies = [
 [[package]]
 name = "waymark-workflow-completion-backend"
 version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+]
 
 [[package]]
 name = "waymark-workflow-completion-convert-proto"

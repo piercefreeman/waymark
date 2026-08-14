@@ -4,19 +4,13 @@
 #[cfg(test)]
 mod tests;
 
-use std::sync::Arc;
-use std::time::Instant;
-
-use chrono::{DateTime, Utc};
-use waymark_action_effect_reconciler_backend::{
-    ActionCallRequestKey, HasLockOwnerId, HasTimestamp, HasVmId, LockVmActionCallRequests,
-};
+use waymark_action_effect_reconciler_backend::ActionCallRequestKey;
 use waymark_action_runtime_core::ActionCallRequest;
 use waymark_action_runtime_metadata::ActionCallCorrelation;
-use waymark_nonzero_duration::NonZeroDuration;
 
 use crate::action_call_request_payload::ActionCallRequestPayload;
-use crate::issuance::{fresh_lock, track_for_renewal};
+use crate::issuance::track_for_renewal;
+use crate::lock_batcher::{LockError, VmLockerHandle};
 use crate::renewal::HeldLock;
 
 /// Error returned when producing a VM through the reconciling factory
@@ -34,8 +28,8 @@ pub enum Error<Reconcile, Inner> {
 
 /// Error returned when reconciling a VM's pending requests fails.
 #[derive(Debug, thiserror::Error)]
-pub enum ReconcileVmError<LockError, DecodeError, DeliverError> {
-    /// The backend failed to lock the VM's pending requests.
+pub enum ReconcileVmError<DecodeError, DeliverError> {
+    /// Locking the VM's pending requests failed.
     #[error("locking pending action-call requests: {0}")]
     Lock(#[source] LockError),
 
@@ -52,54 +46,41 @@ pub enum ReconcileVmError<LockError, DecodeError, DeliverError> {
 /// VM's pending action-call requests, then produces the VM.
 ///
 /// The reconcile locks every eligible request row of the VM (unlocked,
-/// or lock expired — the owner died) and redelivers its call to the
-/// local pool; rows held by another live owner are left alone, an
-/// attempt is presumed running in that owner's pool.
+/// or lock expired — the owner died) through the shared lock batcher,
+/// coalesced with other concurrently-revived VMs, and redelivers its
+/// calls to the local pool; rows held by another live owner are left
+/// alone, an attempt is presumed running in that owner's pool.
 ///
 /// `produce` runs exactly once per real spawn (never on a retrieval), so
 /// the reconcile completes before the VM exists — the dangerous order
 /// (VM driving before reconcile) is impossible by construction.  A
 /// reconcile failure surfaces as a spawn failure: the VM stays unpinned
 /// and the next pinning cycle retries.
-pub struct ReconcilingFactory<Inner, Backend, Codec, RequesterProvider>
-where
-    Backend: HasVmId + HasLockOwnerId,
-{
+pub struct ReconcilingFactory<Inner, VmId, Codec, RequesterProvider> {
     /// The factory producing the VM once the world is consistent.
     pub inner: Inner,
 
-    /// The durable requests backend.
-    pub backend: Arc<Backend>,
+    /// The shared batcher locking pending requests at revival.
+    pub locker: VmLockerHandle<VmId>,
 
     /// The codec used to decode stored request payloads.
     pub codec: Codec,
 
-    /// The identity of this process as a lock owner.
-    pub lock_owner_id: Backend::LockOwnerId,
-
-    /// How long a request lock lasts before it needs to be renewed.
-    pub lock_time_to_live: NonZeroDuration,
-
     /// Locks taken for redelivered calls, feeding the renewal loop.
-    pub held_locks_tx: tokio::sync::mpsc::UnboundedSender<HeldLock<Backend::VmId>>,
+    pub held_locks_tx: tokio::sync::mpsc::UnboundedSender<HeldLock<VmId>>,
 
     /// Mints the per-VM requester the redeliveries go through.
     pub requester_provider: RequesterProvider,
 }
 
-impl<Inner, Backend, Codec, RequesterProvider, ActionCallRequester>
-    waymark_state_manager_core::Factory
-    for ReconcilingFactory<Inner, Backend, Codec, RequesterProvider>
+impl<Inner, VmId, Codec, RequesterProvider, ActionCallRequester> waymark_state_manager_core::Factory
+    for ReconcilingFactory<Inner, VmId, Codec, RequesterProvider>
 where
-    Inner: waymark_state_manager_core::Factory<Key = Backend::VmId> + Send + Sync,
-    Backend: HasVmId + HasLockOwnerId + HasTimestamp<Timestamp = DateTime<Utc>>,
-    Backend: LockVmActionCallRequests + Send + Sync,
-    <Backend as LockVmActionCallRequests>::Error: Send,
-    Backend::VmId: Clone + Send + Sync + core::fmt::Debug,
-    Backend::LockOwnerId: Clone + Send + Sync,
+    Inner: waymark_state_manager_core::Factory<Key = VmId> + Send + Sync,
+    VmId: Clone + Send + Sync + core::fmt::Debug,
     Codec: waymark_vm_codec_core::DeserializerProvider + Send + Sync,
     <Codec as waymark_vm_codec_core::DeserializerProvider>::Error: Send,
-    RequesterProvider: Fn(&Backend::VmId) -> ActionCallRequester + Send + Sync,
+    RequesterProvider: Fn(&VmId) -> ActionCallRequester + Send + Sync,
     ActionCallRequester: waymark_action_runtime_core::ActionCallRequester<Metadata = ActionCallCorrelation>
         + Send
         + Sync
@@ -110,7 +91,6 @@ where
     type Value = Inner::Value;
     type Error = Error<
         ReconcileVmError<
-            <Backend as LockVmActionCallRequests>::Error,
             <Codec as waymark_vm_codec_core::DeserializerProvider>::Error,
             ActionCallRequester::Error,
         >,
@@ -118,14 +98,15 @@ where
     >;
 
     async fn produce(&self, key: &Self::Key) -> Result<Self::Value, Self::Error> {
-        let taken_at = Instant::now();
-        let lock = fresh_lock(&self.lock_owner_id, self.lock_time_to_live);
-        let outcome = self
-            .backend
-            .lock_vm_action_call_requests(Utc::now(), lock, key)
-            .await
-            .map_err(ReconcileVmError::Lock)
-            .map_err(Error::Reconcile)?;
+        let (outcome, taken_at) = match self.locker.submit(key.clone()).await {
+            Ok(Ok(pair)) => pair,
+            Ok(Err(error)) => {
+                return Err(Error::Reconcile(ReconcileVmError::Lock(error)));
+            }
+            Err(waymark_batcher::Closed) => {
+                return Err(Error::Reconcile(ReconcileVmError::Lock(LockError::Closed)));
+            }
+        };
 
         if !outcome.held_elsewhere.is_empty() {
             tracing::debug!(

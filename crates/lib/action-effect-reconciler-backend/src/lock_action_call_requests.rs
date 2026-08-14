@@ -1,17 +1,20 @@
 //! Per-VM request locking trait — the database half of revival reconcile.
 
+use nonempty_collections::{NESlice, NEVec};
+
 use super::common::{
     ActionCallRequestKey, ActionCallRequestRecord, HasLockOwnerId, HasTimestamp, HasVmId,
     RequestLockFor,
 };
 
-/// Backend capability for locking a VM's pending requests for delivery.
-pub trait LockVmActionCallRequests: HasVmId + HasLockOwnerId + HasTimestamp {
+/// Backend capability for locking VMs' pending requests for delivery, in a
+/// batch.
+pub trait LockActionCallRequests: HasVmId + HasLockOwnerId + HasTimestamp {
     /// The error type for lock operations.
     type Error: core::fmt::Debug;
 
-    /// Lock every eligible request of `vm_id` with `lock`, returning the
-    /// locked rows for delivery.
+    /// Lock every eligible request of each of `vm_ids` with `lock`,
+    /// returning one outcome per input VM, in input order.
     ///
     /// A row is eligible when it is unlocked or its lock expired at or
     /// before the store's own now.  `now` is the caller-clock instant
@@ -26,17 +29,20 @@ pub trait LockVmActionCallRequests: HasVmId + HasLockOwnerId + HasTimestamp {
     /// The caller must deliver exactly the returned
     /// [`VmLockOutcome::locked`] rows to its local worker pool.  A VM with
     /// no request rows yields an empty outcome — a no-op.
-    fn lock_vm_action_call_requests<'a>(
+    fn lock_action_call_requests<'a>(
         &'a self,
         now: Self::Timestamp,
         lock: RequestLockFor<Self>,
-        vm_id: &'a Self::VmId,
-    ) -> impl Future<Output = Result<VmLockOutcome<Self::VmId>, Self::Error>> + Send + 'a;
+        vm_ids: NESlice<'a, Self::VmId>,
+    ) -> impl Future<Output = Result<NEVec<VmLockOutcome<Self::VmId>>, Self::Error>> + Send + 'a;
 }
 
-/// The outcome of locking a VM's pending requests.
+/// The outcome of locking one VM's pending requests.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VmLockOutcome<VmId> {
+    /// The VM this outcome is for.
+    pub vm_id: VmId,
+
     /// Rows now locked by the caller — deliver these calls.
     pub locked: Vec<ActionCallRequestRecord<VmId>>,
 

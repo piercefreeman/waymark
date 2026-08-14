@@ -29,13 +29,13 @@
 
 mod common;
 
-pub mod lock_vm_action_call_requests;
+pub mod lock_action_call_requests;
 pub mod record_action_call_requests;
 pub mod renew_action_call_request_locks;
 pub mod unlock_action_call_requests;
 
 pub use self::common::*;
-pub use self::lock_vm_action_call_requests::LockVmActionCallRequests;
+pub use self::lock_action_call_requests::LockActionCallRequests;
 pub use self::record_action_call_requests::RecordActionCallRequests;
 pub use self::renew_action_call_request_locks::RenewActionCallRequestLocks;
 pub use self::unlock_action_call_requests::UnlockActionCallRequests;

@@ -1,15 +1,31 @@
 //! Error types for workflow completion persistence.
 
-/// Error returned when recording a workflow completion or exception fails.
+/// Error returned when recording workflow terminal outcomes fails.
+///
+/// Per-row conflicts are not errors — they are reported via
+/// [`waymark_workflow_completion_backend::RecordingSuccess::SomeConflicted`].
 #[derive(Debug, thiserror::Error)]
-pub enum RecordError {
+pub enum RecordOutcomesError {
     /// The underlying database operation failed.
     #[error("sqlx: {0}")]
     Sqlx(#[source] sqlx::Error),
+}
 
-    /// A different outcome was already recorded for this VM.
-    #[error("conflicting outcome already recorded for vm {0}")]
-    Conflict(waymark_ids::InstanceId),
+impl waymark_workflow_completion_backend::record_outcomes::Error for RecordOutcomesError {
+    fn kind(&self) -> waymark_workflow_completion_backend::record_outcomes::ErrorKind {
+        use waymark_workflow_completion_backend::record_outcomes::ErrorKind;
+        match self {
+            // SQLSTATE 21000 (cardinality violation): the upsert affected
+            // the same row twice — a duplicate vm_id in the batch.  The
+            // statement fails identically on every attempt.
+            Self::Sqlx(sqlx::Error::Database(error))
+                if error.code().as_deref() == Some("21000") =>
+            {
+                ErrorKind::InvalidBatch
+            }
+            Self::Sqlx(_) => ErrorKind::Internal,
+        }
+    }
 }
 
 /// Error returned when polling for a workflow outcome fails.
