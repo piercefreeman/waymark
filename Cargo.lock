@@ -4539,6 +4539,7 @@ name = "waymark-benchmark"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "nonempty-collections",
  "prost 0.12.6",
  "rand 0.9.3",
  "serde_json",
@@ -4572,6 +4573,7 @@ dependencies = [
  "waymark-worker-inline",
  "waymark-workflow-service-vm-executables",
  "waymark-workflow-service-vm-runtimes",
+ "waymark-workflow-service-vm-runtimes-backend",
 ]
 
 [[package]]
@@ -4626,6 +4628,7 @@ dependencies = [
  "waymark-workflow-initialization-convert-proto",
  "waymark-workflow-service-vm-executables",
  "waymark-workflow-service-vm-runtimes",
+ "waymark-workflow-service-vm-runtimes-backend",
 ]
 
 [[package]]

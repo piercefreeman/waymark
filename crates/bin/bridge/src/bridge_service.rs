@@ -12,6 +12,10 @@ use waymark_proto::messages as proto;
 
 use crate::WorkflowStore;
 
+/// The server-side cap (and default) for how many VM registrations go into a
+/// single backend statement.
+const REGISTRATION_BATCH_MAX_CAP: NonZeroUsize = NonZeroUsize::new(1024).unwrap();
+
 pub struct BridgeService {
     pub store: Option<Arc<WorkflowStore>>,
 }
@@ -118,21 +122,30 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
                 }
             };
 
-        let mut vm_ids = Vec::new();
-        let include_ids = request.include_instance_ids;
         let queued = call_specs.len().get() as u32;
 
-        for call_spec in call_specs {
-            let vm_id = InstanceId::new_uuid_v4();
-            if include_ids {
-                vm_ids.push(vm_id.to_string());
-            }
+        let vms: NEVec<_> = call_specs
+            .into_nonempty_iter()
+            .map(|call_spec| (InstanceId::new_uuid_v4(), call_spec))
+            .collect();
 
-            store
-                .register_vm_runtime(vm_id, executable_id, Arc::clone(&executable), call_spec)
-                .await
-                .map_err(|err| Status::internal(format!("register vm runtime: {err}")))?;
-        }
+        let vm_ids = if request.include_instance_ids {
+            vms.iter().map(|(vm_id, _)| vm_id.to_string()).collect()
+        } else {
+            Vec::new()
+        };
+
+        // Chunk database inserts by the client-requested batch size, clamped
+        // to the server cap; 0 (unset) means the cap itself.
+        let batch_max = NonZeroUsize::new(request.batch_size as usize)
+            .map_or(REGISTRATION_BATCH_MAX_CAP, |requested| {
+                requested.min(REGISTRATION_BATCH_MAX_CAP)
+            });
+
+        store
+            .register_vm_runtimes(executable_id, executable, batch_max, vms)
+            .await
+            .map_err(|err| Status::internal(format!("register vm runtimes: {err}")))?;
 
         Ok(Response::new(proto::RegisterWorkflowBatchResponse {
             workflow_version_id: executable_id.to_string(),

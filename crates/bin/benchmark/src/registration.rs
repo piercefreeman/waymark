@@ -9,6 +9,15 @@ use waymark_backend_postgres::PostgresBackend;
 
 use crate::cases::BenchmarkCase;
 
+/// Max VM runtimes registered per batched call (env
+/// `WAYMARK_REGISTRATION_BATCH_MAX`).
+fn registration_batch_max() -> NonZeroUsize {
+    std::env::var("WAYMARK_REGISTRATION_BATCH_MAX")
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(NonZeroUsize::new(256).unwrap())
+}
+
 struct CompiledCase {
     executable_id: waymark_ids::WorkflowVersionId,
     executable: Arc<waymark_system_vm::Executable>,
@@ -59,30 +68,46 @@ pub async fn register_benchmark_vms(
     }
     case_names.shuffle(&mut rand::rng());
 
-    for name in &case_names {
-        let case = cases.get(name).expect("case");
-        let compiled_case = compiled.get(name).expect("compiled case");
+    for chunk in case_names.chunks(registration_batch_max().get()) {
+        let mut vms = Vec::with_capacity(chunk.len());
+        for name in chunk {
+            let case = cases.get(name).expect("case");
+            let compiled_case = compiled.get(name).expect("compiled case");
 
-        let call_spec = waymark_vm_runtime_builder::builder(&compiled_case.metadata)
-            .first_fn()
-            .expect("select entry function")
-            .args(case.inputs.clone())
-            .expect("match entry function arguments");
-        let runtime = waymark_system_vm::Runtime::with_custom_entrypoint(
-            waymark_system_vm::Interpreter::default(),
-            Arc::clone(&compiled_case.executable),
-            call_spec,
-        )
-        .expect("create VM runtime");
+            let call_spec = waymark_vm_runtime_builder::builder(&compiled_case.metadata)
+                .first_fn()
+                .expect("select entry function")
+                .args(case.inputs.clone())
+                .expect("match entry function arguments");
+            let runtime = waymark_system_vm::Runtime::with_custom_entrypoint(
+                waymark_system_vm::Interpreter::default(),
+                Arc::clone(&compiled_case.executable),
+                call_spec,
+            )
+            .expect("create VM runtime");
 
-        registration
-            .register_vm(
+            vms.push((
                 waymark_ids::InstanceId::new_uuid_v4(),
                 compiled_case.executable_id,
-                |serializer| runtime.snapshot(serializer),
+                runtime,
+            ));
+        }
+
+        let success = registration
+            .register_vms(
+                nonempty_collections::NEVec::try_from_vec(vms)
+                    .expect("chunks of a non-empty list are non-empty"),
+                |runtime, serializer| runtime.snapshot(serializer),
             )
             .await
-            .expect("register vm");
+            .expect("register vms");
+        assert!(
+            matches!(
+                success,
+                waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegistrationSuccess::AllRegistered,
+            ),
+            "freshly minted instance ids can never be already registered",
+        );
     }
 
     case_names.len()
