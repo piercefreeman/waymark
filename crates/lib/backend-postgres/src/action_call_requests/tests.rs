@@ -95,6 +95,7 @@ async fn record_fresh_then_identical_replay() {
     // Untouched includes the lock: the original owner still renews.
     let statuses = backend
         .renew_action_call_request_locks(
+            Utc::now(),
             live_lock(owner),
             NEVec::try_from_vec(vec![key(vm, 1), key(vm, 2)])
                 .unwrap()
@@ -229,6 +230,7 @@ async fn renew_reports_per_key_status() {
 
     let statuses = backend
         .renew_action_call_request_locks(
+            Utc::now(),
             live_lock(owner),
             NEVec::try_from_vec(vec![key(vm, 1), key(vm, 2), key(vm, 3)])
                 .unwrap()
@@ -282,6 +284,7 @@ async fn renew_racing_a_row_removal_reports_missing() {
     let renew_task = tokio::spawn(async move {
         renew_backend
             .renew_action_call_request_locks(
+                Utc::now(),
                 live_lock(owner),
                 NEVec::try_from_vec(vec![key(vm, 1)])
                     .unwrap()
@@ -376,6 +379,7 @@ async fn recording_a_completion_removes_the_request() {
 
     let statuses = backend
         .renew_action_call_request_locks(
+            Utc::now(),
             live_lock(owner),
             NEVec::try_from_vec(vec![key(vm, 1), key(vm, 2)])
                 .unwrap()
@@ -424,6 +428,7 @@ async fn snapshot_delete_sweeps_only_the_vms_requests() {
 
     let statuses = backend
         .renew_action_call_request_locks(
+            Utc::now(),
             live_lock(owner),
             NEVec::try_from_vec(vec![key(vm_a, 1), key(vm_b, 1)])
                 .unwrap()

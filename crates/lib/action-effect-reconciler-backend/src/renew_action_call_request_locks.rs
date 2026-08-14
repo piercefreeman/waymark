@@ -12,6 +12,12 @@ pub trait RenewActionCallRequestLocks: HasVmId + HasLockOwnerId + HasTimestamp {
     /// Extend the lock expiry to `lock.expires_at` for every key still
     /// locked by `lock.owner`.
     ///
+    /// `now` is the caller-clock instant `lock.expires_at` was computed
+    /// against.  Implementations keep expiry on the store's clock alone:
+    /// the extended expiry is stored as the store's now plus the
+    /// remaining duration `expires_at - now` — a difference of two
+    /// caller-clock values, so no cross-node clock agreement is needed.
+    ///
     /// Returns one [`RequestLockRenewal`] per input key.  Keys that could
     /// not be renewed tell the caller to prune its in-memory tracking:
     /// [`RenewalStatus::Missing`] means the row is gone — its completion
@@ -29,6 +35,7 @@ pub trait RenewActionCallRequestLocks: HasVmId + HasLockOwnerId + HasTimestamp {
     /// its next heartbeat.
     fn renew_action_call_request_locks<'a>(
         &'a self,
+        now: Self::Timestamp,
         lock: RequestLockFor<Self>,
         keys: NESlice<'a, ActionCallRequestKey<Self::VmId>>,
     ) -> impl Future<Output = Result<NEVec<RequestLockRenewal<Self::VmId>>, Self::Error>> + Send + 'a;
