@@ -2,7 +2,6 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
 use prost::Message as _;
 
 use waymark_backend_postgres::PostgresBackend;
@@ -30,7 +29,7 @@ pub struct WorkflowStore {
 }
 
 impl WorkflowStore {
-    pub async fn connect(dsn: &SecretStr) -> Result<Self> {
+    pub async fn connect(dsn: &SecretStr) -> Result<Self, color_eyre::eyre::Report> {
         let pool = sqlx::PgPool::connect(dsn.expose_secret()).await?;
         waymark_backend_postgres_migrations::run(&pool).await?;
         let backend = PostgresBackend::new(pool);
@@ -55,11 +54,14 @@ impl WorkflowStore {
     pub async fn compile_and_store(
         &self,
         registration: &proto::WorkflowRegistration,
-    ) -> Result<(
-        WorkflowVersionId,
-        Arc<waymark_system_vm::Executable>,
-        Vec<String>,
-    )> {
+    ) -> Result<
+        (
+            WorkflowVersionId,
+            Arc<waymark_system_vm::Executable>,
+            Vec<String>,
+        ),
+        color_eyre::eyre::Report,
+    > {
         let workflow_version = if registration.workflow_version.is_empty() {
             registration.ir_hash.clone()
         } else {
@@ -67,15 +69,15 @@ impl WorkflowStore {
         };
 
         let ir_program = waymark_proto::ast::Program::decode(&registration.ir[..])
-            .map_err(|err| anyhow::anyhow!("decode IR: {err}"))?;
+            .map_err(|err| color_eyre::eyre::eyre!("decode IR: {err}"))?;
         let ast_program = waymark_vm_ast_old_proto::convert(ir_program)
-            .map_err(|err| anyhow::anyhow!("convert IR to AST: {err}"))?;
+            .map_err(|err| color_eyre::eyre::eyre!("convert IR to AST: {err}"))?;
 
         let (id, executable, metadata) = self
             .executables
             .compile_and_store(&registration.workflow_name, &workflow_version, &ast_program)
             .await
-            .map_err(|err| anyhow::anyhow!("compile and store: {err}"))?;
+            .map_err(|err| color_eyre::eyre::eyre!("compile and store: {err}"))?;
 
         let entry_input_names = metadata
             .input_names(Default::default())
@@ -94,7 +96,7 @@ impl WorkflowStore {
             <waymark_system_vm::Executable as waymark_vm_executable::Functions>::FunctionId,
             waymark_system_vm::Value,
         >,
-    ) -> Result<()> {
+    ) -> Result<(), color_eyre::eyre::Report> {
         let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::<
             waymark_system_vm::Spec,
             Arc<waymark_system_vm::Executable>,
@@ -103,12 +105,12 @@ impl WorkflowStore {
 
         let runtime: waymark_vm_runtime::Runtime<_, _, waymark_system_vm::Value> =
             waymark_vm_runtime::Runtime::with_custom_entrypoint(interpreter, executable, call_spec)
-                .map_err(|err| anyhow::anyhow!("create runtime: {err}"))?;
+                .map_err(|err| color_eyre::eyre::eyre!("create runtime: {err}"))?;
 
         self.registration
             .register_vm(vm_id, executable_id, |ser| runtime.snapshot(ser))
             .await
-            .map_err(|err| anyhow::anyhow!("register vm: {err}"))
+            .map_err(|err| color_eyre::eyre::eyre!("register vm: {err}"))
     }
 
     /// Register all instances, in chunks of at most `batch_max`.
@@ -128,7 +130,7 @@ impl WorkflowStore {
                 waymark_system_vm::Value,
             >,
         )>,
-    ) -> Result<()> {
+    ) -> Result<(), color_eyre::eyre::Report> {
         let mut vms = vms.into_iter();
         loop {
             let chunk: Vec<_> = vms.by_ref().take(batch_max.get()).collect();
@@ -149,7 +151,7 @@ impl WorkflowStore {
                         Arc::clone(&executable),
                         call_spec,
                     )
-                    .map_err(|err| anyhow::anyhow!("create runtime: {err}"))?;
+                    .map_err(|err| color_eyre::eyre::eyre!("create runtime: {err}"))?;
                 batch.push((vm_id, executable_id, runtime));
             }
 
@@ -161,7 +163,7 @@ impl WorkflowStore {
                     |runtime, serializer| runtime.snapshot(serializer),
                 )
                 .await
-                .map_err(|err| anyhow::anyhow!("register vm runtimes: {err}"))?;
+                .map_err(|err| color_eyre::eyre::eyre!("register vm runtimes: {err}"))?;
             assert!(
                 matches!(
                     success,
@@ -182,7 +184,7 @@ impl WorkflowStore {
         &self,
         instance_id: InstanceId,
         poll_interval: Duration,
-    ) -> Result<Option<proto::WorkflowArguments>> {
+    ) -> Result<Option<proto::WorkflowArguments>, color_eyre::eyre::Report> {
         let outcome = match self
             .outcome_polling
             .wait_for_outcome(&instance_id, poll_interval)
@@ -192,11 +194,11 @@ impl WorkflowStore {
             Err(waymark_workflow_service_vm_runtimes::WaitForOutcomeError::NotFound) => {
                 return Ok(None);
             }
-            Err(err) => return Err(anyhow::anyhow!("wait for outcome: {err}")),
+            Err(err) => return Err(color_eyre::eyre::eyre!("wait for outcome: {err}")),
         };
 
         let arguments = waymark_workflow_completion_convert_proto::Converter::try_convert(outcome)
-            .map_err(|err| anyhow::anyhow!("convert workflow outcome: {err}"))?;
+            .map_err(|err| color_eyre::eyre::eyre!("convert workflow outcome: {err}"))?;
 
         Ok(Some(arguments))
     }

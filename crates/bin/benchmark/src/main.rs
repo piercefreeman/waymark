@@ -132,14 +132,17 @@ async fn run_benchmark(
 
 fn main() -> Result<(), waymark_fn_main_common::Error> {
     let args = cli::BenchmarkArgs::parse();
+    // The guard is dropped on every exit path, so the chrome trace tail
+    // survives error returns too.
+    let (observability_layer, _flush_on_drop) = waymark_observability_setup::tracing_layer(
+        &waymark_observability_setup::ObservabilityOptions {
+            tokio_console: args.observe,
+            chrome_trace_path: args.trace.clone(),
+        },
+    );
     waymark_fn_main_common::init_with(waymark_fn_main_common::Params {
         tracing: waymark_fn_main_common::tracing::Params {
-            filter_bypassing_layer: waymark_observability_setup::tracing_layer(
-                &waymark_observability_setup::ObservabilityOptions {
-                    tokio_console: args.observe,
-                    chrome_trace_path: args.trace.clone(),
-                },
-            ),
+            filter_bypassing_layer: observability_layer,
             filter_wrapped_layer: waymark_fn_main_common::tracing::NO_EXTRA_LAYER,
         },
         skip_color_eyre: false,
@@ -164,6 +167,5 @@ fn main() -> Result<(), waymark_fn_main_common::Error> {
     println!("Benchmark completed in {:.2?}", stats.elapsed);
     println!("{}", report::format_query_counts(stats.query_counts));
     println!("{}", report::format_batch_size_counts(stats.batch_counts));
-    waymark_observability_setup::flush();
     Ok(())
 }

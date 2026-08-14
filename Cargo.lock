@@ -4589,7 +4589,7 @@ dependencies = [
 name = "waymark-boot-singleton"
 version = "0.1.0"
 dependencies = [
- "anyhow",
+ "color-eyre",
  "tokio",
  "tonic 0.11.0",
  "tonic-health",
@@ -4601,7 +4601,7 @@ dependencies = [
 name = "waymark-bridge"
 version = "0.1.0"
 dependencies = [
- "anyhow",
+ "color-eyre",
  "envfury",
  "futures-core",
  "nonempty-collections",
@@ -4637,8 +4637,8 @@ dependencies = [
 name = "waymark-config"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "envfury",
+ "thiserror",
  "waymark-garbage-collector-config",
  "waymark-nonzero-duration",
  "waymark-scheduler-config",
@@ -4860,8 +4860,8 @@ dependencies = [
 name = "waymark-fuzzer"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "clap",
+ "color-eyre",
  "proptest",
  "serde_json",
  "tokio",
@@ -4905,8 +4905,8 @@ dependencies = [
 name = "waymark-integration-test"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "clap",
+ "color-eyre",
  "prost 0.12.6",
  "serde",
  "serde_json",
@@ -5307,8 +5307,8 @@ dependencies = [
 name = "waymark-smoke"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "clap",
+ "color-eyre",
  "tokio",
  "tokio-util",
  "tracing",
@@ -5338,9 +5338,9 @@ dependencies = [
 name = "waymark-soak-harness"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "chrono",
  "clap",
+ "color-eyre",
  "prost 0.12.6",
  "rand 0.9.3",
  "serde",
@@ -5370,7 +5370,6 @@ dependencies = [
 name = "waymark-start-workers"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "envfury",
  "metrics",
  "sqlx",
@@ -6229,8 +6228,9 @@ dependencies = [
 name = "waymark-webapp-bringup"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "axum 0.8.8",
+ "tera",
+ "thiserror",
  "tokio",
  "tokio-util",
  "tracing",

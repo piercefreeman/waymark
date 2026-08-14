@@ -36,7 +36,6 @@
 use std::sync::{Arc, atomic::AtomicUsize};
 use std::time::Duration;
 
-use anyhow::Result;
 use sqlx::PgPool;
 use tokio::signal;
 use tracing::{error, info, warn};
@@ -46,7 +45,7 @@ use waymark_backend_postgres::PostgresBackend;
 use waymark_config::WorkerConfig;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), waymark_fn_main_common::Error> {
     waymark_fn_main_common::init()?;
 
     let metrics_addr: std::net::SocketAddr = envfury::or_parse("METRICS_ADDR", "0.0.0.0:9118")?;
@@ -238,14 +237,14 @@ async fn main() -> Result<()> {
 
     if let Some(webapp_handle) = maybe_webapp_handle {
         // Wait for graceful termination.
-        webapp_handle.await.unwrap();
+        webapp_handle.await?;
     }
 
     info!("shutdown complete");
     Ok(())
 }
 
-async fn wait_for_shutdown() -> Result<()> {
+async fn wait_for_shutdown() -> Result<(), std::io::Error> {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal as unix_signal};

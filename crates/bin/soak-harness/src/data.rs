@@ -1,5 +1,5 @@
-use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
+use color_eyre::eyre::{WrapErr as _, bail, eyre};
 use serde::Serialize;
 use sqlx::PgPool;
 use sqlx::prelude::*;
@@ -19,7 +19,9 @@ pub struct WorkloadSnapshot {
     pub oldest_ready_updated_at: Option<DateTime<Utc>>,
 }
 
-pub async fn fetch_workload_snapshot(pool: &PgPool) -> Result<WorkloadSnapshot> {
+pub async fn fetch_workload_snapshot(
+    pool: &PgPool,
+) -> Result<WorkloadSnapshot, color_eyre::eyre::Report> {
     let row = sqlx::query_as::<_, WorkloadSnapshot>(
         r#"
         SELECT
@@ -34,7 +36,7 @@ pub async fn fetch_workload_snapshot(pool: &PgPool) -> Result<WorkloadSnapshot> 
     )
     .fetch_one(pool)
     .await
-    .context("fetch workload snapshot")?;
+    .wrap_err("fetch workload snapshot")?;
 
     Ok(row)
 }
@@ -55,7 +57,9 @@ pub struct WorkerStatusSnapshot {
     pub active_instance_count: i32,
 }
 
-pub async fn fetch_latest_worker_status(pool: &PgPool) -> Result<Option<WorkerStatusSnapshot>> {
+pub async fn fetch_latest_worker_status(
+    pool: &PgPool,
+) -> Result<Option<WorkerStatusSnapshot>, color_eyre::eyre::Report> {
     let row = sqlx::query_as::<_, WorkerStatusSnapshot>(
         r#"
         SELECT
@@ -78,7 +82,7 @@ pub async fn fetch_latest_worker_status(pool: &PgPool) -> Result<Option<WorkerSt
     )
     .fetch_optional(pool)
     .await
-    .context("fetch latest worker status")?;
+    .wrap_err("fetch latest worker status")?;
 
     Ok(row)
 }
@@ -91,7 +95,10 @@ pub struct PinningOwnerRow {
     pub newest_updated_at: Option<DateTime<Utc>>,
 }
 
-pub async fn fetch_pinning_owners(pool: &PgPool, limit: i64) -> Result<Vec<PinningOwnerRow>> {
+pub async fn fetch_pinning_owners(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<PinningOwnerRow>, color_eyre::eyre::Report> {
     let rows = sqlx::query_as::<_, PinningOwnerRow>(
         r#"
         SELECT
@@ -109,7 +116,7 @@ pub async fn fetch_pinning_owners(pool: &PgPool, limit: i64) -> Result<Vec<Pinni
     .bind(limit)
     .fetch_all(pool)
     .await
-    .context("fetch pinning owners")?;
+    .wrap_err("fetch pinning owners")?;
 
     Ok(rows)
 }
@@ -122,7 +129,10 @@ pub struct ExpiredPinningRow {
     pub updated_at: DateTime<Utc>,
 }
 
-pub async fn fetch_expired_pinnings(pool: &PgPool, limit: i64) -> Result<Vec<ExpiredPinningRow>> {
+pub async fn fetch_expired_pinnings(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<ExpiredPinningRow>, color_eyre::eyre::Report> {
     let rows = sqlx::query_as::<_, ExpiredPinningRow>(
         r#"
         SELECT
@@ -139,7 +149,7 @@ pub async fn fetch_expired_pinnings(pool: &PgPool, limit: i64) -> Result<Vec<Exp
     .bind(limit)
     .fetch_all(pool)
     .await
-    .context("fetch expired pinnings")?;
+    .wrap_err("fetch expired pinnings")?;
 
     Ok(rows)
 }
@@ -155,7 +165,7 @@ pub struct ActionCallRequestLockOwnerRow {
 pub async fn fetch_action_call_request_lock_owners(
     pool: &PgPool,
     limit: i64,
-) -> Result<Vec<ActionCallRequestLockOwnerRow>> {
+) -> Result<Vec<ActionCallRequestLockOwnerRow>, color_eyre::eyre::Report> {
     let rows = sqlx::query_as::<_, ActionCallRequestLockOwnerRow>(
         r#"
         SELECT
@@ -172,7 +182,7 @@ pub async fn fetch_action_call_request_lock_owners(
     .bind(limit)
     .fetch_all(pool)
     .await
-    .context("fetch action-call request lock owners")?;
+    .wrap_err("fetch action-call request lock owners")?;
 
     Ok(rows)
 }
@@ -189,7 +199,7 @@ pub struct StaleActionCallRequestRow {
 pub async fn fetch_stale_action_call_request_locks(
     pool: &PgPool,
     limit: i64,
-) -> Result<Vec<StaleActionCallRequestRow>> {
+) -> Result<Vec<StaleActionCallRequestRow>, color_eyre::eyre::Report> {
     let rows = sqlx::query_as::<_, StaleActionCallRequestRow>(
         r#"
         SELECT
@@ -206,7 +216,7 @@ pub async fn fetch_stale_action_call_request_locks(
     .bind(limit)
     .fetch_all(pool)
     .await
-    .context("fetch stale action-call request locks")?;
+    .wrap_err("fetch stale action-call request locks")?;
 
     Ok(rows)
 }
@@ -221,7 +231,10 @@ pub struct ActivityRow {
     pub query: String,
 }
 
-pub async fn fetch_pg_stat_activity(pool: &PgPool, limit: i64) -> Result<Vec<ActivityRow>> {
+pub async fn fetch_pg_stat_activity(
+    pool: &PgPool,
+    limit: i64,
+) -> Result<Vec<ActivityRow>, color_eyre::eyre::Report> {
     let rows = sqlx::query_as::<_, ActivityRow>(
         r#"
         SELECT
@@ -242,7 +255,7 @@ pub async fn fetch_pg_stat_activity(pool: &PgPool, limit: i64) -> Result<Vec<Act
     .bind(limit)
     .fetch_all(pool)
     .await
-    .context("fetch pg_stat_activity")?;
+    .wrap_err("fetch pg_stat_activity")?;
 
     Ok(rows)
 }
@@ -260,13 +273,13 @@ pub struct PgStatStatementRow {
 pub async fn fetch_pg_stat_statements(
     pool: &PgPool,
     limit: i64,
-) -> Result<Vec<PgStatStatementRow>> {
+) -> Result<Vec<PgStatStatementRow>, color_eyre::eyre::Report> {
     let extension_enabled: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')",
     )
     .fetch_one(pool)
     .await
-    .context("check pg_stat_statements extension")?;
+    .wrap_err("check pg_stat_statements extension")?;
 
     if !extension_enabled {
         bail!("pg_stat_statements extension is not enabled");
@@ -310,7 +323,7 @@ pub async fn fetch_pg_stat_statements(
                 .fetch_all(pool)
                 .await
                 .map_err(|secondary_err| {
-                    anyhow!(
+                    eyre!(
                         "failed querying pg_stat_statements (new columns: {}; old columns: {})",
                         primary_err,
                         secondary_err

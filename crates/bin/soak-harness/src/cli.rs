@@ -3,8 +3,8 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{Result, bail};
 use clap::Parser;
+use color_eyre::eyre::bail;
 use serde::Serialize;
 use waymark_secret_string::{SecretStr, SecretString};
 
@@ -130,7 +130,7 @@ pub struct SoakArgs {
     pub seed: Option<u64>,
 }
 
-pub fn validate_args(args: &SoakArgs) -> Result<()> {
+pub fn validate_args(args: &SoakArgs) -> Result<(), color_eyre::eyre::Report> {
     if args.timeout_percent < 0.0 || args.failure_percent < 0.0 || args.slow_percent < 0.0 {
         bail!("workload percentages cannot be negative");
     }

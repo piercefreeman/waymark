@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow, bail};
+use color_eyre::eyre::{WrapErr as _, bail, eyre};
 use waymark_worker_core::BaseWorkerPool as _;
 
 use crate::ground_truth::PreparedCase;
@@ -17,7 +17,7 @@ pub async fn run_transient_mode(
     prepared_cases: &[PreparedCase],
     worker_count: NonZeroUsize,
     timeout: Duration,
-) -> Result<Vec<String>> {
+) -> Result<Vec<String>, color_eyre::eyre::Report> {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let (worker_pool, bridge_server_task) = setup_worker_pool(
         shutdown_token.clone(),
@@ -26,11 +26,11 @@ pub async fn run_transient_mode(
         worker_count,
     )
     .await
-    .context("start transient worker pool")?;
+    .wrap_err("start transient worker pool")?;
     worker_pool
         .launch()
         .await
-        .context("launch transient worker pool")?;
+        .wrap_err("launch transient worker pool")?;
 
     let mut failures = Vec::new();
     for prepared in prepared_cases {
@@ -49,12 +49,12 @@ async fn run_case_transient(
     prepared: &PreparedCase,
     worker_pool: PythonWorkerPool,
     timeout: Duration,
-) -> Result<CaseOutcome> {
+) -> Result<CaseOutcome, color_eyre::eyre::Report> {
     let runtime = waymark_transient_execution_bringup::setup_runtime(
         &prepared.program,
         prepared.inputs.clone(),
     )
-    .with_context(|| format!("set up VM runtime for case '{}'", prepared.case.id))?;
+    .wrap_err_with(|| format!("set up VM runtime for case '{}'", prepared.case.id))?;
 
     let cancel = tokio_util::sync::CancellationToken::new();
     let waymark_transient_execution_bringup::Execution {
@@ -87,7 +87,7 @@ async fn run_case_transient(
     tracing::debug!(?driver_exit, "vm driver exited");
 
     let workflow_outcome = workflow_outcome.map_err(|_recv_error| {
-        anyhow!(
+        eyre!(
             "vm driver exited without delivering a workflow outcome for case '{}'",
             prepared.case.id
         )

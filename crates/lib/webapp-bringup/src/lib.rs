@@ -2,9 +2,31 @@
 
 use std::sync::Arc;
 
-use anyhow::Context as _;
 use tokio::net::TcpListener;
 use waymark_webapp_config::WebappConfig;
+
+/// Error returned when starting the webapp server fails.
+#[derive(Debug, thiserror::Error)]
+pub enum StartError {
+    /// Binding the webapp listener failed.
+    #[error("bind webapp listener on {bind_addr}: {source}")]
+    Bind {
+        /// The address the listener was binding to.
+        bind_addr: String,
+
+        /// The underlying bind error.
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// Reading the bound listener address failed.
+    #[error("read webapp listener local address: {0}")]
+    LocalAddr(#[source] std::io::Error),
+
+    /// Initializing the webapp templates failed.
+    #[error("initialize webapp templates: {0}")]
+    Templates(#[source] tera::Error),
+}
 
 /// Start the webapp server.
 ///
@@ -13,7 +35,7 @@ pub async fn start<WebappBackend>(
     config: WebappConfig,
     database: Arc<WebappBackend>,
     shutdown_signal: tokio_util::sync::WaitForCancellationFutureOwned,
-) -> Result<Option<tokio::task::JoinHandle<()>>, anyhow::Error>
+) -> Result<Option<tokio::task::JoinHandle<()>>, StartError>
 where
     WebappBackend: ?Sized,
     WebappBackend: waymark_webapp_backend::WebappBackend,
@@ -33,12 +55,12 @@ where
     let bind_addr = config.bind_addr();
     let listener = TcpListener::bind(&bind_addr)
         .await
-        .with_context(|| format!("failed to bind webapp listener on {bind_addr}"))?;
+        .map_err(|source| StartError::Bind { bind_addr, source })?;
 
-    let actual_addr = listener.local_addr()?;
+    let actual_addr = listener.local_addr().map_err(StartError::LocalAddr)?;
 
     // Initialize templates
-    let templates = waymark_webapp_routes::init_templates()?;
+    let templates = waymark_webapp_routes::init_templates().map_err(StartError::Templates)?;
 
     let state = waymark_webapp_routes::WebappState {
         database,

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use color_eyre::eyre::{WrapErr as _, bail};
 use sqlx::PgPool;
 use tokio::process::{Child, Command};
 use tracing::{info, warn};
@@ -17,7 +17,10 @@ pub struct WorkerProcess {
     pub log_path: PathBuf,
 }
 
-pub async fn start_workers(args: &crate::cli::SoakArgs, run_dir: &Path) -> Result<WorkerProcess> {
+pub async fn start_workers(
+    args: &crate::cli::SoakArgs,
+    run_dir: &Path,
+) -> Result<WorkerProcess, color_eyre::eyre::Report> {
     let webapp_enabled = !args.disable_webapp;
     let log_path = run_dir.join("start-workers.log");
     // `CARGO_MANIFEST_DIR` here is `crates/bin/soak-harness`, while the soak action module lives at
@@ -27,10 +30,10 @@ pub async fn start_workers(args: &crate::cli::SoakArgs, run_dir: &Path) -> Resul
     // remains importable even if worker-remote falls back to the caller's current directory.
     let repo_root = repo_root();
     let log_file = File::create(&log_path)
-        .with_context(|| format!("create worker log file {}", log_path.display()))?;
+        .wrap_err_with(|| format!("create worker log file {}", log_path.display()))?;
     let log_file_err = log_file
         .try_clone()
-        .with_context(|| format!("clone worker log handle {}", log_path.display()))?;
+        .wrap_err_with(|| format!("clone worker log handle {}", log_path.display()))?;
 
     let mut cmd = start_workers_command();
     cmd.current_dir(&repo_root);
@@ -64,7 +67,9 @@ pub async fn start_workers(args: &crate::cli::SoakArgs, run_dir: &Path) -> Resul
     cmd.stdout(Stdio::from(log_file));
     cmd.stderr(Stdio::from(log_file_err));
 
-    let child = cmd.spawn().context("spawn waymark-start-workers process")?;
+    let child = cmd
+        .spawn()
+        .wrap_err("spawn waymark-start-workers process")?;
     info!(
         log_path = %log_path.display(),
         webapp_enabled,
@@ -114,7 +119,7 @@ fn repo_root() -> PathBuf {
     path
 }
 
-fn soak_python_path(repo_root: &Path) -> Result<std::ffi::OsString> {
+fn soak_python_path(repo_root: &Path) -> Result<std::ffi::OsString, color_eyre::eyre::Report> {
     let mut python_paths = vec![
         repo_root.join("python"),
         repo_root.join("python").join("src"),
@@ -123,7 +128,7 @@ fn soak_python_path(repo_root: &Path) -> Result<std::ffi::OsString> {
         python_paths.extend(std::env::split_paths(&existing));
     }
 
-    std::env::join_paths(&python_paths).context("build soak PYTHONPATH")
+    std::env::join_paths(&python_paths).wrap_err("build soak PYTHONPATH")
 }
 
 fn find_executable(bin: &str) -> Option<PathBuf> {
@@ -144,11 +149,11 @@ fn find_executable(bin: &str) -> Option<PathBuf> {
     None
 }
 
-pub async fn shutdown_worker(worker: &mut WorkerProcess) -> Result<()> {
+pub async fn shutdown_worker(worker: &mut WorkerProcess) -> Result<(), color_eyre::eyre::Report> {
     if worker
         .child
         .try_wait()
-        .context("check worker process status")?
+        .wrap_err("check worker process status")?
         .is_some()
     {
         return Ok(());
@@ -158,12 +163,12 @@ pub async fn shutdown_worker(worker: &mut WorkerProcess) -> Result<()> {
     worker
         .child
         .start_kill()
-        .context("send kill signal to worker process")?;
+        .wrap_err("send kill signal to worker process")?;
 
     let status = tokio::time::timeout(Duration::from_secs(10), worker.child.wait())
         .await
-        .context("timed out waiting for worker process shutdown")?
-        .context("wait for worker process")?;
+        .wrap_err("timed out waiting for worker process shutdown")?
+        .wrap_err("wait for worker process")?;
 
     info!(status = %status, "worker process stopped");
     Ok(())
@@ -182,7 +187,7 @@ pub async fn wait_for_worker_status(
     timeout: Duration,
     startup_log_interval: Duration,
     worker: &mut WorkerProcess,
-) -> Result<()> {
+) -> Result<(), color_eyre::eyre::Report> {
     let deadline = Instant::now() + timeout;
     let started = Instant::now();
     let mut last_log_at = Instant::now();
@@ -191,7 +196,7 @@ pub async fn wait_for_worker_status(
         if let Some(status) = worker
             .child
             .try_wait()
-            .context("check worker status during startup wait")?
+            .wrap_err("check worker status during startup wait")?
         {
             let tail = crate::common::read_tail_lines(&worker.log_path, 80).unwrap_or_default();
             let tail_text = if tail.is_empty() {

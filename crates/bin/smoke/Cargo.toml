@@ -18,8 +18,8 @@ waymark-worker-python = { workspace = true }
 waymark-worker-remote-bringup = { workspace = true }
 waymark-worker-remote-pool = { workspace = true }
 
-anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+color-eyre = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
