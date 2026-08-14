@@ -47,7 +47,7 @@ Run the Rust benchmark harness (defaults to `--count 1000`) via:
 $ make benchmark
 ```
 
-`make benchmark` builds with `RUSTFLAGS="--cfg waymark_observability_trace"`,
+`make benchmark` builds with `RUSTFLAGS="--cfg waymark_observability_chrome_trace"`,
 writes a tracing-chrome file, and prints a pyinstrument-style summary
 via `scripts/parse_chrome_trace.py`. Override the trace path
 with `BENCH_TRACE=...`, the summary size with `BENCH_TRACE_TOP=...`, or benchmark args with
@@ -64,8 +64,8 @@ $ make benchmark-console
 This opens a tmux session with the benchmark on the left and `tokio-console` on the right.
 `make benchmark-console` requires tmux, and `tokio-console` must be installed (`cargo install
 tokio-console --locked`). Tokio console also requires building with
-`RUSTFLAGS="--cfg tokio_unstable"`, which the make target sets by default (override with
-`BENCH_CONSOLE_RUSTFLAGS=...`). The console listens on `127.0.0.1:6669` by default; override with
+`RUSTFLAGS="--cfg tokio_unstable --cfg waymark_observability_tokio_console"`, which the make
+target sets by default (override with `BENCH_CONSOLE_RUSTFLAGS=...`). The console listens on `127.0.0.1:6669` by default; override with
 `TOKIO_CONSOLE_BIND`. This is a tokio-console socket, not an HTTP endpoint, so it won’t
 load in a browser. If tokio-console shows "RECONNECTING", reinstall it so the client/server
 protocols match. We track the latest `console-subscriber` (0.5.x), while the CLI is still

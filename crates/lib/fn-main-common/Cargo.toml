@@ -6,5 +6,7 @@ publish.workspace = true
 
 [dependencies]
 color-eyre = { workspace = true }
+envfury = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use clap::Parser as _;
+use color_eyre::eyre::{WrapErr as _, bail};
 use waymark_backend_postgres::PostgresBackend;
 use waymark_observability::obs;
 use waymark_secret_string::SecretStr;
@@ -36,22 +37,23 @@ async fn run_benchmark(
     dsn: &SecretStr,
     max_pinned: NonZeroUsize,
     pool_size: NonZeroU32,
-) -> BenchmarkStats {
-    let cases = cases::build_cases(base);
+    registration_batch_max: NonZeroUsize,
+) -> Result<BenchmarkStats, color_eyre::eyre::Report> {
+    let cases = cases::build_cases(base)?;
     if dsn.expose_secret() == LOCAL_POSTGRES_DSN.expose_secret() {
         ensure_local_postgres()
             .await
-            .expect("bootstrap local postgres");
+            .wrap_err("bootstrap local postgres")?;
     }
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(pool_size.get())
         .connect(dsn.expose_secret())
         .await
-        .expect("connect postgres");
-    setup_db::drop_benchmark_tables(&pool).await;
+        .wrap_err("connect postgres")?;
+    setup_db::drop_benchmark_tables(&pool).await?;
     waymark_backend_postgres_migrations::run(&pool)
         .await
-        .expect("run migrations");
+        .wrap_err("run migrations")?;
     let backend = PostgresBackend::new(pool);
     let codec = waymark_vm_codec_rmp::RmpCodec;
     let executables =
@@ -60,9 +62,14 @@ async fn run_benchmark(
         waymark_workflow_service_vm_runtimes::RegistrationService::new(backend.clone(), codec);
 
     let queue_start = Instant::now();
-    let total =
-        registration::register_benchmark_vms(&executables, &registration, &cases, count_per_case)
-            .await;
+    let total = registration::register_benchmark_vms(
+        &executables,
+        &registration,
+        &cases,
+        count_per_case,
+        registration_batch_max,
+    )
+    .await?;
     println!(
         "Queued {total} instances across {} IR jobs in {:.2?}",
         cases.len(),
@@ -77,31 +84,31 @@ async fn run_benchmark(
     let subsystem_token = shutdown_token.child_token();
     let start = Instant::now();
     let execution_handles = waymark_execution_bringup::start(
-        execution::durable_execution_config(max_pinned),
+        execution::durable_execution_config(max_pinned)?,
         Arc::new(backend.clone()),
         InlineWorkerPool::new(actions::action_registry()),
         subsystem_token.clone(),
         force_shutdown_token.child_token(),
     )
     .await
-    .expect("start execution subsystem");
+    .wrap_err("start execution subsystem")?;
 
     let mut last_progress = (0i64, Instant::now());
     loop {
         let done: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM vm_execution_results")
             .fetch_one(backend.pool())
             .await
-            .expect("count recorded execution results");
+            .wrap_err("count recorded execution results")?;
         if done as usize >= total {
             break;
         }
         if subsystem_token.is_cancelled() {
-            panic!("execution subsystem shut down after draining only {done} of {total} instances");
+            bail!("execution subsystem shut down after draining only {done} of {total} instances");
         }
         if done > last_progress.0 {
             last_progress = (done, Instant::now());
         } else if last_progress.1.elapsed() > DRAIN_STALL_TIMEOUT {
-            panic!(
+            bail!(
                 "drain stalled: no new execution results for {}s at {done} of {total} instances",
                 DRAIN_STALL_TIMEOUT.as_secs(),
             );
@@ -116,36 +123,47 @@ async fn run_benchmark(
     force_shutdown_token.cancel();
     execution::shutdown_execution(execution_handles).await;
 
-    BenchmarkStats {
+    Ok(BenchmarkStats {
         elapsed,
         query_counts: backend.query_counts(),
         batch_counts: backend.batch_size_counts(),
-    }
+    })
 }
 
-fn main() {
+fn main() -> Result<(), waymark_fn_main_common::Error> {
     let args = cli::BenchmarkArgs::parse();
-    if args.observe || args.trace.is_some() {
-        waymark_observability_setup::init(waymark_observability_setup::ObservabilityOptions {
-            console: args.observe,
-            trace_path: args.trace.clone(),
-        });
-    } else {
-        waymark_fn_main_common::init().expect("tracing setup");
-    }
-    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+    waymark_fn_main_common::init_with(waymark_fn_main_common::Params {
+        tracing: waymark_fn_main_common::tracing::Params {
+            filter_bypassing_layer: waymark_observability_setup::tracing_layer(
+                &waymark_observability_setup::ObservabilityOptions {
+                    tokio_console: args.observe,
+                    chrome_trace_path: args.trace.clone(),
+                },
+            ),
+            filter_wrapped_layer: waymark_fn_main_common::tracing::NO_EXTRA_LAYER,
+        },
+        skip_color_eyre: false,
+    })?;
+    let runtime = tokio::runtime::Runtime::new().wrap_err("create tokio runtime")?;
     let _span = tracing::info_span!("benchmark_main").entered();
-    let max_pinned = cli::benchmark_max_pinned();
-    let pool_size = cli::benchmark_db_pool_size();
+    let max_pinned: NonZeroUsize = envfury::or_parse("WAYMARK_MAX_CONCURRENT_INSTANCES", "500")?;
+    let pool_size: NonZeroU32 = envfury::or_parse("WAYMARK_DB_POOL_SIZE", "10")?;
+    let registration_batch_max: NonZeroUsize =
+        envfury::or_parse("WAYMARK_REGISTRATION_BATCH_MAX", "256")?;
     println!("max_pinned = {max_pinned}");
     println!("db_pool_size = {pool_size}");
+    println!("registration_batch_max = {registration_batch_max}");
     let stats = runtime.block_on(run_benchmark(
-        args.count, args.base, &args.dsn, max_pinned, pool_size,
-    ));
+        args.count,
+        args.base,
+        &args.dsn,
+        max_pinned,
+        pool_size,
+        registration_batch_max,
+    ))?;
     println!("Benchmark completed in {:.2?}", stats.elapsed);
     println!("{}", report::format_query_counts(stats.query_counts));
     println!("{}", report::format_batch_size_counts(stats.batch_counts));
-    if args.trace.is_some() {
-        waymark_observability_setup::flush();
-    }
+    waymark_observability_setup::flush();
+    Ok(())
 }

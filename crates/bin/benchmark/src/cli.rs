@@ -1,15 +1,12 @@
-//! Command-line interface and environment knobs for the benchmark.
+//! Command-line interface for the benchmark.
 
-use std::env;
-use std::num::{NonZeroU32, NonZeroUsize};
+use std::num::NonZeroUsize;
 
 use clap::Parser;
 use waymark_secret_string::{SecretStr, SecretString};
 use waymark_support_integration::LOCAL_POSTGRES_DSN;
 
 const DEFAULT_DSN: &SecretStr = LOCAL_POSTGRES_DSN;
-const DEFAULT_MAX_PINNED: NonZeroUsize = NonZeroUsize::new(500).unwrap();
-const DEFAULT_DB_POOL_SIZE: NonZeroU32 = NonZeroU32::new(10).unwrap();
 
 #[derive(Parser, Debug)]
 #[command(
@@ -27,18 +24,4 @@ pub struct BenchmarkArgs {
     pub observe: bool,
     #[arg(long, num_args = 0..=1, default_missing_value = "target/benchmark-trace.json")]
     pub trace: Option<String>,
-}
-
-pub fn benchmark_max_pinned() -> NonZeroUsize {
-    env::var("WAYMARK_MAX_CONCURRENT_INSTANCES")
-        .ok()
-        .and_then(|value| value.trim().parse::<NonZeroUsize>().ok())
-        .unwrap_or(DEFAULT_MAX_PINNED)
-}
-
-pub fn benchmark_db_pool_size() -> NonZeroU32 {
-    env::var("WAYMARK_DB_POOL_SIZE")
-        .ok()
-        .and_then(|value| value.trim().parse::<NonZeroU32>().ok())
-        .unwrap_or(DEFAULT_DB_POOL_SIZE)
 }
