@@ -4303,7 +4303,6 @@ dependencies = [
 name = "waymark-action-runtime-convert"
 version = "0.1.0"
 dependencies = [
- "serde_json",
  "waymark-action-runtime-core",
  "waymark-convert-core",
  "waymark-proto",
@@ -4490,6 +4489,7 @@ dependencies = [
  "waymark-vm-value-convert-json",
  "waymark-worker-core",
  "waymark-worker-inline",
+ "waymark-worker-inline-compat",
  "waymark-workflow-service-vm-executables",
  "waymark-workflow-service-vm-runtimes",
  "waymark-workflow-service-vm-runtimes-backend",
@@ -4723,6 +4723,7 @@ dependencies = [
  "waymark-vm-ast-old-proto",
  "waymark-worker-core",
  "waymark-worker-inline",
+ "waymark-worker-inline-compat",
  "waymark-workflow-completion-core",
 ]
 
