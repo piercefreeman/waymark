@@ -10,6 +10,7 @@ waymark-action-runtime-core = { workspace = true }
 waymark-action-runtime-metadata = { workspace = true }
 waymark-action-runtime-metadata-codec = { workspace = true }
 waymark-convert-core = { workspace = true }
+waymark-proto = { workspace = true }
 waymark-vm-value-convert-core = { workspace = true }
 waymark-vm-value-python = { workspace = true }
 waymark-worker-core = { workspace = true }
@@ -23,7 +24,6 @@ waymark-action-core = { workspace = true }
 waymark-action-runtime-metadata-compat = { workspace = true }
 waymark-ids = { workspace = true }
 
-serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lib]
