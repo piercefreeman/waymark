@@ -70,10 +70,6 @@ impl BaseWorkerPool for InlineWorkerPool {
             })?;
 
         let sender = self.sender.clone();
-        let executor_id = request.executor_id;
-        let execution_id = request.execution_id;
-        let attempt_number = request.attempt_number;
-        let dispatch_token = request.dispatch_token;
         let metadata = request.metadata;
         let kwargs = request.kwargs;
 
@@ -90,16 +86,7 @@ impl BaseWorkerPool for InlineWorkerPool {
                 Err(err) => error_to_value(&err),
             };
             let result = UncheckedExecutionResult(result);
-            let _ = sender
-                .send(ActionCompletion {
-                    executor_id,
-                    execution_id,
-                    attempt_number,
-                    dispatch_token,
-                    result,
-                    metadata,
-                })
-                .await;
+            let _ = sender.send(ActionCompletion { result, metadata }).await;
         });
 
         Ok(())
