@@ -207,85 +207,45 @@ class ActionResult(google.protobuf.message.Message):
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
-    SUCCESS_FIELD_NUMBER: builtins.int
     PAYLOAD_FIELD_NUMBER: builtins.int
     WORKER_START_NS_FIELD_NUMBER: builtins.int
     WORKER_END_NS_FIELD_NUMBER: builtins.int
-    ERROR_TYPE_FIELD_NUMBER: builtins.int
-    ERROR_MESSAGE_FIELD_NUMBER: builtins.int
     METADATA_FIELD_NUMBER: builtins.int
-    success: builtins.bool
+    payload: builtins.bytes
+    """The action's result, encoded in the value encoding this channel
+    speaks.
+
+    Whether the action returned or raised is the encoded value's own
+    business: languages differ on whether raising is even a notion, so
+    the framing carries the completion without interpreting it.
+    """
     worker_start_ns: builtins.int
     """Perf counter at execution start"""
     worker_end_ns: builtins.int
     """Perf counter at execution end"""
-    error_type: builtins.str
-    """Exception type if success=false"""
-    error_message: builtins.str
-    """Exception message if success=false"""
     metadata: builtins.bytes
     """Opaque server correlation metadata echoed from the dispatch"""
-    @property
-    def payload(self) -> Global___WorkflowArguments:
-        """Result or error details"""
-
     def __init__(
         self,
         *,
-        success: builtins.bool = ...,
-        payload: Global___WorkflowArguments | None = ...,
+        payload: builtins.bytes = ...,
         worker_start_ns: builtins.int = ...,
         worker_end_ns: builtins.int = ...,
-        error_type: builtins.str | None = ...,
-        error_message: builtins.str | None = ...,
         metadata: builtins.bytes = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "_error_message",
-            b"_error_message",
-            "_error_type",
-            b"_error_type",
-            "error_message",
-            b"error_message",
-            "error_type",
-            b"error_type",
-            "payload",
-            b"payload",
-        ],
-    ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
-            "_error_message",
-            b"_error_message",
-            "_error_type",
-            b"_error_type",
-            "error_message",
-            b"error_message",
-            "error_type",
-            b"error_type",
             "metadata",
             b"metadata",
             "payload",
             b"payload",
-            "success",
-            b"success",
             "worker_end_ns",
             b"worker_end_ns",
             "worker_start_ns",
             b"worker_start_ns",
         ],
     ) -> None: ...
-    @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_error_message", b"_error_message"]
-    ) -> typing.Literal["error_message"] | None: ...
-    @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_error_type", b"_error_type"]
-    ) -> typing.Literal["error_type"] | None: ...
 
 Global___ActionResult: typing_extensions.TypeAlias = ActionResult
 
@@ -331,7 +291,7 @@ class WorkflowArgument(google.protobuf.message.Message):
     Value Framing
     =============================================================================
     Named arguments at the transport framing level.  The names stay
-    proto-visible; each value is an opaque encoded document whose format is
+    proto-visible; each value is opaque encoded bytes whose format is
     the producing language's own business (currently a serialized
     `waymark.python_value.WorkflowArgumentValue`, see python_value.proto).
     """

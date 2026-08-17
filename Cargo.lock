@@ -4082,6 +4082,9 @@ dependencies = [
 name = "waymark-action-runtime-convert"
 version = "0.1.0"
 dependencies = [
+ "prost 0.12.6",
+ "serde_json",
+ "thiserror",
  "waymark-action-runtime-core",
  "waymark-action-runtime-metadata-codec",
  "waymark-convert-core",
@@ -4130,6 +4133,7 @@ name = "waymark-action-runtime-worker-pool"
 version = "0.1.0"
 dependencies = [
  "nonempty-collections",
+ "serde_json",
  "thiserror",
  "tokio",
  "tracing",
@@ -4142,6 +4146,7 @@ dependencies = [
  "waymark-convert-core",
  "waymark-ids",
  "waymark-proto",
+ "waymark-proto-python-value-conversions",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-python",
  "waymark-worker-core",
@@ -5901,6 +5906,7 @@ dependencies = [
  "tracing",
  "waymark-managed-process",
  "waymark-proto",
+ "waymark-proto-python-value-conversions",
  "waymark-worker-core",
  "waymark-worker-process-pool",
  "waymark-worker-process-spec",
