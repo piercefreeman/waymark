@@ -23,12 +23,12 @@ DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 @typing.final
 class WorkflowArgumentValue(google.protobuf.message.Message):
     """=============================================================================
-    The Python flavor's value document
+    The Python flavor's encoded values
     =============================================================================
-    The encoding of a single Python workflow value: the document carried as
+    The encoding of a single Python workflow value, carried as
     the opaque `value` bytes of the framing-level
     `waymark.messages.WorkflowArgument`.  Python-specific by design — a
-    value document never crosses a language boundary, so only the Python
+    value never crosses a language boundary in this form, so only the Python
     flavor's own codecs read or write these messages.
     """
 
@@ -45,7 +45,7 @@ class WorkflowArgumentValue(google.protobuf.message.Message):
     @property
     def basemodel(self) -> Global___BaseModelWorkflowArgument: ...
     @property
-    def exception(self) -> Global___WorkflowErrorValue: ...
+    def exception(self) -> Global___WorkflowExceptionValue: ...
     @property
     def list_value(self) -> Global___WorkflowListArgument: ...
     @property
@@ -57,7 +57,7 @@ class WorkflowArgumentValue(google.protobuf.message.Message):
         *,
         primitive: Global___PrimitiveWorkflowArgument | None = ...,
         basemodel: Global___BaseModelWorkflowArgument | None = ...,
-        exception: Global___WorkflowErrorValue | None = ...,
+        exception: Global___WorkflowExceptionValue | None = ...,
         list_value: Global___WorkflowListArgument | None = ...,
         tuple_value: Global___WorkflowTupleArgument | None = ...,
         dict_value: Global___WorkflowDictArgument | None = ...,
@@ -205,62 +205,83 @@ class BaseModelWorkflowArgument(google.protobuf.message.Message):
 Global___BaseModelWorkflowArgument: typing_extensions.TypeAlias = BaseModelWorkflowArgument
 
 @typing.final
-class WorkflowErrorValue(google.protobuf.message.Message):
-    """Serialized exception for error propagation"""
+class ActionResultValue(google.protobuf.message.Message):
+    """How an action call completed, in this language's terms: the value the
+    action returned, or the exception it raised.
+
+    The distinction lives here rather than in the transport framing
+    because it is a language notion: not every language has an
+    exception-like construct, and each decides for itself what completing
+    a call can look like.
+
+    Both arms carry values; what separates them is the state the VM
+    settles the awaiting promise in. An exception in the `value` arm is an
+    ordinary returned value — returning an exception is not raising it.
+    """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
-    TYPE_FIELD_NUMBER: builtins.int
-    MODULE_FIELD_NUMBER: builtins.int
-    MESSAGE_FIELD_NUMBER: builtins.int
-    TRACEBACK_FIELD_NUMBER: builtins.int
-    VALUES_FIELD_NUMBER: builtins.int
-    TYPE_HIERARCHY_FIELD_NUMBER: builtins.int
-    type: builtins.str
-    module: builtins.str
-    message: builtins.str
-    traceback: builtins.str
+    VALUE_FIELD_NUMBER: builtins.int
+    EXCEPTION_FIELD_NUMBER: builtins.int
     @property
-    def values(self) -> Global___WorkflowDictArgument: ...
+    def value(self) -> Global___WorkflowArgumentValue: ...
     @property
-    def type_hierarchy(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
-        """Exception class hierarchy (MRO) for proper except matching.
-        e.g., for KeyError: ["KeyError", "LookupError", "Exception", "BaseException"]
-        This allows `except LookupError:` to catch KeyError.
-        """
-
+    def exception(self) -> Global___WorkflowExceptionValue: ...
     def __init__(
         self,
         *,
-        type: builtins.str = ...,
-        module: builtins.str = ...,
-        message: builtins.str = ...,
-        traceback: builtins.str = ...,
-        values: Global___WorkflowDictArgument | None = ...,
-        type_hierarchy: collections.abc.Iterable[builtins.str] | None = ...,
+        value: Global___WorkflowArgumentValue | None = ...,
+        exception: Global___WorkflowExceptionValue | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing.Literal["values", b"values"]) -> builtins.bool: ...
+    def HasField(
+        self,
+        field_name: typing.Literal[
+            "exception", b"exception", "outcome", b"outcome", "value", b"value"
+        ],
+    ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
-            "message",
-            b"message",
-            "module",
-            b"module",
-            "traceback",
-            b"traceback",
-            "type",
-            b"type",
-            "type_hierarchy",
-            b"type_hierarchy",
-            "values",
-            b"values",
+            "exception", b"exception", "outcome", b"outcome", "value", b"value"
         ],
     ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing.Literal["outcome", b"outcome"]
+    ) -> typing.Literal["value", "exception"] | None: ...
 
-Global___WorkflowErrorValue: typing_extensions.TypeAlias = WorkflowErrorValue
+Global___ActionResultValue: typing_extensions.TypeAlias = ActionResultValue
+
+@typing.final
+class WorkflowExceptionValue(google.protobuf.message.Message):
+    """A raised exception, shaped as the VM models one: the type identifying
+    it, and the details value carried alongside.
+
+    The details are an ordinary value — in practice a dict carrying the
+    language-specific particulars (module, message, traceback, the
+    exception's own values, the class hierarchy for `except` matching).
+    Nothing about those particulars is wire-level structure: they are just
+    what this language chose to put in the details.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    TYPE_ID_FIELD_NUMBER: builtins.int
+    DETAILS_FIELD_NUMBER: builtins.int
+    type_id: builtins.str
+    @property
+    def details(self) -> Global___WorkflowArgumentValue: ...
+    def __init__(
+        self,
+        *,
+        type_id: builtins.str = ...,
+        details: Global___WorkflowArgumentValue | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["details", b"details"]) -> builtins.bool: ...
+    def ClearField(
+        self, field_name: typing.Literal["details", b"details", "type_id", b"type_id"]
+    ) -> None: ...
+
+Global___WorkflowExceptionValue: typing_extensions.TypeAlias = WorkflowExceptionValue
 
 @typing.final
 class WorkflowListArgument(google.protobuf.message.Message):
@@ -304,7 +325,7 @@ Global___WorkflowTupleArgument: typing_extensions.TypeAlias = WorkflowTupleArgum
 
 @typing.final
 class WorkflowDictEntry(google.protobuf.message.Message):
-    """A dictionary entry inside the value document — structural, unlike the
+    """A dictionary entry inside an encoded value — structural, unlike the
     framing-level `waymark.messages.WorkflowArgument`.
     """
 
