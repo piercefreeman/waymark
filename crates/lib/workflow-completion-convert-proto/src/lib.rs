@@ -39,8 +39,8 @@ impl TryConvert<waymark_vm_value_python::ReadyValue, waymark_proto::messages::Wo
     fn try_convert(
         value: waymark_vm_value_python::ReadyValue,
     ) -> Result<waymark_proto::messages::WorkflowArguments, PendingPromiseError> {
-        let json = waymark_vm_value_convert_json::Converter::try_convert(value)?;
-        Ok(completion_workflow_arguments(json))
+        let value = waymark_vm_value_convert_proto::Converter::try_convert(&value)?;
+        Ok(completion_workflow_arguments(value))
     }
 }
 
@@ -55,18 +55,23 @@ impl
     fn try_convert(
         exception: waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
     ) -> Result<waymark_proto::messages::WorkflowArguments, PendingPromiseError> {
-        let error_json = waymark_vm_value_convert_json::Converter::try_convert(exception)?;
-        Ok(exception_workflow_arguments(error_json))
+        let exception = waymark_vm_value_convert_proto::Converter::try_convert(&exception)?;
+        Ok(exception_workflow_arguments(exception))
     }
 }
 
 fn exception_workflow_arguments(
-    error_json: serde_json::Value,
+    exception: waymark_proto::python_value::WorkflowExceptionValue,
 ) -> waymark_proto::messages::WorkflowArguments {
     use waymark_proto::messages::{WorkflowArgument, WorkflowArguments};
 
-    let error_value =
-        waymark_proto_python_value_conversions::json_to_workflow_argument_value(&error_json);
+    let error_value = waymark_proto::python_value::WorkflowArgumentValue {
+        kind: Some(
+            waymark_proto::python_value::workflow_argument_value::Kind::Exception(Box::new(
+                exception,
+            )),
+        ),
+    };
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "error".to_string(),
@@ -78,18 +83,14 @@ fn exception_workflow_arguments(
 }
 
 fn completion_workflow_arguments(
-    json: serde_json::Value,
+    value: waymark_proto::python_value::WorkflowArgumentValue,
 ) -> waymark_proto::messages::WorkflowArguments {
     use waymark_proto::messages::{WorkflowArgument, WorkflowArguments};
 
-    let result_value =
-        waymark_proto_python_value_conversions::json_to_workflow_argument_value(&json);
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "result".to_string(),
-            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
-                &result_value,
-            ),
+            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(&value),
         }],
     }
 }

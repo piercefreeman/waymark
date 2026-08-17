@@ -14,8 +14,7 @@ impl
     fn try_convert(
         value: &waymark_vm_value_python::ReadyValue,
     ) -> Result<waymark_proto::python_value::WorkflowArgumentValue, PendingPromiseError> {
-        let json = waymark_vm_value_convert_json::Converter::try_convert(value.clone())?;
-        Ok(waymark_proto_python_value_conversions::json_to_workflow_argument_value(&json))
+        waymark_vm_value_convert_proto::Converter::try_convert(value)
     }
 }
 
@@ -27,8 +26,7 @@ impl TryConvert<&waymark_vm_value_python::Value, waymark_proto::python_value::Wo
     fn try_convert(
         value: &waymark_vm_value_python::Value,
     ) -> Result<waymark_proto::python_value::WorkflowArgumentValue, PendingPromiseError> {
-        let json = waymark_vm_value_convert_json::Converter::try_convert(value.clone())?;
-        Ok(waymark_proto_python_value_conversions::json_to_workflow_argument_value(&json))
+        waymark_vm_value_convert_proto::Converter::try_convert(value)
     }
 }
 
