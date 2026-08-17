@@ -31,11 +31,15 @@ def loads(data: Any) -> Any:
 
     if isinstance(data, pb2.WorkflowArgumentValue):
         argument = data
+    elif isinstance(data, bytes):
+        # A framing-level argument value: an encoded WorkflowArgumentValue
+        # document.
+        argument = pb2.WorkflowArgumentValue.FromString(data)
     elif isinstance(data, dict):
         argument = pb2.WorkflowArgumentValue()
         json_format.ParseDict(data, argument)
     else:
-        raise TypeError("argument value payload must be a dict or ArgumentValue message")
+        raise TypeError("argument value payload must be bytes, a dict or ArgumentValue message")
     return _from_argument_value(argument)
 
 
@@ -44,7 +48,7 @@ def build_arguments_from_kwargs(kwargs: dict[str, Any]) -> pb2.WorkflowArguments
     for key, value in kwargs.items():
         entry = arguments.arguments.add()
         entry.key = key
-        entry.value.CopyFrom(dumps(value))
+        entry.value = dumps(value).SerializeToString()
     return arguments
 
 

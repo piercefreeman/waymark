@@ -17,3 +17,6 @@ thiserror = { workspace = true }
 
 [lib]
 doctest = false
+
+[dev-dependencies]
+waymark-message-conversions = { workspace = true }
