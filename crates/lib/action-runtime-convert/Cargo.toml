@@ -15,5 +15,3 @@ waymark-vm-value-convert-core = { workspace = true }
 waymark-vm-value-convert-json = { workspace = true }
 waymark-vm-value-python = { workspace = true }
 waymark-worker-core = { workspace = true }
-
-serde_json = { workspace = true }

@@ -5725,6 +5725,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "waymark-proto",
 ]
 
 [[package]]
@@ -5732,10 +5733,21 @@ name = "waymark-worker-inline"
 version = "0.1.0"
 dependencies = [
  "nonempty-collections",
- "serde_json",
  "tokio",
  "waymark-observability",
+ "waymark-proto",
  "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-worker-inline-compat"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "waymark-proto",
+ "waymark-proto-message-conversions",
+ "waymark-worker-core",
+ "waymark-worker-inline",
 ]
 
 [[package]]
@@ -5867,7 +5879,6 @@ dependencies = [
  "waymark-managed-process",
  "waymark-proto",
  "waymark-proto-message-conversions",
- "waymark-proto-python-value-conversions",
  "waymark-worker-core",
  "waymark-worker-message-protocol",
  "waymark-worker-metrics",
