@@ -12,8 +12,6 @@ waymark-proto = { workspace = true }
 
 either = { workspace = true, optional = true }
 nonempty-collections = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [lib]
