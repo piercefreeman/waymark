@@ -205,43 +205,6 @@ async fn r#loop(
     Ok(())
 }
 
-/// Payload for dispatching an action to a worker.
-#[derive(Debug, Clone)]
-pub struct ActionDispatchPayload {
-    /// Unique action identifier
-    pub action_id: String,
-
-    /// Workflow instance this action belongs to
-    pub instance_id: String,
-
-    /// Sequence number within the instance
-    pub sequence: u32,
-
-    /// Name of the action function to call
-    pub action_name: String,
-
-    /// Python module containing the action
-    pub module_name: String,
-
-    /// Keyword arguments for the action
-    pub kwargs: proto::WorkflowArguments,
-
-    /// Timeout in seconds (0 = no timeout)
-    pub timeout_seconds: u32,
-
-    /// Maximum retry attempts
-    pub max_retries: u32,
-
-    /// Current attempt number
-    pub attempt_number: u32,
-
-    /// Dispatch token for correlation
-    pub dispatch_token: Uuid,
-
-    /// Opaque server correlation metadata; echoed back on the result.
-    pub metadata: Vec<u8>,
-}
-
 impl Sender {
     /// Send an action to the worker and wait for the result.
     ///
@@ -260,7 +223,7 @@ impl Sender {
     /// - The worker protocol state already closed before dispatch registration
     pub async fn send_action(
         &self,
-        dispatch: ActionDispatchPayload,
+        dispatch: proto::ActionDispatch,
     ) -> Result<RoundTripMetrics<proto::WorkflowArguments>, SendActionError> {
         let delivery_id = self
             .next_delivery
@@ -291,26 +254,12 @@ impl Sender {
             shared.pending_responses.insert(delivery_id, response_tx);
         }
 
-        // Build and send the dispatch envelope
-        let command = proto::ActionDispatch {
-            action_id: dispatch.action_id.clone(),
-            instance_id: dispatch.instance_id.clone(),
-            sequence: dispatch.sequence,
-            action_name: dispatch.action_name.clone(),
-            module_name: dispatch.module_name.clone(),
-            kwargs: Some(dispatch.kwargs.clone()),
-            timeout_seconds: Some(dispatch.timeout_seconds),
-            max_retries: Some(dispatch.max_retries),
-            attempt_number: Some(dispatch.attempt_number),
-            dispatch_token: Some(dispatch.dispatch_token.to_string()),
-            metadata: dispatch.metadata.clone(),
-        };
-
+        // Send the dispatch envelope
         let envelope = proto::Envelope {
             delivery_id,
             partition_id: 0,
             kind: proto::MessageKind::ActionDispatch as i32,
-            payload: command.encode_to_vec(),
+            payload: dispatch.encode_to_vec(),
         };
 
         if self.send_envelope(envelope).await.is_err() {
@@ -387,18 +336,18 @@ mod tests {
         Uuid::parse_str("11111111-2222-4333-8444-555555555555").expect("valid fixed UUID for tests")
     }
 
-    fn sample_dispatch(dispatch_token: Uuid) -> ActionDispatchPayload {
-        ActionDispatchPayload {
+    fn sample_dispatch(dispatch_token: Uuid) -> proto::ActionDispatch {
+        proto::ActionDispatch {
             action_id: "action-1".to_string(),
             instance_id: "instance-1".to_string(),
             sequence: 42,
             action_name: "do_work".to_string(),
             module_name: "workers.demo".to_string(),
-            kwargs: proto::WorkflowArguments::default(),
-            timeout_seconds: 30,
-            max_retries: 3,
-            attempt_number: 1,
-            dispatch_token,
+            kwargs: Some(proto::WorkflowArguments::default()),
+            timeout_seconds: Some(30),
+            max_retries: Some(3),
+            attempt_number: Some(1),
+            dispatch_token: Some(dispatch_token.to_string()),
             metadata: Vec::new(),
         }
     }
