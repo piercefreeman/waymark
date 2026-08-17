@@ -56,9 +56,10 @@ impl
             if matches!(value, waymark_vm_value_python::ReadyValue::None) {
                 continue;
             }
+            let encoded = Self::try_convert(value)?;
             arguments.push(WorkflowArgument {
                 key: name.clone(),
-                value: Some(Self::try_convert(value)?),
+                value: waymark_message_conversions::encode_workflow_argument_value(&encoded),
             });
         }
         Ok(WorkflowArguments { arguments })
