@@ -7,8 +7,9 @@ publish.workspace = true
 [dependencies]
 waymark-action-runtime-core = { workspace = true }
 waymark-convert-core = { workspace = true }
-waymark-message-conversions = { workspace = true }
 waymark-proto = { workspace = true }
+waymark-proto-message-conversions = { workspace = true }
+waymark-proto-python-value-conversions = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-value-convert-core = { workspace = true }
 waymark-vm-value-convert-json = { workspace = true }
