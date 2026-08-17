@@ -37,7 +37,6 @@ waymark-fullset-effect-handler = { path = "crates/lib/fullset-effect-handler" }
 waymark-ids = { path = "crates/lib/ids" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
 waymark-managed-process = { path = "crates/lib/managed-process" }
-waymark-message-conversions = { path = "crates/lib/message-conversions" }
 waymark-metrics-util = { path = "crates/lib/metrics-util" }
 waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
 waymark-observability = { path = "crates/lib/observability" }
@@ -47,6 +46,8 @@ waymark-pool-status = { path = "crates/lib/pool-status" }
 waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-bringup" }
 waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settlement-demand-registry" }
 waymark-proto = { path = "crates/lib/proto" }
+waymark-proto-message-conversions = { path = "crates/lib/proto-message-conversions" }
+waymark-proto-python-value-conversions = { path = "crates/lib/proto-python-value-conversions" }
 waymark-python-workflow-ir-reader = { path = "crates/lib/python-workflow-ir-reader" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-sleep-compat-python = { path = "crates/lib/sleep-compat-python" }

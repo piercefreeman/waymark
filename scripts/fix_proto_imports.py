@@ -71,8 +71,9 @@ def _ensure_struct_registration(pb2_text: str) -> str:
     return without_existing.replace(sym_decl, replacement, 1)
 
 
-def _rewrite_messages_pb2(proto_dir: Path) -> None:
-    target = proto_dir / "messages_pb2.py"
+def _rewrite_python_value_pb2(proto_dir: Path) -> None:
+    """The value-document proto imports struct.proto (NullValue)."""
+    target = proto_dir / "python_value_pb2.py"
     if not target.exists():
         return
     text = target.read_text()
@@ -94,7 +95,7 @@ def main() -> None:
         if not proto_dir.exists():
             continue
         _rewrite_messages_pb2_grpc(proto_dir)
-        _rewrite_messages_pb2(proto_dir)
+        _rewrite_python_value_pb2(proto_dir)
         _rewrite_messages_pb2_imports(proto_dir)
         _rewrite_ast_pb2(proto_dir)
 
