@@ -1,24 +1,17 @@
-//! Protocol buffer message conversion utilities.
+//! Conversions for the Python flavor's proto value document.
+//!
+//! Everything here operates on [`waymark_proto::python_value`] — the
+//! encoding of a single Python workflow value — and knows nothing about
+//! the framing that carries the encoded documents.
 
 use prost::Message as _;
-use waymark_proto::messages as proto;
-
-/// Error decoding an embedded [`proto::WorkflowArgumentValue`] document
-/// out of a framing-level [`proto::WorkflowArgument`]'s value bytes.
-#[derive(Debug, thiserror::Error)]
-#[error("decoding workflow argument value bytes for key {key:?}")]
-pub struct DecodeArgumentError {
-    /// The framing-level argument name the bytes belonged to.
-    pub key: String,
-
-    /// The decode failure.
-    #[source]
-    pub source: prost::DecodeError,
-}
+use waymark_proto::python_value as proto_value;
 
 /// Convert a WorkflowArgumentValue to a serde_json::Value
-pub fn workflow_argument_value_to_json(value: &proto::WorkflowArgumentValue) -> serde_json::Value {
-    use proto::workflow_argument_value::Kind;
+pub fn workflow_argument_value_to_json(
+    value: &proto_value::WorkflowArgumentValue,
+) -> serde_json::Value {
+    use proto_value::workflow_argument_value::Kind;
     use serde_json::json;
 
     match &value.kind {
@@ -56,8 +49,8 @@ pub fn workflow_argument_value_to_json(value: &proto::WorkflowArgumentValue) -> 
     }
 }
 
-fn primitive_to_json(p: &proto::PrimitiveWorkflowArgument) -> serde_json::Value {
-    use proto::primitive_workflow_argument::Kind;
+fn primitive_to_json(p: &proto_value::PrimitiveWorkflowArgument) -> serde_json::Value {
+    use proto_value::primitive_workflow_argument::Kind;
     use serde_json::json;
 
     match &p.kind {
@@ -70,7 +63,7 @@ fn primitive_to_json(p: &proto::PrimitiveWorkflowArgument) -> serde_json::Value 
     }
 }
 
-fn workflow_dict_to_json(dict: &proto::WorkflowDictArgument) -> serde_json::Value {
+fn workflow_dict_to_json(dict: &proto_value::WorkflowDictArgument) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     for entry in &dict.entries {
         if let Some(value) = &entry.value {
@@ -80,85 +73,60 @@ fn workflow_dict_to_json(dict: &proto::WorkflowDictArgument) -> serde_json::Valu
     serde_json::Value::Object(map)
 }
 
-fn optional_workflow_dict_to_json(dict: &Option<proto::WorkflowDictArgument>) -> serde_json::Value {
+fn optional_workflow_dict_to_json(
+    dict: &Option<proto_value::WorkflowDictArgument>,
+) -> serde_json::Value {
     match dict {
         Some(d) => workflow_dict_to_json(d),
         None => serde_json::Value::Object(serde_json::Map::new()),
     }
 }
 
-pub fn workflow_arguments_to_json(
-    args: &proto::WorkflowArguments,
-) -> Result<serde_json::Value, DecodeArgumentError> {
-    let mut map = serde_json::Map::new();
-    for arg in &args.arguments {
-        let value =
-            decode_workflow_argument_value(&arg.value).map_err(|source| DecodeArgumentError {
-                key: arg.key.clone(),
-                source,
-            })?;
-        map.insert(arg.key.clone(), workflow_argument_value_to_json(&value));
-    }
-
-    Ok(serde_json::Value::Object(map))
-}
-
-/// Decode an encoded [`proto::WorkflowArgumentValue`] document.
-pub fn decode_workflow_argument_value(
-    bytes: &[u8],
-) -> Result<proto::WorkflowArgumentValue, prost::DecodeError> {
-    proto::WorkflowArgumentValue::decode(bytes)
-}
-
-/// Encode a [`proto::WorkflowArgumentValue`] into the opaque value bytes
-/// of a framing-level [`proto::WorkflowArgument`].
-pub fn encode_workflow_argument_value(value: &proto::WorkflowArgumentValue) -> Vec<u8> {
-    value.encode_to_vec()
-}
-
 /// Convert a serde_json::Value to a WorkflowArgumentValue.
-pub fn json_to_workflow_argument_value(value: &serde_json::Value) -> proto::WorkflowArgumentValue {
-    use proto::primitive_workflow_argument::Kind as PrimitiveKind;
-    use proto::workflow_argument_value::Kind;
+pub fn json_to_workflow_argument_value(
+    value: &serde_json::Value,
+) -> proto_value::WorkflowArgumentValue {
+    use proto_value::primitive_workflow_argument::Kind as PrimitiveKind;
+    use proto_value::workflow_argument_value::Kind;
 
     let kind = match value {
-        serde_json::Value::Null => Kind::Primitive(proto::PrimitiveWorkflowArgument {
+        serde_json::Value::Null => Kind::Primitive(proto_value::PrimitiveWorkflowArgument {
             kind: Some(PrimitiveKind::NullValue(0)),
         }),
-        serde_json::Value::Bool(b) => Kind::Primitive(proto::PrimitiveWorkflowArgument {
+        serde_json::Value::Bool(b) => Kind::Primitive(proto_value::PrimitiveWorkflowArgument {
             kind: Some(PrimitiveKind::BoolValue(*b)),
         }),
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                Kind::Primitive(proto::PrimitiveWorkflowArgument {
+                Kind::Primitive(proto_value::PrimitiveWorkflowArgument {
                     kind: Some(PrimitiveKind::IntValue(i)),
                 })
             } else if let Some(u) = n.as_u64() {
-                Kind::Primitive(proto::PrimitiveWorkflowArgument {
+                Kind::Primitive(proto_value::PrimitiveWorkflowArgument {
                     kind: Some(PrimitiveKind::IntValue(u as i64)),
                 })
             } else {
-                Kind::Primitive(proto::PrimitiveWorkflowArgument {
+                Kind::Primitive(proto_value::PrimitiveWorkflowArgument {
                     kind: Some(PrimitiveKind::DoubleValue(n.as_f64().unwrap_or(0.0))),
                 })
             }
         }
-        serde_json::Value::String(s) => Kind::Primitive(proto::PrimitiveWorkflowArgument {
+        serde_json::Value::String(s) => Kind::Primitive(proto_value::PrimitiveWorkflowArgument {
             kind: Some(PrimitiveKind::StringValue(s.clone())),
         }),
         serde_json::Value::Array(items) => {
-            let mut list = proto::WorkflowListArgument { items: Vec::new() };
+            let mut list = proto_value::WorkflowListArgument { items: Vec::new() };
             for item in items {
                 list.items.push(json_to_workflow_argument_value(item));
             }
             Kind::ListValue(list)
         }
         serde_json::Value::Object(map) => {
-            let mut dict = proto::WorkflowDictArgument {
+            let mut dict = proto_value::WorkflowDictArgument {
                 entries: Vec::new(),
             };
             for (key, item) in map {
-                dict.entries.push(proto::WorkflowDictEntry {
+                dict.entries.push(proto_value::WorkflowDictEntry {
                     key: key.clone(),
                     value: Some(json_to_workflow_argument_value(item)),
                 });
@@ -167,7 +135,20 @@ pub fn json_to_workflow_argument_value(value: &serde_json::Value) -> proto::Work
         }
     };
 
-    proto::WorkflowArgumentValue { kind: Some(kind) }
+    proto_value::WorkflowArgumentValue { kind: Some(kind) }
+}
+
+/// Encode a [`proto_value::WorkflowArgumentValue`] into the opaque value
+/// bytes carried at the framing level.
+pub fn encode_workflow_argument_value(value: &proto_value::WorkflowArgumentValue) -> Vec<u8> {
+    value.encode_to_vec()
+}
+
+/// Decode an encoded [`proto_value::WorkflowArgumentValue`] document.
+pub fn decode_workflow_argument_value(
+    bytes: &[u8],
+) -> Result<proto_value::WorkflowArgumentValue, prost::DecodeError> {
+    proto_value::WorkflowArgumentValue::decode(bytes)
 }
 
 #[cfg(test)]
