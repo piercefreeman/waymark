@@ -4,30 +4,27 @@ use std::collections::HashMap;
 
 use nonempty_collections::NEVec;
 use serde_json::Value;
-use uuid::Uuid;
-use waymark_ids::{ExecutionId, InstanceId};
 
 /// Action execution request routed through the worker pool.
+///
+/// Carries exactly what executing the action requires: the action
+/// identity, its arguments, and the opaque correlation metadata the
+/// pool echoes back on the completion.  Everything else (per-attempt
+/// tokens, wire ids) is the transport's own business.
 #[derive(Clone, Debug)]
 pub struct ActionRequest {
-    pub executor_id: InstanceId,
-    pub execution_id: ExecutionId,
     pub action_name: String,
     pub module_name: Option<String>,
     pub kwargs: HashMap<String, Value>,
-    pub timeout_seconds: u32,
-    pub attempt_number: u32,
-    pub dispatch_token: Uuid,
     pub metadata: Vec<u8>,
 }
 
 /// Completed action result emitted by the worker pool.
+///
+/// Correlation back to the caller rides solely on `metadata`, echoed
+/// verbatim from the request.
 #[derive(Clone, Debug)]
 pub struct ActionCompletion {
-    pub executor_id: InstanceId,
-    pub execution_id: ExecutionId,
-    pub attempt_number: u32,
-    pub dispatch_token: Uuid,
     pub result: UncheckedExecutionResult,
     pub metadata: Vec<u8>,
 }
