@@ -146,8 +146,14 @@ mod tests {
     use waymark_ids::InstanceId;
 
     fn completion(metadata: Vec<u8>) -> waymark_proto::messages::ActionResult {
+        let returned = waymark_proto_python_value_conversions::returned_value(
+            waymark_proto_python_value_conversions::json_to_workflow_argument_value(
+                &serde_json::Value::Null,
+            ),
+        );
+
         waymark_proto::messages::ActionResult {
-            success: true,
+            payload: waymark_proto_python_value_conversions::encode_action_result_value(&returned),
             metadata,
             ..Default::default()
         }

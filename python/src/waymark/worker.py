@@ -11,7 +11,7 @@ from typing import Any, AsyncIterator, cast
 
 import grpc
 
-from waymark.actions import serialize_error_payload, serialize_result_payload
+from waymark.actions import serialize_raised_exception, serialize_returned_value
 from waymark.proto import messages_pb2 as pb2
 from waymark.proto import messages_pb2_grpc as pb2_grpc
 
@@ -107,9 +107,9 @@ async def _handle_dispatch(
 
         if execution.exception:
             success = False
-            response_payload = serialize_error_payload(action_name, execution.exception)
+            response_payload = serialize_raised_exception(execution.exception)
         else:
-            response_payload = serialize_result_payload(execution.result)
+            response_payload = serialize_returned_value(execution.result)
     except asyncio.TimeoutError:
         # Python-side timeout is just for cleanup - Rust already handled the timeout.
         # Log internally but don't treat as special error type.
@@ -123,18 +123,17 @@ async def _handle_dispatch(
         error = Exception(
             f"action {action_name} cleanup timeout (Rust-side timeout already triggered)"
         )
-        response_payload = serialize_error_payload(action_name, error)
+        response_payload = serialize_raised_exception(error)
     except Exception as exc:  # noqa: BLE001 - propagate structured errors
         success = False
-        response_payload = serialize_error_payload(action_name, exc)
+        response_payload = serialize_raised_exception(exc)
         LOGGER.exception("Action %s failed", action_name)
     worker_end = time.perf_counter_ns()
     response = pb2.ActionResult(
-        success=success,
         worker_start_ns=worker_start,
         worker_end_ns=worker_end,
     )
-    response.payload.CopyFrom(response_payload)
+    response.payload = response_payload
     # Echo the opaque server correlation metadata untouched.
     if dispatch.metadata:
         response.metadata = dispatch.metadata
