@@ -11,10 +11,24 @@ import pytest
 from pydantic import BaseModel
 
 from waymark import bridge
-from waymark.actions import action, serialize_result_payload
+from waymark.actions import action
 from waymark.proto import ast_pb2 as ir
 from waymark.proto import messages_pb2 as pb2
-from waymark.serialization import arguments_to_kwargs
+from waymark.serialization import arguments_to_kwargs, dumps
+
+
+def workflow_completion_payload(value: object) -> bytes:
+    """Build the workflow-completion payload the server sends back.
+
+    Completions travel as named arguments carrying a `result` value —
+    a separate plane from an action's structurally-discriminated result.
+    """
+    arguments = pb2.WorkflowArguments()
+    entry = arguments.arguments.add()
+    entry.key = "result"
+    entry.value = dumps(value).SerializeToString()
+    return arguments.SerializeToString()
+
 
 workflow_module = importlib.import_module("waymark.workflow")
 Workflow = workflow_module.Workflow
@@ -41,8 +55,7 @@ def test_workflow_decorator_registers_and_caches_ir(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(workflow_module, "build_workflow_ir", fake_build)
 
     async def fake_execute_workflow(_payload: bytes) -> bytes:
-        payload = serialize_result_payload("done")
-        return payload.SerializeToString()
+        return workflow_completion_payload("done")
 
     monkeypatch.setattr(bridge, "execute_workflow", fake_execute_workflow)
 
@@ -92,8 +105,7 @@ def test_workflow_registration_outside_pytest(monkeypatch: pytest.MonkeyPatch) -
     async def fake_wait_for_instance(*, instance_id: str, poll_interval_secs: float = 1.0) -> bytes:
         wait_calls.append(instance_id)
         _ = poll_interval_secs  # unused in fake
-        payload = serialize_result_payload(wait_results[len(wait_calls) - 1])
-        return payload.SerializeToString()
+        return workflow_completion_payload(wait_results[len(wait_calls) - 1])
 
     monkeypatch.setattr(bridge, "run_instance", fake_run_instance)
     monkeypatch.setattr(bridge, "wait_for_instance", fake_wait_for_instance)
@@ -131,8 +143,7 @@ def test_workflow_registration_applies_defaults(monkeypatch: pytest.MonkeyPatch)
     async def fake_wait_for_instance(*, instance_id: str, poll_interval_secs: float = 1.0) -> bytes:
         _ = instance_id
         _ = poll_interval_secs
-        payload = serialize_result_payload("ok")
-        return payload.SerializeToString()
+        return workflow_completion_payload("ok")
 
     monkeypatch.setattr(bridge, "run_instance", fake_run_instance)
     monkeypatch.setattr(bridge, "wait_for_instance", fake_wait_for_instance)
@@ -169,8 +180,7 @@ def test_workflow_registration_overrides_defaults(monkeypatch: pytest.MonkeyPatc
     async def fake_wait_for_instance(*, instance_id: str, poll_interval_secs: float = 1.0) -> bytes:
         _ = instance_id
         _ = poll_interval_secs
-        payload = serialize_result_payload("ok")
-        return payload.SerializeToString()
+        return workflow_completion_payload("ok")
 
     monkeypatch.setattr(bridge, "run_instance", fake_run_instance)
     monkeypatch.setattr(bridge, "wait_for_instance", fake_wait_for_instance)
@@ -272,8 +282,7 @@ def test_workflow_result_coerces_to_pydantic_model(monkeypatch: pytest.MonkeyPat
             "created_at": response_created_at.isoformat(),
             "status": "ok",
         }
-        payload = serialize_result_payload(response)
-        return payload.SerializeToString()
+        return workflow_completion_payload(response)
 
     monkeypatch.setattr(bridge, "execute_workflow", fake_execute_workflow)
 
@@ -302,8 +311,7 @@ def test_workflow_result_coerces_to_dataclass(monkeypatch: pytest.MonkeyPatch) -
 
     async def fake_execute_workflow(_payload: bytes) -> bytes:
         response = {"name": "demo", "count": 3}
-        payload = serialize_result_payload(response)
-        return payload.SerializeToString()
+        return workflow_completion_payload(response)
 
     monkeypatch.setattr(bridge, "execute_workflow", fake_execute_workflow)
 
@@ -347,8 +355,7 @@ def test_workflow_result_coerces_nested_typed_dataclass(
                 "sample_ids": [str(sample_id) for sample_id in sample_ids],
             },
         }
-        payload = serialize_result_payload(response)
-        return payload.SerializeToString()
+        return workflow_completion_payload(response)
 
     monkeypatch.setattr(bridge, "execute_workflow", fake_execute_workflow)
 
@@ -376,8 +383,7 @@ def test_workflow_result_optional_returns_none(monkeypatch: pytest.MonkeyPatch) 
             return await build_optional()
 
     async def fake_execute_workflow(_payload: bytes) -> bytes:
-        payload = serialize_result_payload(None)
-        return payload.SerializeToString()
+        return workflow_completion_payload(None)
 
     monkeypatch.setattr(bridge, "execute_workflow", fake_execute_workflow)
 
@@ -408,8 +414,7 @@ def test_workflow_result_union_falls_back(monkeypatch: pytest.MonkeyPatch) -> No
 
     async def fake_execute_workflow(_payload: bytes) -> bytes:
         response = {"user_id": str(response_user_id), "status": "ok"}
-        payload = serialize_result_payload(response)
-        return payload.SerializeToString()
+        return workflow_completion_payload(response)
 
     monkeypatch.setattr(bridge, "execute_workflow", fake_execute_workflow)
 
@@ -432,8 +437,7 @@ def test_workflow_result_direct_return(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     async def fake_wait_for_instance(*, instance_id: str, poll_interval_secs: float = 1.0) -> bytes:
-        payload = serialize_result_payload(expected_result)
-        return payload.SerializeToString()
+        return workflow_completion_payload(expected_result)
 
     monkeypatch.setattr(bridge, "run_instance", fake_run_instance)
     monkeypatch.setattr(bridge, "wait_for_instance", fake_wait_for_instance)
@@ -468,8 +472,7 @@ def test_workflow_blocking_false_returns_instance_id(monkeypatch: pytest.MonkeyP
 
     async def fake_wait_for_instance(*, instance_id: str, poll_interval_secs: float = 1.0) -> bytes:
         wait_for_instance_calls.append(instance_id)
-        payload = serialize_result_payload("should_not_reach")
-        return payload.SerializeToString()
+        return workflow_completion_payload("should_not_reach")
 
     monkeypatch.setattr(bridge, "run_instance", fake_run_instance)
     monkeypatch.setattr(bridge, "wait_for_instance", fake_wait_for_instance)
@@ -509,8 +512,7 @@ def test_workflow_blocking_true_waits_for_result(monkeypatch: pytest.MonkeyPatch
 
     async def fake_wait_for_instance(*, instance_id: str, poll_interval_secs: float = 1.0) -> bytes:
         wait_for_instance_calls.append(instance_id)
-        payload = serialize_result_payload(expected_result)
-        return payload.SerializeToString()
+        return workflow_completion_payload(expected_result)
 
     monkeypatch.setattr(bridge, "run_instance", fake_run_instance)
     monkeypatch.setattr(bridge, "wait_for_instance", fake_wait_for_instance)
