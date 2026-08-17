@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 waymark-managed-process = { workspace = true }
 waymark-proto = { workspace = true }
+waymark-proto-python-value-conversions = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-worker-process-pool = { workspace = true }
 waymark-worker-process-spec = { workspace = true }
