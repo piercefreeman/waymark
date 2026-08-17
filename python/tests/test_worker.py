@@ -2,6 +2,7 @@ import argparse
 import asyncio
 
 from waymark import worker, workflow_runtime
+from waymark.actions import deserialize_action_result
 from waymark.grpc_config import GRPC_CHANNEL_OPTIONS
 from waymark.proto import messages_pb2 as pb2
 
@@ -69,7 +70,7 @@ def test_handle_dispatch_echoes_metadata(monkeypatch) -> None:
         assert result_envelope.kind == pb2.MessageKind.MESSAGE_KIND_ACTION_RESULT
         result = pb2.ActionResult()
         result.ParseFromString(result_envelope.payload)
-        assert result.success
+        assert deserialize_action_result(result).result == "ok"
         assert result.metadata == metadata
 
     asyncio.run(scenario())

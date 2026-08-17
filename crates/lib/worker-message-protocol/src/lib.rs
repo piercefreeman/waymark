@@ -223,7 +223,7 @@ impl Sender {
     pub async fn send_action(
         &self,
         dispatch: proto::ActionDispatch,
-    ) -> Result<RoundTripMetrics<proto::WorkflowArguments>, SendActionError> {
+    ) -> Result<RoundTripMetrics<Vec<u8>>, SendActionError> {
         let delivery_id = self
             .next_delivery
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -292,7 +292,6 @@ impl Sender {
             ack_latency_us = ack_latency.as_micros(),
             round_trip_ms = round_trip.as_millis(),
             worker_duration_ms = worker_duration.as_millis(),
-            success = response.success,
             "action completed"
         );
 
@@ -301,10 +300,7 @@ impl Sender {
             ack_latency,
             round_trip,
             worker_duration,
-            response_payload: response.payload.clone().unwrap_or_default(),
-            success: response.success,
-            error_type: response.error_type,
-            error_message: response.error_message,
+            response_payload: response.payload,
         })
     }
 
@@ -373,7 +369,6 @@ mod tests {
                 .expect("send ack envelope");
 
             let result = proto::ActionResult {
-                success: true,
                 worker_start_ns: 1_000,
                 worker_end_ns: 4_000,
                 ..Default::default()
@@ -394,7 +389,6 @@ mod tests {
             .await
             .expect("send_action should succeed");
 
-        assert!(metrics.success);
         assert_eq!(metrics.worker_duration.as_nanos(), 3_000);
 
         worker_handle.await.expect("worker task should finish");
