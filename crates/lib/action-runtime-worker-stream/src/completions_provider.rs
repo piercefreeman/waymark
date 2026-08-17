@@ -2,8 +2,20 @@ use nonempty_collections::NEVec;
 use tokio::sync::mpsc;
 use waymark_action_runtime_core::{ActionCallCompletion, ActionCallCompletionFor};
 use waymark_action_runtime_metadata_codec::Decode;
-use waymark_convert_core::Convert as _;
+use waymark_convert_core::TryConvert as _;
 use waymark_proto::messages as proto;
+
+/// The error of the action-result conversion the provider delegates to.
+///
+/// Expressed as a projection through
+/// [`waymark_action_runtime_convert::Converter`] rather than named
+/// concretely: this provider merely propagates that conversion's
+/// failure, whatever it is.
+pub type ActionResultConvertError = waymark_convert_core::ConvertErrorFor<
+    waymark_action_runtime_convert::Converter,
+    &'static proto::ActionResult,
+    waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue>,
+>;
 
 /// Error returned when receiving action results fails.
 #[derive(Debug, thiserror::Error)]
@@ -16,6 +28,11 @@ pub enum ReceiveError<DecodeError> {
     /// cannot be routed back to the promise that awaits it.
     #[error("unable to decode correlation metadata for an action completion")]
     Decode(DecodeError),
+
+    /// A result carried a payload that could not be converted, so there
+    /// is nothing valid to settle the promise with.
+    #[error("unable to convert an action-completion payload")]
+    Payload(#[source] ActionResultConvertError),
 }
 
 /// Receives action results from a tokio mpsc channel and surfaces them
@@ -82,7 +99,8 @@ fn completion_from_result<Metadata: Decode>(
         );
         ReceiveError::Decode(error)
     })?;
-    let outcome = waymark_action_runtime_convert::Converter::convert(result);
+    let outcome = waymark_action_runtime_convert::Converter::try_convert(result)
+        .map_err(ReceiveError::Payload)?;
     Ok(ActionCallCompletion { metadata, outcome })
 }
 

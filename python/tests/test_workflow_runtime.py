@@ -52,14 +52,16 @@ def _build_action_dispatch(
     for key, value in kwargs.items():
         arg = dispatch.kwargs.arguments.add()
         arg.key = key
+        arg_value = pb2.WorkflowArgumentValue()
         if isinstance(value, int):
-            arg.value.primitive.int_value = value
+            arg_value.primitive.int_value = value
         elif isinstance(value, str):
-            arg.value.primitive.string_value = value
+            arg_value.primitive.string_value = value
         elif isinstance(value, float):
-            arg.value.primitive.double_value = value
+            arg_value.primitive.double_value = value
         elif isinstance(value, bool):
-            arg.value.primitive.bool_value = value
+            arg_value.primitive.bool_value = value
+        arg.value = arg_value.SerializeToString()
 
     return dispatch
 
@@ -230,7 +232,9 @@ def _build_action_dispatch_with_dict(
     for key, value in kwargs.items():
         arg = dispatch.kwargs.arguments.add()
         arg.key = key
-        add_value_to_proto(arg.value, value)
+        arg_value = pb2.WorkflowArgumentValue()
+        add_value_to_proto(arg_value, value)
+        arg.value = arg_value.SerializeToString()
 
     return dispatch
 
