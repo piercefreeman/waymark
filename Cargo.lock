@@ -4077,6 +4077,7 @@ name = "waymark-action-runtime-convert"
 version = "0.1.0"
 dependencies = [
  "waymark-action-runtime-core",
+ "waymark-action-runtime-metadata-codec",
  "waymark-convert-core",
  "waymark-proto",
  "waymark-proto-message-conversions",
@@ -4149,7 +4150,6 @@ dependencies = [
  "tokio",
  "tonic",
  "tracing",
- "waymark-action-core",
  "waymark-action-runtime-convert",
  "waymark-action-runtime-core",
  "waymark-action-runtime-metadata",
@@ -5873,11 +5873,9 @@ dependencies = [
  "nonempty-collections",
  "tokio",
  "tracing",
- "uuid",
  "waymark-managed-process",
  "waymark-proto",
  "waymark-worker-core",
- "waymark-worker-message-protocol",
  "waymark-worker-process-pool",
  "waymark-worker-process-spec",
  "waymark-worker-status-core",

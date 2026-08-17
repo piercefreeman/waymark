@@ -3,6 +3,7 @@
 #![warn(missing_docs)]
 
 mod from_proto;
+mod to_dispatch;
 mod to_proto;
 
 /// A converter that provides conversion for the action runtime.
