@@ -43,8 +43,8 @@ impl TryConvert<waymark_vm_value_python::ReadyValue, waymark_proto::messages::Wo
     fn try_convert(
         value: waymark_vm_value_python::ReadyValue,
     ) -> Result<waymark_proto::messages::WorkflowArguments, PendingPromiseError> {
-        let json = waymark_vm_value_convert_json::Converter::try_convert(value)?;
-        Ok(completion_workflow_arguments(json))
+        let value = waymark_vm_value_convert_proto::Converter::try_convert(&value)?;
+        Ok(completion_workflow_arguments(value))
     }
 }
 
@@ -59,18 +59,23 @@ impl
     fn try_convert(
         exception: waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
     ) -> Result<waymark_proto::messages::WorkflowArguments, PendingPromiseError> {
-        let error_json = waymark_vm_value_convert_json::Converter::try_convert(exception)?;
-        Ok(exception_workflow_arguments(error_json))
+        let exception = waymark_vm_value_convert_proto::Converter::try_convert(&exception)?;
+        Ok(exception_workflow_arguments(exception))
     }
 }
 
 fn exception_workflow_arguments(
-    error_json: serde_json::Value,
+    exception: waymark_proto::python_value::WorkflowExceptionValue,
 ) -> waymark_proto::messages::WorkflowArguments {
     use waymark_proto::messages::{WorkflowArgument, WorkflowArguments};
 
-    let error_value =
-        waymark_proto_python_value_conversions::json_to_workflow_argument_value(&error_json);
+    let error_value = waymark_proto::python_value::WorkflowArgumentValue {
+        kind: Some(
+            waymark_proto::python_value::workflow_argument_value::Kind::Exception(Box::new(
+                exception,
+            )),
+        ),
+    };
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "error".to_string(),
@@ -82,7 +87,7 @@ fn exception_workflow_arguments(
 }
 
 fn completion_workflow_arguments(
-    json: serde_json::Value,
+    value: waymark_proto::python_value::WorkflowArgumentValue,
 ) -> waymark_proto::messages::WorkflowArguments {
     use waymark_proto::messages::{WorkflowArgument, WorkflowArguments};
     use waymark_proto::python_value::{
@@ -90,17 +95,20 @@ fn completion_workflow_arguments(
         workflow_argument_value::Kind,
     };
 
-    let variables_value = match &json {
-        serde_json::Value::Object(_) => json.clone(),
-        other => {
-            let mut map = serde_json::Map::new();
-            map.insert("result".to_string(), other.clone());
-            serde_json::Value::Object(map)
-        }
+    // A dict is already a set of variables; anything else is the single
+    // `result` variable.
+    let variables_arg = match &value.kind {
+        Some(Kind::DictValue(_)) => value,
+        _ => waymark_proto::python_value::WorkflowArgumentValue {
+            kind: Some(Kind::DictValue(WorkflowDictArgument {
+                entries: vec![WorkflowDictEntry {
+                    key: "result".to_string(),
+                    value: Some(value),
+                }],
+            })),
+        },
     };
 
-    let variables_arg =
-        waymark_proto_python_value_conversions::json_to_workflow_argument_value(&variables_value);
     let dict = WorkflowDictArgument {
         entries: vec![WorkflowDictEntry {
             key: "variables".to_string(),
