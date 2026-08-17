@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use nonempty_collections::NEVec;
 use waymark_action_runtime_core::{ActionCallCompletion, ActionCallCompletionFor};
 use waymark_action_runtime_metadata_codec::Decode;
-use waymark_convert_core::Convert as _;
+use waymark_convert_core::TryConvert as _;
 
 /// Errors that can occur when waiting for action completions from
 /// the worker pool.
@@ -18,7 +18,24 @@ pub enum WorkerPoolCompletionsError<MetadataDecodeError: core::fmt::Display + 's
     /// so it cannot be routed back to the promise that awaits it.
     #[error("unable to decode correlation metadata for an action completion")]
     Decode(#[source] MetadataDecodeError),
+
+    /// A completion carried a payload that could not be converted, so
+    /// there is nothing valid to settle the promise with.
+    #[error("unable to convert an action-completion payload")]
+    Payload(#[source] ActionResultConvertError),
 }
+
+/// The error of the action-result conversion the provider delegates to.
+///
+/// Expressed as a projection through
+/// [`waymark_action_runtime_convert::Converter`] rather than named
+/// concretely: this provider merely propagates that conversion's
+/// failure, whatever it is.
+pub type ActionResultConvertError = waymark_convert_core::ConvertErrorFor<
+    waymark_action_runtime_convert::Converter,
+    &'static waymark_proto::messages::ActionResult,
+    waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue>,
+>;
 
 /// Provides action outcomes by polling a [`waymark_worker_core::BaseWorkerPool`].
 ///
@@ -72,8 +89,7 @@ where
             let vec: Vec<_> = completions
                 .into_iter()
                 .map(resolve_completion)
-                .collect::<Result<_, _>>()
-                .map_err(WorkerPoolCompletionsError::Decode)?;
+                .collect::<Result<_, _>>()?;
 
             let Some(nevec) = NEVec::try_from_vec(vec) else {
                 continue;
@@ -98,39 +114,42 @@ where
 /// would strand that promise forever (the action's side effects have already
 /// happened), so we surface the error to the caller instead.
 fn resolve_completion<Metadata>(
-    completion: waymark_worker_core::ActionCompletion,
-) -> Result<ActionCallCompletion<waymark_vm_value_python::ReadyValue, Metadata>, Metadata::Error>
+    completion: waymark_proto::messages::ActionResult,
+) -> Result<
+    ActionCallCompletion<waymark_vm_value_python::ReadyValue, Metadata>,
+    WorkerPoolCompletionsError<Metadata::Error>,
+>
 where
     Metadata: Decode,
     Metadata::Error: core::fmt::Display,
 {
-    let waymark_worker_core::ActionCompletion { result, metadata } = completion;
+    let metadata = Metadata::decode(&mut completion.metadata.as_slice())
+        .inspect_err(|error| {
+            tracing::error!(
+                %error,
+                "unable to decode correlation metadata for an action completion"
+            );
+        })
+        .map_err(WorkerPoolCompletionsError::Decode)?;
 
-    let metadata = Metadata::decode(&mut metadata.as_slice()).inspect_err(|error| {
-        tracing::error!(
-            %error,
-            "unable to decode correlation metadata for an action completion"
-        );
-    })?;
-
-    let outcome = waymark_action_runtime_convert::Converter::convert(result);
+    let outcome = waymark_action_runtime_convert::Converter::try_convert(&completion)
+        .map_err(WorkerPoolCompletionsError::Payload)?;
 
     Ok(ActionCallCompletion { metadata, outcome })
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use waymark_action_runtime_metadata::{ActionCallCorrelation, WithVmId};
     use waymark_action_runtime_metadata_codec::Encode as _;
     use waymark_ids::InstanceId;
-    use waymark_worker_core::UncheckedExecutionResult;
 
-    use super::*;
-
-    fn completion(metadata: Vec<u8>) -> waymark_worker_core::ActionCompletion {
-        waymark_worker_core::ActionCompletion {
-            result: UncheckedExecutionResult(serde_json::Value::Null),
+    fn completion(metadata: Vec<u8>) -> waymark_proto::messages::ActionResult {
+        waymark_proto::messages::ActionResult {
+            success: true,
             metadata,
+            ..Default::default()
         }
     }
 
