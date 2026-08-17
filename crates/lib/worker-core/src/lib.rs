@@ -1,7 +1,5 @@
 //! Worker pool interface for executing actions.
 
-use std::collections::HashMap;
-
 use nonempty_collections::NEVec;
 use serde_json::Value;
 
@@ -15,7 +13,7 @@ use serde_json::Value;
 pub struct ActionRequest {
     pub action_name: String,
     pub module_name: Option<String>,
-    pub kwargs: HashMap<String, Value>,
+    pub kwargs: waymark_proto::messages::WorkflowArguments,
     pub metadata: Vec<u8>,
 }
 
