@@ -4697,7 +4697,9 @@ dependencies = [
 name = "waymark-message-conversions"
 version = "0.1.0"
 dependencies = [
+ "prost",
  "serde_json",
+ "thiserror",
  "waymark-proto",
 ]
 
@@ -6169,6 +6171,7 @@ dependencies = [
  "thiserror",
  "waymark-action-runtime-convert",
  "waymark-convert-core",
+ "waymark-message-conversions",
  "waymark-proto",
  "waymark-vm-compiler-metadata",
  "waymark-vm-runtime",
