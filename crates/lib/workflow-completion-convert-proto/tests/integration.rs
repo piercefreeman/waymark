@@ -17,12 +17,11 @@ fn completion_wraps_primitive_in_workflow_node_result() {
     let result_arg = &args.arguments[0];
     assert_eq!(result_arg.key, "result");
 
-    let Some(Kind::Basemodel(basemodel)) = result_arg
-        .value
-        .as_ref()
-        .and_then(|value| value.kind.as_ref())
-    else {
-        panic!("expected a BaseModel-wrapped result, got {result_arg:?}");
+    let result_value =
+        waymark_message_conversions::decode_workflow_argument_value(&result_arg.value)
+            .expect("result argument value decodes");
+    let Some(Kind::Basemodel(basemodel)) = &result_value.kind else {
+        panic!("expected a BaseModel-wrapped result, got {result_value:?}");
     };
     assert_eq!(basemodel.module, "waymark.workflow_runtime");
     assert_eq!(basemodel.name, "WorkflowNodeResult");
@@ -72,12 +71,10 @@ fn exception_outcome_produces_single_error_argument() {
     assert_eq!(error_arg.key, "error");
 
     // The error payload is serialised as `{"type": ..., "message": ...}`.
-    let Some(Kind::DictValue(dict)) = error_arg
-        .value
-        .as_ref()
-        .and_then(|value| value.kind.as_ref())
-    else {
-        panic!("expected the error payload to be a dict, got {error_arg:?}");
+    let error_value = waymark_message_conversions::decode_workflow_argument_value(&error_arg.value)
+        .expect("error argument value decodes");
+    let Some(Kind::DictValue(dict)) = &error_value.kind else {
+        panic!("expected the error payload to be a dict, got {error_value:?}");
     };
     let keys: Vec<&str> = dict
         .entries
