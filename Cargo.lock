@@ -4660,7 +4660,7 @@ dependencies = [
 name = "waymark-proto-message-conversions"
 version = "0.1.0"
 dependencies = [
- "prost 0.12.6",
+ "prost",
  "serde_json",
  "thiserror",
  "waymark-proto",
@@ -4671,7 +4671,7 @@ dependencies = [
 name = "waymark-proto-python-value-conversions"
 version = "0.1.0"
 dependencies = [
- "prost 0.12.6",
+ "prost",
  "serde_json",
  "waymark-proto",
 ]
@@ -5863,7 +5863,6 @@ version = "0.1.0"
 dependencies = [
  "metrics",
  "nonempty-collections",
- "prost",
  "serde_json",
  "tokio",
  "tracing",
