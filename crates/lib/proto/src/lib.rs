@@ -12,7 +12,7 @@ pub mod messages {
     tonic::include_proto!("waymark.messages");
 }
 
-/// The Python flavor's value-document types from python_value.proto
+/// The Python flavor's encoded-value types from python_value.proto
 pub mod python_value {
     tonic::include_proto!("waymark.python_value");
 }
