@@ -5949,7 +5949,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
- "uuid",
  "waymark-proto",
  "waymark-worker-metrics",
 ]
@@ -5959,7 +5958,6 @@ name = "waymark-worker-metrics"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "uuid",
 ]
 
 [[package]]
