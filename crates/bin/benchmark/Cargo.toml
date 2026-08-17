@@ -26,6 +26,7 @@ waymark-vm-runtime-builder = { workspace = true }
 waymark-vm-value-convert-json = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-worker-inline = { workspace = true }
+waymark-worker-inline-compat = { workspace = true }
 waymark-workflow-service-vm-executables = { workspace = true }
 waymark-workflow-service-vm-runtimes = { workspace = true }
 waymark-workflow-service-vm-runtimes-backend = { workspace = true }
