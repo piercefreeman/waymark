@@ -51,9 +51,7 @@ def test_handle_dispatch_echoes_metadata(monkeypatch) -> None:
     async def scenario() -> None:
         outgoing: "asyncio.Queue[pb2.Envelope]" = asyncio.Queue()
         dispatch = pb2.ActionDispatch(
-            action_id="a1",
             action_name="noop",
-            dispatch_token="tok",
             metadata=metadata,
         )
         envelope = pb2.Envelope(
@@ -72,7 +70,6 @@ def test_handle_dispatch_echoes_metadata(monkeypatch) -> None:
         result = pb2.ActionResult()
         result.ParseFromString(result_envelope.payload)
         assert result.success
-        assert result.dispatch_token == "tok"
         assert result.metadata == metadata
 
     asyncio.run(scenario())
@@ -86,7 +83,7 @@ def test_handle_dispatch_without_metadata_leaves_it_empty(monkeypatch) -> None:
 
     async def scenario() -> None:
         outgoing: "asyncio.Queue[pb2.Envelope]" = asyncio.Queue()
-        dispatch = pb2.ActionDispatch(action_id="a1", action_name="noop")
+        dispatch = pb2.ActionDispatch(action_name="noop")
         envelope = pb2.Envelope(
             delivery_id=6,
             partition_id=1,

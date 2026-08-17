@@ -46,7 +46,6 @@ where
             proto::ActionResult {
                 success: metrics.success,
                 payload: Some(metrics.response_payload),
-                dispatch_token: metrics.dispatch_token.map(|token| token.to_string()),
                 error_type: metrics.error_type,
                 error_message: metrics.error_message,
                 metadata,
