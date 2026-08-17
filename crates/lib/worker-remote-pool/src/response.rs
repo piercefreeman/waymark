@@ -38,7 +38,7 @@ fn normalize_error_value(error: serde_json::Value) -> serde_json::Value {
 }
 
 pub fn decode_action_result(
-    metrics: &waymark_worker_metrics::RoundTripMetrics,
+    metrics: &waymark_worker_metrics::RoundTripMetrics<Vec<u8>>,
 ) -> serde_json::Value {
     let payload = proto::WorkflowArguments::decode(metrics.response_payload.as_slice())
         .ok()
