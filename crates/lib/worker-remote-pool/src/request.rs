@@ -26,23 +26,14 @@ pub fn to_dispatch_payload(
     request: ActionRequest,
 ) -> Result<ActionDispatchPayload, ActionCompletion> {
     let ActionRequest {
-        executor_id,
-        execution_id,
         action_name,
         module_name,
         kwargs,
-        timeout_seconds,
-        attempt_number,
-        dispatch_token,
         metadata,
     } = request;
 
     let Some(module_name) = module_name else {
         return Err(ActionCompletion {
-            executor_id,
-            execution_id,
-            attempt_number,
-            dispatch_token,
             result: UncheckedExecutionResult(error_to_value(&WorkerPoolError::new(
                 "RemoteWorkerPoolError",
                 "missing module name for action request",
@@ -51,17 +42,20 @@ pub fn to_dispatch_payload(
         });
     };
 
+    // The wire ids and the per-attempt token are the transport's own
+    // vocabulary, not the caller's: filled with inert values, minted
+    // here where a real one is needed.
     let dispatch = ActionDispatchPayload {
-        action_id: execution_id.to_string(),
-        instance_id: executor_id.to_string(),
+        action_id: String::new(),
+        instance_id: String::new(),
         sequence: 0,
         action_name,
         module_name,
         kwargs: kwargs_to_workflow_arguments(&kwargs),
-        timeout_seconds,
+        timeout_seconds: 0,
         max_retries: 0,
-        attempt_number,
-        dispatch_token,
+        attempt_number: 1,
+        dispatch_token: uuid::Uuid::new_v4(),
         metadata,
     };
 

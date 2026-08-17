@@ -69,14 +69,9 @@ where
         request.metadata.encode(&mut encoded_metadata);
 
         let worker_request = waymark_worker_core::ActionRequest {
-            executor_id: waymark_ids::InstanceId::new_uuid_v4(),
-            execution_id: waymark_ids::ExecutionId::new_uuid_v4(),
             action_name: request.action_ref.action_name,
             module_name: request.action_ref.module_name,
             kwargs,
-            timeout_seconds: 0,
-            attempt_number: 1,
-            dispatch_token: uuid::Uuid::new_v4(),
             metadata: encoded_metadata,
         };
 

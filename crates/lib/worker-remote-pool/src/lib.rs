@@ -24,10 +24,6 @@ where
     Spec: waymark_worker_process_spec::Spec,
     Spec: Send + Sync + 'static,
 {
-    let executor_id = request.executor_id;
-    let execution_id = request.execution_id;
-    let attempt_number = request.attempt_number;
-    let dispatch_token = request.dispatch_token;
     let metadata = request.metadata.clone();
 
     let dispatch = match request::to_dispatch_payload(request) {
@@ -56,10 +52,6 @@ where
             pool.record_latency(metrics.ack_latency, metrics.worker_duration);
             pool.record_completion(worker_idx, Arc::clone(pool));
             ActionCompletion {
-                executor_id,
-                execution_id,
-                attempt_number,
-                dispatch_token,
                 result: UncheckedExecutionResult(response::decode_action_result(&metrics)),
                 metadata,
             }
@@ -67,10 +59,6 @@ where
         Err(err) => {
             pool.release_slot(worker_idx);
             ActionCompletion {
-                executor_id,
-                execution_id,
-                attempt_number,
-                dispatch_token,
                 result: UncheckedExecutionResult(error_to_value(&WorkerPoolError::new(
                     "RemoteWorkerPoolError",
                     err.to_string(),
