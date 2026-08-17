@@ -6111,7 +6111,6 @@ version = "0.1.0"
 dependencies = [
  "metrics",
  "nonempty-collections",
- "prost 0.12.6",
  "serde_json",
  "tokio",
  "tracing",
