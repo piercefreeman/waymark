@@ -104,39 +104,52 @@ fn action_registry() -> HashMap<String, InlineActionCallable> {
 }
 
 async fn action_inc(
-    kwargs: HashMap<String, serde_json::Value>,
-) -> Result<serde_json::Value, WorkerPoolError> {
+    kwargs: HashMap<String, waymark_vm_value_python::ReadyValue>,
+) -> Result<waymark_vm_value_python::ReadyValue, WorkerPoolError> {
     let value = get_i64(&kwargs, "value")?;
-    Ok(serde_json::Value::Number((value + 1).into()))
+    Ok(waymark_vm_value_python::ReadyValue::Int(value + 1))
 }
 
 async fn action_double(
-    kwargs: HashMap<String, serde_json::Value>,
-) -> Result<serde_json::Value, WorkerPoolError> {
+    kwargs: HashMap<String, waymark_vm_value_python::ReadyValue>,
+) -> Result<waymark_vm_value_python::ReadyValue, WorkerPoolError> {
     let value = get_i64(&kwargs, "value")?;
-    Ok(serde_json::Value::Number((value * 2).into()))
+    Ok(waymark_vm_value_python::ReadyValue::Int(value * 2))
 }
 
 async fn action_sum(
-    kwargs: HashMap<String, serde_json::Value>,
-) -> Result<serde_json::Value, WorkerPoolError> {
-    let values = kwargs
-        .get("values")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| WorkerPoolError::new("ActionError", "sum expects array input"))?;
+    kwargs: HashMap<String, waymark_vm_value_python::ReadyValue>,
+) -> Result<waymark_vm_value_python::ReadyValue, WorkerPoolError> {
+    let Some(waymark_vm_value_python::ReadyValue::List(values)) = kwargs.get("values") else {
+        return Err(WorkerPoolError::new(
+            "ActionError",
+            "sum expects list input",
+        ));
+    };
     let mut total = 0i64;
     for item in values {
-        let value = item
-            .as_i64()
-            .ok_or_else(|| WorkerPoolError::new("ActionError", "sum expects integer elements"))?;
+        let waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::Int(value)) =
+            item
+        else {
+            return Err(WorkerPoolError::new(
+                "ActionError",
+                "sum expects integer elements",
+            ));
+        };
         total += value;
     }
-    Ok(serde_json::Value::Number(total.into()))
+    Ok(waymark_vm_value_python::ReadyValue::Int(total))
 }
 
-fn get_i64(kwargs: &HashMap<String, serde_json::Value>, key: &str) -> Result<i64, WorkerPoolError> {
-    kwargs
-        .get(key)
-        .and_then(serde_json::Value::as_i64)
-        .ok_or_else(|| WorkerPoolError::new("ActionError", format!("missing integer '{key}'")))
+fn get_i64(
+    kwargs: &HashMap<String, waymark_vm_value_python::ReadyValue>,
+    key: &str,
+) -> Result<i64, WorkerPoolError> {
+    match kwargs.get(key) {
+        Some(waymark_vm_value_python::ReadyValue::Int(value)) => Ok(*value),
+        _ => Err(WorkerPoolError::new(
+            "ActionError",
+            format!("missing integer '{key}'"),
+        )),
+    }
 }
