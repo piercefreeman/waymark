@@ -4194,7 +4194,6 @@ dependencies = [
 name = "waymark-action-runtime-convert"
 version = "0.1.0"
 dependencies = [
- "serde_json",
  "waymark-action-runtime-core",
  "waymark-convert-core",
  "waymark-proto",
@@ -5916,6 +5915,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "waymark-proto",
 ]
 
 [[package]]
@@ -6058,7 +6058,6 @@ dependencies = [
  "waymark-managed-process",
  "waymark-proto",
  "waymark-proto-message-conversions",
- "waymark-proto-python-value-conversions",
  "waymark-worker-core",
  "waymark-worker-message-protocol",
  "waymark-worker-metrics",
