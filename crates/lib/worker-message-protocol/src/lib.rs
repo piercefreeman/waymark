@@ -261,7 +261,7 @@ impl Sender {
     pub async fn send_action(
         &self,
         dispatch: ActionDispatchPayload,
-    ) -> Result<RoundTripMetrics, SendActionError> {
+    ) -> Result<RoundTripMetrics<Vec<u8>>, SendActionError> {
         let delivery_id = self
             .next_delivery
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
