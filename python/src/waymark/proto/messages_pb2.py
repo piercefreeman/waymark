@@ -20,99 +20,80 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 )
 # @@protoc_insertion_point(imports)
 
-from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2
-
 _sym_db = _symbol_database.Default()
-_sym_db.RegisterFileDescriptor(google_dot_protobuf_dot_struct__pb2.DESCRIPTOR)
 
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0emessages.proto\x12\x10waymark.messages\x1a\x1cgoogle/protobuf/struct.proto\"s\n\x08\x45nvelope\x12\x13\n\x0b\x64\x65livery_id\x18\x01 \x01(\x04\x12\x14\n\x0cpartition_id\x18\x02 \x01(\r\x12+\n\x04kind\x18\x03 \x01(\x0e\x32\x1d.waymark.messages.MessageKind\x12\x0f\n\x07payload\x18\x04 \x01(\x0c\"\xf7\x02\n\x0e\x41\x63tionDispatch\x12\x11\n\taction_id\x18\x01 \x01(\t\x12\x13\n\x0binstance_id\x18\x02 \x01(\t\x12\x10\n\x08sequence\x18\x03 \x01(\r\x12\x13\n\x0b\x61\x63tion_name\x18\x04 \x01(\t\x12\x13\n\x0bmodule_name\x18\x05 \x01(\t\x12\x33\n\x06kwargs\x18\x06 \x01(\x0b\x32#.waymark.messages.WorkflowArguments\x12\x1c\n\x0ftimeout_seconds\x18\x07 \x01(\rH\x00\x88\x01\x01\x12\x18\n\x0bmax_retries\x18\x08 \x01(\rH\x01\x88\x01\x01\x12\x1b\n\x0e\x61ttempt_number\x18\t \x01(\rH\x02\x88\x01\x01\x12\x1b\n\x0e\x64ispatch_token\x18\n \x01(\tH\x03\x88\x01\x01\x12\x10\n\x08metadata\x18\x0b \x01(\x0c\x42\x12\n\x10_timeout_secondsB\x0e\n\x0c_max_retriesB\x11\n\x0f_attempt_numberB\x11\n\x0f_dispatch_token\"\xb0\x02\n\x0c\x41\x63tionResult\x12\x11\n\taction_id\x18\x01 \x01(\t\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\x34\n\x07payload\x18\x03 \x01(\x0b\x32#.waymark.messages.WorkflowArguments\x12\x17\n\x0fworker_start_ns\x18\x04 \x01(\x04\x12\x15\n\rworker_end_ns\x18\x05 \x01(\x04\x12\x1b\n\x0e\x64ispatch_token\x18\x06 \x01(\tH\x00\x88\x01\x01\x12\x17\n\nerror_type\x18\x07 \x01(\tH\x01\x88\x01\x01\x12\x1a\n\rerror_message\x18\x08 \x01(\tH\x02\x88\x01\x01\x12\x10\n\x08metadata\x18\t \x01(\x0c\x42\x11\n\x0f_dispatch_tokenB\r\n\x0b_error_typeB\x10\n\x0e_error_message\" \n\x03\x41\x63k\x12\x19\n\x11\x61\x63ked_delivery_id\x18\x01 \x01(\x04\" \n\x0bWorkerHello\x12\x11\n\tworker_id\x18\x01 \x01(\x04\"\x9a\x03\n\x15WorkflowArgumentValue\x12@\n\tprimitive\x18\x01 \x01(\x0b\x32+.waymark.messages.PrimitiveWorkflowArgumentH\x00\x12@\n\tbasemodel\x18\x02 \x01(\x0b\x32+.waymark.messages.BaseModelWorkflowArgumentH\x00\x12\x39\n\texception\x18\x03 \x01(\x0b\x32$.waymark.messages.WorkflowErrorValueH\x00\x12<\n\nlist_value\x18\x04 \x01(\x0b\x32&.waymark.messages.WorkflowListArgumentH\x00\x12>\n\x0btuple_value\x18\x05 \x01(\x0b\x32\'.waymark.messages.WorkflowTupleArgumentH\x00\x12<\n\ndict_value\x18\x06 \x01(\x0b\x32&.waymark.messages.WorkflowDictArgumentH\x00\x42\x06\n\x04kind\".\n\x10WorkflowArgument\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x0c\"J\n\x11WorkflowArguments\x12\x35\n\targuments\x18\x01 \x03(\x0b\x32\".waymark.messages.WorkflowArgument\"\xb0\x01\n\x19PrimitiveWorkflowArgument\x12\x16\n\x0cstring_value\x18\x01 \x01(\tH\x00\x12\x16\n\x0c\x64ouble_value\x18\x02 \x01(\x01H\x00\x12\x13\n\tint_value\x18\x03 \x01(\x12H\x00\x12\x14\n\nbool_value\x18\x04 \x01(\x08H\x00\x12\x30\n\nnull_value\x18\x05 \x01(\x0e\x32\x1a.google.protobuf.NullValueH\x00\x42\x06\n\x04kind\"o\n\x19\x42\x61seModelWorkflowArgument\x12\x0e\n\x06module\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12\x34\n\x04\x64\x61ta\x18\x03 \x01(\x0b\x32&.waymark.messages.WorkflowDictArgument\"\xa6\x01\n\x12WorkflowErrorValue\x12\x0c\n\x04type\x18\x01 \x01(\t\x12\x0e\n\x06module\x18\x02 \x01(\t\x12\x0f\n\x07message\x18\x03 \x01(\t\x12\x11\n\ttraceback\x18\x04 \x01(\t\x12\x36\n\x06values\x18\x05 \x01(\x0b\x32&.waymark.messages.WorkflowDictArgument\x12\x16\n\x0etype_hierarchy\x18\x06 \x03(\t\"N\n\x14WorkflowListArgument\x12\x36\n\x05items\x18\x01 \x03(\x0b\x32\'.waymark.messages.WorkflowArgumentValue\"O\n\x15WorkflowTupleArgument\x12\x36\n\x05items\x18\x01 \x03(\x0b\x32\'.waymark.messages.WorkflowArgumentValue\"X\n\x11WorkflowDictEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\x36\n\x05value\x18\x02 \x01(\x0b\x32\'.waymark.messages.WorkflowArgumentValue\"L\n\x14WorkflowDictArgument\x12\x34\n\x07\x65ntries\x18\x01 \x03(\x0b\x32#.waymark.messages.WorkflowDictEntry\"\xd8\x01\n\x14WorkflowRegistration\x12\x15\n\rworkflow_name\x18\x01 \x01(\t\x12\n\n\x02ir\x18\x02 \x01(\x0c\x12\x0f\n\x07ir_hash\x18\x03 \x01(\t\x12\x18\n\x10workflow_version\x18\x07 \x01(\t\x12<\n\x0finitial_context\x18\x04 \x01(\x0b\x32#.waymark.messages.WorkflowArguments\x12\x15\n\x08priority\x18\x06 \x01(\x05H\x00\x88\x01\x01\x42\x0b\n\t_priorityJ\x04\x08\x05\x10\x06R\nconcurrent\"W\n\x17RegisterWorkflowRequest\x12<\n\x0cregistration\x18\x01 \x01(\x0b\x32&.waymark.messages.WorkflowRegistration\"U\n\x18RegisterWorkflowResponse\x12\x1b\n\x13workflow_version_id\x18\x01 \x01(\t\x12\x1c\n\x14workflow_instance_id\x18\x02 \x01(\t\"\x8c\x02\n\x1cRegisterWorkflowBatchRequest\x12<\n\x0cregistration\x18\x01 \x01(\x0b\x32&.waymark.messages.WorkflowRegistration\x12\r\n\x05\x63ount\x18\x02 \x01(\r\x12\x33\n\x06inputs\x18\x03 \x01(\x0b\x32#.waymark.messages.WorkflowArguments\x12\x38\n\x0binputs_list\x18\x04 \x03(\x0b\x32#.waymark.messages.WorkflowArguments\x12\x12\n\nbatch_size\x18\x05 \x01(\r\x12\x1c\n\x14include_instance_ids\x18\x06 \x01(\x08\"k\n\x1dRegisterWorkflowBatchResponse\x12\x1b\n\x13workflow_version_id\x18\x01 \x01(\t\x12\x1d\n\x15workflow_instance_ids\x18\x02 \x03(\t\x12\x0e\n\x06queued\x18\x03 \x01(\r\"I\n\x16WaitForInstanceRequest\x12\x13\n\x0binstance_id\x18\x01 \x01(\t\x12\x1a\n\x12poll_interval_secs\x18\x02 \x01(\x01\"*\n\x17WaitForInstanceResponse\x12\x0f\n\x07payload\x18\x01 \x01(\x0c\"\xac\x01\n\x15WorkflowStreamRequest\x12>\n\x0cregistration\x18\x01 \x01(\x0b\x32&.waymark.messages.WorkflowRegistrationH\x00\x12\x37\n\raction_result\x18\x02 \x01(\x0b\x32\x1e.waymark.messages.ActionResultH\x00\x12\x12\n\nskip_sleep\x18\x03 \x01(\x08\x42\x06\n\x04kind\"*\n\x17WorkflowExecutionResult\x12\x0f\n\x07payload\x18\x01 \x01(\x0c\"\xa3\x01\n\x16WorkflowStreamResponse\x12;\n\x0f\x61\x63tion_dispatch\x18\x01 \x01(\x0b\x32 .waymark.messages.ActionDispatchH\x00\x12\x44\n\x0fworkflow_result\x18\x02 \x01(\x0b\x32).waymark.messages.WorkflowExecutionResultH\x00\x42\x06\n\x04kind\"\x8d\x01\n\x12ScheduleDefinition\x12,\n\x04type\x18\x01 \x01(\x0e\x32\x1e.waymark.messages.ScheduleType\x12\x17\n\x0f\x63ron_expression\x18\x02 \x01(\t\x12\x18\n\x10interval_seconds\x18\x03 \x01(\x03\x12\x16\n\x0ejitter_seconds\x18\x04 \x01(\x03\"\xc8\x02\n\x17RegisterScheduleRequest\x12\x15\n\rworkflow_name\x18\x01 \x01(\t\x12\x36\n\x08schedule\x18\x02 \x01(\x0b\x32$.waymark.messages.ScheduleDefinition\x12\x33\n\x06inputs\x18\x03 \x01(\x0b\x32#.waymark.messages.WorkflowArguments\x12<\n\x0cregistration\x18\x04 \x01(\x0b\x32&.waymark.messages.WorkflowRegistration\x12\x15\n\rschedule_name\x18\x05 \x01(\t\x12\x15\n\x08priority\x18\x06 \x01(\x05H\x00\x88\x01\x01\x12\x1c\n\x0f\x61llow_duplicate\x18\x07 \x01(\x08H\x01\x88\x01\x01\x42\x0b\n\t_priorityB\x12\n\x10_allow_duplicate\"D\n\x18RegisterScheduleResponse\x12\x13\n\x0bschedule_id\x18\x01 \x01(\t\x12\x13\n\x0bnext_run_at\x18\x02 \x01(\t\"}\n\x1bUpdateScheduleStatusRequest\x12\x15\n\rworkflow_name\x18\x01 \x01(\t\x12\x30\n\x06status\x18\x02 \x01(\x0e\x32 .waymark.messages.ScheduleStatus\x12\x15\n\rschedule_name\x18\x03 \x01(\t\"/\n\x1cUpdateScheduleStatusResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"E\n\x15\x44\x65leteScheduleRequest\x12\x15\n\rworkflow_name\x18\x01 \x01(\t\x12\x15\n\rschedule_name\x18\x02 \x01(\t\")\n\x16\x44\x65leteScheduleResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"D\n\x14ListSchedulesRequest\x12\x1a\n\rstatus_filter\x18\x01 \x01(\tH\x00\x88\x01\x01\x42\x10\n\x0e_status_filter\"\x81\x03\n\x0cScheduleInfo\x12\n\n\x02id\x18\x01 \x01(\t\x12\x15\n\rworkflow_name\x18\x02 \x01(\t\x12\x35\n\rschedule_type\x18\x03 \x01(\x0e\x32\x1e.waymark.messages.ScheduleType\x12\x17\n\x0f\x63ron_expression\x18\x04 \x01(\t\x12\x18\n\x10interval_seconds\x18\x05 \x01(\x03\x12\x30\n\x06status\x18\x06 \x01(\x0e\x32 .waymark.messages.ScheduleStatus\x12\x13\n\x0bnext_run_at\x18\x07 \x01(\t\x12\x13\n\x0blast_run_at\x18\x08 \x01(\t\x12\x18\n\x10last_instance_id\x18\t \x01(\t\x12\x12\n\ncreated_at\x18\n \x01(\t\x12\x12\n\nupdated_at\x18\x0b \x01(\t\x12\x15\n\rschedule_name\x18\x0c \x01(\t\x12\x16\n\x0ejitter_seconds\x18\r \x01(\x03\x12\x17\n\x0f\x61llow_duplicate\x18\x0e \x01(\x08\"J\n\x15ListSchedulesResponse\x12\x31\n\tschedules\x18\x01 \x03(\x0b\x32\x1e.waymark.messages.ScheduleInfo*\xbe\x01\n\x0bMessageKind\x12\x1c\n\x18MESSAGE_KIND_UNSPECIFIED\x10\x00\x12 \n\x1cMESSAGE_KIND_ACTION_DISPATCH\x10\x01\x12\x1e\n\x1aMESSAGE_KIND_ACTION_RESULT\x10\x02\x12\x14\n\x10MESSAGE_KIND_ACK\x10\x03\x12\x1a\n\x16MESSAGE_KIND_HEARTBEAT\x10\x04\x12\x1d\n\x19MESSAGE_KIND_WORKER_HELLO\x10\x05*a\n\x0cScheduleType\x12\x1d\n\x19SCHEDULE_TYPE_UNSPECIFIED\x10\x00\x12\x16\n\x12SCHEDULE_TYPE_CRON\x10\x01\x12\x1a\n\x16SCHEDULE_TYPE_INTERVAL\x10\x02*i\n\x0eScheduleStatus\x12\x1f\n\x1bSCHEDULE_STATUS_UNSPECIFIED\x10\x00\x12\x1a\n\x16SCHEDULE_STATUS_ACTIVE\x10\x01\x12\x1a\n\x16SCHEDULE_STATUS_PAUSED\x10\x02\x32T\n\x0cWorkerBridge\x12\x44\n\x06\x41ttach\x12\x1a.waymark.messages.Envelope\x1a\x1a.waymark.messages.Envelope(\x01\x30\x01\x32\xf1\x06\n\x0fWorkflowService\x12i\n\x10RegisterWorkflow\x12).waymark.messages.RegisterWorkflowRequest\x1a*.waymark.messages.RegisterWorkflowResponse\x12x\n\x15RegisterWorkflowBatch\x12..waymark.messages.RegisterWorkflowBatchRequest\x1a/.waymark.messages.RegisterWorkflowBatchResponse\x12\x66\n\x0fWaitForInstance\x12(.waymark.messages.WaitForInstanceRequest\x1a).waymark.messages.WaitForInstanceResponse\x12h\n\x0f\x45xecuteWorkflow\x12\'.waymark.messages.WorkflowStreamRequest\x1a(.waymark.messages.WorkflowStreamResponse(\x01\x30\x01\x12i\n\x10RegisterSchedule\x12).waymark.messages.RegisterScheduleRequest\x1a*.waymark.messages.RegisterScheduleResponse\x12u\n\x14UpdateScheduleStatus\x12-.waymark.messages.UpdateScheduleStatusRequest\x1a..waymark.messages.UpdateScheduleStatusResponse\x12\x63\n\x0e\x44\x65leteSchedule\x12\'.waymark.messages.DeleteScheduleRequest\x1a(.waymark.messages.DeleteScheduleResponse\x12`\n\rListSchedules\x12&.waymark.messages.ListSchedulesRequest\x1a\'.waymark.messages.ListSchedulesResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0emessages.proto\x12\x10waymark.messages\"s\n\x08\x45nvelope\x12\x13\n\x0b\x64\x65livery_id\x18\x01 \x01(\x04\x12\x14\n\x0cpartition_id\x18\x02 \x01(\r\x12+\n\x04kind\x18\x03 \x01(\x0e\x32\x1d.waymark.messages.MessageKind\x12\x0f\n\x07payload\x18\x04 \x01(\x0c\"\xf7\x02\n\x0e\x41\x63tionDispatch\x12\x11\n\taction_id\x18\x01 \x01(\t\x12\x13\n\x0binstance_id\x18\x02 \x01(\t\x12\x10\n\x08sequence\x18\x03 \x01(\r\x12\x13\n\x0b\x61\x63tion_name\x18\x04 \x01(\t\x12\x13\n\x0bmodule_name\x18\x05 \x01(\t\x12\x33\n\x06kwargs\x18\x06 \x01(\x0b\x32#.waymark.messages.WorkflowArguments\x12\x1c\n\x0ftimeout_seconds\x18\x07 \x01(\rH\x00\x88\x01\x01\x12\x18\n\x0bmax_retries\x18\x08 \x01(\rH\x01\x88\x01\x01\x12\x1b\n\x0e\x61ttempt_number\x18\t \x01(\rH\x02\x88\x01\x01\x12\x1b\n\x0e\x64ispatch_token\x18\n \x01(\tH\x03\x88\x01\x01\x12\x10\n\x08metadata\x18\x0b \x01(\x0c\x42\x12\n\x10_timeout_secondsB\x0e\n\x0c_max_retriesB\x11\n\x0f_attempt_numberB\x11\n\x0f_dispatch_token\"\xb0\x02\n\x0c\x41\x63tionResult\x12\x11\n\taction_id\x18\x01 \x01(\t\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\x34\n\x07payload\x18\x03 \x01(\x0b\x32#.waymark.messages.WorkflowArguments\x12\x17\n\x0fworker_start_ns\x18\x04 \x01(\x04\x12\x15\n\rworker_end_ns\x18\x05 \x01(\x04\x12\x1b\n\x0e\x64ispatch_token\x18\x06 \x01(\tH\x00\x88\x01\x01\x12\x17\n\nerror_type\x18\x07 \x01(\tH\x01\x88\x01\x01\x12\x1a\n\rerror_message\x18\x08 \x01(\tH\x02\x88\x01\x01\x12\x10\n\x08metadata\x18\t \x01(\x0c\x42\x11\n\x0f_dispatch_tokenB\r\n\x0b_error_typeB\x10\n\x0e_error_message\" \n\x03\x41\x63k\x12\x19\n\x11\x61\x63ked_delivery_id\x18\x01 \x01(\x04\" \n\x0bWorkerHello\x12\x11\n\tworker_id\x18\x01 \x01(\x04\".\n\x10WorkflowArgument\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x0c\"J\n\x11WorkflowArguments\x12\x35\n\targuments\x18\x01 \x03(\x0b\x32\".waymark.messages.WorkflowArgument\"\xd8\x01\n\x14WorkflowRegistration\x12\x15\n\rworkflow_name\x18\x01 \x01(\t\x12\n\n\x02ir\x18\x02 \x01(\x0c\x12\x0f\n\x07ir_hash\x18\x03 \x01(\t\x12\x18\n\x10workflow_version\x18\x07 \x01(\t\x12<\n\x0finitial_context\x18\x04 \x01(\x0b\x32#.waymark.messages.WorkflowArguments\x12\x15\n\x08priority\x18\x06 \x01(\x05H\x00\x88\x01\x01\x42\x0b\n\t_priorityJ\x04\x08\x05\x10\x06R\nconcurrent\"W\n\x17RegisterWorkflowRequest\x12<\n\x0cregistration\x18\x01 \x01(\x0b\x32&.waymark.messages.WorkflowRegistration\"U\n\x18RegisterWorkflowResponse\x12\x1b\n\x13workflow_version_id\x18\x01 \x01(\t\x12\x1c\n\x14workflow_instance_id\x18\x02 \x01(\t\"\x8c\x02\n\x1cRegisterWorkflowBatchRequest\x12<\n\x0cregistration\x18\x01 \x01(\x0b\x32&.waymark.messages.WorkflowRegistration\x12\r\n\x05\x63ount\x18\x02 \x01(\r\x12\x33\n\x06inputs\x18\x03 \x01(\x0b\x32#.waymark.messages.WorkflowArguments\x12\x38\n\x0binputs_list\x18\x04 \x03(\x0b\x32#.waymark.messages.WorkflowArguments\x12\x12\n\nbatch_size\x18\x05 \x01(\r\x12\x1c\n\x14include_instance_ids\x18\x06 \x01(\x08\"k\n\x1dRegisterWorkflowBatchResponse\x12\x1b\n\x13workflow_version_id\x18\x01 \x01(\t\x12\x1d\n\x15workflow_instance_ids\x18\x02 \x03(\t\x12\x0e\n\x06queued\x18\x03 \x01(\r\"I\n\x16WaitForInstanceRequest\x12\x13\n\x0binstance_id\x18\x01 \x01(\t\x12\x1a\n\x12poll_interval_secs\x18\x02 \x01(\x01\"*\n\x17WaitForInstanceResponse\x12\x0f\n\x07payload\x18\x01 \x01(\x0c\"\xac\x01\n\x15WorkflowStreamRequest\x12>\n\x0cregistration\x18\x01 \x01(\x0b\x32&.waymark.messages.WorkflowRegistrationH\x00\x12\x37\n\raction_result\x18\x02 \x01(\x0b\x32\x1e.waymark.messages.ActionResultH\x00\x12\x12\n\nskip_sleep\x18\x03 \x01(\x08\x42\x06\n\x04kind\"*\n\x17WorkflowExecutionResult\x12\x0f\n\x07payload\x18\x01 \x01(\x0c\"\xa3\x01\n\x16WorkflowStreamResponse\x12;\n\x0f\x61\x63tion_dispatch\x18\x01 \x01(\x0b\x32 .waymark.messages.ActionDispatchH\x00\x12\x44\n\x0fworkflow_result\x18\x02 \x01(\x0b\x32).waymark.messages.WorkflowExecutionResultH\x00\x42\x06\n\x04kind\"\x8d\x01\n\x12ScheduleDefinition\x12,\n\x04type\x18\x01 \x01(\x0e\x32\x1e.waymark.messages.ScheduleType\x12\x17\n\x0f\x63ron_expression\x18\x02 \x01(\t\x12\x18\n\x10interval_seconds\x18\x03 \x01(\x03\x12\x16\n\x0ejitter_seconds\x18\x04 \x01(\x03\"\xc8\x02\n\x17RegisterScheduleRequest\x12\x15\n\rworkflow_name\x18\x01 \x01(\t\x12\x36\n\x08schedule\x18\x02 \x01(\x0b\x32$.waymark.messages.ScheduleDefinition\x12\x33\n\x06inputs\x18\x03 \x01(\x0b\x32#.waymark.messages.WorkflowArguments\x12<\n\x0cregistration\x18\x04 \x01(\x0b\x32&.waymark.messages.WorkflowRegistration\x12\x15\n\rschedule_name\x18\x05 \x01(\t\x12\x15\n\x08priority\x18\x06 \x01(\x05H\x00\x88\x01\x01\x12\x1c\n\x0f\x61llow_duplicate\x18\x07 \x01(\x08H\x01\x88\x01\x01\x42\x0b\n\t_priorityB\x12\n\x10_allow_duplicate\"D\n\x18RegisterScheduleResponse\x12\x13\n\x0bschedule_id\x18\x01 \x01(\t\x12\x13\n\x0bnext_run_at\x18\x02 \x01(\t\"}\n\x1bUpdateScheduleStatusRequest\x12\x15\n\rworkflow_name\x18\x01 \x01(\t\x12\x30\n\x06status\x18\x02 \x01(\x0e\x32 .waymark.messages.ScheduleStatus\x12\x15\n\rschedule_name\x18\x03 \x01(\t\"/\n\x1cUpdateScheduleStatusResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"E\n\x15\x44\x65leteScheduleRequest\x12\x15\n\rworkflow_name\x18\x01 \x01(\t\x12\x15\n\rschedule_name\x18\x02 \x01(\t\")\n\x16\x44\x65leteScheduleResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\"D\n\x14ListSchedulesRequest\x12\x1a\n\rstatus_filter\x18\x01 \x01(\tH\x00\x88\x01\x01\x42\x10\n\x0e_status_filter\"\x81\x03\n\x0cScheduleInfo\x12\n\n\x02id\x18\x01 \x01(\t\x12\x15\n\rworkflow_name\x18\x02 \x01(\t\x12\x35\n\rschedule_type\x18\x03 \x01(\x0e\x32\x1e.waymark.messages.ScheduleType\x12\x17\n\x0f\x63ron_expression\x18\x04 \x01(\t\x12\x18\n\x10interval_seconds\x18\x05 \x01(\x03\x12\x30\n\x06status\x18\x06 \x01(\x0e\x32 .waymark.messages.ScheduleStatus\x12\x13\n\x0bnext_run_at\x18\x07 \x01(\t\x12\x13\n\x0blast_run_at\x18\x08 \x01(\t\x12\x18\n\x10last_instance_id\x18\t \x01(\t\x12\x12\n\ncreated_at\x18\n \x01(\t\x12\x12\n\nupdated_at\x18\x0b \x01(\t\x12\x15\n\rschedule_name\x18\x0c \x01(\t\x12\x16\n\x0ejitter_seconds\x18\r \x01(\x03\x12\x17\n\x0f\x61llow_duplicate\x18\x0e \x01(\x08\"J\n\x15ListSchedulesResponse\x12\x31\n\tschedules\x18\x01 \x03(\x0b\x32\x1e.waymark.messages.ScheduleInfo*\xbe\x01\n\x0bMessageKind\x12\x1c\n\x18MESSAGE_KIND_UNSPECIFIED\x10\x00\x12 \n\x1cMESSAGE_KIND_ACTION_DISPATCH\x10\x01\x12\x1e\n\x1aMESSAGE_KIND_ACTION_RESULT\x10\x02\x12\x14\n\x10MESSAGE_KIND_ACK\x10\x03\x12\x1a\n\x16MESSAGE_KIND_HEARTBEAT\x10\x04\x12\x1d\n\x19MESSAGE_KIND_WORKER_HELLO\x10\x05*a\n\x0cScheduleType\x12\x1d\n\x19SCHEDULE_TYPE_UNSPECIFIED\x10\x00\x12\x16\n\x12SCHEDULE_TYPE_CRON\x10\x01\x12\x1a\n\x16SCHEDULE_TYPE_INTERVAL\x10\x02*i\n\x0eScheduleStatus\x12\x1f\n\x1bSCHEDULE_STATUS_UNSPECIFIED\x10\x00\x12\x1a\n\x16SCHEDULE_STATUS_ACTIVE\x10\x01\x12\x1a\n\x16SCHEDULE_STATUS_PAUSED\x10\x02\x32T\n\x0cWorkerBridge\x12\x44\n\x06\x41ttach\x12\x1a.waymark.messages.Envelope\x1a\x1a.waymark.messages.Envelope(\x01\x30\x01\x32\xf1\x06\n\x0fWorkflowService\x12i\n\x10RegisterWorkflow\x12).waymark.messages.RegisterWorkflowRequest\x1a*.waymark.messages.RegisterWorkflowResponse\x12x\n\x15RegisterWorkflowBatch\x12..waymark.messages.RegisterWorkflowBatchRequest\x1a/.waymark.messages.RegisterWorkflowBatchResponse\x12\x66\n\x0fWaitForInstance\x12(.waymark.messages.WaitForInstanceRequest\x1a).waymark.messages.WaitForInstanceResponse\x12h\n\x0f\x45xecuteWorkflow\x12\'.waymark.messages.WorkflowStreamRequest\x1a(.waymark.messages.WorkflowStreamResponse(\x01\x30\x01\x12i\n\x10RegisterSchedule\x12).waymark.messages.RegisterScheduleRequest\x1a*.waymark.messages.RegisterScheduleResponse\x12u\n\x14UpdateScheduleStatus\x12-.waymark.messages.UpdateScheduleStatusRequest\x1a..waymark.messages.UpdateScheduleStatusResponse\x12\x63\n\x0e\x44\x65leteSchedule\x12\'.waymark.messages.DeleteScheduleRequest\x1a(.waymark.messages.DeleteScheduleResponse\x12`\n\rListSchedules\x12&.waymark.messages.ListSchedulesRequest\x1a\'.waymark.messages.ListSchedulesResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'messages_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_MESSAGEKIND']._serialized_start=4912
-  _globals['_MESSAGEKIND']._serialized_end=5102
-  _globals['_SCHEDULETYPE']._serialized_start=5104
-  _globals['_SCHEDULETYPE']._serialized_end=5201
-  _globals['_SCHEDULESTATUS']._serialized_start=5203
-  _globals['_SCHEDULESTATUS']._serialized_end=5308
-  _globals['_ENVELOPE']._serialized_start=66
-  _globals['_ENVELOPE']._serialized_end=181
-  _globals['_ACTIONDISPATCH']._serialized_start=184
-  _globals['_ACTIONDISPATCH']._serialized_end=559
-  _globals['_ACTIONRESULT']._serialized_start=562
-  _globals['_ACTIONRESULT']._serialized_end=866
-  _globals['_ACK']._serialized_start=868
-  _globals['_ACK']._serialized_end=900
-  _globals['_WORKERHELLO']._serialized_start=902
-  _globals['_WORKERHELLO']._serialized_end=934
-  _globals['_WORKFLOWARGUMENTVALUE']._serialized_start=937
-  _globals['_WORKFLOWARGUMENTVALUE']._serialized_end=1347
-  _globals['_WORKFLOWARGUMENT']._serialized_start=1349
-  _globals['_WORKFLOWARGUMENT']._serialized_end=1395
-  _globals['_WORKFLOWARGUMENTS']._serialized_start=1397
-  _globals['_WORKFLOWARGUMENTS']._serialized_end=1471
-  _globals['_PRIMITIVEWORKFLOWARGUMENT']._serialized_start=1474
-  _globals['_PRIMITIVEWORKFLOWARGUMENT']._serialized_end=1650
-  _globals['_BASEMODELWORKFLOWARGUMENT']._serialized_start=1652
-  _globals['_BASEMODELWORKFLOWARGUMENT']._serialized_end=1763
-  _globals['_WORKFLOWERRORVALUE']._serialized_start=1766
-  _globals['_WORKFLOWERRORVALUE']._serialized_end=1932
-  _globals['_WORKFLOWLISTARGUMENT']._serialized_start=1934
-  _globals['_WORKFLOWLISTARGUMENT']._serialized_end=2012
-  _globals['_WORKFLOWTUPLEARGUMENT']._serialized_start=2014
-  _globals['_WORKFLOWTUPLEARGUMENT']._serialized_end=2093
-  _globals['_WORKFLOWDICTENTRY']._serialized_start=2095
-  _globals['_WORKFLOWDICTENTRY']._serialized_end=2183
-  _globals['_WORKFLOWDICTARGUMENT']._serialized_start=2185
-  _globals['_WORKFLOWDICTARGUMENT']._serialized_end=2261
-  _globals['_WORKFLOWREGISTRATION']._serialized_start=2264
-  _globals['_WORKFLOWREGISTRATION']._serialized_end=2480
-  _globals['_REGISTERWORKFLOWREQUEST']._serialized_start=2482
-  _globals['_REGISTERWORKFLOWREQUEST']._serialized_end=2569
-  _globals['_REGISTERWORKFLOWRESPONSE']._serialized_start=2571
-  _globals['_REGISTERWORKFLOWRESPONSE']._serialized_end=2656
-  _globals['_REGISTERWORKFLOWBATCHREQUEST']._serialized_start=2659
-  _globals['_REGISTERWORKFLOWBATCHREQUEST']._serialized_end=2927
-  _globals['_REGISTERWORKFLOWBATCHRESPONSE']._serialized_start=2929
-  _globals['_REGISTERWORKFLOWBATCHRESPONSE']._serialized_end=3036
-  _globals['_WAITFORINSTANCEREQUEST']._serialized_start=3038
-  _globals['_WAITFORINSTANCEREQUEST']._serialized_end=3111
-  _globals['_WAITFORINSTANCERESPONSE']._serialized_start=3113
-  _globals['_WAITFORINSTANCERESPONSE']._serialized_end=3155
-  _globals['_WORKFLOWSTREAMREQUEST']._serialized_start=3158
-  _globals['_WORKFLOWSTREAMREQUEST']._serialized_end=3330
-  _globals['_WORKFLOWEXECUTIONRESULT']._serialized_start=3332
-  _globals['_WORKFLOWEXECUTIONRESULT']._serialized_end=3374
-  _globals['_WORKFLOWSTREAMRESPONSE']._serialized_start=3377
-  _globals['_WORKFLOWSTREAMRESPONSE']._serialized_end=3540
-  _globals['_SCHEDULEDEFINITION']._serialized_start=3543
-  _globals['_SCHEDULEDEFINITION']._serialized_end=3684
-  _globals['_REGISTERSCHEDULEREQUEST']._serialized_start=3687
-  _globals['_REGISTERSCHEDULEREQUEST']._serialized_end=4015
-  _globals['_REGISTERSCHEDULERESPONSE']._serialized_start=4017
-  _globals['_REGISTERSCHEDULERESPONSE']._serialized_end=4085
-  _globals['_UPDATESCHEDULESTATUSREQUEST']._serialized_start=4087
-  _globals['_UPDATESCHEDULESTATUSREQUEST']._serialized_end=4212
-  _globals['_UPDATESCHEDULESTATUSRESPONSE']._serialized_start=4214
-  _globals['_UPDATESCHEDULESTATUSRESPONSE']._serialized_end=4261
-  _globals['_DELETESCHEDULEREQUEST']._serialized_start=4263
-  _globals['_DELETESCHEDULEREQUEST']._serialized_end=4332
-  _globals['_DELETESCHEDULERESPONSE']._serialized_start=4334
-  _globals['_DELETESCHEDULERESPONSE']._serialized_end=4375
-  _globals['_LISTSCHEDULESREQUEST']._serialized_start=4377
-  _globals['_LISTSCHEDULESREQUEST']._serialized_end=4445
-  _globals['_SCHEDULEINFO']._serialized_start=4448
-  _globals['_SCHEDULEINFO']._serialized_end=4833
-  _globals['_LISTSCHEDULESRESPONSE']._serialized_start=4835
-  _globals['_LISTSCHEDULESRESPONSE']._serialized_end=4909
-  _globals['_WORKERBRIDGE']._serialized_start=5310
-  _globals['_WORKERBRIDGE']._serialized_end=5394
-  _globals['_WORKFLOWSERVICE']._serialized_start=5397
-  _globals['_WORKFLOWSERVICE']._serialized_end=6278
+  _globals['_MESSAGEKIND']._serialized_start=3679
+  _globals['_MESSAGEKIND']._serialized_end=3869
+  _globals['_SCHEDULETYPE']._serialized_start=3871
+  _globals['_SCHEDULETYPE']._serialized_end=3968
+  _globals['_SCHEDULESTATUS']._serialized_start=3970
+  _globals['_SCHEDULESTATUS']._serialized_end=4075
+  _globals['_ENVELOPE']._serialized_start=36
+  _globals['_ENVELOPE']._serialized_end=151
+  _globals['_ACTIONDISPATCH']._serialized_start=154
+  _globals['_ACTIONDISPATCH']._serialized_end=529
+  _globals['_ACTIONRESULT']._serialized_start=532
+  _globals['_ACTIONRESULT']._serialized_end=836
+  _globals['_ACK']._serialized_start=838
+  _globals['_ACK']._serialized_end=870
+  _globals['_WORKERHELLO']._serialized_start=872
+  _globals['_WORKERHELLO']._serialized_end=904
+  _globals['_WORKFLOWARGUMENT']._serialized_start=906
+  _globals['_WORKFLOWARGUMENT']._serialized_end=952
+  _globals['_WORKFLOWARGUMENTS']._serialized_start=954
+  _globals['_WORKFLOWARGUMENTS']._serialized_end=1028
+  _globals['_WORKFLOWREGISTRATION']._serialized_start=1031
+  _globals['_WORKFLOWREGISTRATION']._serialized_end=1247
+  _globals['_REGISTERWORKFLOWREQUEST']._serialized_start=1249
+  _globals['_REGISTERWORKFLOWREQUEST']._serialized_end=1336
+  _globals['_REGISTERWORKFLOWRESPONSE']._serialized_start=1338
+  _globals['_REGISTERWORKFLOWRESPONSE']._serialized_end=1423
+  _globals['_REGISTERWORKFLOWBATCHREQUEST']._serialized_start=1426
+  _globals['_REGISTERWORKFLOWBATCHREQUEST']._serialized_end=1694
+  _globals['_REGISTERWORKFLOWBATCHRESPONSE']._serialized_start=1696
+  _globals['_REGISTERWORKFLOWBATCHRESPONSE']._serialized_end=1803
+  _globals['_WAITFORINSTANCEREQUEST']._serialized_start=1805
+  _globals['_WAITFORINSTANCEREQUEST']._serialized_end=1878
+  _globals['_WAITFORINSTANCERESPONSE']._serialized_start=1880
+  _globals['_WAITFORINSTANCERESPONSE']._serialized_end=1922
+  _globals['_WORKFLOWSTREAMREQUEST']._serialized_start=1925
+  _globals['_WORKFLOWSTREAMREQUEST']._serialized_end=2097
+  _globals['_WORKFLOWEXECUTIONRESULT']._serialized_start=2099
+  _globals['_WORKFLOWEXECUTIONRESULT']._serialized_end=2141
+  _globals['_WORKFLOWSTREAMRESPONSE']._serialized_start=2144
+  _globals['_WORKFLOWSTREAMRESPONSE']._serialized_end=2307
+  _globals['_SCHEDULEDEFINITION']._serialized_start=2310
+  _globals['_SCHEDULEDEFINITION']._serialized_end=2451
+  _globals['_REGISTERSCHEDULEREQUEST']._serialized_start=2454
+  _globals['_REGISTERSCHEDULEREQUEST']._serialized_end=2782
+  _globals['_REGISTERSCHEDULERESPONSE']._serialized_start=2784
+  _globals['_REGISTERSCHEDULERESPONSE']._serialized_end=2852
+  _globals['_UPDATESCHEDULESTATUSREQUEST']._serialized_start=2854
+  _globals['_UPDATESCHEDULESTATUSREQUEST']._serialized_end=2979
+  _globals['_UPDATESCHEDULESTATUSRESPONSE']._serialized_start=2981
+  _globals['_UPDATESCHEDULESTATUSRESPONSE']._serialized_end=3028
+  _globals['_DELETESCHEDULEREQUEST']._serialized_start=3030
+  _globals['_DELETESCHEDULEREQUEST']._serialized_end=3099
+  _globals['_DELETESCHEDULERESPONSE']._serialized_start=3101
+  _globals['_DELETESCHEDULERESPONSE']._serialized_end=3142
+  _globals['_LISTSCHEDULESREQUEST']._serialized_start=3144
+  _globals['_LISTSCHEDULESREQUEST']._serialized_end=3212
+  _globals['_SCHEDULEINFO']._serialized_start=3215
+  _globals['_SCHEDULEINFO']._serialized_end=3600
+  _globals['_LISTSCHEDULESRESPONSE']._serialized_start=3602
+  _globals['_LISTSCHEDULESRESPONSE']._serialized_end=3676
+  _globals['_WORKERBRIDGE']._serialized_start=4077
+  _globals['_WORKERBRIDGE']._serialized_end=4161
+  _globals['_WORKFLOWSERVICE']._serialized_start=4164
+  _globals['_WORKFLOWSERVICE']._serialized_end=5045
 # @@protoc_insertion_point(module_scope)
