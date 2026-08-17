@@ -519,20 +519,23 @@ Global___WorkflowArgumentValue: typing_extensions.TypeAlias = WorkflowArgumentVa
 
 @typing.final
 class WorkflowArgument(google.protobuf.message.Message):
+    """A named argument at the transport framing level: the name stays
+    proto-visible, the value is an opaque encoded document (currently a
+    serialized WorkflowArgumentValue).
+    """
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     KEY_FIELD_NUMBER: builtins.int
     VALUE_FIELD_NUMBER: builtins.int
     key: builtins.str
-    @property
-    def value(self) -> Global___WorkflowArgumentValue: ...
+    value: builtins.bytes
     def __init__(
         self,
         *,
         key: builtins.str = ...,
-        value: Global___WorkflowArgumentValue | None = ...,
+        value: builtins.bytes = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing.Literal["value", b"value"]) -> builtins.bool: ...
     def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
 
 Global___WorkflowArgument: typing_extensions.TypeAlias = WorkflowArgument
@@ -749,6 +752,30 @@ class WorkflowTupleArgument(google.protobuf.message.Message):
 Global___WorkflowTupleArgument: typing_extensions.TypeAlias = WorkflowTupleArgument
 
 @typing.final
+class WorkflowDictEntry(google.protobuf.message.Message):
+    """A dictionary entry inside the value tree — structural, unlike the
+    framing-level WorkflowArgument.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    KEY_FIELD_NUMBER: builtins.int
+    VALUE_FIELD_NUMBER: builtins.int
+    key: builtins.str
+    @property
+    def value(self) -> Global___WorkflowArgumentValue: ...
+    def __init__(
+        self,
+        *,
+        key: builtins.str = ...,
+        value: Global___WorkflowArgumentValue | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["value", b"value"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
+
+Global___WorkflowDictEntry: typing_extensions.TypeAlias = WorkflowDictEntry
+
+@typing.final
 class WorkflowDictArgument(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -757,12 +784,12 @@ class WorkflowDictArgument(google.protobuf.message.Message):
     def entries(
         self,
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowArgument
+        Global___WorkflowDictEntry
     ]: ...
     def __init__(
         self,
         *,
-        entries: collections.abc.Iterable[Global___WorkflowArgument] | None = ...,
+        entries: collections.abc.Iterable[Global___WorkflowDictEntry] | None = ...,
     ) -> None: ...
     def ClearField(self, field_name: typing.Literal["entries", b"entries"]) -> None: ...
 
@@ -901,7 +928,9 @@ class RegisterWorkflowBatchRequest(google.protobuf.message.Message):
     count: builtins.int
     """Total number of instances to create when inputs_list is empty."""
     batch_size: builtins.int
-    """Batch size for database inserts."""
+    """Batch size for database inserts, clamped to a server-side maximum;
+    0 means the server default.
+    """
     include_instance_ids: builtins.bool
     """Whether to return instance IDs in the response."""
     @property
