@@ -4,8 +4,9 @@ use waymark_convert_core::TryConvert;
 use waymark_workflow_initialization_convert_proto::InitialContextConverter;
 
 fn int_arg(key: &str, value: i64) -> waymark_proto::messages::WorkflowArgument {
-    use waymark_proto::messages::{
-        PrimitiveWorkflowArgument, WorkflowArgument, WorkflowArgumentValue,
+    use waymark_proto::messages::WorkflowArgument;
+    use waymark_proto::python_value::{
+        PrimitiveWorkflowArgument, WorkflowArgumentValue,
         primitive_workflow_argument::Kind as PrimitiveKind, workflow_argument_value::Kind,
     };
 
@@ -17,7 +18,7 @@ fn int_arg(key: &str, value: i64) -> waymark_proto::messages::WorkflowArgument {
 
     WorkflowArgument {
         key: key.to_string(),
-        value: waymark_message_conversions::encode_workflow_argument_value(&value),
+        value: waymark_proto_python_value_conversions::encode_workflow_argument_value(&value),
     }
 }
 
