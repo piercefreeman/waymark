@@ -157,37 +157,21 @@ class ActionDispatch(google.protobuf.message.Message):
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
-    ACTION_ID_FIELD_NUMBER: builtins.int
-    INSTANCE_ID_FIELD_NUMBER: builtins.int
-    SEQUENCE_FIELD_NUMBER: builtins.int
     ACTION_NAME_FIELD_NUMBER: builtins.int
     MODULE_NAME_FIELD_NUMBER: builtins.int
     KWARGS_FIELD_NUMBER: builtins.int
-    TIMEOUT_SECONDS_FIELD_NUMBER: builtins.int
-    MAX_RETRIES_FIELD_NUMBER: builtins.int
-    ATTEMPT_NUMBER_FIELD_NUMBER: builtins.int
-    DISPATCH_TOKEN_FIELD_NUMBER: builtins.int
     METADATA_FIELD_NUMBER: builtins.int
-    action_id: builtins.str
-    """Unique action identifier"""
-    instance_id: builtins.str
-    """Workflow instance this action belongs to"""
-    sequence: builtins.int
-    """Sequence number within instance"""
     action_name: builtins.str
     """Action execution details
     Name of the action function to call
     """
     module_name: builtins.str
     """Python module containing the action"""
-    timeout_seconds: builtins.int
-    """Execution policies"""
-    max_retries: builtins.int
-    attempt_number: builtins.int
-    dispatch_token: builtins.str
-    """UUID for result correlation"""
     metadata: builtins.bytes
-    """Opaque server correlation metadata; workers echo it untouched"""
+    """Opaque server correlation metadata; workers echo it untouched.
+    This is the ONLY correlation: wire ids and per-attempt tokens were
+    retired once the action runtime began correlating on metadata alone.
+    """
     @property
     def kwargs(self) -> Global___WorkflowArguments:
         """Keyword arguments for the action"""
@@ -195,92 +179,25 @@ class ActionDispatch(google.protobuf.message.Message):
     def __init__(
         self,
         *,
-        action_id: builtins.str = ...,
-        instance_id: builtins.str = ...,
-        sequence: builtins.int = ...,
         action_name: builtins.str = ...,
         module_name: builtins.str = ...,
         kwargs: Global___WorkflowArguments | None = ...,
-        timeout_seconds: builtins.int | None = ...,
-        max_retries: builtins.int | None = ...,
-        attempt_number: builtins.int | None = ...,
-        dispatch_token: builtins.str | None = ...,
         metadata: builtins.bytes = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "_attempt_number",
-            b"_attempt_number",
-            "_dispatch_token",
-            b"_dispatch_token",
-            "_max_retries",
-            b"_max_retries",
-            "_timeout_seconds",
-            b"_timeout_seconds",
-            "attempt_number",
-            b"attempt_number",
-            "dispatch_token",
-            b"dispatch_token",
-            "kwargs",
-            b"kwargs",
-            "max_retries",
-            b"max_retries",
-            "timeout_seconds",
-            b"timeout_seconds",
-        ],
-    ) -> builtins.bool: ...
+    def HasField(self, field_name: typing.Literal["kwargs", b"kwargs"]) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
-            "_attempt_number",
-            b"_attempt_number",
-            "_dispatch_token",
-            b"_dispatch_token",
-            "_max_retries",
-            b"_max_retries",
-            "_timeout_seconds",
-            b"_timeout_seconds",
-            "action_id",
-            b"action_id",
             "action_name",
             b"action_name",
-            "attempt_number",
-            b"attempt_number",
-            "dispatch_token",
-            b"dispatch_token",
-            "instance_id",
-            b"instance_id",
             "kwargs",
             b"kwargs",
-            "max_retries",
-            b"max_retries",
             "metadata",
             b"metadata",
             "module_name",
             b"module_name",
-            "sequence",
-            b"sequence",
-            "timeout_seconds",
-            b"timeout_seconds",
         ],
     ) -> None: ...
-    @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_attempt_number", b"_attempt_number"]
-    ) -> typing.Literal["attempt_number"] | None: ...
-    @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_dispatch_token", b"_dispatch_token"]
-    ) -> typing.Literal["dispatch_token"] | None: ...
-    @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_max_retries", b"_max_retries"]
-    ) -> typing.Literal["max_retries"] | None: ...
-    @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_timeout_seconds", b"_timeout_seconds"]
-    ) -> typing.Literal["timeout_seconds"] | None: ...
 
 Global___ActionDispatch: typing_extensions.TypeAlias = ActionDispatch
 
@@ -290,22 +207,18 @@ class ActionResult(google.protobuf.message.Message):
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
-    ACTION_ID_FIELD_NUMBER: builtins.int
     SUCCESS_FIELD_NUMBER: builtins.int
     PAYLOAD_FIELD_NUMBER: builtins.int
     WORKER_START_NS_FIELD_NUMBER: builtins.int
     WORKER_END_NS_FIELD_NUMBER: builtins.int
-    DISPATCH_TOKEN_FIELD_NUMBER: builtins.int
     ERROR_TYPE_FIELD_NUMBER: builtins.int
     ERROR_MESSAGE_FIELD_NUMBER: builtins.int
     METADATA_FIELD_NUMBER: builtins.int
-    action_id: builtins.str
     success: builtins.bool
     worker_start_ns: builtins.int
     """Perf counter at execution start"""
     worker_end_ns: builtins.int
     """Perf counter at execution end"""
-    dispatch_token: builtins.str
     error_type: builtins.str
     """Exception type if success=false"""
     error_message: builtins.str
@@ -319,12 +232,10 @@ class ActionResult(google.protobuf.message.Message):
     def __init__(
         self,
         *,
-        action_id: builtins.str = ...,
         success: builtins.bool = ...,
         payload: Global___WorkflowArguments | None = ...,
         worker_start_ns: builtins.int = ...,
         worker_end_ns: builtins.int = ...,
-        dispatch_token: builtins.str | None = ...,
         error_type: builtins.str | None = ...,
         error_message: builtins.str | None = ...,
         metadata: builtins.bytes = ...,
@@ -332,14 +243,10 @@ class ActionResult(google.protobuf.message.Message):
     def HasField(
         self,
         field_name: typing.Literal[
-            "_dispatch_token",
-            b"_dispatch_token",
             "_error_message",
             b"_error_message",
             "_error_type",
             b"_error_type",
-            "dispatch_token",
-            b"dispatch_token",
             "error_message",
             b"error_message",
             "error_type",
@@ -351,16 +258,10 @@ class ActionResult(google.protobuf.message.Message):
     def ClearField(
         self,
         field_name: typing.Literal[
-            "_dispatch_token",
-            b"_dispatch_token",
             "_error_message",
             b"_error_message",
             "_error_type",
             b"_error_type",
-            "action_id",
-            b"action_id",
-            "dispatch_token",
-            b"dispatch_token",
             "error_message",
             b"error_message",
             "error_type",
@@ -377,10 +278,6 @@ class ActionResult(google.protobuf.message.Message):
             b"worker_start_ns",
         ],
     ) -> None: ...
-    @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_dispatch_token", b"_dispatch_token"]
-    ) -> typing.Literal["dispatch_token"] | None: ...
     @typing.overload
     def WhichOneof(
         self, oneof_group: typing.Literal["_error_message", b"_error_message"]
