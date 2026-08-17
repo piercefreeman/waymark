@@ -19,4 +19,4 @@ thiserror = { workspace = true }
 doctest = false
 
 [dev-dependencies]
-waymark-message-conversions = { workspace = true }
+waymark-proto-python-value-conversions = { workspace = true }

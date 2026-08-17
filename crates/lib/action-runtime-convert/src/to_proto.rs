@@ -4,29 +4,31 @@ use waymark_vm_value_convert_core::PendingPromiseError;
 use crate::Converter;
 
 impl
-    TryConvert<&waymark_vm_value_python::ReadyValue, waymark_proto::messages::WorkflowArgumentValue>
-    for Converter
+    TryConvert<
+        &waymark_vm_value_python::ReadyValue,
+        waymark_proto::python_value::WorkflowArgumentValue,
+    > for Converter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
         value: &waymark_vm_value_python::ReadyValue,
-    ) -> Result<waymark_proto::messages::WorkflowArgumentValue, PendingPromiseError> {
+    ) -> Result<waymark_proto::python_value::WorkflowArgumentValue, PendingPromiseError> {
         let json = waymark_vm_value_convert_json::Converter::try_convert(value.clone())?;
-        Ok(waymark_message_conversions::json_to_workflow_argument_value(&json))
+        Ok(waymark_proto_python_value_conversions::json_to_workflow_argument_value(&json))
     }
 }
 
-impl TryConvert<&waymark_vm_value_python::Value, waymark_proto::messages::WorkflowArgumentValue>
+impl TryConvert<&waymark_vm_value_python::Value, waymark_proto::python_value::WorkflowArgumentValue>
     for Converter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
         value: &waymark_vm_value_python::Value,
-    ) -> Result<waymark_proto::messages::WorkflowArgumentValue, PendingPromiseError> {
+    ) -> Result<waymark_proto::python_value::WorkflowArgumentValue, PendingPromiseError> {
         let json = waymark_vm_value_convert_json::Converter::try_convert(value.clone())?;
-        Ok(waymark_message_conversions::json_to_workflow_argument_value(&json))
+        Ok(waymark_proto_python_value_conversions::json_to_workflow_argument_value(&json))
     }
 }
 
@@ -59,7 +61,9 @@ impl
             let encoded = Self::try_convert(value)?;
             arguments.push(WorkflowArgument {
                 key: name.clone(),
-                value: waymark_message_conversions::encode_workflow_argument_value(&encoded),
+                value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
+                    &encoded,
+                ),
             });
         }
         Ok(WorkflowArguments { arguments })
