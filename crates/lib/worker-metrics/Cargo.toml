@@ -6,7 +6,6 @@ publish.workspace = true
 
 [dependencies]
 chrono = { workspace = true, default-features = false, features = ["clock"] }
-uuid = { workspace = true }
 
 [lib]
 doctest = false
