@@ -3,7 +3,6 @@
 #![warn(missing_docs)]
 
 mod from_proto;
-mod from_worker_core;
 mod to_proto;
 
 /// A converter that provides conversion for the action runtime.

@@ -10,12 +10,32 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use waymark_worker_core::{UncheckedExecutionResult, WorkerPoolError, error_to_value};
+use waymark_worker_core::WorkerPoolError;
 use waymark_worker_inline::InlineActionCallable;
+
+/// Render a successful JSON result into the wire-shaped action result:
+/// the value rides the payload under the `result` key, exactly as a
+/// remote worker would have reported it.
+fn success_action_result(value: &serde_json::Value) -> waymark_proto::messages::ActionResult {
+    let document = waymark_proto_python_value_conversions::json_to_workflow_argument_value(value);
+    let payload = waymark_proto::messages::WorkflowArguments {
+        arguments: vec![waymark_proto::messages::WorkflowArgument {
+            key: "result".to_owned(),
+            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
+                &document,
+            ),
+        }],
+    };
+    waymark_proto::messages::ActionResult {
+        success: true,
+        payload: Some(payload),
+        ..Default::default()
+    }
+}
 
 /// Adapt a JSON-map action body to the inline callable surface: decode
 /// the framing-level kwargs, run the body, and render either outcome
-/// into the completion's result vocabulary.
+/// into the wire-shaped action result.
 pub fn inline_action<F, Fut>(body: F) -> InlineActionCallable
 where
     F: Fn(HashMap<String, serde_json::Value>) -> Fut + Send + Sync + 'static,
@@ -37,10 +57,15 @@ where
                 body(entries.into_iter().collect()).await
             }
             .await;
-            UncheckedExecutionResult(match outcome {
-                Ok(value) => value,
-                Err(err) => error_to_value(&err),
-            })
+            match outcome {
+                Ok(value) => success_action_result(&value),
+                Err(err) => waymark_proto::messages::ActionResult {
+                    success: false,
+                    error_type: Some(err.kind),
+                    error_message: Some(err.message),
+                    ..Default::default()
+                },
+            }
         })
     })
 }

@@ -97,6 +97,7 @@ async def _handle_dispatch(
     success = True
     action_name = dispatch.action_name
     execution: workflow_runtime.ActionExecutionResult | None = None
+    raised: BaseException | None = None
     try:
         if python_timeout > 0:
             execution = await asyncio.wait_for(
@@ -107,6 +108,7 @@ async def _handle_dispatch(
 
         if execution.exception:
             success = False
+            raised = execution.exception
             response_payload = serialize_error_payload(action_name, execution.exception)
         else:
             response_payload = serialize_result_payload(execution.result)
@@ -128,9 +130,11 @@ async def _handle_dispatch(
         error = Exception(
             f"action {action_name} cleanup timeout (Rust-side timeout already triggered)"
         )
+        raised = error
         response_payload = serialize_error_payload(action_name, error)
     except Exception as exc:  # noqa: BLE001 - propagate structured errors
         success = False
+        raised = exc
         response_payload = serialize_error_payload(action_name, exc)
         LOGGER.exception(
             "Action %s failed for action_id=%s sequence=%s",
@@ -146,6 +150,11 @@ async def _handle_dispatch(
         worker_end_ns=worker_end,
     )
     response.payload.CopyFrom(response_payload)
+    if raised is not None:
+        # The type id is what an `except` clause and a retry policy match on;
+        # it travels in the result's own fields, as the stream bridge sends it.
+        response.error_type = type(raised).__name__
+        response.error_message = str(raised)
     if dispatch.dispatch_token:
         response.dispatch_token = dispatch.dispatch_token
     # Echo the opaque server correlation metadata untouched.
