@@ -7,9 +7,8 @@ use nonempty_collections::NEVec;
 use tokio::sync::mpsc;
 
 use waymark_observability::obs;
-use waymark_worker_core::{
-    ActionCompletion, ActionRequest, BaseWorkerPool, UncheckedExecutionResult, WorkerPoolError,
-};
+use waymark_proto::messages as proto;
+use waymark_worker_core::{ActionRequest, BaseWorkerPool, WorkerPoolError};
 
 type BoxFuture<'a, T> = std::pin::Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -18,17 +17,17 @@ pub type ActionCallable<Args, Ret> = Arc<dyn Fn(Args) -> BoxFuture<'static, Ret>
 
 /// The [`ActionCallable`] instantiation the inline worker pool serves:
 /// the framing-level kwargs go to the callable untranslated, and the
-/// callable answers with the completion's own result vocabulary —
-/// success or exception alike, never a pool error.
-pub type InlineActionCallable =
-    ActionCallable<waymark_proto::messages::WorkflowArguments, UncheckedExecutionResult>;
+/// callable answers with the completion message itself — success and
+/// failure discriminated structurally, never a pool error.  The pool
+/// stamps the correlation metadata; the callable leaves it alone.
+pub type InlineActionCallable = ActionCallable<proto::WorkflowArguments, proto::ActionResult>;
 
 /// Execute action requests by calling async functions in the same loop.
 #[derive(Clone)]
 pub struct InlineWorkerPool {
     actions: HashMap<String, InlineActionCallable>,
-    sender: mpsc::Sender<ActionCompletion>,
-    receiver: Arc<tokio::sync::Mutex<mpsc::Receiver<ActionCompletion>>>,
+    sender: mpsc::Sender<proto::ActionResult>,
+    receiver: Arc<tokio::sync::Mutex<mpsc::Receiver<proto::ActionResult>>>,
 }
 
 impl InlineWorkerPool {
@@ -42,7 +41,7 @@ impl InlineWorkerPool {
     }
 
     #[obs]
-    async fn poll_complete_impl(&self) -> Option<NEVec<ActionCompletion>> {
+    async fn poll_complete_impl(&self) -> Option<NEVec<proto::ActionResult>> {
         let mut receiver = self.receiver.lock().await;
 
         let first = receiver.recv().await?;
@@ -83,14 +82,15 @@ impl BaseWorkerPool for InlineWorkerPool {
         })?;
 
         tokio::spawn(async move {
-            let result = handler(kwargs).await;
-            let _ = sender.send(ActionCompletion { result, metadata }).await;
+            let mut result = handler(kwargs).await;
+            result.metadata = metadata;
+            let _ = sender.send(result).await;
         });
 
         Ok(())
     }
 
-    fn poll_complete(&self) -> impl Future<Output = Option<NEVec<ActionCompletion>>> {
+    fn poll_complete(&self) -> impl Future<Output = Option<NEVec<proto::ActionResult>>> {
         self.poll_complete_impl()
     }
 }

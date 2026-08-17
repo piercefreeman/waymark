@@ -1,5 +1,4 @@
 mod request;
-mod response;
 
 use std::{
     sync::{
@@ -13,13 +12,13 @@ use nonempty_collections::NEVec;
 
 use tokio::sync::{Mutex, mpsc};
 
-use waymark_worker_core::UncheckedExecutionResult;
-use waymark_worker_core::{ActionCompletion, ActionRequest, WorkerPoolError, error_to_value};
+use waymark_proto::messages as proto;
+use waymark_worker_core::{ActionRequest, WorkerPoolError};
 
 async fn execute_remote_request<Spec>(
     pool: &Arc<waymark_worker_process_pool::Pool<Spec>>,
     request: ActionRequest,
-) -> ActionCompletion
+) -> proto::ActionResult
 where
     Spec: waymark_worker_process_spec::Spec,
     Spec: Send + Sync + 'static,
@@ -28,7 +27,7 @@ where
 
     let dispatch = match request::to_dispatch_payload(request) {
         Ok(dispatch) => dispatch,
-        Err(short_circuit) => return short_circuit,
+        Err(short_circuit) => return *short_circuit,
     };
 
     let before = std::time::Instant::now();
@@ -51,19 +50,24 @@ where
         Ok(metrics) => {
             pool.record_latency(metrics.ack_latency, metrics.worker_duration);
             pool.record_completion(worker_idx, Arc::clone(pool));
-            ActionCompletion {
-                result: UncheckedExecutionResult(response::decode_action_result(&metrics)),
+            proto::ActionResult {
+                success: metrics.success,
+                payload: Some(metrics.response_payload),
+                dispatch_token: metrics.dispatch_token.map(|token| token.to_string()),
+                error_type: metrics.error_type,
+                error_message: metrics.error_message,
                 metadata,
+                ..Default::default()
             }
         }
         Err(err) => {
             pool.release_slot(worker_idx);
-            ActionCompletion {
-                result: UncheckedExecutionResult(error_to_value(&WorkerPoolError::new(
-                    "RemoteWorkerPoolError",
-                    err.to_string(),
-                ))),
+            proto::ActionResult {
+                success: false,
+                error_type: Some("RemoteWorkerPoolError".to_owned()),
+                error_message: Some(err.to_string()),
                 metadata,
+                ..Default::default()
             }
         }
     }
@@ -83,8 +87,8 @@ pub struct RemoteWorkerPool<Spec> {
     pool: Arc<waymark_worker_process_pool::Pool<Spec>>,
     request_tx: mpsc::Sender<ActionRequest>,
     request_rx: StdMutex<Option<mpsc::Receiver<ActionRequest>>>,
-    completion_tx: mpsc::Sender<ActionCompletion>,
-    completion_rx: Mutex<mpsc::Receiver<ActionCompletion>>,
+    completion_tx: mpsc::Sender<proto::ActionResult>,
+    completion_rx: Mutex<mpsc::Receiver<proto::ActionResult>>,
     launched: AtomicBool,
 }
 
@@ -192,7 +196,7 @@ where
         })
     }
 
-    async fn poll_complete(&self) -> Option<NEVec<ActionCompletion>> {
+    async fn poll_complete(&self) -> Option<NEVec<proto::ActionResult>> {
         let mut receiver = self.completion_rx.lock().await;
 
         let first = receiver.recv().await?;
