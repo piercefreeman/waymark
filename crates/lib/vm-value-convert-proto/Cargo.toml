@@ -1,18 +1,21 @@
 [package]
-name = "waymark-workflow-completion-convert-proto"
+name = "waymark-vm-value-convert-proto"
+edition = "2024"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
 
 [dependencies]
 waymark-convert-core = { workspace = true }
 waymark-proto = { workspace = true }
-waymark-proto-python-value-conversions = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-value-convert-core = { workspace = true }
-waymark-vm-value-convert-proto = { workspace = true }
 waymark-vm-value-python = { workspace = true }
-waymark-workflow-completion-core = { workspace = true }
+
+indexmap = { workspace = true }
+typed_floats = { workspace = true }
+
+[dev-dependencies]
+waymark-vm-runtime-promise-core = { workspace = true }
 
 [lib]
 doctest = false
