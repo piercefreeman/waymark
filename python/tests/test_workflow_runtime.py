@@ -12,6 +12,7 @@ from waymark import registry as action_registry
 from waymark.actions import action
 from waymark.dependencies import Depend
 from waymark.proto import messages_pb2 as pb2
+from waymark.proto import python_value_pb2 as pb2v
 from waymark.workflow_runtime import ActionExecutionResult, execute_action
 
 
@@ -52,7 +53,7 @@ def _build_action_dispatch(
     for key, value in kwargs.items():
         arg = dispatch.kwargs.arguments.add()
         arg.key = key
-        arg_value = pb2.WorkflowArgumentValue()
+        arg_value = pb2v.WorkflowArgumentValue()
         if isinstance(value, int):
             arg_value.primitive.int_value = value
         elif isinstance(value, str):
@@ -206,7 +207,7 @@ def _build_action_dispatch_with_dict(
         module_name=module_name,
     )
 
-    def add_value_to_proto(proto_value: pb2.WorkflowArgumentValue, value: object) -> None:
+    def add_value_to_proto(proto_value: pb2v.WorkflowArgumentValue, value: object) -> None:
         """Recursively add a value to a proto message."""
         if isinstance(value, int):
             proto_value.primitive.int_value = value
@@ -232,7 +233,7 @@ def _build_action_dispatch_with_dict(
     for key, value in kwargs.items():
         arg = dispatch.kwargs.arguments.add()
         arg.key = key
-        arg_value = pb2.WorkflowArgumentValue()
+        arg_value = pb2v.WorkflowArgumentValue()
         add_value_to_proto(arg_value, value)
         arg.value = arg_value.SerializeToString()
 

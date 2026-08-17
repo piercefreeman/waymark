@@ -36,12 +36,18 @@ ignore = ["E501"]
 "src/waymark/proto/messages_pb2_grpc.pyi" = ["N802"]
 "src/waymark/proto/ast_pb2.py" = ["E402", "N802"]
 "src/waymark/proto/ast_pb2.pyi" = ["N802"]
+"src/waymark/proto/python_value_pb2.py" = ["E402", "N802"]
+"src/waymark/proto/python_value_pb2.pyi" = ["N802"]
+"src/waymark/proto/python_value_pb2_grpc.py" = ["N802"]
+"src/waymark/proto/python_value_pb2_grpc.pyi" = ["N802"]
 
 [tool.ruff.format]
 exclude = [
   "src/waymark/proto/messages_pb2.py",
   "src/waymark/proto/messages_pb2_grpc.py",
   "src/waymark/proto/ast_pb2.py",
+  "src/waymark/proto/python_value_pb2.py",
+  "src/waymark/proto/python_value_pb2_grpc.py",
 ]
 
 [build-system]
