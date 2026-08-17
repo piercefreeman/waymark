@@ -4,33 +4,35 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use nonempty_collections::NEVec;
-use serde_json::Value;
 use tokio::sync::mpsc;
 
 use waymark_observability::obs;
-use waymark_worker_core::UncheckedExecutionResult;
 use waymark_worker_core::{
-    ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError, error_to_value,
+    ActionCompletion, ActionRequest, BaseWorkerPool, UncheckedExecutionResult, WorkerPoolError,
 };
 
 type BoxFuture<'a, T> = std::pin::Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-pub type ActionCallable = Arc<
-    dyn Fn(HashMap<String, Value>) -> BoxFuture<'static, Result<Value, WorkerPoolError>>
-        + Send
-        + Sync,
->;
+/// An async function serving an action call in-process.
+pub type ActionCallable<Args, Ret> = Arc<dyn Fn(Args) -> BoxFuture<'static, Ret> + Send + Sync>;
+
+/// The [`ActionCallable`] instantiation the inline worker pool serves:
+/// the framing-level kwargs go to the callable untranslated, and the
+/// callable answers with the completion's own result vocabulary —
+/// success or exception alike, never a pool error.
+pub type InlineActionCallable =
+    ActionCallable<waymark_proto::messages::WorkflowArguments, UncheckedExecutionResult>;
 
 /// Execute action requests by calling async functions in the same loop.
 #[derive(Clone)]
 pub struct InlineWorkerPool {
-    actions: HashMap<String, ActionCallable>,
+    actions: HashMap<String, InlineActionCallable>,
     sender: mpsc::Sender<ActionCompletion>,
     receiver: Arc<tokio::sync::Mutex<mpsc::Receiver<ActionCompletion>>>,
 }
 
 impl InlineWorkerPool {
-    pub fn new(actions: HashMap<String, ActionCallable>) -> Self {
+    pub fn new(actions: HashMap<String, InlineActionCallable>) -> Self {
         let (sender, receiver) = mpsc::channel(256);
         Self {
             actions,
@@ -81,11 +83,7 @@ impl BaseWorkerPool for InlineWorkerPool {
         })?;
 
         tokio::spawn(async move {
-            let result = match handler(kwargs).await {
-                Ok(value) => value,
-                Err(err) => error_to_value(&err),
-            };
-            let result = UncheckedExecutionResult(result);
+            let result = handler(kwargs).await;
             let _ = sender.send(ActionCompletion { result, metadata }).await;
         });
 
