@@ -1,10 +1,10 @@
-use waymark_worker_core::UncheckedExecutionResult;
-use waymark_worker_core::{ActionCompletion, ActionRequest, WorkerPoolError, error_to_value};
+use waymark_proto::messages as proto;
+use waymark_worker_core::ActionRequest;
 use waymark_worker_message_protocol::ActionDispatchPayload;
 
 pub fn to_dispatch_payload(
     request: ActionRequest,
-) -> Result<ActionDispatchPayload, ActionCompletion> {
+) -> Result<ActionDispatchPayload, Box<proto::ActionResult>> {
     let ActionRequest {
         action_name,
         module_name,
@@ -13,13 +13,13 @@ pub fn to_dispatch_payload(
     } = request;
 
     let Some(module_name) = module_name else {
-        return Err(ActionCompletion {
-            result: UncheckedExecutionResult(error_to_value(&WorkerPoolError::new(
-                "RemoteWorkerPoolError",
-                "missing module name for action request",
-            ))),
+        return Err(Box::new(proto::ActionResult {
+            success: false,
+            error_type: Some("RemoteWorkerPoolError".to_owned()),
+            error_message: Some("missing module name for action request".to_owned()),
             metadata,
-        });
+            ..Default::default()
+        }));
     };
 
     // The wire ids and the per-attempt token are the transport's own

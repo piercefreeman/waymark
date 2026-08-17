@@ -110,7 +110,7 @@ mod tests {
             Ok(())
         }
 
-        async fn poll_complete(&self) -> Option<NEVec<waymark_worker_core::ActionCompletion>> {
+        async fn poll_complete(&self) -> Option<NEVec<waymark_proto::messages::ActionResult>> {
             unreachable!("the requester test never polls for completions")
         }
     }
