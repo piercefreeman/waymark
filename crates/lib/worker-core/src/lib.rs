@@ -2,20 +2,6 @@
 
 use nonempty_collections::NEVec;
 
-/// Action execution request routed through the worker pool.
-///
-/// Carries exactly what executing the action requires: the action
-/// identity, its arguments, and the opaque correlation metadata the
-/// pool echoes back on the completion.  Everything else (per-attempt
-/// tokens, wire ids) is the transport's own business.
-#[derive(Clone, Debug)]
-pub struct ActionRequest {
-    pub action_name: String,
-    pub module_name: Option<String>,
-    pub kwargs: waymark_proto::messages::WorkflowArguments,
-    pub metadata: Vec<u8>,
-}
-
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
 pub struct WorkerPoolError {
@@ -41,8 +27,16 @@ pub trait BaseWorkerPool {
         async { Ok(()) }
     }
 
-    /// Submit an action request for execution.
-    fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError>;
+    /// Submit an action dispatch for execution.
+    ///
+    /// The dispatch is the protocol's own message: a pool speaks the
+    /// worker protocol rather than a vocabulary of its own.  Correlation
+    /// back to the caller rides on `metadata`, echoed verbatim onto the
+    /// completion.
+    fn queue(
+        &self,
+        dispatch: waymark_proto::messages::ActionDispatch,
+    ) -> Result<(), WorkerPoolError>;
 
     /// Await and return a batch of completed actions, guaranteeing at least
     /// one action has completed.
@@ -66,8 +60,11 @@ where
         (**self).launch().await
     }
 
-    fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError> {
-        (**self).queue(request)
+    fn queue(
+        &self,
+        dispatch: waymark_proto::messages::ActionDispatch,
+    ) -> Result<(), WorkerPoolError> {
+        (**self).queue(dispatch)
     }
 
     async fn poll_complete(&self) -> Option<NEVec<waymark_proto::messages::ActionResult>> {
@@ -84,10 +81,13 @@ impl<Left: BaseWorkerPool, Right: BaseWorkerPool> BaseWorkerPool for either::Eit
         }
     }
 
-    fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError> {
+    fn queue(
+        &self,
+        dispatch: waymark_proto::messages::ActionDispatch,
+    ) -> Result<(), WorkerPoolError> {
         match self {
-            either::Either::Left(left) => left.queue(request),
-            either::Either::Right(right) => right.queue(request),
+            either::Either::Left(left) => left.queue(dispatch),
+            either::Either::Right(right) => right.queue(dispatch),
         }
     }
 
