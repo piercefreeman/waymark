@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 
 use waymark_observability::obs;
 use waymark_proto::messages as proto;
-use waymark_worker_core::{ActionRequest, BaseWorkerPool, WorkerPoolError};
+use waymark_worker_core::{BaseWorkerPool, WorkerPoolError};
 
 type BoxFuture<'a, T> = std::pin::Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -58,21 +58,21 @@ impl InlineWorkerPool {
 
 impl BaseWorkerPool for InlineWorkerPool {
     #[obs]
-    fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError> {
+    fn queue(&self, dispatch: proto::ActionDispatch) -> Result<(), WorkerPoolError> {
         let handler = self
             .actions
-            .get(&request.action_name)
+            .get(&dispatch.action_name)
             .cloned()
             .ok_or_else(|| {
                 WorkerPoolError::new(
                     "InlineWorkerPoolError",
-                    format!("unknown action: {}", request.action_name),
+                    format!("unknown action: {}", dispatch.action_name),
                 )
             })?;
 
         let sender = self.sender.clone();
-        let metadata = request.metadata;
-        let kwargs = request.kwargs;
+        let metadata = dispatch.metadata;
+        let kwargs = dispatch.kwargs.unwrap_or_default();
 
         tokio::runtime::Handle::try_current().map_err(|_| {
             WorkerPoolError::new(
