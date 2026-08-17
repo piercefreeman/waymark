@@ -8,6 +8,8 @@ publish.workspace = true
 default = ["either"]
 
 [dependencies]
+waymark-proto = { workspace = true }
+
 either = { workspace = true, optional = true }
 nonempty-collections = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
