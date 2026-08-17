@@ -6,10 +6,10 @@ publish.workspace = true
 
 [dependencies]
 waymark-observability = { workspace = true }
+waymark-proto = { workspace = true }
 waymark-worker-core = { workspace = true }
 
 nonempty-collections = { workspace = true }
-serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 
 [lib]
