@@ -59,24 +59,11 @@ where
         &self,
         request: waymark_action_runtime_core::ActionCallRequest<Self::Argument, Self::Metadata>,
     ) -> Result<(), Self::Error> {
-        let kwargs = waymark_action_runtime_convert::Converter::try_convert((
-            &request.action_ref.call_args[..],
-            &request.arguments[..],
-        ))
-        .map_err(RequestActionCallError::ArgumentsConversion)?;
-
-        let mut encoded_metadata = Vec::new();
-        request.metadata.encode(&mut encoded_metadata);
-
-        let worker_request = waymark_worker_core::ActionRequest {
-            action_name: request.action_ref.action_name,
-            module_name: request.action_ref.module_name,
-            kwargs,
-            metadata: encoded_metadata,
-        };
+        let dispatch = waymark_action_runtime_convert::Converter::try_convert(request)
+            .map_err(RequestActionCallError::ArgumentsConversion)?;
 
         self.pool
-            .queue(worker_request)
+            .queue(dispatch)
             .map_err(RequestActionCallError::PoolQueue)
     }
 }
@@ -98,15 +85,15 @@ mod tests {
     /// Worker pool that records every queued request so tests can inspect it.
     #[derive(Default)]
     struct RecordingPool {
-        queued: Mutex<Vec<waymark_worker_core::ActionRequest>>,
+        queued: Mutex<Vec<waymark_proto::messages::ActionDispatch>>,
     }
 
     impl waymark_worker_core::BaseWorkerPool for RecordingPool {
         fn queue(
             &self,
-            request: waymark_worker_core::ActionRequest,
+            dispatch: waymark_proto::messages::ActionDispatch,
         ) -> Result<(), waymark_worker_core::WorkerPoolError> {
-            self.queued.lock().unwrap().push(request);
+            self.queued.lock().unwrap().push(dispatch);
             Ok(())
         }
 
