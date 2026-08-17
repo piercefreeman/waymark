@@ -1,26 +1,6 @@
-use std::collections::HashMap;
-
-use waymark_proto::messages as proto;
 use waymark_worker_core::UncheckedExecutionResult;
 use waymark_worker_core::{ActionCompletion, ActionRequest, WorkerPoolError, error_to_value};
 use waymark_worker_message_protocol::ActionDispatchPayload;
-
-fn kwargs_to_workflow_arguments(
-    kwargs: &HashMap<String, serde_json::Value>,
-) -> proto::WorkflowArguments {
-    let mut arguments = Vec::with_capacity(kwargs.len());
-    for (key, value) in kwargs {
-        let arg_value =
-            waymark_proto_python_value_conversions::json_to_workflow_argument_value(value);
-        arguments.push(proto::WorkflowArgument {
-            key: key.clone(),
-            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
-                &arg_value,
-            ),
-        });
-    }
-    proto::WorkflowArguments { arguments }
-}
 
 pub fn to_dispatch_payload(
     request: ActionRequest,
@@ -51,7 +31,7 @@ pub fn to_dispatch_payload(
         sequence: 0,
         action_name,
         module_name,
-        kwargs: kwargs_to_workflow_arguments(&kwargs),
+        kwargs,
         timeout_seconds: 0,
         max_retries: 0,
         attempt_number: 1,
