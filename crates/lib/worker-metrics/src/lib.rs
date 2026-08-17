@@ -16,14 +16,8 @@ pub struct RoundTripMetrics<ResponsePayload> {
     pub round_trip: Duration,
     /// Time the worker spent executing (from worker's perspective)
     pub worker_duration: Duration,
-    /// Serialized result payload
+    /// The outcome the worker reported
     pub response_payload: ResponsePayload,
-    /// Whether the action succeeded
-    pub success: bool,
-    /// Error type if the action failed
-    pub error_type: Option<String>,
-    /// Error message if the action failed
-    pub error_message: Option<String>,
 }
 
 /// Throughput snapshot for a single worker.

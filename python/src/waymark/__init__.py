@@ -5,9 +5,10 @@ from . import workflow_runtime as _workflow_runtime  # noqa: F401
 from .actions import (
     ActionResultPayload,
     action,
+    deserialize_action_result,
     deserialize_result_payload,
-    serialize_error_payload,
-    serialize_result_payload,
+    serialize_raised_exception,
+    serialize_returned_value,
 )
 from .dependencies import Depend, Depends, provide_dependencies
 from .exceptions import (
@@ -41,9 +42,10 @@ __all__ = [
     "workflow_registry",
     "RetryPolicy",
     "build_workflow_ir",
-    "serialize_result_payload",
+    "serialize_returned_value",
+    "serialize_raised_exception",
+    "deserialize_action_result",
     "deserialize_result_payload",
-    "serialize_error_payload",
     "Depend",
     "Depends",
     "provide_dependencies",
