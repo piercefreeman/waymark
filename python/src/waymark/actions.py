@@ -3,11 +3,14 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar, overload
 
+from typing_extensions import assert_never
+
 from waymark.proto import messages_pb2 as pb2
+from waymark.proto import python_value_pb2 as pb2v
 
 from .dependencies import provide_dependencies
 from .registry import AsyncAction, registry
-from .serialization import dumps, loads
+from .serialization import dumps, dumps_exception, loads
 
 TAsync = TypeVar("TAsync", bound=AsyncAction)
 
@@ -18,26 +21,54 @@ class ActionResultPayload:
     error: dict[str, Any] | None
 
 
-def serialize_result_payload(value: Any) -> pb2.WorkflowArguments:
-    """Serialize a successful action result."""
-    arguments = pb2.WorkflowArguments()
-    entry = arguments.arguments.add()
-    entry.key = "result"
-    entry.value = dumps(value).SerializeToString()
-    return arguments
+def serialize_returned_value(value: Any) -> bytes:
+    """Build the encoded result of an action that returned `value`."""
+    result = pb2v.ActionResultValue()
+    result.value.CopyFrom(dumps(value))
+    return result.SerializeToString()
 
 
-def serialize_error_payload(_action: str, exc: BaseException) -> pb2.WorkflowArguments:
-    """Serialize an error raised during action execution."""
-    arguments = pb2.WorkflowArguments()
-    entry = arguments.arguments.add()
-    entry.key = "error"
-    entry.value = dumps(exc).SerializeToString()
-    return arguments
+def serialize_raised_exception(exc: BaseException) -> bytes:
+    """Build the encoded result of an action that raised `exc`.
+
+    Raising is not the same as returning the exception: only this arm
+    settles the awaiting promise in the raised state.
+    """
+    result = pb2v.ActionResultValue()
+    result.exception.CopyFrom(dumps_exception(exc))
+    return result.SerializeToString()
+
+
+def deserialize_action_result(result: pb2.ActionResult) -> ActionResultPayload:
+    """Deserialize the result an [`ActionResult`] carries."""
+    result_value = pb2v.ActionResultValue()
+    result_value.ParseFromString(result.payload)
+
+    outcome = result_value.WhichOneof("outcome")
+    match outcome:
+        case "value":
+            return ActionResultPayload(result=loads(result_value.value), error=None)
+        case "exception":
+            return ActionResultPayload(
+                result=None,
+                error={
+                    "type_id": result_value.exception.type_id,
+                    "details": loads(result_value.exception.details),
+                },
+            )
+        case None:
+            return ActionResultPayload(result=None, error=None)
+        case _:
+            assert_never(outcome)
 
 
 def deserialize_result_payload(payload: pb2.WorkflowArguments | None) -> ActionResultPayload:
-    """Deserialize WorkflowArguments produced by serialize_result_payload/error."""
+    """Deserialize a workflow-completion payload.
+
+    Workflow completions still travel as named arguments carrying a
+    `result` or an `error` value — a separate plane from the action
+    results above, which discriminate structurally.
+    """
     if payload is None:
         return ActionResultPayload(result=None, error=None)
     values = {entry.key: entry.value for entry in payload.arguments}
