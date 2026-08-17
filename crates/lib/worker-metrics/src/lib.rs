@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 /// Metrics from a single action round-trip.
 #[derive(Debug, Clone)]
-pub struct RoundTripMetrics {
+pub struct RoundTripMetrics<ResponsePayload> {
     /// The action ID that was executed
     pub action_id: String,
     /// The workflow instance this action belongs to
@@ -24,7 +24,7 @@ pub struct RoundTripMetrics {
     /// Time the worker spent executing (from worker's perspective)
     pub worker_duration: Duration,
     /// Serialized result payload
-    pub response_payload: Vec<u8>,
+    pub response_payload: ResponsePayload,
     /// Whether the action succeeded
     pub success: bool,
     /// Dispatch token for correlation (echoed back)
