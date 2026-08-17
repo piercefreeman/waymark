@@ -6,7 +6,7 @@ use waymark_workflow_completion_core::Outcome;
 
 #[test]
 fn completion_wraps_primitive_in_workflow_node_result() {
-    use waymark_proto::messages::{
+    use waymark_proto::python_value::{
         primitive_workflow_argument::Kind as PrimitiveKind, workflow_argument_value::Kind,
     };
 
@@ -18,7 +18,7 @@ fn completion_wraps_primitive_in_workflow_node_result() {
     assert_eq!(result_arg.key, "result");
 
     let result_value =
-        waymark_message_conversions::decode_workflow_argument_value(&result_arg.value)
+        waymark_proto_python_value_conversions::decode_workflow_argument_value(&result_arg.value)
             .expect("result argument value decodes");
     let Some(Kind::Basemodel(basemodel)) = &result_value.kind else {
         panic!("expected a BaseModel-wrapped result, got {result_value:?}");
@@ -57,7 +57,7 @@ fn completion_wraps_primitive_in_workflow_node_result() {
 
 #[test]
 fn exception_outcome_produces_single_error_argument() {
-    use waymark_proto::messages::workflow_argument_value::Kind;
+    use waymark_proto::python_value::workflow_argument_value::Kind;
 
     let exception = waymark_vm_runtime_exception::Exception {
         type_id: "ValueError".to_string(),
@@ -71,8 +71,9 @@ fn exception_outcome_produces_single_error_argument() {
     assert_eq!(error_arg.key, "error");
 
     // The error payload is serialised as `{"type": ..., "message": ...}`.
-    let error_value = waymark_message_conversions::decode_workflow_argument_value(&error_arg.value)
-        .expect("error argument value decodes");
+    let error_value =
+        waymark_proto_python_value_conversions::decode_workflow_argument_value(&error_arg.value)
+            .expect("error argument value decodes");
     let Some(Kind::DictValue(dict)) = &error_value.kind else {
         panic!("expected the error payload to be a dict, got {error_value:?}");
     };

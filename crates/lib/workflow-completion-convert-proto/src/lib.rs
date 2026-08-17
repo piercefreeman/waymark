@@ -69,11 +69,14 @@ fn exception_workflow_arguments(
 ) -> waymark_proto::messages::WorkflowArguments {
     use waymark_proto::messages::{WorkflowArgument, WorkflowArguments};
 
-    let error_value = waymark_message_conversions::json_to_workflow_argument_value(&error_json);
+    let error_value =
+        waymark_proto_python_value_conversions::json_to_workflow_argument_value(&error_json);
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "error".to_string(),
-            value: waymark_message_conversions::encode_workflow_argument_value(&error_value),
+            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
+                &error_value,
+            ),
         }],
     }
 }
@@ -81,9 +84,10 @@ fn exception_workflow_arguments(
 fn completion_workflow_arguments(
     json: serde_json::Value,
 ) -> waymark_proto::messages::WorkflowArguments {
-    use waymark_proto::messages::{
-        BaseModelWorkflowArgument, WorkflowArgument, WorkflowArguments, WorkflowDictArgument,
-        WorkflowDictEntry, workflow_argument_value::Kind,
+    use waymark_proto::messages::{WorkflowArgument, WorkflowArguments};
+    use waymark_proto::python_value::{
+        BaseModelWorkflowArgument, WorkflowDictArgument, WorkflowDictEntry,
+        workflow_argument_value::Kind,
     };
 
     let variables_value = match &json {
@@ -96,7 +100,7 @@ fn completion_workflow_arguments(
     };
 
     let variables_arg =
-        waymark_message_conversions::json_to_workflow_argument_value(&variables_value);
+        waymark_proto_python_value_conversions::json_to_workflow_argument_value(&variables_value);
     let dict = WorkflowDictArgument {
         entries: vec![WorkflowDictEntry {
             key: "variables".to_string(),
@@ -104,7 +108,7 @@ fn completion_workflow_arguments(
         }],
     };
 
-    let result_value = waymark_proto::messages::WorkflowArgumentValue {
+    let result_value = waymark_proto::python_value::WorkflowArgumentValue {
         kind: Some(Kind::Basemodel(BaseModelWorkflowArgument {
             module: "waymark.workflow_runtime".to_string(),
             name: "WorkflowNodeResult".to_string(),
@@ -115,7 +119,9 @@ fn completion_workflow_arguments(
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "result".to_string(),
-            value: waymark_message_conversions::encode_workflow_argument_value(&result_value),
+            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
+                &result_value,
+            ),
         }],
     }
 }
