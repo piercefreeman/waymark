@@ -1,5 +1,3 @@
-mod request;
-
 use std::{
     sync::{
         Arc, Mutex as StdMutex,
@@ -13,22 +11,17 @@ use nonempty_collections::NEVec;
 use tokio::sync::{Mutex, mpsc};
 
 use waymark_proto::messages as proto;
-use waymark_worker_core::{ActionRequest, WorkerPoolError};
+use waymark_worker_core::WorkerPoolError;
 
 async fn execute_remote_request<Spec>(
     pool: &Arc<waymark_worker_process_pool::Pool<Spec>>,
-    request: ActionRequest,
+    dispatch: proto::ActionDispatch,
 ) -> proto::ActionResult
 where
     Spec: waymark_worker_process_spec::Spec,
     Spec: Send + Sync + 'static,
 {
-    let metadata = request.metadata.clone();
-
-    let dispatch = match request::to_dispatch_payload(request) {
-        Ok(dispatch) => dispatch,
-        Err(short_circuit) => return *short_circuit,
-    };
+    let metadata = dispatch.metadata.clone();
 
     let before = std::time::Instant::now();
     let worker_idx = loop {
@@ -85,8 +78,8 @@ where
 // later).
 pub struct RemoteWorkerPool<Spec> {
     pool: Arc<waymark_worker_process_pool::Pool<Spec>>,
-    request_tx: mpsc::Sender<ActionRequest>,
-    request_rx: StdMutex<Option<mpsc::Receiver<ActionRequest>>>,
+    request_tx: mpsc::Sender<proto::ActionDispatch>,
+    request_rx: StdMutex<Option<mpsc::Receiver<proto::ActionDispatch>>>,
     completion_tx: mpsc::Sender<proto::ActionResult>,
     completion_rx: Mutex<mpsc::Receiver<proto::ActionResult>>,
     launched: AtomicBool,
@@ -187,8 +180,8 @@ where
         Ok(())
     }
 
-    fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError> {
-        self.request_tx.try_send(request).map_err(|err| {
+    fn queue(&self, dispatch: proto::ActionDispatch) -> Result<(), WorkerPoolError> {
+        self.request_tx.try_send(dispatch).map_err(|err| {
             WorkerPoolError::new(
                 "RemoteWorkerPoolError",
                 format!("failed to enqueue action request: {err}"),
