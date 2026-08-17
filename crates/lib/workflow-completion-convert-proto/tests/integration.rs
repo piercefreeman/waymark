@@ -18,12 +18,11 @@ fn completion_produces_single_result_argument() {
     assert_eq!(result_arg.key, "result");
 
     // The completion value travels as-is: no envelope around it.
-    let Some(Kind::Primitive(primitive)) = result_arg
-        .value
-        .as_ref()
-        .and_then(|value| value.kind.as_ref())
-    else {
-        panic!("expected the result to be a primitive, got {result_arg:?}");
+    let result_value =
+        waymark_message_conversions::decode_workflow_argument_value(&result_arg.value)
+            .expect("result argument value decodes");
+    let Some(Kind::Primitive(primitive)) = &result_value.kind else {
+        panic!("expected the result to be a primitive, got {result_value:?}");
     };
     assert_eq!(primitive.kind, Some(PrimitiveKind::IntValue(42)));
 }
@@ -36,17 +35,17 @@ fn completion_dict_passes_through_verbatim() {
 
     // A dict completion is user data, even when its keys collide with the
     // argument names of the completion plane (`result`).
-    let outcome = Outcome::Completion(waymark_vm_value::ReadyValue::Dict(
+    let outcome = Outcome::Completion(waymark_vm_value_python::ReadyValue::Dict(
         [
             (
                 "result".to_string(),
-                waymark_vm_value::Value::Ready(waymark_vm_value::ReadyValue::String(
+                waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::String(
                     "inner".to_string(),
                 )),
             ),
             (
                 "other".to_string(),
-                waymark_vm_value::Value::Ready(waymark_vm_value::ReadyValue::String(
+                waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::String(
                     "kept".to_string(),
                 )),
             ),
@@ -60,12 +59,11 @@ fn completion_dict_passes_through_verbatim() {
     let result_arg = &args.arguments[0];
     assert_eq!(result_arg.key, "result");
 
-    let Some(Kind::DictValue(dict)) = result_arg
-        .value
-        .as_ref()
-        .and_then(|value| value.kind.as_ref())
-    else {
-        panic!("expected the result to be a dict, got {result_arg:?}");
+    let result_value =
+        waymark_message_conversions::decode_workflow_argument_value(&result_arg.value)
+            .expect("result argument value decodes");
+    let Some(Kind::DictValue(dict)) = &result_value.kind else {
+        panic!("expected the result to be a dict, got {result_value:?}");
     };
     let string_entry = |key: &str| {
         let entry = dict
@@ -107,12 +105,10 @@ fn exception_outcome_produces_single_error_argument() {
     assert_eq!(error_arg.key, "error");
 
     // The error payload is serialised as `{"type": ..., "message": ...}`.
-    let Some(Kind::DictValue(dict)) = error_arg
-        .value
-        .as_ref()
-        .and_then(|value| value.kind.as_ref())
-    else {
-        panic!("expected the error payload to be a dict, got {error_arg:?}");
+    let error_value = waymark_message_conversions::decode_workflow_argument_value(&error_arg.value)
+        .expect("error argument value decodes");
+    let Some(Kind::DictValue(dict)) = &error_value.kind else {
+        panic!("expected the error payload to be a dict, got {error_value:?}");
     };
     let keys: Vec<&str> = dict
         .entries

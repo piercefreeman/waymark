@@ -10,7 +10,7 @@
 
 #![warn(missing_docs)]
 
-use waymark_convert_core::{Convert, TryConvert};
+use waymark_convert_core::TryConvert;
 
 /// Error returned when an `initial_context` is required but missing.
 #[derive(Debug, thiserror::Error)]
@@ -20,14 +20,37 @@ pub struct MissingInitialContextError {
     pub entry_input_names: Vec<String>,
 }
 
+/// The error of the underlying arguments conversion this converter
+/// delegates to.
+///
+/// Expressed as a projection through
+/// [`waymark_action_runtime_convert::Converter`] rather than named
+/// concretely: this crate merely propagates that conversion's failure,
+/// whatever it is.
+pub type ArgumentsConvertError = waymark_convert_core::ConvertErrorFor<
+    waymark_action_runtime_convert::Converter,
+    &'static waymark_proto::messages::WorkflowArguments,
+    waymark_vm_value_python::ReadyValue,
+>;
+
+/// Error converting an `initial_context` into entry-function arguments.
+#[derive(Debug, thiserror::Error)]
+pub enum InitialContextError {
+    /// The `initial_context` is required but missing.
+    #[error("missing initial context")]
+    Missing(#[source] MissingInitialContextError),
+
+    /// Converting the arguments into VM values failed.
+    #[error("converting an initial-context argument value")]
+    ConvertArguments(#[source] ArgumentsConvertError),
+}
+
 /// Stateless converter that builds positional entry-function arguments from
 /// a keyword-argument map and the function's declared input names.
 ///
 /// Values are converted from proto to VM via
 /// [`waymark_extcall_convert_proto::Converter`].
 ///
-/// The conversion is infallible — callers should use
-/// [`Convert::convert`](waymark_convert_core::Convert::convert).
 /// Missing keys default to
 /// [`waymark_vm_value_python::Value::Ready(ReadyValue::None)`].
 pub struct InitialContextConverter;
@@ -41,7 +64,7 @@ impl
         Vec<waymark_vm_value_python::Value>,
     > for InitialContextConverter
 {
-    type Error = MissingInitialContextError;
+    type Error = InitialContextError;
 
     fn try_convert(
         (initial_context, input_names): (
@@ -53,11 +76,12 @@ impl
             if input_names.is_empty() {
                 return Ok(Vec::new());
             }
-            return Err(MissingInitialContextError {
+            return Err(InitialContextError::Missing(MissingInitialContextError {
                 entry_input_names: input_names.to_vec(),
-            });
+            }));
         };
-        Ok(InitialContextConverter::convert((ctx, input_names)))
+        InitialContextConverter::try_convert((ctx, input_names))
+            .map_err(InitialContextError::ConvertArguments)
     }
 }
 
@@ -67,12 +91,12 @@ impl
         Vec<waymark_vm_value_python::Value>,
     > for InitialContextConverter
 {
-    type Error = core::convert::Infallible;
+    type Error = ArgumentsConvertError;
 
     fn try_convert(
         (initial_context, input_names): (&waymark_proto::messages::WorkflowArguments, &[String]),
     ) -> Result<Vec<waymark_vm_value_python::Value>, Self::Error> {
-        let args_dict = waymark_action_runtime_convert::Converter::convert(initial_context);
+        let args_dict = waymark_action_runtime_convert::Converter::try_convert(initial_context)?;
         let waymark_vm_value_python::ReadyValue::Dict(args_map) = args_dict else {
             // Should never happen — Converter always produces a Dict for
             // WorkflowArguments.
@@ -110,7 +134,7 @@ impl<FunctionId>
         waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value_python::Value>,
     > for InitialContextConverter
 {
-    type Error = MissingInitialContextError;
+    type Error = InitialContextError;
 
     fn try_convert(
         (initial_context, input_names, func): (
@@ -136,7 +160,7 @@ impl<FunctionId>
 where
     FunctionId: Default,
 {
-    type Error = MissingInitialContextError;
+    type Error = InitialContextError;
 
     fn try_convert(
         (initial_context, input_names): (
@@ -161,7 +185,7 @@ impl<FunctionId>
 where
     FunctionId: index_type::IndexType,
 {
-    type Error = MissingInitialContextError;
+    type Error = InitialContextError;
 
     fn try_convert(
         (initial_context, metadata, func): (
@@ -187,7 +211,7 @@ impl<FunctionId>
 where
     FunctionId: Default + index_type::IndexType,
 {
-    type Error = MissingInitialContextError;
+    type Error = InitialContextError;
 
     fn try_convert(
         (initial_context, metadata): (
