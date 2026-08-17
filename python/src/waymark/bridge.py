@@ -356,8 +356,7 @@ async def execute_workflow(payload: bytes) -> bytes:
             case "action_dispatch":
                 dispatch = response.action_dispatch
                 LOGGER.debug(
-                    "pytest stream dispatch: action_id=%s module=%s action=%s",
-                    dispatch.action_id,
+                    "pytest stream dispatch: module=%s action=%s",
                     dispatch.module_name,
                     dispatch.action_name,
                 )
@@ -365,7 +364,6 @@ async def execute_workflow(payload: bytes) -> bytes:
                 execution = await execute_action(dispatch)
                 end_ns = time.monotonic_ns()
                 action_result = pb2.ActionResult(
-                    action_id=dispatch.action_id,
                     success=execution.exception is None,
                     payload=(
                         serialize_result_payload(execution.result)
@@ -387,8 +385,7 @@ async def execute_workflow(payload: bytes) -> bytes:
                 if dispatch.metadata:
                     action_result.metadata = dispatch.metadata
                 LOGGER.debug(
-                    "pytest stream result: action_id=%s success=%s",
-                    dispatch.action_id,
+                    "pytest stream result: success=%s",
                     execution.exception is None,
                 )
                 await queue.put(pb2.WorkflowStreamRequest(action_result=action_result))
