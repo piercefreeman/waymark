@@ -11,11 +11,8 @@ use crate::Converter;
 /// its arguments as framing-level kwargs, plus the correlation metadata
 /// encoded into the opaque bytes the worker echoes back untouched.
 ///
-/// The wire ids and the per-attempt fields are the protocol's own
-/// vocabulary with no caller-side meaning, so they are left inert — the
-/// action runtime correlates solely through the metadata, and retries
-/// and timeouts are lowered in the VM rather than delegated to the
-/// worker.
+/// The dispatch carries no deadline or attempt bookkeeping: retries and
+/// timeouts are lowered in the VM rather than delegated to the worker.
 impl<Metadata>
     TryConvert<
         ActionCallRequest<waymark_vm_value_python::ReadyValue, Metadata>,
@@ -36,16 +33,9 @@ where
         request.metadata.encode(&mut encoded_metadata);
 
         Ok(waymark_proto::messages::ActionDispatch {
-            action_id: String::new(),
-            instance_id: String::new(),
-            sequence: 0,
             action_name: request.action_ref.action_name,
             module_name: request.action_ref.module_name.unwrap_or_default(),
             kwargs,
-            timeout_seconds: None,
-            max_retries: None,
-            attempt_number: None,
-            dispatch_token: None,
             metadata: encoded_metadata,
         })
     }
