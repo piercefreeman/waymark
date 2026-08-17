@@ -5852,7 +5852,6 @@ version = "0.1.0"
 dependencies = [
  "metrics",
  "nonempty-collections",
- "prost",
  "serde_json",
  "tokio",
  "tracing",
