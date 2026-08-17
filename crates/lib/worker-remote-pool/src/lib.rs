@@ -44,10 +44,7 @@ where
             pool.record_latency(metrics.ack_latency, metrics.worker_duration);
             pool.record_completion(worker_idx, Arc::clone(pool));
             proto::ActionResult {
-                success: metrics.success,
-                payload: Some(metrics.response_payload),
-                error_type: metrics.error_type,
-                error_message: metrics.error_message,
+                payload: metrics.response_payload,
                 metadata,
                 ..Default::default()
             }
@@ -55,9 +52,14 @@ where
         Err(err) => {
             pool.release_slot(worker_idx);
             proto::ActionResult {
-                success: false,
-                error_type: Some("RemoteWorkerPoolError".to_owned()),
-                error_message: Some(err.to_string()),
+                payload: waymark_proto_python_value_conversions::encode_action_result_value(
+                    &waymark_proto_python_value_conversions::raised_exception(
+                        waymark_proto_python_value_conversions::exception_value(
+                            "RemoteWorkerPoolError".to_owned(),
+                            err.to_string(),
+                        ),
+                    ),
+                ),
                 metadata,
                 ..Default::default()
             }
