@@ -13,6 +13,7 @@ waymark-transient-execution-worker-pool-bringup = { workspace = true }
 waymark-vm-ast-old-proto = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-worker-inline = { workspace = true }
+waymark-worker-inline-compat = { workspace = true }
 waymark-workflow-completion-core = { workspace = true }
 
 clap = { workspace = true, features = ["derive", "env"] }

@@ -1,0 +1,13 @@
+[package]
+name = "waymark-worker-inline-compat"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-proto = { workspace = true }
+waymark-proto-message-conversions = { workspace = true }
+waymark-worker-core = { workspace = true }
+waymark-worker-inline = { workspace = true }
+
+serde_json = { workspace = true }
