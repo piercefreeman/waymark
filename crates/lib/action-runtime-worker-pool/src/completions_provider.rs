@@ -104,18 +104,10 @@ where
     Metadata: Decode,
     Metadata::Error: core::fmt::Display,
 {
-    let waymark_worker_core::ActionCompletion {
-        executor_id: _,
-        execution_id: _,
-        attempt_number: _,
-        dispatch_token,
-        result,
-        metadata,
-    } = completion;
+    let waymark_worker_core::ActionCompletion { result, metadata } = completion;
 
     let metadata = Metadata::decode(&mut metadata.as_slice()).inspect_err(|error| {
         tracing::error!(
-            ?dispatch_token,
             %error,
             "unable to decode correlation metadata for an action completion"
         );
@@ -130,20 +122,13 @@ where
 mod tests {
     use waymark_action_runtime_metadata::{ActionCallCorrelation, WithVmId};
     use waymark_action_runtime_metadata_codec::Encode as _;
-    use waymark_ids::{ExecutionId, InstanceId};
+    use waymark_ids::InstanceId;
     use waymark_worker_core::UncheckedExecutionResult;
 
     use super::*;
 
-    fn completion(
-        executor_id: InstanceId,
-        metadata: Vec<u8>,
-    ) -> waymark_worker_core::ActionCompletion {
+    fn completion(metadata: Vec<u8>) -> waymark_worker_core::ActionCompletion {
         waymark_worker_core::ActionCompletion {
-            executor_id,
-            execution_id: ExecutionId::new_uuid_v4(),
-            attempt_number: 1,
-            dispatch_token: uuid::Uuid::new_v4(),
             result: UncheckedExecutionResult(serde_json::Value::Null),
             metadata,
         }
@@ -155,19 +140,16 @@ mod tests {
         // to a promise, so it must be an error rather than a silently dropped
         // completion.
         let result = resolve_completion::<WithVmId<InstanceId, ActionCallCorrelation>>(completion(
-            InstanceId::new_uuid_v4(),
             Vec::new(),
         ));
         assert!(result.is_err());
     }
 
     #[test]
-    fn recovers_vm_id_from_metadata_ignoring_executor_id() {
-        // The VM id must come from the metadata the requester encoded, NOT from
-        // the completion's executor_id field. Use a DIFFERENT executor_id to
-        // prove resolve_completion never reads it.
+    fn recovers_vm_id_from_metadata() {
+        // The VM id comes from the metadata the requester encoded — the
+        // completion carries no other identity at all.
         let vm_id = InstanceId::new_uuid_v4();
-        let unrelated_executor_id = InstanceId::new_uuid_v4();
         let mut encoded = Vec::new();
         let correlation = WithVmId {
             vm_id,
@@ -175,10 +157,9 @@ mod tests {
         };
         correlation.encode(&mut encoded);
 
-        let resolved = resolve_completion::<WithVmId<InstanceId, ActionCallCorrelation>>(
-            completion(unrelated_executor_id, encoded),
-        )
-        .expect("WithVmId metadata should decode");
+        let resolved =
+            resolve_completion::<WithVmId<InstanceId, ActionCallCorrelation>>(completion(encoded))
+                .expect("WithVmId metadata should decode");
         assert_eq!(resolved.metadata.vm_id, vm_id);
     }
 }
