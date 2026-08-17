@@ -91,6 +91,7 @@ fn completion_dict_passes_through_verbatim() {
 
 #[test]
 fn exception_outcome_produces_single_error_argument() {
+    use waymark_proto::python_value::primitive_workflow_argument::Kind as PrimitiveKind;
     use waymark_proto::python_value::workflow_argument_value::Kind;
 
     let exception = waymark_vm_runtime_exception::Exception {
@@ -104,18 +105,25 @@ fn exception_outcome_produces_single_error_argument() {
     let error_arg = &args.arguments[0];
     assert_eq!(error_arg.key, "error");
 
-    // The error payload is serialised as `{"type": ..., "message": ...}`.
+    // The error payload is the exception itself, not a dict standing in
+    // for one: the type identifying it and the details it carries.
     let error_value =
         waymark_proto_python_value_conversions::decode_workflow_argument_value(&error_arg.value)
             .expect("error argument value decodes");
-    let Some(Kind::DictValue(dict)) = &error_value.kind else {
-        panic!("expected the error payload to be a dict, got {error_value:?}");
+    let Some(Kind::Exception(exception)) = &error_value.kind else {
+        panic!("expected the error payload to be an exception, got {error_value:?}");
     };
-    let keys: Vec<&str> = dict
-        .entries
-        .iter()
-        .map(|entry| entry.key.as_str())
-        .collect();
-    assert!(keys.contains(&"type"), "missing type key in {keys:?}");
-    assert!(keys.contains(&"message"), "missing message key in {keys:?}");
+    assert_eq!(exception.type_id, "ValueError");
+
+    let details = exception
+        .details
+        .as_deref()
+        .expect("the exception carries its details");
+    let Some(Kind::Primitive(primitive)) = &details.kind else {
+        panic!("expected the details to be a primitive, got {details:?}");
+    };
+    assert_eq!(
+        primitive.kind,
+        Some(PrimitiveKind::StringValue("boom".to_string())),
+    );
 }
