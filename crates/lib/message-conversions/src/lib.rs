@@ -1,6 +1,20 @@
 //! Protocol buffer message conversion utilities.
 
+use prost::Message as _;
 use waymark_proto::messages as proto;
+
+/// Error decoding an embedded [`proto::WorkflowArgumentValue`] document
+/// out of a framing-level [`proto::WorkflowArgument`]'s value bytes.
+#[derive(Debug, thiserror::Error)]
+#[error("decoding workflow argument value bytes for key {key:?}")]
+pub struct DecodeArgumentError {
+    /// The framing-level argument name the bytes belonged to.
+    pub key: String,
+
+    /// The decode failure.
+    #[source]
+    pub source: prost::DecodeError,
+}
 
 /// Convert a WorkflowArgumentValue to a serde_json::Value
 pub fn workflow_argument_value_to_json(value: &proto::WorkflowArgumentValue) -> serde_json::Value {
@@ -73,15 +87,33 @@ fn optional_workflow_dict_to_json(dict: &Option<proto::WorkflowDictArgument>) ->
     }
 }
 
-pub fn workflow_arguments_to_json(args: &proto::WorkflowArguments) -> serde_json::Value {
+pub fn workflow_arguments_to_json(
+    args: &proto::WorkflowArguments,
+) -> Result<serde_json::Value, DecodeArgumentError> {
     let mut map = serde_json::Map::new();
     for arg in &args.arguments {
-        if let Some(value) = &arg.value {
-            map.insert(arg.key.clone(), workflow_argument_value_to_json(value));
-        }
+        let value =
+            decode_workflow_argument_value(&arg.value).map_err(|source| DecodeArgumentError {
+                key: arg.key.clone(),
+                source,
+            })?;
+        map.insert(arg.key.clone(), workflow_argument_value_to_json(&value));
     }
 
-    serde_json::Value::Object(map)
+    Ok(serde_json::Value::Object(map))
+}
+
+/// Decode an encoded [`proto::WorkflowArgumentValue`] document.
+pub fn decode_workflow_argument_value(
+    bytes: &[u8],
+) -> Result<proto::WorkflowArgumentValue, prost::DecodeError> {
+    proto::WorkflowArgumentValue::decode(bytes)
+}
+
+/// Encode a [`proto::WorkflowArgumentValue`] into the opaque value bytes
+/// of a framing-level [`proto::WorkflowArgument`].
+pub fn encode_workflow_argument_value(value: &proto::WorkflowArgumentValue) -> Vec<u8> {
+    value.encode_to_vec()
 }
 
 /// Convert a serde_json::Value to a WorkflowArgumentValue.
@@ -126,7 +158,7 @@ pub fn json_to_workflow_argument_value(value: &serde_json::Value) -> proto::Work
                 entries: Vec::new(),
             };
             for (key, item) in map {
-                dict.entries.push(proto::WorkflowArgument {
+                dict.entries.push(proto::WorkflowDictEntry {
                     key: key.clone(),
                     value: Some(json_to_workflow_argument_value(item)),
                 });
