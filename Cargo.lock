@@ -4085,7 +4085,6 @@ dependencies = [
  "waymark-vm-value-convert-core",
  "waymark-vm-value-convert-json",
  "waymark-vm-value-python",
- "waymark-worker-core",
 ]
 
 [[package]]
@@ -4124,7 +4123,6 @@ name = "waymark-action-runtime-worker-pool"
 version = "0.1.0"
 dependencies = [
  "nonempty-collections",
- "serde_json",
  "thiserror",
  "tokio",
  "tracing",
@@ -4136,6 +4134,7 @@ dependencies = [
  "waymark-action-runtime-metadata-compat",
  "waymark-convert-core",
  "waymark-ids",
+ "waymark-proto",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-python",
  "waymark-worker-core",
@@ -5723,8 +5722,6 @@ version = "0.1.0"
 dependencies = [
  "either",
  "nonempty-collections",
- "serde",
- "serde_json",
  "thiserror",
  "waymark-proto",
 ]
@@ -5747,6 +5744,7 @@ dependencies = [
  "serde_json",
  "waymark-proto",
  "waymark-proto-message-conversions",
+ "waymark-proto-python-value-conversions",
  "waymark-worker-core",
  "waymark-worker-inline",
 ]
@@ -5873,16 +5871,13 @@ version = "0.1.0"
 dependencies = [
  "metrics",
  "nonempty-collections",
- "serde_json",
  "tokio",
  "tracing",
  "uuid",
  "waymark-managed-process",
  "waymark-proto",
- "waymark-proto-message-conversions",
  "waymark-worker-core",
  "waymark-worker-message-protocol",
- "waymark-worker-metrics",
  "waymark-worker-process-pool",
  "waymark-worker-process-spec",
  "waymark-worker-status-core",
