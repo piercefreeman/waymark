@@ -4356,7 +4356,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
- "uuid",
  "waymark-action-core",
  "waymark-action-runtime-convert",
  "waymark-action-runtime-core",
@@ -5974,8 +5973,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "uuid",
- "waymark-ids",
 ]
 
 [[package]]
@@ -6114,6 +6111,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "uuid",
  "waymark-managed-process",
  "waymark-proto",
  "waymark-proto-message-conversions",
