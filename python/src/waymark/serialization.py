@@ -27,14 +27,23 @@ def dumps(value: Any) -> pb2v.WorkflowArgumentValue:
     return _to_argument_value(value)
 
 
+def dumps_exception(exc: BaseException) -> pb2v.WorkflowExceptionValue:
+    """Serialize an exception into the exception value it denotes."""
+
+    return pb2v.WorkflowExceptionValue(
+        type_id=exc.__class__.__name__,
+        details=_exception_details(exc),
+    )
+
+
 def loads(data: Any) -> Any:
     """Deserialize a workflow argument payload into a Python object."""
 
     if isinstance(data, pb2v.WorkflowArgumentValue):
         argument = data
     elif isinstance(data, bytes):
-        # A framing-level argument value: an encoded WorkflowArgumentValue
-        # document.
+        # A framing-level argument value: an encoded
+        # WorkflowArgumentValue.
         argument = pb2v.WorkflowArgumentValue.FromString(data)
     elif isinstance(data, dict):
         argument = pb2v.WorkflowArgumentValue()
@@ -110,25 +119,8 @@ def _to_argument_value(value: Any) -> pb2v.WorkflowArgumentValue:
             item_value.CopyFrom(_to_argument_value(item))
         return argument
     if isinstance(value, BaseException):
-        argument.exception.type = value.__class__.__name__
-        argument.exception.module = value.__class__.__module__
-        argument.exception.message = str(value)
-        tb_text = "".join(traceback.format_exception(type(value), value, value.__traceback__))
-        argument.exception.traceback = tb_text
-        # Include the exception class hierarchy (MRO) for proper except matching.
-        # This allows `except LookupError:` to catch KeyError, etc.
-        for cls in value.__class__.__mro__:
-            if cls is object:
-                continue  # Skip 'object' as it's not useful for exception matching
-            argument.exception.type_hierarchy.append(cls.__name__)
-        values = _serialize_exception_values(value)
-        for key, item in values.items():
-            entry = argument.exception.values.entries.add()
-            entry.key = key
-            try:
-                entry.value.CopyFrom(_to_argument_value(item))
-            except TypeError:
-                entry.value.CopyFrom(_to_argument_value(str(item)))
+        argument.exception.type_id = value.__class__.__name__
+        argument.exception.details.CopyFrom(_exception_details(value))
         return argument
     if _is_base_model(value):
         model_class = value.__class__
@@ -176,6 +168,39 @@ def _to_argument_value(value: Any) -> pb2v.WorkflowArgumentValue:
     raise TypeError(f"unsupported value type {type(value)!r}")
 
 
+def _exception_details(value: BaseException) -> pb2v.WorkflowArgumentValue:
+    """Build the details value carried alongside an exception's type id.
+
+    The particulars are this language's own choice, so they ride as an
+    ordinary dict rather than as wire-level structure: the message, the
+    defining module, the traceback, the class hierarchy `except` matches
+    on, and whatever values the exception itself carries.
+    """
+    # Include the exception class hierarchy (MRO) for proper except matching.
+    # This allows `except LookupError:` to catch KeyError, etc.
+    hierarchy = [cls.__name__ for cls in value.__class__.__mro__ if cls is not object]
+
+    values: dict[str, Any] = {}
+    for key, item in _serialize_exception_values(value).items():
+        try:
+            _to_argument_value(item)
+        except TypeError:
+            item = str(item)
+        values[key] = item
+
+    return _to_argument_value(
+        {
+            "message": str(value),
+            "module": value.__class__.__module__,
+            "traceback": "".join(
+                traceback.format_exception(type(value), value, value.__traceback__)
+            ),
+            "type_hierarchy": hierarchy,
+            "values": values,
+        }
+    )
+
+
 def _from_argument_value(argument: pb2v.WorkflowArgumentValue) -> Any:
     kind = argument.WhichOneof("kind")  # type: ignore[attr-defined]
     if kind == "primitive":
@@ -189,17 +214,12 @@ def _from_argument_value(argument: pb2v.WorkflowArgumentValue) -> Any:
             data[entry.key] = _from_argument_value(entry.value)
         return _instantiate_serialized_model(module, name, data)
     if kind == "exception":
-        values: dict[str, Any] = {}
-        if argument.exception.HasField("values"):
-            for entry in argument.exception.values.entries:
-                values[entry.key] = _from_argument_value(entry.value)
-        return {
-            "type": argument.exception.type,
-            "module": argument.exception.module,
-            "message": argument.exception.message,
-            "traceback": argument.exception.traceback,
-            "values": values,
-        }
+        details = (
+            _from_argument_value(argument.exception.details)
+            if argument.exception.HasField("details")
+            else {}
+        )
+        return {"type_id": argument.exception.type_id, "details": details}
     if kind == "list_value":
         return [_from_argument_value(item) for item in argument.list_value.items]
     if kind == "tuple_value":
