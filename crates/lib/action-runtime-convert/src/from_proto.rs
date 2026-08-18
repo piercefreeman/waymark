@@ -21,13 +21,11 @@ impl TryConvert<&waymark_proto::messages::WorkflowArguments, waymark_vm_value_py
     ) -> Result<waymark_vm_value_python::ReadyValue, Self::Error> {
         let mut entries = indexmap::IndexMap::with_capacity(value.arguments.len());
         for argument in &value.arguments {
-            let decoded = waymark_proto_python_value_conversions::decode_workflow_argument_value(
-                &argument.value,
-            )
-            .map_err(|source| crate::DecodeArgumentError {
-                key: argument.key.clone(),
-                source,
-            })?;
+            let decoded = waymark_proto_python_value_conversions::decode_value(&argument.value)
+                .map_err(|source| crate::DecodeArgumentError {
+                    key: argument.key.clone(),
+                    source,
+                })?;
             entries.insert(
                 argument.key.clone(),
                 waymark_vm_value_convert_proto::Converter::convert(&decoded),
@@ -38,22 +36,18 @@ impl TryConvert<&waymark_proto::messages::WorkflowArguments, waymark_vm_value_py
     }
 }
 
-/// Convert a single proto workflow argument value back into a VM ready
-/// value.
+/// Convert a single encoded value back into a VM ready value.
 ///
 /// This is the reverse of the
-/// [`TryConvert<&ReadyValue, WorkflowArgumentValue>`] impl on this
+/// [`TryConvert<&ReadyValue, Value>`] impl on this
 /// converter.
-impl
-    TryConvert<
-        &waymark_proto::python_value::WorkflowArgumentValue,
-        waymark_vm_value_python::ReadyValue,
-    > for Converter
+impl TryConvert<&waymark_proto::python_value::Value, waymark_vm_value_python::ReadyValue>
+    for Converter
 {
     type Error = core::convert::Infallible;
 
     fn try_convert(
-        value: &waymark_proto::python_value::WorkflowArgumentValue,
+        value: &waymark_proto::python_value::Value,
     ) -> Result<waymark_vm_value_python::ReadyValue, Self::Error> {
         waymark_vm_value_convert_proto::Converter::try_convert(value)
     }
@@ -64,7 +58,7 @@ impl
 ///
 /// The framing carries one opaque payload; how the call completed is
 /// the encoded value's own business, so it is read here as the flavor's
-/// [`ActionResultValue`](waymark_proto::python_value::ActionResultValue):
+/// [`ActionOutcome`](waymark_proto::python_value::ActionOutcome):
 /// a returned value settles the promise with that value, a raised
 /// exception settles it raised.
 impl
@@ -81,11 +75,11 @@ impl
         waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue>,
         Self::Error,
     > {
-        let result_value =
-            waymark_proto_python_value_conversions::decode_action_result_value(&result.payload)
+        let action_outcome =
+            waymark_proto_python_value_conversions::decode_action_outcome(&result.payload)
                 .map_err(ActionResultError::Decode)?;
 
-        Self::try_convert(result_value.outcome).map_err(ActionResultError::Outcome)
+        Self::try_convert(action_outcome.outcome).map_err(ActionResultError::Outcome)
     }
 }
 
@@ -97,19 +91,19 @@ impl
 /// than settled with a stand-in value.
 impl
     TryConvert<
-        Option<waymark_proto::python_value::action_result_value::Outcome>,
+        Option<waymark_proto::python_value::action_outcome::Outcome>,
         waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue>,
     > for Converter
 {
     type Error = MissingOutcomeError;
 
     fn try_convert(
-        outcome: Option<waymark_proto::python_value::action_result_value::Outcome>,
+        outcome: Option<waymark_proto::python_value::action_outcome::Outcome>,
     ) -> Result<
         waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue>,
         Self::Error,
     > {
-        use waymark_proto::python_value::action_result_value::Outcome;
+        use waymark_proto::python_value::action_outcome::Outcome;
 
         let outcome = match outcome.ok_or(MissingOutcomeError)? {
             Outcome::Value(value) => {
@@ -127,14 +121,14 @@ impl
 /// Convert a raised exception into the VM exception it denotes.
 impl
     TryConvert<
-        &waymark_proto::python_value::WorkflowExceptionValue,
+        &waymark_proto::python_value::ExceptionValue,
         waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
     > for Converter
 {
     type Error = core::convert::Infallible;
 
     fn try_convert(
-        exception: &waymark_proto::python_value::WorkflowExceptionValue,
+        exception: &waymark_proto::python_value::ExceptionValue,
     ) -> Result<
         waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
         Self::Error,
@@ -148,12 +142,10 @@ mod tests {
     use super::*;
 
     fn action_result(
-        result_value: waymark_proto::python_value::ActionResultValue,
+        action_outcome: waymark_proto::python_value::ActionOutcome,
     ) -> waymark_proto::messages::ActionResult {
         waymark_proto::messages::ActionResult {
-            payload: waymark_proto_python_value_conversions::encode_action_result_value(
-                &result_value,
-            ),
+            payload: waymark_proto_python_value_conversions::encode_action_outcome(&action_outcome),
             ..Default::default()
         }
     }
@@ -164,9 +156,7 @@ mod tests {
         Converter::try_convert(result).expect("the encoded value decodes")
     }
 
-    fn encoded(
-        value: waymark_vm_value_python::ReadyValue,
-    ) -> waymark_proto::python_value::WorkflowArgumentValue {
+    fn encoded(value: waymark_vm_value_python::ReadyValue) -> waymark_proto::python_value::Value {
         Converter::try_convert(&value).expect("no pending promise in the value")
     }
 
@@ -188,15 +178,13 @@ mod tests {
     fn returned_exception_settles_as_an_ordinary_value() {
         // Returning an exception is not raising it: it arrives as a value.
         let returned = waymark_proto_python_value_conversions::returned_value(
-            waymark_proto::python_value::WorkflowArgumentValue {
-                kind: Some(
-                    waymark_proto::python_value::workflow_argument_value::Kind::Exception(
-                        Box::new(waymark_proto_python_value_conversions::exception_value(
-                            "ValueError".to_owned(),
-                            "boom".to_owned(),
-                        )),
-                    ),
-                ),
+            waymark_proto::python_value::Value {
+                kind: Some(waymark_proto::python_value::value::Kind::Exception(
+                    Box::new(waymark_proto_python_value_conversions::exception_value(
+                        "ValueError".to_owned(),
+                        "boom".to_owned(),
+                    )),
+                )),
             },
         );
 
@@ -227,7 +215,7 @@ mod tests {
     #[test]
     fn raised_exception_keeps_its_type_id_and_details() {
         let raised = waymark_proto_python_value_conversions::raised_exception(
-            waymark_proto::python_value::WorkflowExceptionValue {
+            waymark_proto::python_value::ExceptionValue {
                 type_id: "RetryCounterError".to_owned(),
                 details: Some(Box::new(encoded(
                     waymark_vm_value_python::ReadyValue::Dict(indexmap::IndexMap::from([(

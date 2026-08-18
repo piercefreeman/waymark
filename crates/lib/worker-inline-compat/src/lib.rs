@@ -25,14 +25,14 @@ fn decode_kwargs(
 ) -> Result<HashMap<String, ReadyValue>, WorkerPoolError> {
     let mut decoded = HashMap::with_capacity(kwargs.arguments.len());
     for argument in kwargs.arguments {
-        let value =
-            waymark_proto_python_value_conversions::decode_workflow_argument_value(&argument.value)
-                .map_err(|err| {
-                    WorkerPoolError::new(
-                        "ActionError",
-                        format!("decoding the value of argument {:?}: {err}", argument.key),
-                    )
-                })?;
+        let value = waymark_proto_python_value_conversions::decode_value(&argument.value).map_err(
+            |err| {
+                WorkerPoolError::new(
+                    "ActionError",
+                    format!("decoding the value of argument {:?}: {err}", argument.key),
+                )
+            },
+        )?;
         decoded.insert(
             argument.key,
             waymark_vm_value_convert_proto::Converter::convert(&value),
@@ -57,7 +57,7 @@ fn encode_result(outcome: Result<ReadyValue, WorkerPoolError>) -> Vec<u8> {
         ),
     };
 
-    waymark_proto_python_value_conversions::encode_action_result_value(&result_value)
+    waymark_proto_python_value_conversions::encode_action_outcome(&result_value)
 }
 
 /// Adapt an action body to the inline callable surface: decode the

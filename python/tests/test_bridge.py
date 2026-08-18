@@ -130,7 +130,7 @@ class TestRunInstance:
         initial_context = pb2.WorkflowArguments()
         arg = initial_context.arguments.add()
         arg.key = "name"
-        arg_value = pb2v.WorkflowArgumentValue()
+        arg_value = pb2v.Value()
         arg_value.primitive.string_value = "hello"
         arg.value = arg_value.SerializeToString()
 
@@ -261,7 +261,7 @@ class TestRunInstancesBatch:
         initial_context = pb2.WorkflowArguments()
         arg = initial_context.arguments.add()
         arg.key = "name"
-        arg_value = pb2v.WorkflowArgumentValue()
+        arg_value = pb2v.Value()
         arg_value.primitive.string_value = "hello"
         arg.value = arg_value.SerializeToString()
 
