@@ -3,9 +3,9 @@
 //!
 //! The proto value tree is this flavor's current encoding of a single
 //! value, so the conversion is direct: nothing stands between a
-//! [`ReadyValue`] and the [`WorkflowArgumentValue`] carrying it.
+//! [`ReadyValue`] and the [`Value`] carrying it.
 //!
-//! [`WorkflowArgumentValue`]: proto_value::WorkflowArgumentValue
+//! [`Value`]: proto_value::Value
 //!
 //! # Fidelity
 //!
@@ -34,20 +34,16 @@ pub use waymark_vm_value_convert_core::PendingPromiseError;
 /// Stateless converter with all proto-to-VM value conversion impls.
 pub struct Converter;
 
-fn primitive(
-    kind: proto_value::primitive_workflow_argument::Kind,
-) -> proto_value::workflow_argument_value::Kind {
-    proto_value::workflow_argument_value::Kind::Primitive(proto_value::PrimitiveWorkflowArgument {
-        kind: Some(kind),
-    })
+fn primitive(kind: proto_value::primitive_value::Kind) -> proto_value::value::Kind {
+    proto_value::value::Kind::Primitive(proto_value::PrimitiveValue { kind: Some(kind) })
 }
 
-impl TryConvert<&ReadyValue, proto_value::WorkflowArgumentValue> for Converter {
+impl TryConvert<&ReadyValue, proto_value::Value> for Converter {
     type Error = PendingPromiseError;
 
-    fn try_convert(value: &ReadyValue) -> Result<proto_value::WorkflowArgumentValue, Self::Error> {
-        use proto_value::primitive_workflow_argument::Kind as PrimitiveKind;
-        use proto_value::workflow_argument_value::Kind;
+    fn try_convert(value: &ReadyValue) -> Result<proto_value::Value, Self::Error> {
+        use proto_value::primitive_value::Kind as PrimitiveKind;
+        use proto_value::value::Kind;
 
         let kind = match value {
             ReadyValue::Int(value) => primitive(PrimitiveKind::IntValue(*value)),
@@ -55,17 +51,17 @@ impl TryConvert<&ReadyValue, proto_value::WorkflowArgumentValue> for Converter {
             ReadyValue::Bool(value) => primitive(PrimitiveKind::BoolValue(*value)),
             ReadyValue::String(value) => primitive(PrimitiveKind::StringValue(value.clone())),
             ReadyValue::None => primitive(PrimitiveKind::NullValue(0)),
-            ReadyValue::List(items) => Kind::ListValue(proto_value::WorkflowListArgument {
+            ReadyValue::List(items) => Kind::ListValue(proto_value::ListValue {
                 items: items
                     .iter()
                     .map(Self::try_convert)
                     .collect::<Result<_, _>>()?,
             }),
-            ReadyValue::Dict(entries) => Kind::DictValue(proto_value::WorkflowDictArgument {
+            ReadyValue::Dict(entries) => Kind::DictValue(proto_value::DictValue {
                 entries: entries
                     .iter()
                     .map(|(key, value)| {
-                        Ok(proto_value::WorkflowDictEntry {
+                        Ok(proto_value::DictEntry {
                             key: key.clone(),
                             value: Some(Self::try_convert(value)?),
                         })
@@ -80,14 +76,14 @@ impl TryConvert<&ReadyValue, proto_value::WorkflowArgumentValue> for Converter {
             ReadyValue::Extension(extension) => match *extension {},
         };
 
-        Ok(proto_value::WorkflowArgumentValue { kind: Some(kind) })
+        Ok(proto_value::Value { kind: Some(kind) })
     }
 }
 
-impl TryConvert<&Value, proto_value::WorkflowArgumentValue> for Converter {
+impl TryConvert<&Value, proto_value::Value> for Converter {
     type Error = PendingPromiseError;
 
-    fn try_convert(value: &Value) -> Result<proto_value::WorkflowArgumentValue, Self::Error> {
+    fn try_convert(value: &Value) -> Result<proto_value::Value, Self::Error> {
         match value {
             Value::Ready(value) => Self::try_convert(value),
             Value::Pending(promise_state_id) => Err(PendingPromiseError(*promise_state_id)),
@@ -95,37 +91,37 @@ impl TryConvert<&Value, proto_value::WorkflowArgumentValue> for Converter {
     }
 }
 
-impl TryConvert<&Exception<Value>, proto_value::WorkflowExceptionValue> for Converter {
+impl TryConvert<&Exception<Value>, proto_value::ExceptionValue> for Converter {
     type Error = PendingPromiseError;
 
     fn try_convert(
         exception: &Exception<Value>,
-    ) -> Result<proto_value::WorkflowExceptionValue, Self::Error> {
-        Ok(proto_value::WorkflowExceptionValue {
+    ) -> Result<proto_value::ExceptionValue, Self::Error> {
+        Ok(proto_value::ExceptionValue {
             type_id: exception.type_id.clone(),
             details: Some(Box::new(Self::try_convert(&exception.details)?)),
         })
     }
 }
 
-impl TryConvert<&Exception<ReadyValue>, proto_value::WorkflowExceptionValue> for Converter {
+impl TryConvert<&Exception<ReadyValue>, proto_value::ExceptionValue> for Converter {
     type Error = PendingPromiseError;
 
     fn try_convert(
         exception: &Exception<ReadyValue>,
-    ) -> Result<proto_value::WorkflowExceptionValue, Self::Error> {
-        Ok(proto_value::WorkflowExceptionValue {
+    ) -> Result<proto_value::ExceptionValue, Self::Error> {
+        Ok(proto_value::ExceptionValue {
             type_id: exception.type_id.clone(),
             details: Some(Box::new(Self::try_convert(&exception.details)?)),
         })
     }
 }
 
-impl TryConvert<&proto_value::WorkflowArgumentValue, ReadyValue> for Converter {
+impl TryConvert<&proto_value::Value, ReadyValue> for Converter {
     type Error = Infallible;
 
-    fn try_convert(value: &proto_value::WorkflowArgumentValue) -> Result<ReadyValue, Self::Error> {
-        use proto_value::workflow_argument_value::Kind;
+    fn try_convert(value: &proto_value::Value) -> Result<ReadyValue, Self::Error> {
+        use proto_value::value::Kind;
 
         let Some(kind) = &value.kind else {
             // A value naming no kind is as empty as the encoding can be.
@@ -151,25 +147,23 @@ impl TryConvert<&proto_value::WorkflowArgumentValue, ReadyValue> for Converter {
     }
 }
 
-fn items(items: &[proto_value::WorkflowArgumentValue]) -> Vec<Value> {
+fn items(items: &[proto_value::Value]) -> Vec<Value> {
     items.iter().map(Converter::convert).collect()
 }
 
-impl TryConvert<&proto_value::WorkflowArgumentValue, Value> for Converter {
+impl TryConvert<&proto_value::Value, Value> for Converter {
     type Error = Infallible;
 
-    fn try_convert(value: &proto_value::WorkflowArgumentValue) -> Result<Value, Self::Error> {
+    fn try_convert(value: &proto_value::Value) -> Result<Value, Self::Error> {
         Ok(Value::Ready(Self::convert(value)))
     }
 }
 
-impl TryConvert<&proto_value::PrimitiveWorkflowArgument, ReadyValue> for Converter {
+impl TryConvert<&proto_value::PrimitiveValue, ReadyValue> for Converter {
     type Error = Infallible;
 
-    fn try_convert(
-        value: &proto_value::PrimitiveWorkflowArgument,
-    ) -> Result<ReadyValue, Self::Error> {
-        use proto_value::primitive_workflow_argument::Kind;
+    fn try_convert(value: &proto_value::PrimitiveValue) -> Result<ReadyValue, Self::Error> {
+        use proto_value::primitive_value::Kind;
 
         let Some(kind) = &value.kind else {
             return Ok(ReadyValue::None);
@@ -190,10 +184,10 @@ impl TryConvert<&proto_value::PrimitiveWorkflowArgument, ReadyValue> for Convert
     }
 }
 
-impl TryConvert<&proto_value::WorkflowDictArgument, ReadyValue> for Converter {
+impl TryConvert<&proto_value::DictValue, ReadyValue> for Converter {
     type Error = Infallible;
 
-    fn try_convert(dict: &proto_value::WorkflowDictArgument) -> Result<ReadyValue, Self::Error> {
+    fn try_convert(dict: &proto_value::DictValue) -> Result<ReadyValue, Self::Error> {
         let mut map = IndexMap::with_capacity(dict.entries.len());
         for entry in &dict.entries {
             let value = match &entry.value {
@@ -206,11 +200,11 @@ impl TryConvert<&proto_value::WorkflowDictArgument, ReadyValue> for Converter {
     }
 }
 
-impl TryConvert<&proto_value::WorkflowExceptionValue, Exception<ReadyValue>> for Converter {
+impl TryConvert<&proto_value::ExceptionValue, Exception<ReadyValue>> for Converter {
     type Error = Infallible;
 
     fn try_convert(
-        exception: &proto_value::WorkflowExceptionValue,
+        exception: &proto_value::ExceptionValue,
     ) -> Result<Exception<ReadyValue>, Self::Error> {
         Ok(Exception {
             type_id: exception.type_id.clone(),
@@ -223,11 +217,11 @@ impl TryConvert<&proto_value::WorkflowExceptionValue, Exception<ReadyValue>> for
     }
 }
 
-impl TryConvert<&proto_value::WorkflowExceptionValue, Exception<Value>> for Converter {
+impl TryConvert<&proto_value::ExceptionValue, Exception<Value>> for Converter {
     type Error = Infallible;
 
     fn try_convert(
-        exception: &proto_value::WorkflowExceptionValue,
+        exception: &proto_value::ExceptionValue,
     ) -> Result<Exception<Value>, Self::Error> {
         Ok(Exception {
             type_id: exception.type_id.clone(),
@@ -248,12 +242,12 @@ mod tests {
         Value::Ready(value)
     }
 
-    fn read(value: &proto_value::WorkflowArgumentValue) -> ReadyValue {
+    fn read(value: &proto_value::Value) -> ReadyValue {
         Converter::convert(value)
     }
 
     fn round_trip(value: ReadyValue) -> ReadyValue {
-        let encoded: proto_value::WorkflowArgumentValue =
+        let encoded: proto_value::Value =
             Converter::try_convert(&value).expect("no pending promise in the value");
         Converter::convert(&encoded)
     }
@@ -334,9 +328,9 @@ mod tests {
 
     #[test]
     fn a_tuple_reads_as_a_list() {
-        let tuple = proto_value::WorkflowArgumentValue {
-            kind: Some(proto_value::workflow_argument_value::Kind::TupleValue(
-                proto_value::WorkflowTupleArgument {
+        let tuple = proto_value::Value {
+            kind: Some(proto_value::value::Kind::TupleValue(
+                proto_value::TupleValue {
                     items: vec![
                         Converter::try_convert(&ReadyValue::Int(1)).unwrap(),
                         Converter::try_convert(&ReadyValue::Int(2)).unwrap(),
@@ -353,13 +347,13 @@ mod tests {
 
     #[test]
     fn a_basemodel_reads_as_its_data() {
-        let basemodel = proto_value::WorkflowArgumentValue {
-            kind: Some(proto_value::workflow_argument_value::Kind::Basemodel(
-                proto_value::BaseModelWorkflowArgument {
+        let basemodel = proto_value::Value {
+            kind: Some(proto_value::value::Kind::Basemodel(
+                proto_value::BaseModelValue {
                     module: "example".to_owned(),
                     name: "Model".to_owned(),
-                    data: Some(proto_value::WorkflowDictArgument {
-                        entries: vec![proto_value::WorkflowDictEntry {
+                    data: Some(proto_value::DictValue {
+                        entries: vec![proto_value::DictEntry {
                             key: "field".to_owned(),
                             value: Some(Converter::try_convert(&ReadyValue::Int(3)).unwrap()),
                         }],
@@ -380,10 +374,10 @@ mod tests {
     #[test]
     fn a_non_finite_double_reads_as_none() {
         for double in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
-            let value = proto_value::WorkflowArgumentValue {
-                kind: Some(primitive(
-                    proto_value::primitive_workflow_argument::Kind::DoubleValue(double),
-                )),
+            let value = proto_value::Value {
+                kind: Some(primitive(proto_value::primitive_value::Kind::DoubleValue(
+                    double,
+                ))),
             };
 
             assert_eq!(read(&value), ReadyValue::None);
@@ -396,7 +390,7 @@ mod tests {
             waymark_vm_runtime_promise_core::PromiseStateId(7),
         )]);
 
-        let written: Result<proto_value::WorkflowArgumentValue, _> = Converter::try_convert(&value);
+        let written: Result<proto_value::Value, _> = Converter::try_convert(&value);
 
         assert_eq!(
             written.expect_err("a pending promise has no encoding"),

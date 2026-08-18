@@ -21,7 +21,7 @@ else:
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 @typing.final
-class WorkflowArgumentValue(google.protobuf.message.Message):
+class Value(google.protobuf.message.Message):
     """=============================================================================
     The Python flavor's encoded values
     =============================================================================
@@ -41,26 +41,26 @@ class WorkflowArgumentValue(google.protobuf.message.Message):
     TUPLE_VALUE_FIELD_NUMBER: builtins.int
     DICT_VALUE_FIELD_NUMBER: builtins.int
     @property
-    def primitive(self) -> Global___PrimitiveWorkflowArgument: ...
+    def primitive(self) -> Global___PrimitiveValue: ...
     @property
-    def basemodel(self) -> Global___BaseModelWorkflowArgument: ...
+    def basemodel(self) -> Global___BaseModelValue: ...
     @property
-    def exception(self) -> Global___WorkflowExceptionValue: ...
+    def exception(self) -> Global___ExceptionValue: ...
     @property
-    def list_value(self) -> Global___WorkflowListArgument: ...
+    def list_value(self) -> Global___ListValue: ...
     @property
-    def tuple_value(self) -> Global___WorkflowTupleArgument: ...
+    def tuple_value(self) -> Global___TupleValue: ...
     @property
-    def dict_value(self) -> Global___WorkflowDictArgument: ...
+    def dict_value(self) -> Global___DictValue: ...
     def __init__(
         self,
         *,
-        primitive: Global___PrimitiveWorkflowArgument | None = ...,
-        basemodel: Global___BaseModelWorkflowArgument | None = ...,
-        exception: Global___WorkflowExceptionValue | None = ...,
-        list_value: Global___WorkflowListArgument | None = ...,
-        tuple_value: Global___WorkflowTupleArgument | None = ...,
-        dict_value: Global___WorkflowDictArgument | None = ...,
+        primitive: Global___PrimitiveValue | None = ...,
+        basemodel: Global___BaseModelValue | None = ...,
+        exception: Global___ExceptionValue | None = ...,
+        list_value: Global___ListValue | None = ...,
+        tuple_value: Global___TupleValue | None = ...,
+        dict_value: Global___DictValue | None = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -109,10 +109,10 @@ class WorkflowArgumentValue(google.protobuf.message.Message):
         | None
     ): ...
 
-Global___WorkflowArgumentValue: typing_extensions.TypeAlias = WorkflowArgumentValue
+Global___Value: typing_extensions.TypeAlias = Value
 
 @typing.final
-class PrimitiveWorkflowArgument(google.protobuf.message.Message):
+class PrimitiveValue(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     STRING_VALUE_FIELD_NUMBER: builtins.int
@@ -175,10 +175,10 @@ class PrimitiveWorkflowArgument(google.protobuf.message.Message):
         | None
     ): ...
 
-Global___PrimitiveWorkflowArgument: typing_extensions.TypeAlias = PrimitiveWorkflowArgument
+Global___PrimitiveValue: typing_extensions.TypeAlias = PrimitiveValue
 
 @typing.final
-class BaseModelWorkflowArgument(google.protobuf.message.Message):
+class BaseModelValue(google.protobuf.message.Message):
     """Pydantic BaseModel or similar structured types"""
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -189,23 +189,23 @@ class BaseModelWorkflowArgument(google.protobuf.message.Message):
     module: builtins.str
     name: builtins.str
     @property
-    def data(self) -> Global___WorkflowDictArgument: ...
+    def data(self) -> Global___DictValue: ...
     def __init__(
         self,
         *,
         module: builtins.str = ...,
         name: builtins.str = ...,
-        data: Global___WorkflowDictArgument | None = ...,
+        data: Global___DictValue | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["data", b"data"]) -> builtins.bool: ...
     def ClearField(
         self, field_name: typing.Literal["data", b"data", "module", b"module", "name", b"name"]
     ) -> None: ...
 
-Global___BaseModelWorkflowArgument: typing_extensions.TypeAlias = BaseModelWorkflowArgument
+Global___BaseModelValue: typing_extensions.TypeAlias = BaseModelValue
 
 @typing.final
-class ActionResultValue(google.protobuf.message.Message):
+class ActionOutcome(google.protobuf.message.Message):
     """How an action call completed, in this language's terms: the value the
     action returned, or the exception it raised.
 
@@ -224,14 +224,14 @@ class ActionResultValue(google.protobuf.message.Message):
     VALUE_FIELD_NUMBER: builtins.int
     EXCEPTION_FIELD_NUMBER: builtins.int
     @property
-    def value(self) -> Global___WorkflowArgumentValue: ...
+    def value(self) -> Global___Value: ...
     @property
-    def exception(self) -> Global___WorkflowExceptionValue: ...
+    def exception(self) -> Global___ExceptionValue: ...
     def __init__(
         self,
         *,
-        value: Global___WorkflowArgumentValue | None = ...,
-        exception: Global___WorkflowExceptionValue | None = ...,
+        value: Global___Value | None = ...,
+        exception: Global___ExceptionValue | None = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -249,10 +249,10 @@ class ActionResultValue(google.protobuf.message.Message):
         self, oneof_group: typing.Literal["outcome", b"outcome"]
     ) -> typing.Literal["value", "exception"] | None: ...
 
-Global___ActionResultValue: typing_extensions.TypeAlias = ActionResultValue
+Global___ActionOutcome: typing_extensions.TypeAlias = ActionOutcome
 
 @typing.final
-class WorkflowExceptionValue(google.protobuf.message.Message):
+class ExceptionValue(google.protobuf.message.Message):
     """A raised exception, shaped as the VM models one: the type identifying
     it, and the details value carried alongside.
 
@@ -269,62 +269,58 @@ class WorkflowExceptionValue(google.protobuf.message.Message):
     DETAILS_FIELD_NUMBER: builtins.int
     type_id: builtins.str
     @property
-    def details(self) -> Global___WorkflowArgumentValue: ...
+    def details(self) -> Global___Value: ...
     def __init__(
         self,
         *,
         type_id: builtins.str = ...,
-        details: Global___WorkflowArgumentValue | None = ...,
+        details: Global___Value | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["details", b"details"]) -> builtins.bool: ...
     def ClearField(
         self, field_name: typing.Literal["details", b"details", "type_id", b"type_id"]
     ) -> None: ...
 
-Global___WorkflowExceptionValue: typing_extensions.TypeAlias = WorkflowExceptionValue
+Global___ExceptionValue: typing_extensions.TypeAlias = ExceptionValue
 
 @typing.final
-class WorkflowListArgument(google.protobuf.message.Message):
+class ListValue(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     ITEMS_FIELD_NUMBER: builtins.int
     @property
     def items(
         self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowArgumentValue
-    ]: ...
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Value]: ...
     def __init__(
         self,
         *,
-        items: collections.abc.Iterable[Global___WorkflowArgumentValue] | None = ...,
+        items: collections.abc.Iterable[Global___Value] | None = ...,
     ) -> None: ...
     def ClearField(self, field_name: typing.Literal["items", b"items"]) -> None: ...
 
-Global___WorkflowListArgument: typing_extensions.TypeAlias = WorkflowListArgument
+Global___ListValue: typing_extensions.TypeAlias = ListValue
 
 @typing.final
-class WorkflowTupleArgument(google.protobuf.message.Message):
+class TupleValue(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     ITEMS_FIELD_NUMBER: builtins.int
     @property
     def items(
         self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowArgumentValue
-    ]: ...
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Value]: ...
     def __init__(
         self,
         *,
-        items: collections.abc.Iterable[Global___WorkflowArgumentValue] | None = ...,
+        items: collections.abc.Iterable[Global___Value] | None = ...,
     ) -> None: ...
     def ClearField(self, field_name: typing.Literal["items", b"items"]) -> None: ...
 
-Global___WorkflowTupleArgument: typing_extensions.TypeAlias = WorkflowTupleArgument
+Global___TupleValue: typing_extensions.TypeAlias = TupleValue
 
 @typing.final
-class WorkflowDictEntry(google.protobuf.message.Message):
+class DictEntry(google.protobuf.message.Message):
     """A dictionary entry inside an encoded value — structural, unlike the
     framing-level `waymark.messages.WorkflowArgument`.
     """
@@ -335,20 +331,20 @@ class WorkflowDictEntry(google.protobuf.message.Message):
     VALUE_FIELD_NUMBER: builtins.int
     key: builtins.str
     @property
-    def value(self) -> Global___WorkflowArgumentValue: ...
+    def value(self) -> Global___Value: ...
     def __init__(
         self,
         *,
         key: builtins.str = ...,
-        value: Global___WorkflowArgumentValue | None = ...,
+        value: Global___Value | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["value", b"value"]) -> builtins.bool: ...
     def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
 
-Global___WorkflowDictEntry: typing_extensions.TypeAlias = WorkflowDictEntry
+Global___DictEntry: typing_extensions.TypeAlias = DictEntry
 
 @typing.final
-class WorkflowDictArgument(google.protobuf.message.Message):
+class DictValue(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     ENTRIES_FIELD_NUMBER: builtins.int
@@ -356,13 +352,13 @@ class WorkflowDictArgument(google.protobuf.message.Message):
     def entries(
         self,
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowDictEntry
+        Global___DictEntry
     ]: ...
     def __init__(
         self,
         *,
-        entries: collections.abc.Iterable[Global___WorkflowDictEntry] | None = ...,
+        entries: collections.abc.Iterable[Global___DictEntry] | None = ...,
     ) -> None: ...
     def ClearField(self, field_name: typing.Literal["entries", b"entries"]) -> None: ...
 
-Global___WorkflowDictArgument: typing_extensions.TypeAlias = WorkflowDictArgument
+Global___DictValue: typing_extensions.TypeAlias = DictValue
