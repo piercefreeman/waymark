@@ -4090,7 +4090,6 @@ dependencies = [
  "waymark-convert-core",
  "waymark-proto",
  "waymark-proto-python-value-conversions",
- "waymark-vm-runtime-exception",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-convert-proto",
  "waymark-vm-value-python",
