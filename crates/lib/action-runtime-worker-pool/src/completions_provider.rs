@@ -196,15 +196,15 @@ mod tests {
     use waymark_ids::InstanceId;
 
     fn completion(metadata: Vec<u8>) -> waymark_proto::messages::ActionResult {
-        let returned = waymark_proto_python_value_conversions::returned_value(
-            waymark_vm_value_python_convert_proto::Converter::try_convert(
-                &waymark_vm_value_python::ReadyValue::None,
-            )
-            .expect("a None holds no pending promise"),
-        );
+        let payload = waymark_action_runtime_convert::Converter::try_convert(
+            waymark_action_runtime_core::ActionCallOutcome::Value(
+                waymark_vm_value_python::ReadyValue::None,
+            ),
+        )
+        .expect("a None holds no pending promise");
 
         waymark_proto::messages::ActionResult {
-            payload: waymark_proto_python_value_conversions::encode_action_outcome(&returned),
+            payload,
             metadata,
             ..Default::default()
         }

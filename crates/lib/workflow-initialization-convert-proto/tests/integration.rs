@@ -5,19 +5,15 @@ use waymark_workflow_initialization_convert_proto::InitialContextConverter;
 
 fn int_arg(key: &str, value: i64) -> waymark_proto::messages::WorkflowArgument {
     use waymark_proto::messages::WorkflowArgument;
-    use waymark_proto::python_value::{
-        PrimitiveValue, Value, primitive_value::Kind as PrimitiveKind, value::Kind,
-    };
 
-    let value = Value {
-        kind: Some(Kind::Primitive(PrimitiveValue {
-            kind: Some(PrimitiveKind::IntValue(value)),
-        })),
-    };
+    let value = waymark_vm_value_python_convert_proto::Converter::try_convert(
+        &waymark_vm_value_python::ReadyValue::Int(value),
+    )
+    .expect("an integer holds no pending promise");
 
     WorkflowArgument {
         key: key.to_string(),
-        value: waymark_proto_python_value_conversions::encode_value(&value),
+        value,
     }
 }
 
