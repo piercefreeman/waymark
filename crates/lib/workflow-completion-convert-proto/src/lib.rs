@@ -13,7 +13,7 @@ use waymark_workflow_completion_core::Outcome;
 /// Converter for workflow-completion results.
 ///
 /// Completion results are wrapped in a
-/// [`BaseModelWorkflowArgument`](waymark_proto::messages::BaseModelWorkflowArgument)
+/// [`BaseModelValue`](waymark_proto::python_value::BaseModelValue)
 /// (`WorkflowNodeResult`) rather than plain primitive/dict/list values.
 pub struct Converter;
 
@@ -65,43 +65,36 @@ impl
 }
 
 fn exception_workflow_arguments(
-    exception: waymark_proto::python_value::WorkflowExceptionValue,
+    exception: waymark_proto::python_value::ExceptionValue,
 ) -> waymark_proto::messages::WorkflowArguments {
     use waymark_proto::messages::{WorkflowArgument, WorkflowArguments};
 
-    let error_value = waymark_proto::python_value::WorkflowArgumentValue {
-        kind: Some(
-            waymark_proto::python_value::workflow_argument_value::Kind::Exception(Box::new(
-                exception,
-            )),
-        ),
+    let error_value = waymark_proto::python_value::Value {
+        kind: Some(waymark_proto::python_value::value::Kind::Exception(
+            Box::new(exception),
+        )),
     };
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "error".to_string(),
-            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
-                &error_value,
-            ),
+            value: waymark_proto_python_value_conversions::encode_value(&error_value),
         }],
     }
 }
 
 fn completion_workflow_arguments(
-    value: waymark_proto::python_value::WorkflowArgumentValue,
+    value: waymark_proto::python_value::Value,
 ) -> waymark_proto::messages::WorkflowArguments {
     use waymark_proto::messages::{WorkflowArgument, WorkflowArguments};
-    use waymark_proto::python_value::{
-        BaseModelWorkflowArgument, WorkflowDictArgument, WorkflowDictEntry,
-        workflow_argument_value::Kind,
-    };
+    use waymark_proto::python_value::{BaseModelValue, DictEntry, DictValue, value::Kind};
 
     // A dict is already a set of variables; anything else is the single
     // `result` variable.
     let variables_arg = match &value.kind {
         Some(Kind::DictValue(_)) => value,
-        _ => waymark_proto::python_value::WorkflowArgumentValue {
-            kind: Some(Kind::DictValue(WorkflowDictArgument {
-                entries: vec![WorkflowDictEntry {
+        _ => waymark_proto::python_value::Value {
+            kind: Some(Kind::DictValue(DictValue {
+                entries: vec![DictEntry {
                     key: "result".to_string(),
                     value: Some(value),
                 }],
@@ -109,15 +102,15 @@ fn completion_workflow_arguments(
         },
     };
 
-    let dict = WorkflowDictArgument {
-        entries: vec![WorkflowDictEntry {
+    let dict = DictValue {
+        entries: vec![DictEntry {
             key: "variables".to_string(),
             value: Some(variables_arg),
         }],
     };
 
-    let result_value = waymark_proto::python_value::WorkflowArgumentValue {
-        kind: Some(Kind::Basemodel(BaseModelWorkflowArgument {
+    let result_value = waymark_proto::python_value::Value {
+        kind: Some(Kind::Basemodel(BaseModelValue {
             module: "waymark.workflow_runtime".to_string(),
             name: "WorkflowNodeResult".to_string(),
             data: Some(dict),
@@ -127,9 +120,7 @@ fn completion_workflow_arguments(
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "result".to_string(),
-            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
-                &result_value,
-            ),
+            value: waymark_proto_python_value_conversions::encode_value(&result_value),
         }],
     }
 }
