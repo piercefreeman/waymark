@@ -4659,6 +4659,7 @@ dependencies = [
  "waymark-fn-main-common",
  "waymark-ids",
  "waymark-proto",
+ "waymark-proto-python-value-conversions",
  "waymark-secret-string",
  "waymark-support-integration",
  "waymark-system-vm",
@@ -4668,7 +4669,8 @@ dependencies = [
  "waymark-vm-ast-old-proto",
  "waymark-vm-codec-rmp",
  "waymark-vm-runtime-builder",
- "waymark-vm-value-convert-json",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-value-convert-proto",
  "waymark-worker-core",
  "waymark-worker-python",
  "waymark-worker-remote-bringup",
@@ -5797,19 +5799,6 @@ version = "0.1.0"
 dependencies = [
  "thiserror",
  "waymark-vm-runtime-promise-core",
-]
-
-[[package]]
-name = "waymark-vm-value-convert-json"
-version = "0.1.0"
-dependencies = [
- "indexmap",
- "serde_json",
- "typed_floats",
- "waymark-convert-core",
- "waymark-vm-runtime-exception",
- "waymark-vm-value-convert-core",
- "waymark-vm-value-python",
 ]
 
 [[package]]
