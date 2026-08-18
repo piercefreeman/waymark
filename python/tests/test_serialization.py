@@ -53,7 +53,7 @@ def test_result_round_trip_with_basemodel() -> None:
 
 
 def test_empty_action_outcome_is_refused() -> None:
-    payload = pb2v.ActionResultValue().SerializeToString()
+    payload = pb2v.ActionOutcome().SerializeToString()
     with pytest.raises(ValueError, match="empty action outcome"):
         deserialize_action_result(action_result(payload))
 
