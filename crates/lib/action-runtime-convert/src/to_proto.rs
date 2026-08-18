@@ -3,29 +3,24 @@ use waymark_vm_value_convert_core::PendingPromiseError;
 
 use crate::Converter;
 
-impl
-    TryConvert<
-        &waymark_vm_value_python::ReadyValue,
-        waymark_proto::python_value::WorkflowArgumentValue,
-    > for Converter
-{
-    type Error = PendingPromiseError;
-
-    fn try_convert(
-        value: &waymark_vm_value_python::ReadyValue,
-    ) -> Result<waymark_proto::python_value::WorkflowArgumentValue, PendingPromiseError> {
-        waymark_vm_value_convert_proto::Converter::try_convert(value)
-    }
-}
-
-impl TryConvert<&waymark_vm_value_python::Value, waymark_proto::python_value::WorkflowArgumentValue>
+impl TryConvert<&waymark_vm_value_python::ReadyValue, waymark_proto::python_value::Value>
     for Converter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
+        value: &waymark_vm_value_python::ReadyValue,
+    ) -> Result<waymark_proto::python_value::Value, PendingPromiseError> {
+        waymark_vm_value_convert_proto::Converter::try_convert(value)
+    }
+}
+
+impl TryConvert<&waymark_vm_value_python::Value, waymark_proto::python_value::Value> for Converter {
+    type Error = PendingPromiseError;
+
+    fn try_convert(
         value: &waymark_vm_value_python::Value,
-    ) -> Result<waymark_proto::python_value::WorkflowArgumentValue, PendingPromiseError> {
+    ) -> Result<waymark_proto::python_value::Value, PendingPromiseError> {
         waymark_vm_value_convert_proto::Converter::try_convert(value)
     }
 }
@@ -59,9 +54,7 @@ impl
             let encoded = Self::try_convert(value)?;
             arguments.push(WorkflowArgument {
                 key: name.clone(),
-                value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
-                    &encoded,
-                ),
+                value: waymark_proto_python_value_conversions::encode_value(&encoded),
             });
         }
         Ok(WorkflowArguments { arguments })
