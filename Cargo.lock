@@ -4085,8 +4085,8 @@ dependencies = [
  "waymark-proto",
  "waymark-proto-python-value-conversions",
  "waymark-vm-value-convert-core",
- "waymark-vm-value-convert-proto",
  "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
 ]
 
 [[package]]
@@ -4139,8 +4139,8 @@ dependencies = [
  "waymark-proto",
  "waymark-proto-python-value-conversions",
  "waymark-vm-value-convert-core",
- "waymark-vm-value-convert-proto",
  "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
  "waymark-worker-core",
 ]
 
@@ -4543,7 +4543,7 @@ dependencies = [
  "waymark-vm-codec-rmp",
  "waymark-vm-runtime-builder",
  "waymark-vm-runtime-exception",
- "waymark-vm-value-convert-proto",
+ "waymark-vm-value-python-convert-proto",
  "waymark-worker-core",
  "waymark-worker-python",
  "waymark-worker-remote-bringup",
@@ -5600,20 +5600,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-vm-value-convert-proto"
-version = "0.1.0"
-dependencies = [
- "indexmap",
- "typed_floats",
- "waymark-convert-core",
- "waymark-proto",
- "waymark-vm-runtime-exception",
- "waymark-vm-runtime-promise-core",
- "waymark-vm-value-convert-core",
- "waymark-vm-value-python",
-]
-
-[[package]]
 name = "waymark-vm-value-python"
 version = "0.1.0"
 dependencies = [
@@ -5635,6 +5621,20 @@ dependencies = [
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-test",
  "waymark-vm-value",
+]
+
+[[package]]
+name = "waymark-vm-value-python-convert-proto"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "typed_floats",
+ "waymark-convert-core",
+ "waymark-proto",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value-convert-core",
+ "waymark-vm-value-python",
 ]
 
 [[package]]
@@ -5726,8 +5726,8 @@ dependencies = [
  "waymark-convert-core",
  "waymark-proto",
  "waymark-proto-python-value-conversions",
- "waymark-vm-value-convert-proto",
  "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
  "waymark-worker-core",
  "waymark-worker-inline",
 ]
@@ -5940,8 +5940,8 @@ dependencies = [
  "waymark-proto-python-value-conversions",
  "waymark-vm-runtime-exception",
  "waymark-vm-value-convert-core",
- "waymark-vm-value-convert-proto",
  "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
  "waymark-workflow-completion-core",
 ]
 
