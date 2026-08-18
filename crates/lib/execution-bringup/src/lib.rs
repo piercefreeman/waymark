@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 use waymark_nonzero_duration::NonZeroDuration;
-use waymark_worker_core::{BaseWorkerPool, WorkerPoolError};
+use waymark_worker_core::WorkerPoolError;
 
 /// Configuration for [`start`].
 pub struct Config<NodeId> {
@@ -231,7 +231,17 @@ where
     <Backend as waymark_state_vm_runtimes_backend::StoreSnapshots>::Error: Send + 'static,
     <Backend as waymark_state_vm_runtimes_backend::LoadForRevive>::Error: Send + 'static,
     <Backend as waymark_workflow_completion_backend::RecordOutcomes>::Error: Send + 'static,
-    WorkerPool: BaseWorkerPool + Clone + Send + Sync + 'static,
+    WorkerPool: waymark_worker_core::LaunchWorkerPool<Error = WorkerPoolError>
+        + waymark_worker_core::QueueActionDispatch
+        + waymark_worker_core::PollActionResults
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    <WorkerPool as waymark_worker_core::QueueActionDispatch>::Error:
+        core::fmt::Debug + Send + 'static,
+    <WorkerPool as waymark_worker_core::PollActionResults>::Error:
+        core::fmt::Debug + Send + 'static,
 {
     let Config {
         node_id,

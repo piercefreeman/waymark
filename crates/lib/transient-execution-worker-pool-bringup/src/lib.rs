@@ -2,7 +2,8 @@
 //!
 //! Instantiates [`waymark_transient_execution_bringup::execute_with`] with
 //! [`waymark_action_runtime_worker_pool`] as the action transport: action
-//! calls are dispatched to a [`waymark_worker_core::BaseWorkerPool`] and
+//! calls are dispatched to a
+//! [`waymark_worker_core::QueueActionDispatch`] and
 //! action call completions are polled directly from it.
 
 #![warn(missing_docs)]
@@ -42,7 +43,14 @@ pub fn execute<Pool>(
     cancel: tokio_util::sync::CancellationToken,
 ) -> ExecutionFor<Pool>
 where
-    Pool: waymark_worker_core::BaseWorkerPool + Clone + Send + Sync + 'static,
+    Pool: waymark_worker_core::QueueActionDispatch
+        + waymark_worker_core::PollActionResults
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    <Pool as waymark_worker_core::QueueActionDispatch>::Error: core::fmt::Debug + Send + 'static,
+    <Pool as waymark_worker_core::PollActionResults>::Error: core::fmt::Debug + Send + 'static,
 {
     let action_call_requester =
         waymark_action_runtime_worker_pool::WorkerPoolActionRequester::new(worker_pool.clone());
