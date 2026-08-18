@@ -1,4 +1,4 @@
-use waymark_worker_core::BaseWorkerPool as _;
+use waymark_worker_core::LaunchWorkerPool as _;
 
 /// Run the runtime over a freshly spawned Python worker pool and return
 /// the workflow outcome.

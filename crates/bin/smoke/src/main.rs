@@ -9,7 +9,7 @@ use waymark_smoke_sources::{
     build_try_except_program, build_while_loop_program,
 };
 use waymark_system_vm::{ReadyValue, Value};
-use waymark_worker_core::BaseWorkerPool as _;
+use waymark_worker_core::LaunchWorkerPool as _;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -32,7 +32,14 @@ async fn run_program_smoke<Pool>(
     worker_pool: Pool,
 ) -> Result<(), color_eyre::eyre::Report>
 where
-    Pool: waymark_worker_core::BaseWorkerPool + Clone + Send + Sync + 'static,
+    Pool: waymark_worker_core::QueueActionDispatch
+        + waymark_worker_core::PollActionResults
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    <Pool as waymark_worker_core::QueueActionDispatch>::Error: core::fmt::Debug + Send + 'static,
+    <Pool as waymark_worker_core::PollActionResults>::Error: core::fmt::Debug + Send + 'static,
 {
     println!("\nAST program ({})", case.name);
     println!("{}", waymark_vm_ast_old_fmt::display(&case.program));
