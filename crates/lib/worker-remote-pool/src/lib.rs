@@ -11,12 +11,15 @@ use nonempty_collections::NEVec;
 use tokio::sync::{Mutex, mpsc};
 
 use waymark_proto::messages as proto;
-use waymark_worker_core::{WorkerPoolError, WorkerPoolGoneError};
+use waymark_worker_core::{
+    ActionExecutionLoss, ActionExecutionReport, ExecutionProgress, WorkerPoolError,
+    WorkerPoolGoneError,
+};
 
 async fn execute_remote_request<Spec>(
     pool: &Arc<waymark_worker_process_pool::Pool<Spec>>,
     dispatch: proto::ActionDispatch,
-) -> proto::ActionResult
+) -> ActionExecutionReport
 where
     Spec: waymark_worker_process_spec::Spec,
     Spec: Send + Sync + 'static,
@@ -43,26 +46,32 @@ where
         Ok(metrics) => {
             pool.record_latency(metrics.ack_latency, metrics.worker_duration);
             pool.record_completion(worker_idx, Arc::clone(pool));
-            proto::ActionResult {
+            ActionExecutionReport::Completed(proto::ActionResult {
                 payload: metrics.response_payload,
                 metadata,
                 ..Default::default()
-            }
+            })
         }
         Err(err) => {
             pool.release_slot(worker_idx);
-            proto::ActionResult {
-                payload: waymark_proto_python_value_conversions::encode_action_outcome(
-                    &waymark_proto_python_value_conversions::raised_exception(
-                        waymark_proto_python_value_conversions::exception_value(
-                            "RemoteWorkerPoolError".to_owned(),
-                            err.to_string(),
-                        ),
-                    ),
-                ),
-                metadata,
-                ..Default::default()
-            }
+            // The worker died on us: report the loss as the fact it is.
+            // The pool decides nothing here — what a lost execution means
+            // for the awaiting promise is the VM's business.
+            let progress = match err {
+                // The worker protocol was already closed before the
+                // dispatch was registered: the action provably never
+                // started.
+                waymark_worker_message_protocol::SendActionError::WorkerProtocolClosed => {
+                    ExecutionProgress::NotStarted
+                }
+                // The channel closed somewhere past registration: the
+                // action may not have run at all, or may have run to
+                // completion with only the result lost.
+                waymark_worker_message_protocol::SendActionError::ChannelClosed => {
+                    ExecutionProgress::Unknown
+                }
+            };
+            ActionExecutionReport::Lost(ActionExecutionLoss { metadata, progress })
         }
     }
 }
@@ -81,8 +90,14 @@ pub struct RemoteWorkerPool<Spec> {
     pool: Arc<waymark_worker_process_pool::Pool<Spec>>,
     request_tx: mpsc::Sender<proto::ActionDispatch>,
     request_rx: StdMutex<Option<mpsc::Receiver<proto::ActionDispatch>>>,
-    completion_tx: mpsc::Sender<proto::ActionResult>,
-    completion_rx: Mutex<mpsc::Receiver<proto::ActionResult>>,
+    completion_tx: mpsc::Sender<
+        ActionExecutionReport,
+    >,
+    completion_rx: Mutex<
+        mpsc::Receiver<
+            ActionExecutionReport,
+        >,
+    >,
     launched: AtomicBool,
 }
 
@@ -208,7 +223,12 @@ where
 {
     type Error = WorkerPoolGoneError;
 
-    async fn poll_complete(&self) -> Result<NEVec<proto::ActionResult>, Self::Error> {
+    async fn poll_complete(
+        &self,
+    ) -> Result<
+        NEVec<ActionExecutionReport>,
+        Self::Error,
+    > {
         let mut receiver = self.completion_rx.lock().await;
 
         let first = receiver.recv().await.ok_or(WorkerPoolGoneError)?;
