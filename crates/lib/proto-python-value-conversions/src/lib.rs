@@ -82,3 +82,10 @@ pub fn decode_workflow_argument_value(
 ) -> Result<proto_value::WorkflowArgumentValue, prost::DecodeError> {
     proto_value::WorkflowArgumentValue::decode(bytes)
 }
+
+/// Decode an encoded [`proto_value::WorkflowExceptionValue`].
+pub fn decode_workflow_exception_value(
+    bytes: &[u8],
+) -> Result<proto_value::WorkflowExceptionValue, prost::DecodeError> {
+    proto_value::WorkflowExceptionValue::decode(bytes)
+}
