@@ -23,7 +23,7 @@ class ActionResultPayload:
 
 def serialize_returned_value(value: Any) -> bytes:
     """Build the encoded result of an action that returned `value`."""
-    result = pb2v.ActionResultValue()
+    result = pb2v.ActionOutcome()
     result.value.CopyFrom(dumps(value))
     return result.SerializeToString()
 
@@ -34,14 +34,14 @@ def serialize_raised_exception(exc: BaseException) -> bytes:
     Raising is not the same as returning the exception: only this arm
     settles the awaiting promise in the raised state.
     """
-    result = pb2v.ActionResultValue()
+    result = pb2v.ActionOutcome()
     result.exception.CopyFrom(dumps_exception(exc))
     return result.SerializeToString()
 
 
 def deserialize_action_result(result: pb2.ActionResult) -> ActionResultPayload:
     """Deserialize the result an [`ActionResult`] carries."""
-    result_value = pb2v.ActionResultValue()
+    result_value = pb2v.ActionOutcome()
     result_value.ParseFromString(result.payload)
 
     outcome = result_value.WhichOneof("outcome")

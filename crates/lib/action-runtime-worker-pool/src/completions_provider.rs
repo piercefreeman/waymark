@@ -154,7 +154,7 @@ mod tests {
         );
 
         waymark_proto::messages::ActionResult {
-            payload: waymark_proto_python_value_conversions::encode_action_result_value(&returned),
+            payload: waymark_proto_python_value_conversions::encode_action_outcome(&returned),
             metadata,
             ..Default::default()
         }
