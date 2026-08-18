@@ -6,7 +6,7 @@
 
 #![warn(missing_docs)]
 
-use waymark_convert_core::TryConvert;
+use waymark_convert_core::{Convert as _, TryConvert};
 use waymark_vm_value_convert_core::PendingPromiseError;
 use waymark_workflow_completion_core::Outcome;
 
@@ -77,7 +77,7 @@ fn exception_workflow_arguments(
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "error".to_string(),
-            value: waymark_proto_python_value_conversions::encode_value(&error_value),
+            value: waymark_vm_value_python_convert_proto::Converter::convert(&error_value),
         }],
     }
 }
@@ -120,7 +120,7 @@ fn completion_workflow_arguments(
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "result".to_string(),
-            value: waymark_proto_python_value_conversions::encode_value(&result_value),
+            value: waymark_vm_value_python_convert_proto::Converter::convert(&result_value),
         }],
     }
 }
