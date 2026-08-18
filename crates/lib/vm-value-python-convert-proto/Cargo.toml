@@ -1,5 +1,5 @@
 [package]
-name = "waymark-vm-value-convert-proto"
+name = "waymark-vm-value-python-convert-proto"
 edition = "2024"
 version.workspace = true
 publish.workspace = true
