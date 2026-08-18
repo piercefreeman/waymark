@@ -6,7 +6,7 @@
 //! by [`crate::compare`] is a real difference rather than two renderings
 //! disagreeing.
 
-use waymark_convert_core::Convert as _;
+use waymark_convert_core::TryConvert as _;
 
 use crate::compare::compare_outcomes;
 use crate::ground_truth::PreparedCase;
@@ -54,18 +54,14 @@ pub fn outcome_from_encoded(
 
     match status {
         "ok" => {
-            let value = waymark_proto_python_value_conversions::decode_value(value)
+            let value = waymark_vm_value_python_convert_proto::Converter::try_convert(value)
                 .wrap_err("decode the expected value")?;
-            Ok(CaseOutcome::Completion(
-                waymark_vm_value_python_convert_proto::Converter::convert(&value),
-            ))
+            Ok(CaseOutcome::Completion(value))
         }
         "error" => {
-            let exception = waymark_proto_python_value_conversions::decode_exception_value(value)
+            let exception = waymark_vm_value_python_convert_proto::Converter::try_convert(value)
                 .wrap_err("decode the expected exception")?;
-            Ok(CaseOutcome::Exception(
-                waymark_vm_value_python_convert_proto::Converter::convert(&exception),
-            ))
+            Ok(CaseOutcome::Exception(exception))
         }
         other => bail!("unknown expected outcome status {other:?}"),
     }

@@ -32,7 +32,7 @@ impl
             let encoded = waymark_vm_value_python_convert_proto::Converter::try_convert(value)?;
             arguments.push(WorkflowArgument {
                 key: name.clone(),
-                value: waymark_proto_python_value_conversions::encode_value(&encoded),
+                value: encoded,
             });
         }
         Ok(WorkflowArguments { arguments })
