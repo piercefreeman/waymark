@@ -94,7 +94,7 @@ where
 
             let vec: Vec<_> = completions
                 .into_iter()
-                .map(resolve_completion)
+                .map(resolve_execution)
                 .collect::<Result<_, _>>()?;
 
             let Some(nevec) = NEVec::try_from_vec(vec) else {
@@ -106,21 +106,29 @@ where
     }
 }
 
-/// Convert a raw worker-pool completion into an [`ActionCallCompletion`]
-/// by decoding the correlation metadata from the completion's echoed
-/// `metadata` bytes and converting the result value.
+/// Convert a finished execution into an [`ActionCallCompletion`] by
+/// decoding the correlation metadata from the echoed `metadata` bytes
+/// and reading how the execution ended.
+///
+/// A completed execution carries the worker's result, converted as the
+/// outcome it encodes.  A LOST execution settles the awaiting promise
+/// raised with [`EXECUTION_LOST`]: the runtime states the fact, and the
+/// program's own policy — a compiled-in retry, a user `except`, or
+/// nothing — decides what the loss means.
 ///
 /// The metadata is recovered from the bytes the requester encoded — NOT from
 /// the completion's `executor_id` field — so routing depends only on data the
 /// action runtime controls end-to-end.
 ///
 /// A decode failure is fatal rather than skippable: the correlation is the
-/// only link back to the awaiting promise, so a completion we cannot decode
+/// only link back to the awaiting promise, so an execution we cannot decode
 /// can neither be routed nor turned into a promise settlement.  Dropping it
-/// would strand that promise forever (the action's side effects have already
-/// happened), so we surface the error to the caller instead.
-fn resolve_completion<PollError, Metadata>(
-    completion: waymark_proto::messages::ActionResult,
+/// would strand that promise forever (the action's side effects may have
+/// already happened), so we surface the error to the caller instead.
+///
+/// [`EXECUTION_LOST`]: waymark_vm_exception_type_ids::EXECUTION_LOST
+fn resolve_execution<PollError, Metadata>(
+    report: waymark_worker_core::ActionExecutionReport,
 ) -> Result<
     ActionCallCompletion<waymark_vm_value_python::ReadyValue, Metadata>,
     WorkerPoolCompletionsError<PollError, Metadata::Error>,
@@ -129,19 +137,55 @@ where
     Metadata: Decode,
     Metadata::Error: core::fmt::Display,
 {
-    let metadata = Metadata::decode(&mut completion.metadata.as_slice())
+    let (metadata_bytes, outcome) = match report {
+        waymark_worker_core::ActionExecutionReport::Completed(result) => {
+            let outcome = waymark_action_runtime_convert::Converter::try_convert(&result)
+                .map_err(WorkerPoolCompletionsError::Payload)?;
+            (result.metadata, outcome)
+        }
+        waymark_worker_core::ActionExecutionReport::Lost(loss) => {
+            (loss.metadata, lost_execution_outcome(loss.progress))
+        }
+    };
+
+    let metadata = Metadata::decode(&mut metadata_bytes.as_slice())
         .inspect_err(|error| {
             tracing::error!(
                 %error,
-                "unable to decode correlation metadata for an action completion"
+                "unable to decode correlation metadata for an action execution"
             );
         })
         .map_err(WorkerPoolCompletionsError::Decode)?;
 
-    let outcome = waymark_action_runtime_convert::Converter::try_convert(&completion)
-        .map_err(WorkerPoolCompletionsError::Payload)?;
-
     Ok(ActionCallCompletion { metadata, outcome })
+}
+
+/// The outcome a lost execution settles its promise with: raised
+/// [`EXECUTION_LOST`], the details carrying how far the execution
+/// provably got.
+///
+/// [`EXECUTION_LOST`]: waymark_vm_exception_type_ids::EXECUTION_LOST
+fn lost_execution_outcome(
+    progress: waymark_worker_core::ExecutionProgress,
+) -> waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue> {
+    let progress = match progress {
+        waymark_worker_core::ExecutionProgress::NotStarted => "not_started",
+        waymark_worker_core::ExecutionProgress::Unknown => "unknown",
+    };
+
+    let details = waymark_vm_value_python::ReadyValue::Dict(indexmap::IndexMap::from([(
+        "progress".to_owned(),
+        waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::String(
+            progress.to_owned(),
+        )),
+    )]));
+
+    waymark_action_runtime_core::ActionCallOutcome::Exception(
+        waymark_vm_runtime_exception::Exception {
+            type_id: waymark_vm_exception_type_ids::EXECUTION_LOST.to_owned(),
+            details,
+        },
+    )
 }
 
 #[cfg(test)]
@@ -167,14 +211,60 @@ mod tests {
     }
 
     #[test]
+    fn a_lost_execution_settles_raised_as_execution_lost() {
+        // The runtime states the fact; the program's own policy decides
+        // what the loss means.  The promise settles raised so a
+        // compiled-in retry or a user `except` can catch it.
+        let vm_id = InstanceId::new_uuid_v4();
+        let mut encoded = Vec::new();
+        let correlation = WithVmId {
+            vm_id,
+            inner: ActionCallCorrelation::decode(&mut &[0u8; 16][..]).unwrap(),
+        };
+        correlation.encode(&mut encoded);
+
+        let resolved = resolve_execution::<
+            core::convert::Infallible,
+            WithVmId<InstanceId, ActionCallCorrelation>,
+        >(waymark_worker_core::ActionExecutionReport::Lost(
+            waymark_worker_core::ActionExecutionLoss {
+                metadata: encoded,
+                progress: waymark_worker_core::ExecutionProgress::Unknown,
+            },
+        ))
+        .expect("a lost execution still routes by its metadata");
+
+        assert_eq!(resolved.metadata.vm_id, vm_id);
+        let waymark_action_runtime_core::ActionCallOutcome::Exception(exception) = resolved.outcome
+        else {
+            panic!("a lost execution must settle the promise raised");
+        };
+        assert_eq!(
+            exception.type_id,
+            waymark_vm_exception_type_ids::EXECUTION_LOST
+        );
+        let waymark_vm_value_python::ReadyValue::Dict(details) = exception.details else {
+            panic!("the details carry the progress fact");
+        };
+        assert_eq!(
+            details.get("progress"),
+            Some(&waymark_vm_value_python::Value::Ready(
+                waymark_vm_value_python::ReadyValue::String("unknown".to_owned())
+            )),
+        );
+    }
+
+    #[test]
     fn undecodable_metadata_surfaces_as_error() {
         // Metadata that is not a valid WithVmId encoding carries no route back
         // to a promise, so it must be an error rather than a silently dropped
         // completion.
-        let result = resolve_completion::<
+        let result = resolve_execution::<
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
-        >(completion(Vec::new()));
+        >(waymark_worker_core::ActionExecutionReport::Completed(
+            completion(Vec::new()),
+        ));
         assert!(result.is_err());
     }
 
@@ -190,10 +280,12 @@ mod tests {
         };
         correlation.encode(&mut encoded);
 
-        let resolved = resolve_completion::<
+        let resolved = resolve_execution::<
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
-        >(completion(encoded))
+        >(waymark_worker_core::ActionExecutionReport::Completed(
+            completion(encoded),
+        ))
         .expect("WithVmId metadata should decode");
         assert_eq!(resolved.metadata.vm_id, vm_id);
     }

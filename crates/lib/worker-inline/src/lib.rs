@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 
 use waymark_observability::obs;
 use waymark_proto::messages as proto;
-use waymark_worker_core::{WorkerPoolError, WorkerPoolGoneError};
+use waymark_worker_core::{ActionExecutionReport, WorkerPoolError, WorkerPoolGoneError};
 
 type BoxFuture<'a, T> = std::pin::Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -41,18 +41,22 @@ impl InlineWorkerPool {
     }
 
     #[obs]
-    async fn poll_complete_impl(&self) -> Result<NEVec<proto::ActionResult>, WorkerPoolGoneError> {
+    async fn poll_complete_impl(
+        &self,
+    ) -> Result<NEVec<ActionExecutionReport>, WorkerPoolGoneError> {
         let mut receiver = self.receiver.lock().await;
 
         let first = receiver.recv().await.ok_or(WorkerPoolGoneError)?;
 
-        let mut completions = NEVec::new(first);
+        // An in-process action always finishes by completing: the body
+        // runs to an outcome right here, so there is no worker to lose.
+        let mut executions = NEVec::new(ActionExecutionReport::Completed(first));
 
         while let Ok(item) = receiver.try_recv() {
-            completions.push(item);
+            executions.push(ActionExecutionReport::Completed(item));
         }
 
-        Ok(completions)
+        Ok(executions)
     }
 }
 
@@ -106,7 +110,7 @@ impl waymark_worker_core::PollActionResults for InlineWorkerPool {
 
     fn poll_complete(
         &self,
-    ) -> impl Future<Output = Result<NEVec<proto::ActionResult>, Self::Error>> {
+    ) -> impl Future<Output = Result<NEVec<ActionExecutionReport>, Self::Error>> {
         self.poll_complete_impl()
     }
 }
