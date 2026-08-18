@@ -10,3 +10,4 @@ mod select;
 mod sleep;
 mod state_entry;
 mod synchronous;
+mod typed_exception;

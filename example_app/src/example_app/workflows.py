@@ -121,6 +121,17 @@ class ErrorRequest(BaseModel):
     should_fail: bool = Field(description="Whether the action should fail")
 
 
+class ZeroDivisionResult(BaseModel):
+    """Result from the zero division workflow."""
+
+    caught: bool
+    quotient: int
+
+
+class ZeroDivisionRequest(BaseModel):
+    denominator: int = Field(description="Denominator for the in-workflow division")
+
+
 class RetryCounterRequest(BaseModel):
     """Request for retry behavior workflow."""
 
@@ -483,6 +494,12 @@ async def build_error_result(
         error_code=error_code,
         error_detail=error_detail,
     )
+
+
+@action
+async def build_zero_division_result(caught: bool, quotient: int) -> ZeroDivisionResult:
+    """Build the zero division result."""
+    return ZeroDivisionResult(caught=caught, quotient=quotient)
 
 
 # =============================================================================
@@ -873,6 +890,29 @@ class ExceptionMetadataWorkflow(Workflow):
             error_code,
             error_detail,
         )
+
+
+@workflow
+class ZeroDivisionWorkflow(Workflow):
+    """
+    Demonstrate catching an exception raised by the VM itself.
+
+    The division happens in the workflow body rather than in an action, so
+    a zero denominator raises a catchable `ZeroDivisionError` from the VM
+    runtime instead of failing an action.
+    """
+
+    async def run(self, denominator: int) -> ZeroDivisionResult:
+        caught = False
+        quotient = 0
+
+        try:
+            quotient = 10 // denominator
+        except ZeroDivisionError:
+            caught = True
+            quotient = -1
+
+        return await build_zero_division_result(caught, quotient)
 
 
 @workflow

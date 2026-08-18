@@ -21,7 +21,7 @@ use super::suspend::PromiseMarker;
 use super::{Error, ErrorFor};
 
 /// The exception type id raised when a per-attempt timeout fires.
-const ACTION_TIMEOUT_TYPE_ID: &str = "ActionTimeout";
+const ACTION_TIMEOUT_TYPE_ID: &str = waymark_vm_exception_type_ids::ACTION_TIMEOUT;
 
 /// One digested retry bracket.
 struct RetryPlan {

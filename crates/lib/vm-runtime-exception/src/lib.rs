@@ -54,3 +54,31 @@ pub trait FromException: Sized + waymark_vm_runtime_value::RootValueAccess {
     /// Wrap the provided exception as `Self`.
     fn from_exception(exception: Exception<Self::RootValue>) -> Self;
 }
+
+/// A statically-typed exception.
+///
+/// Implemented by the narrow error types whose failures are exposed to
+/// the user code as catchable runtime exceptions; the implementation
+/// determines the runtime exception type identifier and details payload.
+pub trait TypedException {
+    /// The typed details payload of the intermediate exception.
+    type IntermediateDetails;
+
+    /// Build the intermediate typed representation of the runtime exception.
+    fn into_intermediate_exception(self) -> Exception<Self::IntermediateDetails>;
+}
+
+/// Constructs a runtime exception from an intermediate typed exception.
+///
+/// Implemented by the value types; the implementation lifts the intermediate
+/// exception details into the value domain — effectively a
+/// `From<IntermediateDetails>` with the added context that the payload is
+/// an exception details payload and not just a raw value.
+pub trait ExceptionFromIntermediate<IntermediateDetails>:
+    waymark_vm_runtime_value::RootValueAccess
+{
+    /// Build the runtime exception from the provided intermediate exception.
+    fn from_intermediate_exception(
+        intermediate_exception: Exception<IntermediateDetails>,
+    ) -> Exception<Self::RootValue>;
+}
