@@ -14,7 +14,7 @@ pub struct Converter;
 ///
 /// [`WorkflowArgument`]: waymark_proto::messages::WorkflowArgument
 #[derive(Debug, thiserror::Error)]
-#[error("decoding workflow argument value bytes for key {key:?}")]
+#[error("decoding the encoded value of argument {key:?}")]
 pub struct DecodeArgumentError {
     /// The framing-level argument name the bytes belonged to.
     pub key: String,
