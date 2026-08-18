@@ -21,14 +21,16 @@ impl TryConvert<&waymark_proto::messages::WorkflowArguments, waymark_vm_value_py
     ) -> Result<waymark_vm_value_python::ReadyValue, Self::Error> {
         let mut entries = indexmap::IndexMap::with_capacity(value.arguments.len());
         for argument in &value.arguments {
-            let decoded = waymark_proto_python_value_conversions::decode_value(&argument.value)
-                .map_err(|source| crate::DecodeArgumentError {
-                    key: argument.key.clone(),
-                    source,
-                })?;
+            let decoded = waymark_vm_value_python_convert_proto::Converter::try_convert(
+                argument.value.as_slice(),
+            )
+            .map_err(|source| crate::DecodeArgumentError {
+                key: argument.key.clone(),
+                source,
+            })?;
             entries.insert(
                 argument.key.clone(),
-                waymark_vm_value_python_convert_proto::Converter::convert(&decoded),
+                waymark_vm_value_python::Value::Ready(decoded),
             );
         }
 

@@ -74,10 +74,3 @@ pub fn encode_value(value: &proto_value::Value) -> Vec<u8> {
 pub fn decode_value(bytes: &[u8]) -> Result<proto_value::Value, prost::DecodeError> {
     proto_value::Value::decode(bytes)
 }
-
-/// Decode an encoded [`proto_value::ExceptionValue`].
-pub fn decode_exception_value(
-    bytes: &[u8],
-) -> Result<proto_value::ExceptionValue, prost::DecodeError> {
-    proto_value::ExceptionValue::decode(bytes)
-}
