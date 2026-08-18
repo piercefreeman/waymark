@@ -56,6 +56,47 @@ pub trait QueueActionDispatch {
     ) -> impl Future<Output = Result<(), Self::Error>> + Send + '_;
 }
 
+/// A report of one execution of a dispatched action, as the pool saw
+/// it end.
+///
+/// Every dispatched action ends exactly one way per attempt: the worker
+/// reports how the call completed, or the execution is lost — no result
+/// will ever come from this attempt.  The pool reports the fact and
+/// decides nothing: what a lost execution means for the awaiting
+/// promise is the VM's business.
+#[derive(Debug)]
+pub enum ActionExecutionReport {
+    /// The call completed: the worker reported how in the result
+    /// payload.
+    Completed(waymark_proto::messages::ActionResult),
+
+    /// The execution was lost: no result will ever come from it.
+    Lost(ActionExecutionLoss),
+}
+
+/// A lost execution, as the worker pool witnessed it.
+#[derive(Debug)]
+pub struct ActionExecutionLoss {
+    /// The dispatch's metadata, echoed so the loss still routes back to
+    /// the promise awaiting the call.
+    pub metadata: Vec<u8>,
+
+    /// How far the execution provably got.
+    pub progress: ExecutionProgress,
+}
+
+/// How far a lost execution provably got.
+#[derive(Debug)]
+pub enum ExecutionProgress {
+    /// The dispatch never reached the worker: the action did not start.
+    NotStarted,
+
+    /// The worker had the dispatch; how far it got is unknowable — the
+    /// action may not have run at all, or may have run to completion
+    /// with only the result lost.
+    Unknown,
+}
+
 /// Await the results of dispatched actions.
 pub trait PollActionResults {
     /// The error polling produces.
@@ -65,19 +106,16 @@ pub trait PollActionResults {
     /// dispatch fails.
     type Error;
 
-    /// Await and return a batch of action results, guaranteeing at least
-    /// one action has completed.
+    /// Await and return a batch of action execution reports, guaranteeing
+    /// at least one execution has ended.
     ///
-    /// Results are [`proto::ActionResult`]s — how the call completed is
-    /// the payload's own business, and correlation back to the caller
-    /// rides solely on `metadata`, echoed verbatim from the dispatch.
-    ///
-    /// [`proto::ActionResult`]: waymark_proto::messages::ActionResult
+    /// A report is how the execution ended: completed, with how the call
+    /// completed being the result payload's own business, or lost.
+    /// Correlation back to the caller rides solely on `metadata`, echoed
+    /// verbatim from the dispatch.
     fn poll_complete(
         &self,
-    ) -> impl Future<Output = Result<NEVec<waymark_proto::messages::ActionResult>, Self::Error>>
-    + Send
-    + '_;
+    ) -> impl Future<Output = Result<NEVec<ActionExecutionReport>, Self::Error>> + Send + '_;
 }
 
 impl<T> LaunchWorkerPool for std::sync::Arc<T>
@@ -113,9 +151,7 @@ where
 
     fn poll_complete(
         &self,
-    ) -> impl Future<Output = Result<NEVec<waymark_proto::messages::ActionResult>, Self::Error>>
-    + Send
-    + '_ {
+    ) -> impl Future<Output = Result<NEVec<ActionExecutionReport>, Self::Error>> + Send + '_ {
         (**self).poll_complete()
     }
 }
@@ -165,9 +201,7 @@ where
 {
     type Error = either::Either<Left::Error, Right::Error>;
 
-    async fn poll_complete(
-        &self,
-    ) -> Result<NEVec<waymark_proto::messages::ActionResult>, Self::Error> {
+    async fn poll_complete(&self) -> Result<NEVec<ActionExecutionReport>, Self::Error> {
         match self {
             either::Either::Left(left) => left.poll_complete().await.map_err(either::Either::Left),
             either::Either::Right(right) => {
