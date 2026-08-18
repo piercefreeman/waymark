@@ -1,0 +1,22 @@
+[package]
+name = "waymark-vm-wire-format-proto"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-convert-core = { workspace = true }
+waymark-vm-wire-format = { workspace = true }
+
+prost = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+indexmap = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
+waymark-vm-value-python = { workspace = true }
+waymark-vm-value-python-convert-proto = { workspace = true }
+
+[lib]
+doctest = false

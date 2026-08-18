@@ -5670,6 +5670,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-wire-format-proto"
+version = "0.1.0"
+dependencies = [
+ "indexmap 2.13.0",
+ "prost 0.12.6",
+ "thiserror",
+ "waymark-convert-core",
+ "waymark-proto",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
+ "waymark-vm-wire-format",
+]
+
+[[package]]
 name = "waymark-vm-wire-format-serde"
 version = "0.1.0"
 dependencies = [
