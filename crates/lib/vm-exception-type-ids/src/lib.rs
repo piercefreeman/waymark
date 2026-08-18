@@ -32,3 +32,11 @@ pub const VALUE_ERROR: &str = "ValueError";
 
 /// The runtime exception type identifier for an action call that timed out.
 pub const ACTION_TIMEOUT: &str = "ActionTimeout";
+
+/// The runtime exception type identifier for an action call whose
+/// execution was lost: the worker died and no result will ever come
+/// from that attempt.
+///
+/// Raised by the runtime so the program's own policy — a compiled-in
+/// retry, a user `except`, or nothing — decides what the loss means.
+pub const EXECUTION_LOST: &str = "ExecutionLost";
