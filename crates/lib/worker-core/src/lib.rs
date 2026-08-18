@@ -1,4 +1,8 @@
 //! Worker pool interface for executing actions.
+//!
+//! The pool's three capabilities are three traits, so a consumer names
+//! only what it uses: a requester queues, a completions provider polls,
+//! and a bringup launches.
 
 use nonempty_collections::NEVec;
 
@@ -18,86 +22,159 @@ impl WorkerPoolError {
     }
 }
 
-/// Abstract worker pool with queue and batch completion polling.
-pub trait BaseWorkerPool {
+/// The pool can no longer serve: it has shut down and will answer
+/// nothing further.
+///
+/// This is what the polling side used to say with a bare `None`.
+#[derive(Debug, thiserror::Error)]
+#[error("worker pool gone")]
+pub struct WorkerPoolGoneError;
+
+/// Start whatever background work a pool needs before it can serve.
+pub trait LaunchWorkerPool {
+    /// The error launching produces.
+    type Error;
+
     /// Start any background tasks required by the pool.
     ///
     /// Default implementation is a no-op for pools that don't need launch work.
-    fn launch(&self) -> impl Future<Output = Result<(), WorkerPoolError>> + Send + '_ {
-        async { Ok(()) }
-    }
+    fn launch(&self) -> impl Future<Output = Result<(), Self::Error>> + Send + '_;
+}
+
+/// Submit action dispatches for execution.
+pub trait QueueActionDispatch {
+    /// The error queueing produces.
+    type Error;
 
     /// Submit an action dispatch for execution.
     ///
     /// The dispatch is the protocol's own message: a pool speaks the
     /// worker protocol rather than a vocabulary of its own.  Correlation
     /// back to the caller rides on `metadata`, echoed verbatim onto the
-    /// completion.
+    /// result.
     fn queue(
         &self,
         dispatch: waymark_proto::messages::ActionDispatch,
-    ) -> Result<(), WorkerPoolError>;
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send + '_;
+}
 
-    /// Await and return a batch of completed actions, guaranteeing at least
+/// Await the results of dispatched actions.
+pub trait PollActionResults {
+    /// The error polling produces.
+    ///
+    /// This is the pool failing to serve at all — a pool that has shut
+    /// down and will answer nothing further.  It is not how a single
+    /// dispatch fails.
+    type Error;
+
+    /// Await and return a batch of action results, guaranteeing at least
     /// one action has completed.
     ///
-    /// Completions are [`proto::ActionResult`]s — success/failure is
-    /// discriminated structurally by the message's own fields, and
-    /// correlation back to the caller rides solely on `metadata`,
-    /// echoed verbatim from the request.
+    /// Results are [`proto::ActionResult`]s — how the call completed is
+    /// the payload's own business, and correlation back to the caller
+    /// rides solely on `metadata`, echoed verbatim from the dispatch.
     ///
     /// [`proto::ActionResult`]: waymark_proto::messages::ActionResult
     fn poll_complete(
         &self,
-    ) -> impl Future<Output = Option<NEVec<waymark_proto::messages::ActionResult>>> + Send + '_;
+    ) -> impl Future<Output = Result<NEVec<waymark_proto::messages::ActionResult>, Self::Error>>
+    + Send
+    + '_;
 }
 
-impl<T> BaseWorkerPool for std::sync::Arc<T>
+impl<T> LaunchWorkerPool for std::sync::Arc<T>
 where
-    T: BaseWorkerPool + Send + Sync,
+    T: LaunchWorkerPool + Send + Sync,
 {
-    async fn launch(&self) -> Result<(), WorkerPoolError> {
+    type Error = T::Error;
+
+    async fn launch(&self) -> Result<(), Self::Error> {
         (**self).launch().await
     }
+}
 
-    fn queue(
+impl<T> QueueActionDispatch for std::sync::Arc<T>
+where
+    T: QueueActionDispatch + Send + Sync,
+{
+    type Error = T::Error;
+
+    async fn queue(
         &self,
         dispatch: waymark_proto::messages::ActionDispatch,
-    ) -> Result<(), WorkerPoolError> {
-        (**self).queue(dispatch)
+    ) -> Result<(), Self::Error> {
+        (**self).queue(dispatch).await
     }
+}
 
-    async fn poll_complete(&self) -> Option<NEVec<waymark_proto::messages::ActionResult>> {
-        (**self).poll_complete().await
+impl<T> PollActionResults for std::sync::Arc<T>
+where
+    T: PollActionResults + Send + Sync,
+{
+    type Error = T::Error;
+
+    fn poll_complete(
+        &self,
+    ) -> impl Future<Output = Result<NEVec<waymark_proto::messages::ActionResult>, Self::Error>>
+    + Send
+    + '_ {
+        (**self).poll_complete()
     }
 }
 
 #[cfg(feature = "either")]
-impl<Left: BaseWorkerPool, Right: BaseWorkerPool> BaseWorkerPool for either::Either<Left, Right> {
-    fn launch(&self) -> impl Future<Output = Result<(), WorkerPoolError>> + Send + '_ {
+impl<Left, Right> LaunchWorkerPool for either::Either<Left, Right>
+where
+    Left: LaunchWorkerPool + Sync,
+    Right: LaunchWorkerPool + Sync,
+{
+    type Error = either::Either<Left::Error, Right::Error>;
+
+    async fn launch(&self) -> Result<(), Self::Error> {
         match self {
-            either::Either::Left(left) => either::Either::Left(left.launch()),
-            either::Either::Right(right) => either::Either::Right(right.launch()),
+            either::Either::Left(left) => left.launch().await.map_err(either::Either::Left),
+            either::Either::Right(right) => right.launch().await.map_err(either::Either::Right),
         }
     }
+}
 
-    fn queue(
+#[cfg(feature = "either")]
+impl<Left, Right> QueueActionDispatch for either::Either<Left, Right>
+where
+    Left: QueueActionDispatch + Sync,
+    Right: QueueActionDispatch + Sync,
+{
+    type Error = either::Either<Left::Error, Right::Error>;
+
+    async fn queue(
         &self,
         dispatch: waymark_proto::messages::ActionDispatch,
-    ) -> Result<(), WorkerPoolError> {
+    ) -> Result<(), Self::Error> {
         match self {
-            either::Either::Left(left) => left.queue(dispatch),
-            either::Either::Right(right) => right.queue(dispatch),
+            either::Either::Left(left) => left.queue(dispatch).await.map_err(either::Either::Left),
+            either::Either::Right(right) => {
+                right.queue(dispatch).await.map_err(either::Either::Right)
+            }
         }
     }
+}
 
-    fn poll_complete(
+#[cfg(feature = "either")]
+impl<Left, Right> PollActionResults for either::Either<Left, Right>
+where
+    Left: PollActionResults + Sync,
+    Right: PollActionResults + Sync,
+{
+    type Error = either::Either<Left::Error, Right::Error>;
+
+    async fn poll_complete(
         &self,
-    ) -> impl Future<Output = Option<NEVec<waymark_proto::messages::ActionResult>>> + Send + '_
-    {
+    ) -> Result<NEVec<waymark_proto::messages::ActionResult>, Self::Error> {
         match self {
-            either::Either::Left(left) => either::Either::Left(left.poll_complete()),
-            either::Either::Right(right) => either::Either::Right(right.poll_complete()),
+            either::Either::Left(left) => left.poll_complete().await.map_err(either::Either::Left),
+            either::Either::Right(right) => {
+                right.poll_complete().await.map_err(either::Either::Right)
+            }
         }
     }
 }
