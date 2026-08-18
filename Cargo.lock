@@ -4124,7 +4124,7 @@ dependencies = [
 name = "waymark-action-runtime-worker-pool"
 version = "0.1.0"
 dependencies = [
- "indexmap 2.13.0",
+ "indexmap",
  "nonempty-collections",
  "thiserror",
  "tokio",
@@ -5642,6 +5642,7 @@ name = "waymark-vm-value-python-convert-proto"
 version = "0.1.0"
 dependencies = [
  "indexmap",
+ "prost",
  "typed_floats",
  "waymark-convert-core",
  "waymark-proto",
