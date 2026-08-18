@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use color_eyre::eyre::bail;
 use waymark_ir_parser::parse_program;
-use waymark_worker_core::WorkerPoolError;
 use waymark_worker_inline::{InlineActionCallable, InlineWorkerPool};
 use waymark_worker_inline_compat::inline_action;
 
@@ -103,38 +102,56 @@ fn action_registry() -> HashMap<String, InlineActionCallable> {
     actions
 }
 
+/// The exception an action raises for a malformed call.
+fn action_error(
+    message: String,
+) -> waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue> {
+    waymark_vm_runtime_exception::Exception {
+        type_id: "ActionError".to_owned(),
+        details: waymark_vm_value_python::ReadyValue::Dict(indexmap::IndexMap::from([(
+            "message".to_owned(),
+            waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::String(
+                message,
+            )),
+        )])),
+    }
+}
+
 async fn action_inc(
     kwargs: HashMap<String, waymark_vm_value_python::ReadyValue>,
-) -> Result<waymark_vm_value_python::ReadyValue, WorkerPoolError> {
+) -> Result<
+    waymark_vm_value_python::ReadyValue,
+    waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
+> {
     let value = get_i64(&kwargs, "value")?;
     Ok(waymark_vm_value_python::ReadyValue::Int(value + 1))
 }
 
 async fn action_double(
     kwargs: HashMap<String, waymark_vm_value_python::ReadyValue>,
-) -> Result<waymark_vm_value_python::ReadyValue, WorkerPoolError> {
+) -> Result<
+    waymark_vm_value_python::ReadyValue,
+    waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
+> {
     let value = get_i64(&kwargs, "value")?;
     Ok(waymark_vm_value_python::ReadyValue::Int(value * 2))
 }
 
 async fn action_sum(
     kwargs: HashMap<String, waymark_vm_value_python::ReadyValue>,
-) -> Result<waymark_vm_value_python::ReadyValue, WorkerPoolError> {
+) -> Result<
+    waymark_vm_value_python::ReadyValue,
+    waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
+> {
     let Some(waymark_vm_value_python::ReadyValue::List(values)) = kwargs.get("values") else {
-        return Err(WorkerPoolError::new(
-            "ActionError",
-            "sum expects list input",
-        ));
+        return Err(action_error("sum expects list input".to_owned()));
     };
     let mut total = 0i64;
     for item in values {
         let waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::Int(value)) =
             item
         else {
-            return Err(WorkerPoolError::new(
-                "ActionError",
-                "sum expects integer elements",
-            ));
+            return Err(action_error("sum expects integer elements".to_owned()));
         };
         total += value;
     }
@@ -144,12 +161,9 @@ async fn action_sum(
 fn get_i64(
     kwargs: &HashMap<String, waymark_vm_value_python::ReadyValue>,
     key: &str,
-) -> Result<i64, WorkerPoolError> {
+) -> Result<i64, waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>> {
     match kwargs.get(key) {
         Some(waymark_vm_value_python::ReadyValue::Int(value)) => Ok(*value),
-        _ => Err(WorkerPoolError::new(
-            "ActionError",
-            format!("missing integer '{key}'"),
-        )),
+        _ => Err(action_error(format!("missing integer '{key}'"))),
     }
 }

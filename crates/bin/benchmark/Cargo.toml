@@ -22,8 +22,8 @@ waymark-vm-ast-old-proto = { workspace = true }
 waymark-vm-codec-rmp = { workspace = true }
 waymark-vm-compiler-for-ast-old-core = { workspace = true }
 waymark-vm-runtime-builder = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-value-python = { workspace = true }
-waymark-worker-core = { workspace = true }
 waymark-worker-inline = { workspace = true }
 waymark-worker-inline-compat = { workspace = true }
 waymark-workflow-service-vm-executables = { workspace = true }
@@ -33,6 +33,7 @@ waymark-workflow-service-vm-runtimes-backend = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 color-eyre = { workspace = true }
 envfury = { workspace = true }
+indexmap = { workspace = true }
 nonempty-collections = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
