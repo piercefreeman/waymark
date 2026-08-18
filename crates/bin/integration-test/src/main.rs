@@ -9,6 +9,7 @@
 
 mod cases;
 mod cli;
+mod compare;
 mod durable;
 mod ground_truth;
 mod outcome;
