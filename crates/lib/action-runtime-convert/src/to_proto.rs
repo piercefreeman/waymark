@@ -3,28 +3,6 @@ use waymark_vm_value_convert_core::PendingPromiseError;
 
 use crate::Converter;
 
-impl TryConvert<&waymark_vm_value_python::ReadyValue, waymark_proto::python_value::Value>
-    for Converter
-{
-    type Error = PendingPromiseError;
-
-    fn try_convert(
-        value: &waymark_vm_value_python::ReadyValue,
-    ) -> Result<waymark_proto::python_value::Value, PendingPromiseError> {
-        waymark_vm_value_convert_proto::Converter::try_convert(value)
-    }
-}
-
-impl TryConvert<&waymark_vm_value_python::Value, waymark_proto::python_value::Value> for Converter {
-    type Error = PendingPromiseError;
-
-    fn try_convert(
-        value: &waymark_vm_value_python::Value,
-    ) -> Result<waymark_proto::python_value::Value, PendingPromiseError> {
-        waymark_vm_value_convert_proto::Converter::try_convert(value)
-    }
-}
-
 /// Convert a pair of call-argument names and values into kwargs.
 ///
 /// This is the typical shape of an action call: `call_args` from the
@@ -51,7 +29,7 @@ impl
             if matches!(value, waymark_vm_value_python::ReadyValue::None) {
                 continue;
             }
-            let encoded = Self::try_convert(value)?;
+            let encoded = waymark_vm_value_convert_proto::Converter::try_convert(value)?;
             arguments.push(WorkflowArgument {
                 key: name.clone(),
                 value: waymark_proto_python_value_conversions::encode_value(&encoded),
