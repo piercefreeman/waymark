@@ -16,8 +16,9 @@ fn completion_produces_single_result_argument() {
     assert_eq!(result_arg.key, "result");
 
     // The completion value travels as-is: no envelope around it.
-    let result_value = waymark_proto_python_value_conversions::decode_value(&result_arg.value)
-        .expect("result argument value decodes");
+    let result_value: waymark_proto::python_value::Value =
+        waymark_vm_value_python_convert_proto::Converter::try_convert(result_arg.value.as_slice())
+            .expect("result argument value decodes");
     let Some(Kind::Primitive(primitive)) = &result_value.kind else {
         panic!("expected the result to be a primitive, got {result_value:?}");
     };
@@ -54,8 +55,9 @@ fn completion_dict_passes_through_verbatim() {
     let result_arg = &args.arguments[0];
     assert_eq!(result_arg.key, "result");
 
-    let result_value = waymark_proto_python_value_conversions::decode_value(&result_arg.value)
-        .expect("result argument value decodes");
+    let result_value: waymark_proto::python_value::Value =
+        waymark_vm_value_python_convert_proto::Converter::try_convert(result_arg.value.as_slice())
+            .expect("result argument value decodes");
     let Some(Kind::DictValue(dict)) = &result_value.kind else {
         panic!("expected the result to be a dict, got {result_value:?}");
     };
@@ -101,8 +103,9 @@ fn exception_outcome_produces_single_error_argument() {
 
     // The error payload is the exception itself, not a dict standing in
     // for one: the type identifying it and the details it carries.
-    let error_value = waymark_proto_python_value_conversions::decode_value(&error_arg.value)
-        .expect("error argument value decodes");
+    let error_value: waymark_proto::python_value::Value =
+        waymark_vm_value_python_convert_proto::Converter::try_convert(error_arg.value.as_slice())
+            .expect("error argument value decodes");
     let Some(Kind::Exception(exception)) = &error_value.kind else {
         panic!("expected the error payload to be an exception, got {error_value:?}");
     };
