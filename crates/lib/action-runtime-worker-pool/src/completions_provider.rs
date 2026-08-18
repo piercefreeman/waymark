@@ -8,11 +8,13 @@ use waymark_convert_core::TryConvert as _;
 /// Errors that can occur when waiting for action completions from
 /// the worker pool.
 #[derive(Debug, thiserror::Error)]
-pub enum WorkerPoolCompletionsError<MetadataDecodeError: core::fmt::Display + 'static> {
-    /// The worker pool has shut down and can no longer provide
-    /// completions.
-    #[error("worker pool gone")]
-    WorkerPoolGone,
+pub enum WorkerPoolCompletionsError<PollError, MetadataDecodeError: core::fmt::Display + 'static> {
+    /// The worker pool can no longer provide completions.
+    ///
+    /// Whatever polling failed with, expressed as the pool's own error:
+    /// this provider merely propagates it.
+    #[error("polling the worker pool")]
+    Poll(#[source] PollError),
 
     /// A completion carried correlation metadata that could not be decoded,
     /// so it cannot be routed back to the promise that awaits it.
@@ -37,7 +39,8 @@ pub type ActionResultConvertError = waymark_convert_core::ConvertErrorFor<
     waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue>,
 >;
 
-/// Provides action outcomes by polling a [`waymark_worker_core::BaseWorkerPool`].
+/// Provides action outcomes by polling a
+/// [`waymark_worker_core::PollActionResults`].
 ///
 /// This polls the worker pool for ALL completions — there is no per-VM
 /// filtering.  Each completion's metadata is decoded as `Metadata` from the
@@ -70,21 +73,24 @@ impl<Pool, Metadata> WorkerPoolActionCallCompletionsProvider<Pool, Metadata> {
 impl<Pool, Metadata> waymark_action_runtime_core::ActionCallCompletionsProvider
     for WorkerPoolActionCallCompletionsProvider<Pool, Metadata>
 where
-    Pool: waymark_worker_core::BaseWorkerPool + Send + Sync + 'static,
+    Pool: waymark_worker_core::PollActionResults + Send + Sync + 'static,
+    Pool::Error: core::fmt::Debug,
     Metadata: Decode + Send + Sync + 'static,
     Metadata::Error: core::fmt::Display,
 {
     type Value = waymark_vm_value_python::ReadyValue;
-    type Error = WorkerPoolCompletionsError<Metadata::Error>;
+    type Error = WorkerPoolCompletionsError<Pool::Error, Metadata::Error>;
     type Metadata = Metadata;
 
     async fn wait_for_completions(
         &mut self,
     ) -> Result<NEVec<ActionCallCompletionFor<Self>>, Self::Error> {
         loop {
-            let maybe_completions = self.pool.poll_complete().await;
-            let completions =
-                maybe_completions.ok_or(WorkerPoolCompletionsError::WorkerPoolGone)?;
+            let completions = self
+                .pool
+                .poll_complete()
+                .await
+                .map_err(WorkerPoolCompletionsError::Poll)?;
 
             let vec: Vec<_> = completions
                 .into_iter()
@@ -113,11 +119,11 @@ where
 /// can neither be routed nor turned into a promise settlement.  Dropping it
 /// would strand that promise forever (the action's side effects have already
 /// happened), so we surface the error to the caller instead.
-fn resolve_completion<Metadata>(
+fn resolve_completion<PollError, Metadata>(
     completion: waymark_proto::messages::ActionResult,
 ) -> Result<
     ActionCallCompletion<waymark_vm_value_python::ReadyValue, Metadata>,
-    WorkerPoolCompletionsError<Metadata::Error>,
+    WorkerPoolCompletionsError<PollError, Metadata::Error>,
 >
 where
     Metadata: Decode,
@@ -165,9 +171,10 @@ mod tests {
         // Metadata that is not a valid WithVmId encoding carries no route back
         // to a promise, so it must be an error rather than a silently dropped
         // completion.
-        let result = resolve_completion::<WithVmId<InstanceId, ActionCallCorrelation>>(completion(
-            Vec::new(),
-        ));
+        let result = resolve_completion::<
+            core::convert::Infallible,
+            WithVmId<InstanceId, ActionCallCorrelation>,
+        >(completion(Vec::new()));
         assert!(result.is_err());
     }
 
@@ -183,9 +190,11 @@ mod tests {
         };
         correlation.encode(&mut encoded);
 
-        let resolved =
-            resolve_completion::<WithVmId<InstanceId, ActionCallCorrelation>>(completion(encoded))
-                .expect("WithVmId metadata should decode");
+        let resolved = resolve_completion::<
+            core::convert::Infallible,
+            WithVmId<InstanceId, ActionCallCorrelation>,
+        >(completion(encoded))
+        .expect("WithVmId metadata should decode");
         assert_eq!(resolved.metadata.vm_id, vm_id);
     }
 }
