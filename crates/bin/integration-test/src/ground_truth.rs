@@ -65,7 +65,7 @@ fn encode_kwargs(case: &FixtureCase) -> Result<String, color_eyre::eyre::Report>
     let mut arguments = Vec::with_capacity(case.kwargs.len());
     for (name, kwarg) in case.kwargs {
         let value: waymark_proto::python_value::Value =
-            waymark_vm_value_convert_proto::Converter::try_convert(&kwarg.value())
+            waymark_vm_value_python_convert_proto::Converter::try_convert(&kwarg.value())
                 .wrap_err_with(|| format!("encode kwarg '{name}' of case '{}'", case.id))?;
         arguments.push(waymark_proto::messages::WorkflowArgument {
             key: (*name).to_owned(),
