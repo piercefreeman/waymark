@@ -129,7 +129,7 @@ impl TryConvert<&proto_value::Value, ReadyValue> for Converter {
             // data it carries; the defining module and name are dropped.
             Kind::Basemodel(basemodel) => match &basemodel.data {
                 Some(data) => Self::convert(data),
-                None => ReadyValue::Dict(IndexMap::new()),
+                None => ReadyValue::Dict(Default::default()),
             },
             Kind::Exception(exception) => {
                 ReadyValue::Exception(Box::new(Self::convert(&**exception)))
@@ -256,6 +256,45 @@ impl TryConvert<&[u8], Exception<ReadyValue>> for Converter {
     fn try_convert(bytes: &[u8]) -> Result<Exception<ReadyValue>, Self::Error> {
         let message: proto_value::ExceptionValue = prost::Message::decode(bytes)?;
         Ok(Self::convert(&message))
+    }
+}
+
+/// Write an already-built value message as the bytes the wire carries.
+///
+/// Encoding a built message cannot fail: the buffer is a [`Vec`].
+impl TryConvert<&proto_value::Value, Vec<u8>> for Converter {
+    type Error = Infallible;
+
+    fn try_convert(message: &proto_value::Value) -> Result<Vec<u8>, Self::Error> {
+        Ok(prost::Message::encode_to_vec(message))
+    }
+}
+
+/// Read a value message back from the bytes the wire carries.
+impl TryConvert<&[u8], proto_value::Value> for Converter {
+    type Error = prost::DecodeError;
+
+    fn try_convert(bytes: &[u8]) -> Result<proto_value::Value, Self::Error> {
+        prost::Message::decode(bytes)
+    }
+}
+
+/// Write an action outcome message as the bytes the result payload
+/// carries.
+impl TryConvert<&proto_value::ActionOutcome, Vec<u8>> for Converter {
+    type Error = Infallible;
+
+    fn try_convert(message: &proto_value::ActionOutcome) -> Result<Vec<u8>, Self::Error> {
+        Ok(prost::Message::encode_to_vec(message))
+    }
+}
+
+/// Read an action outcome message back from the result payload's bytes.
+impl TryConvert<&[u8], proto_value::ActionOutcome> for Converter {
+    type Error = prost::DecodeError;
+
+    fn try_convert(bytes: &[u8]) -> Result<proto_value::ActionOutcome, Self::Error> {
+        prost::Message::decode(bytes)
     }
 }
 
@@ -391,7 +430,7 @@ mod tests {
             read(&basemodel),
             ReadyValue::Dict(IndexMap::from([(
                 "field".to_owned(),
-                ready(ReadyValue::Int(3))
+                ready(ReadyValue::Int(3)),
             )])),
         );
     }
