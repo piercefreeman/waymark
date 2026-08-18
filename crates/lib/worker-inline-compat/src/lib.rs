@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use waymark_convert_core::{Convert as _, TryConvert as _};
+use waymark_convert_core::TryConvert as _;
 use waymark_vm_value_python::ReadyValue;
 use waymark_worker_core::WorkerPoolError;
 use waymark_worker_inline::InlineActionCallable;
@@ -25,18 +25,16 @@ fn decode_kwargs(
 ) -> Result<HashMap<String, ReadyValue>, WorkerPoolError> {
     let mut decoded = HashMap::with_capacity(kwargs.arguments.len());
     for argument in kwargs.arguments {
-        let value = waymark_proto_python_value_conversions::decode_value(&argument.value).map_err(
-            |err| {
-                WorkerPoolError::new(
-                    "ActionError",
-                    format!("decoding the value of argument {:?}: {err}", argument.key),
-                )
-            },
-        )?;
-        decoded.insert(
-            argument.key,
-            waymark_vm_value_python_convert_proto::Converter::convert(&value),
-        );
+        let value = waymark_vm_value_python_convert_proto::Converter::try_convert(
+            argument.value.as_slice(),
+        )
+        .map_err(|err| {
+            WorkerPoolError::new(
+                "ActionError",
+                format!("decoding the value of argument {:?}: {err}", argument.key),
+            )
+        })?;
+        decoded.insert(argument.key, value);
     }
     Ok(decoded)
 }
@@ -46,8 +44,12 @@ fn encode_result(outcome: Result<ReadyValue, WorkerPoolError>) -> Vec<u8> {
     let encoded = outcome.and_then(|value| {
         // A body that hands back a value holding a pending promise names
         // a promise no one here can settle, so the call failed.
-        waymark_vm_value_python_convert_proto::Converter::try_convert(&value)
-            .map_err(|err| WorkerPoolError::new("ActionError", err.to_string()))
+        let message = <waymark_vm_value_python_convert_proto::Converter as waymark_convert_core::TryConvert<
+            &ReadyValue,
+            waymark_proto::python_value::Value,
+        >>::try_convert(&value)
+        .map_err(|err| WorkerPoolError::new("ActionError", err.to_string()))?;
+        Ok(message)
     });
 
     let result_value = match encoded {

@@ -220,6 +220,45 @@ where
     }
 }
 
+/// Write a ready value as the bytes the wire carries: the encoded
+/// [`proto_value::Value`] message.
+///
+/// This is the byte boundary expressed as a conversion — the message
+/// tree is this converter's private indirection, so nothing upstream
+/// names a proto value type to put a value on the wire.
+impl TryConvert<&ReadyValue, Vec<u8>> for Converter {
+    type Error = PendingPromiseError;
+
+    fn try_convert(value: &ReadyValue) -> Result<Vec<u8>, Self::Error> {
+        let message: proto_value::Value = Self::try_convert(value)?;
+        Ok(prost::Message::encode_to_vec(&message))
+    }
+}
+
+/// Read a ready value back from the bytes the wire carries.
+impl TryConvert<&[u8], ReadyValue> for Converter {
+    type Error = prost::DecodeError;
+
+    fn try_convert(bytes: &[u8]) -> Result<ReadyValue, Self::Error> {
+        let message: proto_value::Value = prost::Message::decode(bytes)?;
+        Ok(Self::convert(&message))
+    }
+}
+
+/// Read an exception back from the bytes its own wire message encodes.
+///
+/// The exception payload is carried as an encoded
+/// [`proto_value::ExceptionValue`], a message of its own rather than a
+/// value.
+impl TryConvert<&[u8], Exception<ReadyValue>> for Converter {
+    type Error = prost::DecodeError;
+
+    fn try_convert(bytes: &[u8]) -> Result<Exception<ReadyValue>, Self::Error> {
+        let message: proto_value::ExceptionValue = prost::Message::decode(bytes)?;
+        Ok(Self::convert(&message))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,6 +407,25 @@ mod tests {
 
             assert_eq!(read(&value), ReadyValue::None);
         }
+    }
+
+    #[test]
+    fn bytes_round_trip_and_match_the_encoded_message() {
+        // The byte conversion IS the encoded proto message, byte for
+        // byte — what the framing-level `WorkflowArgument.value`
+        // carries.
+        let value = ReadyValue::Dict(IndexMap::from([
+            ("zebra".to_owned(), ready(ReadyValue::Int(1))),
+            ("apple".to_owned(), ready(ReadyValue::Int(2))),
+        ]));
+
+        let bytes: Vec<u8> = Converter::try_convert(&value).expect("no pending promise");
+        let message: proto_value::Value =
+            Converter::try_convert(&value).expect("no pending promise");
+        assert_eq!(bytes, prost::Message::encode_to_vec(&message));
+
+        let read: ReadyValue = Converter::try_convert(bytes.as_slice()).expect("the bytes decode");
+        assert_eq!(read, value);
     }
 
     #[test]
