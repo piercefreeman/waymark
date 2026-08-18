@@ -4124,6 +4124,7 @@ dependencies = [
 name = "waymark-action-runtime-worker-pool"
 version = "0.1.0"
 dependencies = [
+ "indexmap 2.13.0",
  "nonempty-collections",
  "thiserror",
  "tokio",
@@ -4138,6 +4139,8 @@ dependencies = [
  "waymark-ids",
  "waymark-proto",
  "waymark-proto-python-value-conversions",
+ "waymark-vm-exception-type-ids",
+ "waymark-vm-runtime-exception",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-python",
  "waymark-vm-value-python-convert-proto",
@@ -5867,8 +5870,8 @@ dependencies = [
  "tracing",
  "waymark-managed-process",
  "waymark-proto",
- "waymark-proto-python-value-conversions",
  "waymark-worker-core",
+ "waymark-worker-message-protocol",
  "waymark-worker-process-pool",
  "waymark-worker-process-spec",
  "waymark-worker-status-core",
