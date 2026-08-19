@@ -122,6 +122,7 @@ async fn run_benchmark(
     execution::shutdown_execution(execution_handles).await;
 
     Ok(BenchmarkStats {
+        total,
         elapsed,
         query_counts: backend.query_counts(),
         batch_counts: backend.batch_size_counts(),
@@ -163,7 +164,16 @@ fn main() -> Result<(), waymark_fn_main_common::Error> {
         registration_batch_max,
     ))?;
     println!("Benchmark completed in {:.2?}", stats.elapsed);
-    println!("{}", report::format_query_counts(stats.query_counts));
-    println!("{}", report::format_batch_size_counts(stats.batch_counts));
+    println!("{}", report::format_query_counts(&stats.query_counts));
+    println!("{}", report::format_batch_size_counts(&stats.batch_counts));
+    if let Some(json) = &args.json {
+        let report = report::format_json(&stats, args.count, args.base);
+        if json == "-" {
+            println!("{report}");
+        } else {
+            std::fs::write(json, format!("{report}\n"))
+                .wrap_err_with(|| format!("write the JSON report to {json}"))?;
+        }
+    }
     Ok(())
 }
