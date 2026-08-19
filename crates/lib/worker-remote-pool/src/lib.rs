@@ -13,7 +13,7 @@ use nonempty_collections::NEVec;
 
 use tokio::sync::{Mutex, mpsc};
 
-use waymark_runner_executor_core::UncheckedExecutionResult;
+use waymark_worker_core::UncheckedExecutionResult;
 use waymark_worker_core::{ActionCompletion, ActionRequest, WorkerPoolError, error_to_value};
 
 async fn execute_remote_request<Spec>(

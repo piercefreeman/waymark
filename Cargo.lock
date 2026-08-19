@@ -4089,11 +4089,11 @@ dependencies = [
  "waymark-convert-core",
  "waymark-message-conversions",
  "waymark-proto",
- "waymark-runner-executor-core",
  "waymark-vm-runtime-exception",
  "waymark-vm-value",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-convert-json",
+ "waymark-worker-core",
 ]
 
 [[package]]
@@ -4145,7 +4145,6 @@ dependencies = [
  "waymark-action-runtime-metadata-compat",
  "waymark-convert-core",
  "waymark-ids",
- "waymark-runner-executor-core",
  "waymark-vm-value",
  "waymark-vm-value-convert-core",
  "waymark-worker-core",
@@ -4224,7 +4223,6 @@ dependencies = [
  "waymark-proto",
  "waymark-runner",
  "waymark-runner-execution-core",
- "waymark-runner-executor-core",
  "waymark-runner-expr-fmt",
  "waymark-runner-state",
  "waymark-scheduler-backend",
@@ -4239,6 +4237,7 @@ dependencies = [
  "waymark-vm-runtime-promise-core",
  "waymark-webapp-backend",
  "waymark-webapp-core",
+ "waymark-worker-core",
  "waymark-worker-status-backend",
  "waymark-workflow-completion-backend",
  "waymark-workflow-registry-backend",
@@ -4797,8 +4796,7 @@ dependencies = [
 name = "waymark-runner-executor-core"
 version = "0.1.0"
 dependencies = [
- "serde",
- "serde_json",
+ "waymark-worker-core",
 ]
 
 [[package]]
@@ -5873,11 +5871,11 @@ version = "0.1.0"
 dependencies = [
  "either",
  "nonempty-collections",
+ "serde",
  "serde_json",
  "thiserror",
  "uuid",
  "waymark-ids",
- "waymark-runner-executor-core",
 ]
 
 [[package]]
@@ -5888,7 +5886,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "waymark-observability",
- "waymark-runner-executor-core",
  "waymark-worker-core",
 ]
 
@@ -6021,7 +6018,6 @@ dependencies = [
  "waymark-managed-process",
  "waymark-message-conversions",
  "waymark-proto",
- "waymark-runner-executor-core",
  "waymark-worker-core",
  "waymark-worker-message-protocol",
  "waymark-worker-metrics",

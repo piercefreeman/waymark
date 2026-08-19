@@ -12,8 +12,8 @@ use sqlx::{Postgres, QueryBuilder, Row};
 use tracing::warn;
 use uuid::Uuid;
 use waymark_ids::{ExecutionId, InstanceId, LockId, WorkflowVersionId};
-use waymark_runner_executor_core::{ExecutionSuccess, UncheckedExecutionResult};
 use waymark_scheduler_backend::{BackendError, BackendResult};
+use waymark_worker_core::{ExecutionSuccess, UncheckedExecutionResult};
 use waymark_worker_status_backend::{WorkerStatusBackend, WorkerStatusUpdate};
 
 use super::PostgresBackend;
@@ -1030,7 +1030,7 @@ mod tests {
     use waymark_core_backend::{ActionAttemptStatus, CoreBackend};
     use waymark_ids::ExecutionId;
     use waymark_runner_execution_core::{ExecutionGraph, ExecutionNode, NodeStatus};
-    use waymark_runner_executor_core::UncheckedExecutionResult;
+    use waymark_worker_core::UncheckedExecutionResult;
 
     use super::super::test_helpers::setup_backend;
     use super::*;
