@@ -120,6 +120,7 @@ waymark-vm-value = { path = "crates/lib/vm-value" }
 waymark-vm-value-convert-core = { path = "crates/lib/vm-value-convert-core" }
 waymark-vm-value-convert-json = { path = "crates/lib/vm-value-convert-json" }
 waymark-vm-value-python = { path = "crates/lib/vm-value-python" }
+waymark-vm-wire-format = { path = "crates/lib/vm-wire-format" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
 waymark-webapp-config = { path = "crates/lib/webapp-config" }
@@ -177,6 +178,7 @@ insta = "1"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.18"
 metrics-util = "0.20"
+minicbor = "2"
 mockall = "0.14"
 nix = "0.31"
 nonempty-collections = "1"
