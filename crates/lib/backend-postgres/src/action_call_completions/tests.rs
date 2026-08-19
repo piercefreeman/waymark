@@ -17,13 +17,13 @@ fn record(
     vm_id: InstanceId,
     promise: usize,
     effect: usize,
-    outcome: &[u8],
+    execution_result: &[u8],
 ) -> CompletionRecord<InstanceId> {
     CompletionRecord {
         vm_id,
         promise_state_id: PromiseStateId(promise),
         effect_number: EffectNumber(effect),
-        outcome: outcome.to_vec(),
+        execution_result: execution_result.to_vec(),
     }
 }
 
@@ -91,7 +91,7 @@ async fn record_is_idempotent_for_identical_duplicates() {
 
 #[serial(postgres)]
 #[tokio::test]
-async fn record_reports_conflicting_outcome_and_keeps_first_write() {
+async fn record_reports_conflicting_execution_result_and_keeps_first_write() {
     let backend = setup_backend().await;
     let vm_id = InstanceId::new_uuid_v4();
 
@@ -101,16 +101,18 @@ async fn record_reports_conflicting_outcome_and_keeps_first_write() {
         .await
         .expect("first record");
 
-    // Same key and effect number, conflicting outcome: a redelivered
+    // Same key and effect number, conflicting execution result: a redelivered
     // non-deterministic retry.  First write wins, reported as success.
-    let conflicting_outcome = NEVec::new(record(vm_id, 1, 10, b"DIFFERENT"));
+    let conflicting_execution_result = NEVec::new(record(vm_id, 1, 10, b"DIFFERENT"));
     let success = backend
-        .record_completions(conflicting_outcome.as_nonempty_slice())
+        .record_completions(conflicting_execution_result.as_nonempty_slice())
         .await
-        .expect("conflicting outcome is not an error");
+        .expect("conflicting execution result is not an error");
     assert_eq!(
         success,
-        record_completions::RecordingSuccess::SomeConflictingOutcomes(NEVec::new(key(vm_id, 1)))
+        record_completions::RecordingSuccess::SomeConflictingExecutionResults(NEVec::new(key(
+            vm_id, 1
+        )))
     );
 
     // The stored row is unchanged.
