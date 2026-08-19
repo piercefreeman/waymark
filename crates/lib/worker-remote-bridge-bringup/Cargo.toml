@@ -5,7 +5,7 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
-waymark-proto = { workspace = true }
+waymark-proto = { workspace = true, features = ["server"] }
 waymark-worker-message-protocol = { workspace = true }
 waymark-worker-remote-bridge-service = { workspace = true }
 waymark-worker-reservation = { workspace = true }
