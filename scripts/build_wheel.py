@@ -82,6 +82,12 @@ def _dist_info_prefix(archive: zipfile.ZipFile) -> str:
 
 
 def _platform_tag() -> str:
+    if sys.platform == "darwin" and (
+        deployment_target := os.environ.get("MACOSX_DEPLOYMENT_TARGET")
+    ):
+        major, minor = (int(part) for part in deployment_target.split(".")[:2])
+        return next(tags.mac_platforms(version=(major, minor)))
+
     tag_iter = tags.sys_tags()
     try:
         return next(tag_iter).platform
