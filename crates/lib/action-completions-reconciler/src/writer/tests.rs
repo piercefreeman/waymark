@@ -16,7 +16,11 @@ use super::{Error, Params};
 use crate::test_support::{MockBackend, MockRecordError, key};
 
 type TestMetadata = WithVmId<InstanceId, ActionCallCorrelation>;
-type TestCompletion = ActionCallCompletion<ReadyValue, TestMetadata>;
+type TestCompletion = ActionCallCompletion<
+    TestMetadata,
+    ReadyValue,
+    waymark_action_runtime_core::ActionCallLossError,
+>;
 
 #[derive(Debug, thiserror::Error)]
 #[error("fake provider exhausted")]
@@ -29,10 +33,11 @@ struct FakeProvider {
 
 impl waymark_action_runtime_core::ActionCallCompletionsProvider for FakeProvider {
     type Value = ReadyValue;
-    type Error = FakeProviderError;
+    type ActionExecutionError = waymark_action_runtime_core::ActionCallLossError;
+    type WaitError = FakeProviderError;
     type Metadata = TestMetadata;
 
-    async fn wait_for_completions(&mut self) -> Result<NEVec<TestCompletion>, Self::Error> {
+    async fn wait_for_completions(&mut self) -> Result<NEVec<TestCompletion>, Self::WaitError> {
         self.batches.pop_front().ok_or(FakeProviderError)
     }
 }
@@ -46,7 +51,9 @@ fn completion(vm_id: InstanceId, promise: usize, effect: usize, value: &str) -> 
                 promise_state_id: PromiseStateId(promise),
             },
         },
-        outcome: ActionCallOutcome::Value(ReadyValue::String(value.to_owned())),
+        execution_result: Ok(ActionCallOutcome::Value(ReadyValue::String(
+            value.to_owned(),
+        ))),
     }
 }
 
@@ -82,17 +89,19 @@ async fn records_provider_completions_until_the_provider_fails() {
     assert_eq!(recorded[0].promise_state_id, PromiseStateId(3));
     assert_eq!(recorded[0].effect_number, EffectNumber(7));
 
-    // The stored blob round-trips back to the outcome.
-    let outcome: ActionCallOutcome<ReadyValue> =
-        waymark_vm_codec_core::DeserializerProvider::with_deserializer(
-            &RmpCodec,
-            &recorded[0].outcome,
-            |de| serde::Deserialize::deserialize(de),
-        )
-        .expect("stored outcome decodes");
+    // The stored blob round-trips back to how the call ended.
+    let execution_result: Result<
+        ActionCallOutcome<ReadyValue>,
+        waymark_action_runtime_core::ActionCallLossError,
+    > = waymark_vm_codec_core::DeserializerProvider::with_deserializer(
+        &RmpCodec,
+        &recorded[0].execution_result,
+        |de| serde::Deserialize::deserialize(de),
+    )
+    .expect("stored execution result decodes");
     assert!(matches!(
-        outcome,
-        ActionCallOutcome::Value(ReadyValue::String(ref s)) if s == "done"
+        execution_result,
+        Ok(ActionCallOutcome::Value(ReadyValue::String(ref s))) if s == "done"
     ));
 }
 
@@ -118,11 +127,11 @@ async fn retries_internal_failures_until_recorded() {
 }
 
 #[tokio::test]
-async fn conflicting_outcomes_are_logged_and_skipped() {
+async fn conflicting_execution_results_are_logged_and_skipped() {
     let vm_id = InstanceId::new_uuid_v4();
     let backend = MockBackend::default();
     backend.inner.record_responses.lock().unwrap().push_back(Ok(
-        RecordingSuccess::SomeConflictingOutcomes(NEVec::new(key(vm_id, 1))),
+        RecordingSuccess::SomeConflictingExecutionResults(NEVec::new(key(vm_id, 1))),
     ));
 
     let params = params([NEVec::new(completion(vm_id, 1, 1, "done"))], &backend);

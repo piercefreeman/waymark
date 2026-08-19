@@ -62,14 +62,14 @@ impl waymark_action_completions_reconciler_backend::RecordCompletions for Postgr
         let mut vm_ids = Vec::with_capacity(records.len().get());
         let mut promise_state_ids = Vec::with_capacity(records.len().get());
         let mut effect_numbers = Vec::with_capacity(records.len().get());
-        let mut outcomes = Vec::with_capacity(records.len().get());
+        let mut execution_results = Vec::with_capacity(records.len().get());
         for record in records.iter() {
             vm_ids.push(record.vm_id);
             promise_state_ids
                 .push(i64::try_from(record.promise_state_id.0).map_err(Self::Error::OutOfRange)?);
             effect_numbers
                 .push(i64::try_from(record.effect_number.0).map_err(Self::Error::OutOfRange)?);
-            outcomes.push(record.outcome.clone());
+            execution_results.push(record.execution_result.clone());
         }
 
         Self::count_query(&self.query_counts, "insert:action_call_completions");
@@ -81,9 +81,9 @@ impl waymark_action_completions_reconciler_backend::RecordCompletions for Postgr
         let inserted = sqlx::query(
             r#"
             INSERT INTO action_call_completions
-                (vm_id, promise_state_id, effect_number, outcome)
+                (vm_id, promise_state_id, effect_number, execution_result)
             SELECT * FROM UNNEST($1::uuid[], $2::bigint[], $3::bigint[], $4::bytea[])
-                AS t(vm_id, promise_state_id, effect_number, outcome)
+                AS t(vm_id, promise_state_id, effect_number, execution_result)
             -- Canonical lock order: replayed keys contend on existing
             -- rows through the conflict arbiter, so insert in primary
             -- key order like every other multi-row writer on the
@@ -96,7 +96,7 @@ impl waymark_action_completions_reconciler_backend::RecordCompletions for Postgr
         .bind(&vm_ids)
         .bind(&promise_state_ids)
         .bind(&effect_numbers)
-        .bind(&outcomes)
+        .bind(&execution_results)
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!(
             "insert:action_call_completions"
@@ -112,7 +112,7 @@ impl waymark_action_completions_reconciler_backend::RecordCompletions for Postgr
         // Rare path: some keys conflicted with existing rows (or with an
         // earlier row of this same batch).  Identical duplicates are
         // idempotently accepted; a matching effect number with a
-        // conflicting outcome is a redelivered non-deterministic retry
+        // conflicting execution result is a redelivered non-deterministic retry
         // (first write wins, reported in the success value); a different
         // effect number is a data-integrity violation and fails loudly.
         // A conflicting row acked between the insert and this check simply
@@ -127,7 +127,7 @@ impl waymark_action_completions_reconciler_backend::RecordCompletions for Postgr
         let mut conflicted_vm_ids = Vec::new();
         let mut conflicted_promise_state_ids = Vec::new();
         let mut conflicted_effect_numbers = Vec::new();
-        let mut conflicted_outcomes = Vec::new();
+        let mut conflicted_execution_results = Vec::new();
         for (index, vm_id) in vm_ids.iter().enumerate() {
             if inserted_keys.contains(&(*vm_id, promise_state_ids[index])) {
                 continue;
@@ -135,7 +135,7 @@ impl waymark_action_completions_reconciler_backend::RecordCompletions for Postgr
             conflicted_vm_ids.push(*vm_id);
             conflicted_promise_state_ids.push(promise_state_ids[index]);
             conflicted_effect_numbers.push(effect_numbers[index]);
-            conflicted_outcomes.push(outcomes[index].clone());
+            conflicted_execution_results.push(execution_results[index].clone());
         }
 
         Self::count_query(
@@ -148,17 +148,17 @@ impl waymark_action_completions_reconciler_backend::RecordCompletions for Postgr
                    (existing.effect_number IS DISTINCT FROM t.effect_number)
                        AS effect_diverges
             FROM UNNEST($1::uuid[], $2::bigint[], $3::bigint[], $4::bytea[])
-                AS t(vm_id, promise_state_id, effect_number, outcome)
+                AS t(vm_id, promise_state_id, effect_number, execution_result)
             JOIN action_call_completions existing
                 USING (vm_id, promise_state_id)
-            WHERE (existing.effect_number, existing.outcome)
-                IS DISTINCT FROM (t.effect_number, t.outcome)
+            WHERE (existing.effect_number, existing.execution_result)
+                IS DISTINCT FROM (t.effect_number, t.execution_result)
             "#,
         )
         .bind(&conflicted_vm_ids)
         .bind(&conflicted_promise_state_ids)
         .bind(&conflicted_effect_numbers)
-        .bind(&conflicted_outcomes)
+        .bind(&conflicted_execution_results)
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!(
             "select:action_call_completions_divergence"
@@ -167,7 +167,7 @@ impl waymark_action_completions_reconciler_backend::RecordCompletions for Postgr
         .map_err(Self::Error::Sqlx)?;
 
         let mut divergent_effect_numbers = Vec::new();
-        let mut conflicting_outcomes = Vec::new();
+        let mut conflicting_execution_results = Vec::new();
         for row in &divergent {
             let promise_state_id: i64 = row.get("promise_state_id");
             let key = CompletionKey {
@@ -179,15 +179,17 @@ impl waymark_action_completions_reconciler_backend::RecordCompletions for Postgr
             if row.get::<bool, _>("effect_diverges") {
                 divergent_effect_numbers.push(key);
             } else {
-                conflicting_outcomes.push(key);
+                conflicting_execution_results.push(key);
             }
         }
 
         if let Some(keys) = NEVec::try_from_vec(divergent_effect_numbers) {
             return Err(Self::Error::DivergentEffectNumber(keys));
         }
-        match NEVec::try_from_vec(conflicting_outcomes) {
-            Some(keys) => Ok(record_completions::RecordingSuccess::SomeConflictingOutcomes(keys)),
+        match NEVec::try_from_vec(conflicting_execution_results) {
+            Some(keys) => {
+                Ok(record_completions::RecordingSuccess::SomeConflictingExecutionResults(keys))
+            }
             None => Ok(record_completions::RecordingSuccess::AllRecorded),
         }
     }
@@ -212,7 +214,7 @@ impl waymark_action_completions_reconciler_backend::PollCompletions for Postgres
         );
         let rows = sqlx::query(
             r#"
-            SELECT c.vm_id, c.promise_state_id, c.effect_number, c.outcome
+            SELECT c.vm_id, c.promise_state_id, c.effect_number, c.execution_result
             FROM action_call_completions c
             JOIN UNNEST($1::uuid[], $2::bigint[]) AS d(vm_id, promise_state_id)
                 ON c.vm_id = d.vm_id AND c.promise_state_id = d.promise_state_id
@@ -239,7 +241,7 @@ impl waymark_action_completions_reconciler_backend::PollCompletions for Postgres
                     effect_number: EffectNumber(
                         usize::try_from(effect_number).map_err(Self::Error::OutOfRange)?,
                     ),
-                    outcome: row.get("outcome"),
+                    execution_result: row.get("execution_result"),
                 })
             })
             .collect()

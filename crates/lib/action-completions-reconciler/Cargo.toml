@@ -6,8 +6,10 @@ publish.workspace = true
 
 [dependencies]
 waymark-action-completions-reconciler-backend = { workspace = true }
+waymark-action-runtime-convert = { workspace = true }
 waymark-action-runtime-core = { workspace = true, features = ["serde"] }
 waymark-action-runtime-metadata = { workspace = true }
+waymark-convert-core = { workspace = true }
 waymark-extcall-reconciler-core = { workspace = true }
 waymark-promise-settlement-demand-registry = { workspace = true }
 waymark-vm-codec-core = { workspace = true }
