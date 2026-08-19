@@ -88,7 +88,7 @@ pub(crate) async fn seed_filler_rows(pool: &sqlx::PgPool, table: SweptTable) {
         SweptTable::ActionCallCompletions => {
             r#"
             INSERT INTO action_call_completions
-                (vm_id, promise_state_id, effect_number, outcome)
+                (vm_id, promise_state_id, effect_number, execution_result)
             SELECT gen_random_uuid(), n, n, 'filler'
             FROM generate_series(1, 10000) AS n
             "#

@@ -62,12 +62,15 @@ where
     <Metadata as Decode>::Error: Send + 'static,
 {
     type Value = waymark_vm_value_python::ReadyValue;
-    type Error = ReceiveError<<Metadata as Decode>::Error>;
+    // Every received result carries an outcome by construction; there is
+    // no protocol report of a lost execution on the stream path.
+    type ActionExecutionError = core::convert::Infallible;
+    type WaitError = ReceiveError<<Metadata as Decode>::Error>;
     type Metadata = Metadata;
 
     async fn wait_for_completions(
         &mut self,
-    ) -> Result<NEVec<ActionCallCompletionFor<Self>>, Self::Error> {
+    ) -> Result<NEVec<ActionCallCompletionFor<Self>>, Self::WaitError> {
         // Block until at least one result arrives, then drain any others that
         // are immediately available.  A decode failure on any of them is fatal
         // — the correlation is the only route back to the awaiting promise, so
@@ -87,7 +90,7 @@ where
 fn completion_from_result<Metadata: Decode>(
     result: &proto::ActionResult,
 ) -> Result<
-    ActionCallCompletion<waymark_vm_value_python::ReadyValue, Metadata>,
+    ActionCallCompletion<Metadata, waymark_vm_value_python::ReadyValue, core::convert::Infallible>,
     ReceiveError<Metadata::Error>,
 > {
     let mut bytes: &[u8] = &result.metadata;
@@ -101,7 +104,10 @@ fn completion_from_result<Metadata: Decode>(
     })?;
     let outcome = waymark_action_runtime_convert::Converter::try_convert(result)
         .map_err(ReceiveError::Payload)?;
-    Ok(ActionCallCompletion { metadata, outcome })
+    Ok(ActionCallCompletion {
+        metadata,
+        execution_result: Ok(outcome),
+    })
 }
 
 #[cfg(test)]
