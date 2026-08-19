@@ -10,7 +10,7 @@ waymark-backend-postgres-migrations = { workspace = true }
 waymark-convert-core = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
-waymark-proto = { workspace = true }
+waymark-proto = { workspace = true, features = ["server"] }
 waymark-secret-string = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
 waymark-transient-execution-worker-stream-bringup = { workspace = true }
