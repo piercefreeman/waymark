@@ -13,11 +13,12 @@ async-stream = { workspace = true }
 futures-core = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["sync", "macros"] }
-tonic = { workspace = true }
+tonic = { workspace = true, features = ["codegen"] }
 tracing = { workspace = true }
 tracing-futures = { workspace = true, features = ["futures-03"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+tonic = { workspace = true, default-features = true }
 tokio-stream = { workspace = true, features = ["net"] }
 tokio-util = { workspace = true }

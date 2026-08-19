@@ -9,6 +9,6 @@ waymark-fn-main-common = { workspace = true }
 
 color-eyre = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-tonic = { workspace = true }
+tonic = { workspace = true, default-features = true }
 tonic-health = { workspace = true }
 tracing = { workspace = true }
