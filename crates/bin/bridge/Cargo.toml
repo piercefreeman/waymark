@@ -38,6 +38,6 @@ sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-stream = { workspace = true }
-tonic = { workspace = true }
+tonic = { workspace = true, default-features = true }
 tonic-health = { workspace = true }
 tracing = { workspace = true }
