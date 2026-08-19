@@ -7,7 +7,6 @@ mod cli;
 mod execution;
 mod registration;
 mod report;
-mod setup_db;
 
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Arc;
@@ -50,10 +49,9 @@ async fn run_benchmark(
         .connect(dsn.expose_secret())
         .await
         .wrap_err("connect postgres")?;
-    setup_db::drop_benchmark_tables(&pool).await?;
-    waymark_backend_postgres_migrations::run(&pool)
+    waymark_backend_postgres::reset::rebuild_schema(&pool)
         .await
-        .wrap_err("run migrations")?;
+        .wrap_err("rebuild database schema")?;
     let backend = PostgresBackend::new(pool);
     let codec = waymark_vm_codec_rmp::RmpCodec;
     let executables =
