@@ -58,8 +58,6 @@ waymark-runner-expr = { path = "crates/lib/runner-expr" }
 waymark-runner-expr-eval = { path = "crates/lib/runner-expr-eval" }
 waymark-runner-retry-policy = { path = "crates/lib/runner-retry-policy" }
 waymark-runner-state = { path = "crates/lib/runner-state" }
-waymark-scheduler-backend = { path = "crates/lib/scheduler-backend" }
-waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-sleep-compat = { path = "crates/lib/sleep-compat" }
 waymark-sleep-core = { path = "crates/lib/sleep-core" }
@@ -172,7 +170,6 @@ chrono = { version = "0.4", default-features = false }
 clap = "4.5"
 color-eyre = "0.6"
 console-subscriber = "0.5"
-cron = "0.12"
 dashmap = "6"
 derive-where = "1"
 either = "1"
