@@ -19,7 +19,6 @@ waymark-action-runtime-metadata-codec = { path = "crates/lib/action-runtime-meta
 waymark-action-runtime-metadata-compat = { path = "crates/lib/action-runtime-metadata-compat" }
 waymark-action-runtime-worker-pool = { path = "crates/lib/action-runtime-worker-pool" }
 waymark-action-runtime-worker-stream = { path = "crates/lib/action-runtime-worker-stream" }
-waymark-backend-memory = { path = "crates/lib/backend-memory" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
 waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migrations" }
 waymark-backends-core = { path = "crates/lib/backends-core" }
@@ -53,12 +52,10 @@ waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-b
 waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settlement-demand-registry" }
 waymark-proto = { path = "crates/lib/proto" }
 waymark-python-workflow-ir-reader = { path = "crates/lib/python-workflow-ir-reader" }
-waymark-runner = { path = "crates/lib/runner" }
 waymark-runner-execution-core = { path = "crates/lib/runner-execution-core" }
 waymark-runner-executor-core = { path = "crates/lib/runner-executor-core" }
 waymark-runner-expr = { path = "crates/lib/runner-expr" }
 waymark-runner-expr-eval = { path = "crates/lib/runner-expr-eval" }
-waymark-runner-expr-fmt = { path = "crates/lib/runner-expr-fmt" }
 waymark-runner-retry-policy = { path = "crates/lib/runner-retry-policy" }
 waymark-runner-state = { path = "crates/lib/runner-state" }
 waymark-scheduler-backend = { path = "crates/lib/scheduler-backend" }

@@ -1,36 +1,21 @@
-//! Web application server for the Waymark workflow dashboard.
+//! Web application server for the Waymark workers dashboard.
 
 use std::sync::Arc;
 
 use axum::{
     Json, Router,
-    extract::{Path, State},
-    http::StatusCode,
-    response::{Html, IntoResponse, Response},
+    extract::State,
+    response::{Html, IntoResponse},
     routing::get,
 };
-use chrono::Utc;
 use serde::Serialize;
 use tera::{Context as TeraContext, Tera};
 use tracing::error;
-use uuid::Uuid;
-use waymark_ids::{InstanceId, ScheduleId};
-use waymark_webapp_core::WorkerStatus;
-use waymark_webapp_core::{
-    ActionLogsResponse, FilterValuesResponse, HealthResponse, InstanceExportInfo, TimelineEntry,
-    WorkflowInstanceExport, WorkflowRunDataResponse,
-};
+use waymark_webapp_core::{HealthResponse, WorkerStatus};
 
 // Embed templates at compile time
 const TEMPLATE_BASE: &str = include_str!("../templates/base.html");
 const TEMPLATE_MACROS: &str = include_str!("../templates/macros.html");
-const TEMPLATE_HOME: &str = include_str!("../templates/home.html");
-const TEMPLATE_ERROR: &str = include_str!("../templates/error.html");
-const TEMPLATE_WORKFLOW: &str = include_str!("../templates/workflow.html");
-const TEMPLATE_WORKFLOW_RUN: &str = include_str!("../templates/workflow_run.html");
-const TEMPLATE_INVOCATIONS: &str = include_str!("../templates/invocations.html");
-const TEMPLATE_SCHEDULED: &str = include_str!("../templates/scheduled.html");
-const TEMPLATE_SCHEDULE_DETAIL: &str = include_str!("../templates/schedule_detail.html");
 const TEMPLATE_WORKERS: &str = include_str!("../templates/workers.html");
 
 /// Initialize Tera templates from embedded strings.
@@ -39,13 +24,6 @@ pub fn init_templates() -> Result<Tera, tera::Error> {
 
     tera.add_raw_template("base.html", TEMPLATE_BASE)?;
     tera.add_raw_template("macros.html", TEMPLATE_MACROS)?;
-    tera.add_raw_template("home.html", TEMPLATE_HOME)?;
-    tera.add_raw_template("error.html", TEMPLATE_ERROR)?;
-    tera.add_raw_template("workflow.html", TEMPLATE_WORKFLOW)?;
-    tera.add_raw_template("workflow_run.html", TEMPLATE_WORKFLOW_RUN)?;
-    tera.add_raw_template("invocations.html", TEMPLATE_INVOCATIONS)?;
-    tera.add_raw_template("scheduled.html", TEMPLATE_SCHEDULED)?;
-    tera.add_raw_template("schedule_detail.html", TEMPLATE_SCHEDULE_DETAIL)?;
     tera.add_raw_template("workers.html", TEMPLATE_WORKERS)?;
 
     tera.autoescape_on(vec![".html", ".tera"]);
@@ -76,38 +54,9 @@ where
     WebappBackend: waymark_webapp_backend::WebappBackend,
     WebappBackend: Send + Sync + 'static,
 {
-    use axum::routing::post;
-
     Router::new()
-        .route("/", get(list_invocations))
-        .route("/invocations", get(list_invocations))
-        .route("/instance/{instance_id}", get(instance_detail))
-        .route("/api/instance/{instance_id}/run-data", get(get_run_data))
-        .route(
-            "/api/instance/{instance_id}/action-logs/{action_id}",
-            get(get_action_logs),
-        )
-        .route(
-            "/api/instance/{instance_id}/requeue",
-            post(requeue_instance),
-        )
-        .route("/api/instance/{instance_id}/export", get(export_instance))
-        .route(
-            "/api/invocations/filter-values/{column}",
-            get(get_filter_values),
-        )
-        // Worker routes
+        .route("/", get(list_workers))
         .route("/workers", get(list_workers))
-        // Schedule routes
-        .route("/scheduled", get(list_schedules))
-        .route("/scheduled/{schedule_id}", get(schedule_detail))
-        .route("/scheduled/{schedule_id}/pause", post(pause_schedule))
-        .route("/scheduled/{schedule_id}/resume", post(resume_schedule))
-        .route("/scheduled/{schedule_id}/delete", post(delete_schedule))
-        .route(
-            "/api/scheduled/filter-values/{column}",
-            get(get_schedule_filter_values),
-        )
         .route("/healthz", get(healthz))
         .with_state(state)
 }
@@ -124,335 +73,6 @@ async fn healthz() -> Json<HealthResponse> {
 }
 
 #[derive(Debug, serde::Deserialize)]
-struct InvocationListQuery {
-    page: Option<i64>,
-    q: Option<String>,
-}
-
-async fn list_invocations<WebappBackend>(
-    State(state): State<WebappState<WebappBackend>>,
-    axum::extract::Query(query): axum::extract::Query<InvocationListQuery>,
-) -> impl IntoResponse
-where
-    WebappBackend: ?Sized,
-    WebappBackend: waymark_webapp_backend::WebappBackend,
-{
-    let per_page = 50i64;
-    let search = query.q.as_deref().filter(|v| !v.trim().is_empty());
-
-    let total_count = match state.database.count_instances(search).await {
-        Ok(count) => count,
-        Err(err) => {
-            error!(?err, "failed to count instances");
-            return Html(render_error_page(
-                &state.templates,
-                "Unable to load invocations",
-                "We couldn't fetch workflow instances. Please check the database connection.",
-            ));
-        }
-    };
-
-    let total_pages = (total_count as f64 / per_page as f64).ceil() as i64;
-    let current_page = query.page.unwrap_or(1).max(1).min(total_pages.max(1));
-    let offset = (current_page - 1) * per_page;
-
-    match state
-        .database
-        .list_instances(search, per_page, offset)
-        .await
-    {
-        Ok(instances) => Html(render_invocations_page(
-            &state.templates,
-            &instances,
-            current_page,
-            total_pages,
-            search.map(|s| s.to_string()),
-            total_count,
-        )),
-        Err(err) => {
-            error!(?err, "failed to load instances");
-            Html(render_error_page(
-                &state.templates,
-                "Unable to load invocations",
-                "We couldn't fetch workflow instances. Please check the database connection.",
-            ))
-        }
-    }
-}
-
-async fn instance_detail<WebappBackend>(
-    State(state): State<WebappState<WebappBackend>>,
-    Path(instance_id): Path<InstanceId>,
-) -> impl IntoResponse
-where
-    WebappBackend: ?Sized,
-    WebappBackend: waymark_webapp_backend::WebappBackend,
-{
-    let instance = match state.database.get_instance(instance_id).await {
-        Ok(i) => i,
-        Err(err) => {
-            error!(?err, %instance_id, "failed to load instance");
-            return Html(render_error_page(
-                &state.templates,
-                "Instance not found",
-                "The requested workflow instance could not be located.",
-            ));
-        }
-    };
-
-    // Get workflow DAG graph
-    let graph = state
-        .database
-        .get_workflow_graph(instance_id)
-        .await
-        .unwrap_or(None);
-
-    Html(render_instance_detail_page(
-        &state.templates,
-        &instance,
-        graph,
-    ))
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct RunDataQuery {
-    page: Option<i64>,
-    per_page: Option<i64>,
-    include_nodes: Option<bool>,
-}
-
-async fn get_run_data<WebappBackend>(
-    State(state): State<WebappState<WebappBackend>>,
-    Path(instance_id): Path<InstanceId>,
-    axum::extract::Query(query): axum::extract::Query<RunDataQuery>,
-) -> Result<Json<WorkflowRunDataResponse>, HttpError>
-where
-    WebappBackend: ?Sized,
-    WebappBackend: waymark_webapp_backend::WebappBackend,
-{
-    state
-        .database
-        .get_instance(instance_id)
-        .await
-        .map_err(|err| {
-            error!(?err, %instance_id, "failed to load instance");
-            HttpError {
-                status: StatusCode::NOT_FOUND,
-                message: "workflow instance not found".to_string(),
-            }
-        })?;
-
-    let per_page = query.per_page.unwrap_or(200).clamp(1, 1000);
-    let page = query.page.unwrap_or(1).max(1);
-    let include_nodes = query.include_nodes.unwrap_or(true);
-
-    let mut nodes = Vec::new();
-    if include_nodes
-        && let Some(graph) = state
-            .database
-            .get_execution_graph(instance_id)
-            .await
-            .ok()
-            .flatten()
-    {
-        nodes = graph.nodes;
-    }
-
-    let timeline = state
-        .database
-        .get_action_results(instance_id)
-        .await
-        .unwrap_or_default();
-
-    let total = timeline.len() as i64;
-    let start = ((page - 1) * per_page) as usize;
-    let end = (start + per_page as usize).min(timeline.len());
-    let paginated: Vec<TimelineEntry> = if start < timeline.len() {
-        timeline[start..end].to_vec()
-    } else {
-        Vec::new()
-    };
-
-    let has_more = (page * per_page) < total;
-
-    Ok(Json(WorkflowRunDataResponse {
-        nodes,
-        timeline: paginated,
-        page,
-        per_page,
-        total,
-        has_more,
-    }))
-}
-
-async fn get_action_logs<WebappBackend>(
-    State(state): State<WebappState<WebappBackend>>,
-    Path((instance_id, action_id)): Path<(InstanceId, Uuid)>,
-) -> Result<Json<ActionLogsResponse>, HttpError>
-where
-    WebappBackend: ?Sized,
-    WebappBackend: waymark_webapp_backend::WebappBackend,
-{
-    state
-        .database
-        .get_instance(instance_id)
-        .await
-        .map_err(|err| {
-            error!(?err, %instance_id, "failed to load instance");
-            HttpError {
-                status: StatusCode::NOT_FOUND,
-                message: "workflow instance not found".to_string(),
-            }
-        })?;
-
-    let timeline = state
-        .database
-        .get_action_results(instance_id)
-        .await
-        .unwrap_or_default();
-
-    let action_id_str = action_id.to_string();
-    let logs: Vec<_> = timeline
-        .into_iter()
-        .filter(|e| e.action_id == action_id_str)
-        .map(|e| waymark_webapp_core::ActionLogEntry {
-            action_id: e.action_id,
-            action_name: e.action_name,
-            module_name: e.module_name,
-            status: e.status,
-            attempt_number: e.attempt_number,
-            dispatched_at: e.dispatched_at,
-            completed_at: e.completed_at,
-            duration_ms: e.duration_ms,
-            request: e.request_preview,
-            response: e.response_preview,
-            error: e.error,
-        })
-        .collect();
-
-    Ok(Json(ActionLogsResponse { logs }))
-}
-
-async fn export_instance<WebappBackend>(
-    State(state): State<WebappState<WebappBackend>>,
-    Path(instance_id): Path<InstanceId>,
-) -> Result<Json<WorkflowInstanceExport>, HttpError>
-where
-    WebappBackend: ?Sized,
-    WebappBackend: waymark_webapp_backend::WebappBackend,
-{
-    let instance = state
-        .database
-        .get_instance(instance_id)
-        .await
-        .map_err(|err| {
-            error!(?err, %instance_id, "failed to load instance");
-            HttpError {
-                status: StatusCode::NOT_FOUND,
-                message: "workflow instance not found".to_string(),
-            }
-        })?;
-
-    let nodes = state
-        .database
-        .get_execution_graph(instance_id)
-        .await
-        .ok()
-        .flatten()
-        .map(|g| g.nodes)
-        .unwrap_or_default();
-
-    let timeline = state
-        .database
-        .get_action_results(instance_id)
-        .await
-        .unwrap_or_default();
-
-    let export = WorkflowInstanceExport {
-        export_version: "1.0",
-        exported_at: Utc::now().to_rfc3339(),
-        instance: InstanceExportInfo {
-            id: instance.id.to_string(),
-            status: instance.status.to_string(),
-            created_at: instance.created_at.to_rfc3339(),
-            input_payload: instance.input_payload,
-            result_payload: instance.result_payload,
-        },
-        nodes,
-        timeline,
-    };
-
-    Ok(Json(export))
-}
-
-#[derive(Debug, Serialize)]
-struct RequeueInstanceResponse {
-    instance_id: String,
-    redirect_url: String,
-}
-
-async fn requeue_instance<WebappBackend>(
-    State(state): State<WebappState<WebappBackend>>,
-    Path(instance_id): Path<InstanceId>,
-) -> Result<Json<RequeueInstanceResponse>, HttpError>
-where
-    WebappBackend: ?Sized,
-    WebappBackend: waymark_webapp_backend::WebappBackend,
-{
-    let queued_instance_id = state
-        .database
-        .requeue_instance_to_latest_version(instance_id)
-        .await
-        .map_err(|err| {
-            error!(?err, %instance_id, "failed to requeue instance to latest workflow version");
-            HttpError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: "failed to queue latest workflow instance".to_string(),
-            }
-        })?;
-
-    Ok(Json(RequeueInstanceResponse {
-        instance_id: queued_instance_id.to_string(),
-        redirect_url: format!("/instance/{queued_instance_id}"),
-    }))
-}
-
-async fn get_filter_values<WebappBackend>(
-    State(state): State<WebappState<WebappBackend>>,
-    Path(column): Path<String>,
-) -> impl IntoResponse
-where
-    WebappBackend: ?Sized,
-    WebappBackend: waymark_webapp_backend::WebappBackend,
-{
-    let result = match column.as_str() {
-        "workflow" => state.database.get_distinct_workflows().await,
-        "status" => state.database.get_distinct_statuses().await,
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(FilterValuesResponse { values: vec![] }),
-            );
-        }
-    };
-
-    match result {
-        Ok(values) => (StatusCode::OK, Json(FilterValuesResponse { values })),
-        Err(err) => {
-            error!(?err, %column, "failed to fetch filter values");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(FilterValuesResponse { values: vec![] }),
-            )
-        }
-    }
-}
-
-// ============================================================================
-// Worker Handlers
-// ============================================================================
-
-#[derive(Debug, serde::Deserialize)]
 struct WorkersQuery {
     minutes: Option<i64>,
 }
@@ -466,11 +86,6 @@ where
     WebappBackend: waymark_webapp_backend::WebappBackend,
 {
     let window_minutes = query.minutes.unwrap_or(5).clamp(1, 1440);
-
-    // Check if worker_status table exists
-    if !state.database.worker_status_table_exists().await {
-        return Html(render_workers_page(&state.templates, &[], window_minutes));
-    }
 
     let statuses = state
         .database
@@ -486,560 +101,8 @@ where
 }
 
 // ============================================================================
-// Schedule Handlers
-// ============================================================================
-
-#[derive(Debug, serde::Deserialize)]
-struct ScheduleListQuery {
-    page: Option<i64>,
-}
-
-async fn list_schedules<WebappBackend>(
-    State(state): State<WebappState<WebappBackend>>,
-    axum::extract::Query(query): axum::extract::Query<ScheduleListQuery>,
-) -> impl IntoResponse
-where
-    WebappBackend: ?Sized,
-    WebappBackend: waymark_webapp_backend::WebappBackend,
-{
-    // Check if schedules table exists
-    if !state.database.schedules_table_exists().await {
-        return Html(render_schedules_page(&state.templates, &[], 1, 1, 0));
-    }
-
-    let per_page = 20i64;
-
-    let total_count = match state.database.count_schedules().await {
-        Ok(count) => count,
-        Err(err) => {
-            error!(?err, "failed to count schedules");
-            return Html(render_error_page(
-                &state.templates,
-                "Unable to load schedules",
-                "We couldn't fetch scheduled workflows. Please check the database connection.",
-            ));
-        }
-    };
-
-    let total_pages = (total_count as f64 / per_page as f64).ceil() as i64;
-    let current_page = query.page.unwrap_or(1).max(1).min(total_pages.max(1));
-    let offset = (current_page - 1) * per_page;
-
-    match state.database.list_schedules(per_page, offset).await {
-        Ok(schedules) => Html(render_schedules_page(
-            &state.templates,
-            &schedules,
-            current_page,
-            total_pages,
-            total_count,
-        )),
-        Err(err) => {
-            error!(?err, "failed to load schedules");
-            Html(render_error_page(
-                &state.templates,
-                "Unable to load schedules",
-                "We couldn't fetch scheduled workflows. Please check the database connection.",
-            ))
-        }
-    }
-}
-
-async fn schedule_detail<WebappBackend>(
-    State(state): State<WebappState<WebappBackend>>,
-    Path(schedule_id): Path<ScheduleId>,
-    axum::extract::Query(query): axum::extract::Query<ScheduleDetailQuery>,
-) -> impl IntoResponse
-where
-    WebappBackend: ?Sized,
-    WebappBackend: waymark_webapp_backend::WebappBackend,
-{
-    let per_page = 20i64;
-
-    let schedule = match state.database.get_schedule(schedule_id).await {
-        Ok(s) => s,
-        Err(err) => {
-            error!(?err, %schedule_id, "failed to load schedule");
-            return Html(render_error_page(
-                &state.templates,
-                "Schedule not found",
-                "The requested schedule could not be located.",
-            ));
-        }
-    };
-
-    let total_count = match state.database.count_schedule_invocations(schedule_id).await {
-        Ok(count) => count,
-        Err(err) => {
-            error!(?err, %schedule_id, "failed to count schedule invocations");
-            return Html(render_error_page(
-                &state.templates,
-                "Unable to load schedule",
-                "We couldn't fetch invocation history for this schedule.",
-            ));
-        }
-    };
-
-    let total_pages = (total_count as f64 / per_page as f64).ceil() as i64;
-    let current_page = query.page.unwrap_or(1).max(1).min(total_pages.max(1));
-    let offset = (current_page - 1) * per_page;
-
-    let invocations = match state
-        .database
-        .list_schedule_invocations(schedule_id, per_page, offset)
-        .await
-    {
-        Ok(invocations) => invocations,
-        Err(err) => {
-            error!(?err, %schedule_id, "failed to list schedule invocations");
-            return Html(render_error_page(
-                &state.templates,
-                "Unable to load schedule",
-                "We couldn't fetch invocation history for this schedule.",
-            ));
-        }
-    };
-
-    Html(render_schedule_detail_page(
-        &state.templates,
-        &schedule,
-        &invocations,
-        current_page,
-        total_pages,
-    ))
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct ScheduleDetailQuery {
-    page: Option<i64>,
-}
-
-async fn pause_schedule<WebappBackend>(
-    State(state): State<WebappState<WebappBackend>>,
-    Path(schedule_id): Path<ScheduleId>,
-) -> impl IntoResponse
-where
-    WebappBackend: ?Sized,
-    WebappBackend: waymark_webapp_backend::WebappBackend,
-{
-    match state
-        .database
-        .update_schedule_status(schedule_id, "paused")
-        .await
-    {
-        Ok(_) => axum::response::Redirect::to(&format!("/scheduled/{}", schedule_id)),
-        Err(err) => {
-            error!(?err, %schedule_id, "failed to pause schedule");
-            axum::response::Redirect::to(&format!("/scheduled/{}", schedule_id))
-        }
-    }
-}
-
-async fn resume_schedule<WebappBackend>(
-    State(state): State<WebappState<WebappBackend>>,
-    Path(schedule_id): Path<ScheduleId>,
-) -> impl IntoResponse
-where
-    WebappBackend: ?Sized,
-    WebappBackend: waymark_webapp_backend::WebappBackend,
-{
-    match state
-        .database
-        .update_schedule_status(schedule_id, "active")
-        .await
-    {
-        Ok(_) => axum::response::Redirect::to(&format!("/scheduled/{}", schedule_id)),
-        Err(err) => {
-            error!(?err, %schedule_id, "failed to resume schedule");
-            axum::response::Redirect::to(&format!("/scheduled/{}", schedule_id))
-        }
-    }
-}
-
-async fn delete_schedule<WebappBackend>(
-    State(state): State<WebappState<WebappBackend>>,
-    Path(schedule_id): Path<ScheduleId>,
-) -> impl IntoResponse
-where
-    WebappBackend: ?Sized,
-    WebappBackend: waymark_webapp_backend::WebappBackend,
-{
-    match state
-        .database
-        .update_schedule_status(schedule_id, "deleted")
-        .await
-    {
-        Ok(true) => axum::response::Redirect::to("/scheduled"),
-        Ok(false) => axum::response::Redirect::to(&format!("/scheduled/{}", schedule_id)),
-        Err(err) => {
-            error!(?err, %schedule_id, "failed to delete schedule");
-            axum::response::Redirect::to(&format!("/scheduled/{}", schedule_id))
-        }
-    }
-}
-
-async fn get_schedule_filter_values<WebappBackend>(
-    State(state): State<WebappState<WebappBackend>>,
-    Path(column): Path<String>,
-) -> impl IntoResponse
-where
-    WebappBackend: ?Sized,
-    WebappBackend: waymark_webapp_backend::WebappBackend,
-{
-    let result = match column.as_str() {
-        "status" => state.database.get_distinct_schedule_statuses().await,
-        "schedule_type" => state.database.get_distinct_schedule_types().await,
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(FilterValuesResponse { values: vec![] }),
-            );
-        }
-    };
-
-    match result {
-        Ok(values) => (StatusCode::OK, Json(FilterValuesResponse { values })),
-        Err(err) => {
-            error!(?err, %column, "failed to fetch schedule filter values");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(FilterValuesResponse { values: vec![] }),
-            )
-        }
-    }
-}
-
-// ============================================================================
-// Error Handling
-// ============================================================================
-
-#[derive(Debug)]
-struct HttpError {
-    status: StatusCode,
-    message: String,
-}
-
-impl IntoResponse for HttpError {
-    fn into_response(self) -> Response {
-        #[derive(serde::Serialize)]
-        struct ErrorBody {
-            pub message: String,
-        }
-
-        let body = Json(ErrorBody {
-            message: self.message,
-        });
-        (self.status, body).into_response()
-    }
-}
-
-// ============================================================================
 // Template Rendering
 // ============================================================================
-
-#[derive(Serialize)]
-struct InvocationsPageContext {
-    title: String,
-    active_tab: String,
-    invocations: Vec<InvocationRow>,
-    current_page: i64,
-    total_pages: i64,
-    has_pagination: bool,
-    search_query: Option<String>,
-    total_count: i64,
-}
-
-#[derive(Serialize)]
-struct InvocationRow {
-    id: String,
-    workflow_name: String,
-    created_at: String,
-    status: String,
-    input_preview: String,
-}
-
-fn render_invocations_page(
-    templates: &Tera,
-    instances: &[waymark_webapp_core::InstanceSummary],
-    current_page: i64,
-    total_pages: i64,
-    search_query: Option<String>,
-    total_count: i64,
-) -> String {
-    let invocations: Vec<InvocationRow> = instances
-        .iter()
-        .map(|i| InvocationRow {
-            id: i.id.to_string(),
-            workflow_name: i
-                .workflow_name
-                .clone()
-                .unwrap_or_else(|| "workflow".to_string()),
-            created_at: i.created_at.to_rfc3339(),
-            status: i.status.to_string(),
-            input_preview: i.input_preview.clone(),
-        })
-        .collect();
-
-    let context = InvocationsPageContext {
-        title: "Invocations".to_string(),
-        active_tab: "invocations".to_string(),
-        invocations,
-        current_page,
-        total_pages,
-        has_pagination: total_pages > 1,
-        search_query,
-        total_count,
-    };
-
-    render_template(templates, "invocations.html", &context)
-}
-
-#[derive(Serialize)]
-struct InstanceDetailPageContext {
-    title: String,
-    active_tab: String,
-    workflow: WorkflowInfo,
-    instance: InstanceInfo,
-    graph_data: GraphData,
-}
-
-#[derive(Serialize)]
-struct WorkflowInfo {
-    id: String,
-    name: String,
-}
-
-#[derive(Serialize)]
-struct InstanceInfo {
-    id: String,
-    created_at: String,
-    status: String,
-    input_payload: String,
-    result_payload: String,
-}
-
-#[derive(Serialize)]
-struct GraphData {
-    nodes: Vec<GraphNode>,
-}
-
-#[derive(Serialize)]
-struct GraphNode {
-    id: String,
-    action: String,
-    module: String,
-    status: String,
-    depends_on: Vec<String>,
-    loop_back_from: Vec<String>,
-    is_sleep: bool,
-}
-
-fn render_instance_detail_page(
-    templates: &Tera,
-    instance: &waymark_webapp_core::InstanceDetail,
-    graph: Option<waymark_webapp_core::ExecutionGraphView>,
-) -> String {
-    let graph_data = graph
-        .as_ref()
-        .map(build_graph_data)
-        .unwrap_or_else(|| GraphData { nodes: Vec::new() });
-
-    let context = InstanceDetailPageContext {
-        title: format!("Instance {}", instance.id),
-        active_tab: "invocations".to_string(),
-        workflow: WorkflowInfo {
-            id: instance.id.to_string(),
-            name: instance
-                .workflow_name
-                .clone()
-                .unwrap_or_else(|| "workflow".to_string()),
-        },
-        instance: InstanceInfo {
-            id: instance.id.to_string(),
-            created_at: instance.created_at.to_rfc3339(),
-            status: instance.status.to_string(),
-            input_payload: instance.input_payload.clone(),
-            result_payload: instance.result_payload.clone(),
-        },
-        graph_data,
-    };
-
-    render_template(templates, "workflow_run.html", &context)
-}
-
-fn build_graph_data(graph: &waymark_webapp_core::ExecutionGraphView) -> GraphData {
-    let action_nodes: Vec<&waymark_webapp_core::ExecutionNodeView> = graph
-        .nodes
-        .iter()
-        .filter(|node| is_action_node(&node.node_type))
-        .collect();
-    let action_ids: std::collections::HashSet<String> =
-        action_nodes.iter().map(|node| node.id.clone()).collect();
-
-    let mut outgoing_edges: std::collections::HashMap<String, Vec<(String, bool)>> =
-        std::collections::HashMap::new();
-    for edge in &graph.edges {
-        if !is_state_machine_edge(&edge.edge_type) {
-            continue;
-        }
-        outgoing_edges
-            .entry(edge.source.clone())
-            .or_default()
-            .push((edge.target.clone(), is_loop_back_edge(&edge.edge_type)));
-    }
-
-    let mut forward_edges_by_target: std::collections::HashMap<
-        String,
-        std::collections::HashSet<String>,
-    > = std::collections::HashMap::new();
-    let mut loop_back_edges_by_target: std::collections::HashMap<
-        String,
-        std::collections::HashSet<String>,
-    > = std::collections::HashMap::new();
-
-    // Project the full DAG to direct action->action relationships by traversing
-    // through internal nodes until we hit the next action boundary.
-    for source_id in &action_ids {
-        let mut queue: std::collections::VecDeque<(String, bool, usize)> =
-            std::collections::VecDeque::new();
-        let mut best_visit_distance: std::collections::HashMap<(String, bool), usize> =
-            std::collections::HashMap::new();
-        let mut forward_targets: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-        let mut loop_back_targets: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-
-        if let Some(initial_edges) = outgoing_edges.get(source_id) {
-            for (target_id, loop_back) in initial_edges {
-                queue.push_back((target_id.clone(), *loop_back, 1));
-            }
-        }
-
-        while let Some((node_id, has_loop_back, distance)) = queue.pop_front() {
-            let visit_key = (node_id.clone(), has_loop_back);
-            if best_visit_distance
-                .get(&visit_key)
-                .is_some_and(|best| *best <= distance)
-            {
-                continue;
-            }
-            best_visit_distance.insert(visit_key, distance);
-
-            if action_ids.contains(&node_id) {
-                if node_id != *source_id {
-                    if has_loop_back {
-                        loop_back_targets
-                            .entry(node_id.clone())
-                            .and_modify(|best| *best = (*best).min(distance))
-                            .or_insert(distance);
-                    } else {
-                        forward_targets
-                            .entry(node_id.clone())
-                            .and_modify(|best| *best = (*best).min(distance))
-                            .or_insert(distance);
-                    }
-                }
-                continue;
-            }
-
-            if let Some(next_edges) = outgoing_edges.get(&node_id) {
-                for (next_id, loop_back_edge) in next_edges {
-                    queue.push_back((
-                        next_id.clone(),
-                        has_loop_back || *loop_back_edge,
-                        distance + 1,
-                    ));
-                }
-            }
-        }
-
-        for target_id in forward_targets.keys() {
-            forward_edges_by_target
-                .entry(target_id.clone())
-                .or_default()
-                .insert(source_id.clone());
-        }
-
-        // Keep only the nearest loop-back action target(s) from this source so
-        // the UI shows direct loop closure edges rather than full loop reachability.
-        if let Some(min_loop_distance) = loop_back_targets.values().copied().min() {
-            for (target_id, distance) in loop_back_targets {
-                if distance != min_loop_distance {
-                    continue;
-                }
-                loop_back_edges_by_target
-                    .entry(target_id)
-                    .or_default()
-                    .insert(source_id.clone());
-            }
-        }
-    }
-
-    let mut nodes: Vec<GraphNode> = action_nodes
-        .into_iter()
-        .map(|node| GraphNode {
-            id: node.id.clone(),
-            action: node
-                .action_name
-                .clone()
-                .unwrap_or_else(|| node.label.clone()),
-            module: node
-                .module_name
-                .clone()
-                .unwrap_or_else(|| node.node_type.clone()),
-            status: node.status.clone(),
-            depends_on: sorted_dependencies(&forward_edges_by_target, &node.id),
-            loop_back_from: sorted_dependencies(&loop_back_edges_by_target, &node.id),
-            is_sleep: node.node_type == "sleep",
-        })
-        .collect();
-    nodes.sort_by(|left, right| left.id.cmp(&right.id));
-
-    GraphData { nodes }
-}
-
-fn sorted_dependencies(
-    index: &std::collections::HashMap<String, std::collections::HashSet<String>>,
-    node_id: &str,
-) -> Vec<String> {
-    let mut deps: Vec<String> = index
-        .get(node_id)
-        .into_iter()
-        .flat_map(|values| values.iter().cloned())
-        .collect();
-    deps.sort();
-    deps
-}
-
-fn is_state_machine_edge(edge_type: &str) -> bool {
-    let normalized = edge_type.to_ascii_lowercase();
-    normalized.contains("state_machine")
-        || normalized == "statemachine"
-        || normalized == "state-machine"
-}
-
-fn is_loop_back_edge(edge_type: &str) -> bool {
-    let normalized = edge_type.to_ascii_lowercase();
-    normalized.contains("loop_back")
-        || normalized.contains("loopback")
-        || normalized.contains("loop-back")
-}
-
-fn is_action_node(node_type: &str) -> bool {
-    let normalized = node_type.to_ascii_lowercase();
-    normalized == "action_call" || normalized == "actioncall" || normalized == "action-call"
-}
-
-fn render_error_page(templates: &Tera, title: &str, message: &str) -> String {
-    let mut ctx = TeraContext::new();
-    ctx.insert("title", title);
-    ctx.insert("active_tab", "");
-    ctx.insert("error_title", title);
-    ctx.insert("error_message", message);
-    templates.render("error.html", &ctx).unwrap_or_else(|e| {
-        error!(?e, "failed to render error template");
-        format!("<h1>{}</h1><p>{}</p>", title, message)
-    })
-}
 
 fn render_template<T: Serialize>(templates: &Tera, name: &str, context: &T) -> String {
     let ctx = TeraContext::from_serialize(context).unwrap_or_default();
@@ -1050,175 +113,12 @@ fn render_template<T: Serialize>(templates: &Tera, name: &str, context: &T) -> S
 }
 
 // ============================================================================
-// Schedule Template Rendering
-// ============================================================================
-
-#[derive(Serialize)]
-struct SchedulesPageContext {
-    title: String,
-    active_tab: String,
-    schedules: Vec<ScheduleRow>,
-    current_page: i64,
-    total_pages: i64,
-    has_pagination: bool,
-    total_count: i64,
-}
-
-#[derive(Serialize)]
-struct ScheduleRow {
-    id: ScheduleId,
-    workflow_name: String,
-    schedule_name: String,
-    schedule_type: String,
-    expression: String,
-    status: String,
-    next_run_at: Option<String>,
-    last_run_at: Option<String>,
-}
-
-fn render_schedules_page(
-    templates: &Tera,
-    schedules: &[waymark_webapp_core::ScheduleSummary],
-    current_page: i64,
-    total_pages: i64,
-    total_count: i64,
-) -> String {
-    let schedule_rows: Vec<ScheduleRow> = schedules
-        .iter()
-        .map(|s| {
-            let expression = if s.schedule_type == "cron" {
-                s.cron_expression.clone().unwrap_or_default()
-            } else {
-                format!("every {} seconds", s.interval_seconds.unwrap_or(0))
-            };
-            ScheduleRow {
-                id: s.id,
-                workflow_name: s.workflow_name.clone(),
-                schedule_name: s.schedule_name.clone(),
-                schedule_type: s.schedule_type.clone(),
-                expression,
-                status: s.status.clone(),
-                next_run_at: s.next_run_at.clone(),
-                last_run_at: s.last_run_at.clone(),
-            }
-        })
-        .collect();
-
-    let context = SchedulesPageContext {
-        title: "Scheduled Workflows".to_string(),
-        active_tab: "scheduled".to_string(),
-        schedules: schedule_rows,
-        current_page,
-        total_pages,
-        has_pagination: total_pages > 1,
-        total_count,
-    };
-
-    render_template(templates, "scheduled.html", &context)
-}
-
-#[derive(Serialize)]
-struct ScheduleDetailPageContext {
-    title: String,
-    active_tab: String,
-    schedule: ScheduleDetailView,
-    invocations: Vec<ScheduleInvocationRow>,
-    current_page: i64,
-    total_pages: i64,
-    has_pagination: bool,
-    has_invocations: bool,
-}
-
-#[derive(Serialize)]
-struct ScheduleDetailView {
-    id: ScheduleId,
-    workflow_name: String,
-    schedule_name: String,
-    schedule_type: String,
-    cron_expression: Option<String>,
-    interval_seconds: Option<i64>,
-    schedule_expression: String,
-    jitter_seconds: i64,
-    status: String,
-    next_run_at: Option<String>,
-    last_run_at: Option<String>,
-    last_instance_id: Option<String>,
-    created_at: String,
-    updated_at: String,
-    priority: i32,
-    allow_duplicate: bool,
-    input_payload: Option<String>,
-}
-
-#[derive(Serialize)]
-struct ScheduleInvocationRow {
-    id: String,
-    created_at: String,
-    status: String,
-}
-
-fn render_schedule_detail_page(
-    templates: &Tera,
-    schedule: &waymark_webapp_core::ScheduleDetail,
-    invocations: &[waymark_webapp_core::ScheduleInvocationSummary],
-    current_page: i64,
-    total_pages: i64,
-) -> String {
-    let schedule_expression = if schedule.schedule_type == "cron" {
-        schedule.cron_expression.clone().unwrap_or_default()
-    } else {
-        format!("every {} seconds", schedule.interval_seconds.unwrap_or(0))
-    };
-
-    let invocation_rows = invocations
-        .iter()
-        .map(|invocation| ScheduleInvocationRow {
-            id: invocation.id.to_string(),
-            created_at: invocation.created_at.to_rfc3339(),
-            status: invocation.status.to_string(),
-        })
-        .collect::<Vec<_>>();
-
-    let context = ScheduleDetailPageContext {
-        title: format!("Schedule: {}", schedule.schedule_name),
-        active_tab: "scheduled".to_string(),
-        schedule: ScheduleDetailView {
-            id: schedule.id,
-            workflow_name: schedule.workflow_name.clone(),
-            schedule_name: schedule.schedule_name.clone(),
-            schedule_type: schedule.schedule_type.clone(),
-            cron_expression: schedule.cron_expression.clone(),
-            interval_seconds: schedule.interval_seconds,
-            schedule_expression,
-            jitter_seconds: schedule.jitter_seconds,
-            status: schedule.status.clone(),
-            next_run_at: schedule.next_run_at.clone(),
-            last_run_at: schedule.last_run_at.clone(),
-            last_instance_id: schedule.last_instance_id.clone(),
-            created_at: schedule.created_at.clone(),
-            updated_at: schedule.updated_at.clone(),
-            priority: schedule.priority,
-            allow_duplicate: schedule.allow_duplicate,
-            input_payload: schedule.input_payload.clone(),
-        },
-        has_invocations: !invocation_rows.is_empty(),
-        invocations: invocation_rows,
-        current_page,
-        total_pages,
-        has_pagination: total_pages > 1,
-    };
-
-    render_template(templates, "schedule_detail.html", &context)
-}
-
-// ============================================================================
 // Workers Template Rendering
 // ============================================================================
 
 #[derive(Serialize)]
 struct WorkersPageContext {
     title: String,
-    active_tab: String,
     window_minutes: i64,
     active_worker_count: i64,
     actions_per_sec: String,
@@ -1347,7 +247,6 @@ fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minut
 
     let context = WorkersPageContext {
         title: "Workers".to_string(),
-        active_tab: "workers".to_string(),
         window_minutes,
         active_worker_count,
         actions_per_sec,
@@ -1387,98 +286,32 @@ mod tests {
         body::Body,
         http::{Request, StatusCode},
     };
+    use chrono::Utc;
     use http_body_util::BodyExt;
     use serial_test::serial;
     use sqlx::postgres::PgPoolOptions;
     use tower::util::ServiceExt;
     use uuid::Uuid;
-    use waymark_backend_memory::MemoryBackend;
     use waymark_backend_postgres::PostgresBackend;
-    use waymark_worker_status_backend::{WorkerStatusBackend as _, WorkerStatusUpdate};
+    use waymark_webapp_core::WorkerStatus;
+    use waymark_worker_status_backend::WorkerStatusUpdate;
 
-    use super::{WebappState, build_graph_data, build_router, init_templates};
+    use super::{WebappState, build_router, init_templates};
 
     use waymark_support_test::postgres_setup;
-    use waymark_webapp_core::{ExecutionEdgeView, ExecutionGraphView, ExecutionNodeView};
 
-    #[test]
-    fn build_graph_data_projects_internal_nodes_to_action_dependencies() {
-        let graph = ExecutionGraphView {
-            nodes: vec![
-                ExecutionNodeView {
-                    id: "action_a".to_string(),
-                    node_type: "action_call".to_string(),
-                    label: "@tests.action_a()".to_string(),
-                    status: "completed".to_string(),
-                    action_name: Some("tests.action_a".to_string()),
-                    module_name: Some("tests".to_string()),
-                },
-                ExecutionNodeView {
-                    id: "branch_1".to_string(),
-                    node_type: "branch".to_string(),
-                    label: "if x > 0".to_string(),
-                    status: "pending".to_string(),
-                    action_name: None,
-                    module_name: None,
-                },
-                ExecutionNodeView {
-                    id: "action_b".to_string(),
-                    node_type: "action_call".to_string(),
-                    label: "@tests.action_b()".to_string(),
-                    status: "running".to_string(),
-                    action_name: Some("tests.action_b".to_string()),
-                    module_name: Some("tests".to_string()),
-                },
-            ],
-            edges: vec![
-                ExecutionEdgeView {
-                    source: "action_a".to_string(),
-                    target: "branch_1".to_string(),
-                    edge_type: "StateMachine".to_string(),
-                },
-                ExecutionEdgeView {
-                    source: "branch_1".to_string(),
-                    target: "action_b".to_string(),
-                    edge_type: "state_machine".to_string(),
-                },
-                ExecutionEdgeView {
-                    source: "action_b".to_string(),
-                    target: "branch_1".to_string(),
-                    edge_type: "state_machine_loop_back".to_string(),
-                },
-                ExecutionEdgeView {
-                    source: "branch_1".to_string(),
-                    target: "action_a".to_string(),
-                    edge_type: "state_machine".to_string(),
-                },
-                ExecutionEdgeView {
-                    source: "action_a".to_string(),
-                    target: "branch_1".to_string(),
-                    edge_type: "DataFlow".to_string(),
-                },
-            ],
-        };
+    /// In-memory `WebappBackend` double serving canned worker statuses.
+    struct StubWebappBackend {
+        statuses: Vec<WorkerStatus>,
+    }
 
-        let projected = build_graph_data(&graph);
-        assert_eq!(projected.nodes.len(), 2);
-
-        let action_node = projected
-            .nodes
-            .iter()
-            .find(|node| node.id == "action_a")
-            .expect("action node");
-        assert_eq!(action_node.depends_on, Vec::<String>::new());
-        assert_eq!(action_node.loop_back_from, vec!["action_b".to_string()]);
-
-        let action_b_node = projected
-            .nodes
-            .iter()
-            .find(|node| node.id == "action_b")
-            .expect("action_b node");
-        assert_eq!(action_b_node.depends_on, vec!["action_a".to_string()]);
-        assert_eq!(action_b_node.loop_back_from, Vec::<String>::new());
-        assert_eq!(action_b_node.action, "tests.action_b");
-        assert_eq!(action_b_node.module, "tests");
+    impl waymark_webapp_backend::WebappBackend for StubWebappBackend {
+        async fn get_worker_statuses(
+            &self,
+            _window_minutes: i64,
+        ) -> waymark_backends_core::BackendResult<Vec<WorkerStatus>> {
+            Ok(self.statuses.clone())
+        }
     }
 
     async fn call_route<WebappBackend>(
@@ -1518,44 +351,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn high_level_pages_resolve_with_memory_backend() {
-        let backend = MemoryBackend::new();
-        backend
-            .upsert_worker_status(&WorkerStatusUpdate {
-                pool_id: Uuid::new_v4(),
+    async fn high_level_pages_resolve_with_stub_backend() {
+        let pool_id = Uuid::new_v4();
+        let backend = Arc::new(StubWebappBackend {
+            statuses: vec![WorkerStatus {
+                pool_id,
+                active_workers: 2,
                 throughput_per_min: 120.0,
+                actions_per_sec: 2.0,
                 total_completed: 42,
                 last_action_at: None,
+                updated_at: Utc::now(),
                 median_dequeue_ms: Some(5),
                 median_handling_ms: Some(18),
-                dispatch_queue_size: 3,
-                total_in_flight: 1,
-                active_workers: 2,
-                actions_per_sec: 2.0,
+                dispatch_queue_size: Some(3),
+                total_in_flight: Some(1),
                 median_instance_duration_secs: Some(0.25),
                 active_instance_count: 1,
                 total_instances_completed: 7,
                 instances_per_sec: 0.2,
                 instances_per_min: 12.0,
                 time_series: None,
-            })
-            .await
-            .expect("worker status upsert");
-
-        let backend = Arc::new(backend);
+            }],
+        });
         let routes: Vec<(String, &str)> = vec![
-            ("/".to_string(), "Invocations"),
-            ("/invocations".to_string(), "Invocations"),
+            ("/".to_string(), "Workers"),
             ("/workers".to_string(), "Workers"),
-            ("/scheduled".to_string(), "Scheduled Workflows"),
-            (
-                format!("/instance/{}", Uuid::new_v4()),
-                "Instance not found",
-            ),
-            (
-                format!("/scheduled/{}", Uuid::new_v4()),
-                "Schedule not found",
-            ),
         ];
 
         for (route, expected) in routes {
@@ -1582,18 +403,8 @@ mod tests {
             .expect("lazy postgres pool");
         let backend = Arc::new(PostgresBackend::new(pool));
         let routes: Vec<(String, &str)> = vec![
-            ("/".to_string(), "Unable to load invocations"),
-            ("/invocations".to_string(), "Unable to load invocations"),
+            ("/".to_string(), "Workers"),
             ("/workers".to_string(), "Workers"),
-            ("/scheduled".to_string(), "Scheduled Workflows"),
-            (
-                format!("/instance/{}", Uuid::new_v4()),
-                "Instance not found",
-            ),
-            (
-                format!("/scheduled/{}", Uuid::new_v4()),
-                "Schedule not found",
-            ),
         ];
 
         for (route, expected) in routes {
@@ -1640,30 +451,6 @@ mod tests {
             })
             .await
             .expect("insert worker status");
-
-        let routes: Vec<(String, &str)> = vec![
-            ("/".to_string(), "Invocations"),
-            ("/invocations".to_string(), "Invocations"),
-            ("/scheduled".to_string(), "Scheduled Workflows"),
-            (
-                format!("/instance/{}", Uuid::new_v4()),
-                "Instance not found",
-            ),
-            (
-                format!("/scheduled/{}", Uuid::new_v4()),
-                "Schedule not found",
-            ),
-        ];
-
-        for (route, expected) in routes {
-            let (status, body) = call_route(backend.clone(), &route).await;
-            assert_eq!(status, StatusCode::OK, "route={route}");
-            assert!(!body.trim().is_empty(), "route={route}");
-            assert!(
-                body.contains(expected),
-                "route={route}, expected={expected}"
-            );
-        }
 
         let (status, workers_body) = call_route(backend.clone(), "/workers").await;
         assert_eq!(status, StatusCode::OK);
