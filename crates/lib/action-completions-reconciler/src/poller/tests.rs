@@ -5,6 +5,7 @@ use std::task::{Context, Poll, Waker};
 
 use nonempty_collections::NEVec;
 use waymark_action_completions_reconciler_backend::CompletionKey;
+use waymark_action_runtime_core::ActionCallStage;
 use waymark_extcall_reconciler_core::ActionPromiseSettler;
 use waymark_ids::InstanceId;
 use waymark_vm_codec_rmp::RmpCodec;
@@ -13,7 +14,7 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_value_python::ReadyValue;
 
 use super::{Ack, DemandRegistrar, Params, PollActionSettlementsError, SettlementsHandle};
-use crate::test_support::{MockBackend, key, record};
+use crate::test_support::{MockBackend, key, lost_record, record};
 
 fn demand(ids: &[usize]) -> NEVec<PromiseStateId> {
     NEVec::try_from_vec(ids.iter().map(|id| PromiseStateId(*id)).collect())
@@ -87,6 +88,41 @@ async fn delivers_demanded_settlements_with_key_acks() {
     assert!(ack_rx.try_recv().is_err());
     settlement.ack.acknowledge_promise_settlement();
     assert_eq!(ack_rx.try_recv().unwrap(), key(vm_id, 3));
+
+    poll_loop.abort();
+}
+
+#[tokio::test]
+async fn settles_a_lost_execution_raised() {
+    let vm_id = InstanceId::new_uuid_v4();
+    let backend = MockBackend::default();
+    backend
+        .inner
+        .poll_batches
+        .lock()
+        .unwrap()
+        .push_back(vec![lost_record(vm_id, 3, 7, ActionCallStage::NotStarted)]);
+
+    let (registrar, params, _ack_rx) = poller(&backend);
+    let mut handle = registrar.subscribe(vm_id);
+
+    let poll_loop = tokio::spawn(super::run(params));
+
+    // The stored loss decodes on the durable path and settles the promise
+    // raised with the type id of the stage the call provably reached.
+    let settlements = poll_settlements(&mut handle, &[3])
+        .await
+        .expect("settlement delivered");
+    let settlement = settlements.into_iter().next().unwrap();
+    assert_eq!(settlement.promise_state_id, PromiseStateId(3));
+    let PromiseResolution::Rejected(exception) = settlement.resolution else {
+        panic!("a lost execution settles its promise raised");
+    };
+    assert_eq!(
+        exception.type_id,
+        waymark_vm_exception_type_ids::ACTION_EXECUTION_NOT_STARTED
+    );
+    assert_eq!(exception.details, ReadyValue::None);
 
     poll_loop.abort();
 }

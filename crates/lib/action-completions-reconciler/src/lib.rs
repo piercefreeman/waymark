@@ -10,7 +10,7 @@
 //!
 //! 1. [`writer::run`] ingests completion batches from an
 //!    [`waymark_action_runtime_core::ActionCallCompletionsProvider`]
-//!    (typically the worker-pool provider), encodes each outcome, and
+//!    (typically the worker-pool provider), encodes each execution result, and
 //!    records everything through the backend.
 //! 2. [`poller::run`] drives a single shared loop that polls the
 //!    backend for exactly the completions the VMs are currently waiting

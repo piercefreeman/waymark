@@ -8,7 +8,7 @@ use waymark_action_completions_reconciler_backend::record_completions::Recording
 use waymark_action_completions_reconciler_backend::{
     CompletionKey, CompletionRecord, record_completions,
 };
-use waymark_action_runtime_core::ActionCallOutcome;
+use waymark_action_runtime_core::{ActionCallLossError, ActionCallOutcome, ActionCallStage};
 use waymark_ids::InstanceId;
 use waymark_vm_codec_rmp::RmpCodec;
 use waymark_vm_runtime_effect::EffectNumber;
@@ -125,16 +125,18 @@ impl waymark_action_completions_reconciler_backend::AckCompletions for MockBacke
     }
 }
 
-fn encoded_outcome(value: &str) -> Vec<u8> {
-    let outcome = ActionCallOutcome::Value(ReadyValue::String(value.to_owned()));
+fn encoded_execution_result(
+    execution_result: &Result<ActionCallOutcome<ReadyValue>, ActionCallLossError>,
+) -> Vec<u8> {
     let mut blob = Vec::new();
     waymark_vm_codec_core::SerializerProvider::with_serializer(&RmpCodec, &mut blob, |ser| {
-        serde::Serialize::serialize(&outcome, ser)
+        serde::Serialize::serialize(execution_result, ser)
     })
-    .expect("encoding a test outcome succeeds");
+    .expect("encoding a test execution result succeeds");
     blob
 }
 
+/// A record of a call that completed with `value`.
 pub(crate) fn record(
     vm_id: InstanceId,
     promise: usize,
@@ -145,7 +147,24 @@ pub(crate) fn record(
         vm_id,
         promise_state_id: PromiseStateId(promise),
         effect_number: EffectNumber(effect),
-        outcome: encoded_outcome(value),
+        execution_result: encoded_execution_result(&Ok(ActionCallOutcome::Value(
+            ReadyValue::String(value.to_owned()),
+        ))),
+    }
+}
+
+/// A record of a call whose execution was lost at `stage`.
+pub(crate) fn lost_record(
+    vm_id: InstanceId,
+    promise: usize,
+    effect: usize,
+    stage: ActionCallStage,
+) -> CompletionRecord<InstanceId> {
+    CompletionRecord {
+        vm_id,
+        promise_state_id: PromiseStateId(promise),
+        effect_number: EffectNumber(effect),
+        execution_result: encoded_execution_result(&Err(ActionCallLossError { stage })),
     }
 }
 

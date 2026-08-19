@@ -3,6 +3,7 @@
 #![warn(missing_docs)]
 
 mod from_proto;
+mod loss;
 mod to_dispatch;
 mod to_proto;
 
