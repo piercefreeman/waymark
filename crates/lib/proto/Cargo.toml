@@ -5,16 +5,17 @@ publish.workspace = true
 edition = "2024"
 
 [package.metadata.cargo-shear]
-ignored = ["prost", "serde"]
+ignored = ["prost", "serde", "tonic-prost"]
 
 [dependencies]
 prost = { workspace = true }
 prost-types = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 tonic = { workspace = true }
+tonic-prost = { workspace = true }
 
 [build-dependencies]
-tonic-build = { workspace = true }
+tonic-prost-build = { workspace = true }
 
 [features]
 default = ["client", "server", "serde"]
