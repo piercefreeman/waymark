@@ -2672,12 +2672,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b50b8869d9fc858ce7266cce0194bd74df58b9d0e3f6df3a9fc8eb470d95c09d"
 
 [[package]]
-name = "rustc-hash"
-version = "2.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
-
-[[package]]
 name = "rustix"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3273,27 +3267,6 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
-
-[[package]]
-name = "strum"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9628de9b8791db39ceda2b119bbe13134770b56c138ec1d3af810d045c04f9bd"
-dependencies = [
- "strum_macros",
-]
-
-[[package]]
-name = "strum_macros"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab85eea0270ee17587ed4156089e10b9e6880ee688791d45a905f5b1ca36f664"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn",
-]
 
 [[package]]
 name = "subtle"
@@ -4166,26 +4139,18 @@ dependencies = [
  "function_name",
  "metrics",
  "nonempty-collections",
- "rmp-serde",
- "serde",
- "serde_json",
  "serial_test",
  "sqlx",
  "thiserror",
  "tokio",
- "tracing",
  "uuid",
  "waymark-action-completions-reconciler-backend",
  "waymark-action-effect-reconciler-backend",
  "waymark-backend-postgres-migrations",
  "waymark-backends-core",
- "waymark-core-backend",
- "waymark-dag",
  "waymark-ids",
  "waymark-metrics-util",
  "waymark-observability",
- "waymark-runner-execution-core",
- "waymark-runner-state",
  "waymark-secret-string",
  "waymark-sleep-reconciler-backend",
  "waymark-state-vm-executables-backend",
@@ -4196,10 +4161,8 @@ dependencies = [
  "waymark-vm-runtime-promise-core",
  "waymark-webapp-backend",
  "waymark-webapp-core",
- "waymark-worker-core",
  "waymark-worker-status-backend",
  "waymark-workflow-completion-backend",
- "waymark-workflow-registry-backend",
  "waymark-workflow-service-vm-executables-backend",
  "waymark-workflow-service-vm-runtimes-backend",
  "waymark-workload-pinning-backend",
@@ -4345,51 +4308,6 @@ dependencies = [
 [[package]]
 name = "waymark-convert-core"
 version = "0.1.0"
-
-[[package]]
-name = "waymark-core-backend"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "either",
- "nonempty-collections",
- "serde",
- "waymark-backends-core",
- "waymark-ids",
- "waymark-runner-execution-core",
- "waymark-runner-executor-core",
-]
-
-[[package]]
-name = "waymark-dag"
-version = "0.1.0"
-dependencies = [
- "rustc-hash",
- "serde",
- "waymark-proto",
-]
-
-[[package]]
-name = "waymark-dag-builder"
-version = "0.1.0"
-dependencies = [
- "thiserror",
- "waymark-dag",
- "waymark-dag-validator",
- "waymark-ir-parser",
- "waymark-proto",
-]
-
-[[package]]
-name = "waymark-dag-validator"
-version = "0.1.0"
-dependencies = [
- "thiserror",
- "waymark-dag",
- "waymark-dag-builder",
- "waymark-ir-parser",
- "waymark-proto",
-]
 
 [[package]]
 name = "waymark-execution-bringup"
@@ -4595,14 +4513,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-ir-conversions"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "waymark-proto",
-]
-
-[[package]]
 name = "waymark-ir-parser"
 version = "0.1.0"
 dependencies = [
@@ -4713,100 +4623,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "waymark-proto",
-]
-
-[[package]]
-name = "waymark-runner"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "rustc-hash",
- "serde_json",
- "thiserror",
- "waymark-core-backend",
- "waymark-dag",
- "waymark-dag-builder",
- "waymark-ids",
- "waymark-ir-conversions",
- "waymark-ir-parser",
- "waymark-observability",
- "waymark-proto",
- "waymark-runner-execution-core",
- "waymark-runner-executor-core",
- "waymark-runner-expr-eval",
- "waymark-runner-retry-policy",
- "waymark-runner-state",
- "waymark-synthetic-exception",
-]
-
-[[package]]
-name = "waymark-runner-execution-core"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "thiserror",
- "waymark-dag",
- "waymark-ids",
- "waymark-runner-expr",
-]
-
-[[package]]
-name = "waymark-runner-executor-core"
-version = "0.1.0"
-dependencies = [
- "waymark-worker-core",
-]
-
-[[package]]
-name = "waymark-runner-expr"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "waymark-runner-expr-eval"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "waymark-proto",
- "waymark-runner-expr",
- "waymark-runner-state",
-]
-
-[[package]]
-name = "waymark-runner-expr-fmt"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "waymark-proto",
- "waymark-runner-expr",
-]
-
-[[package]]
-name = "waymark-runner-retry-policy"
-version = "0.1.0"
-dependencies = [
- "waymark-proto",
-]
-
-[[package]]
-name = "waymark-runner-state"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "metrics",
- "serde_json",
- "thiserror",
- "waymark-dag",
- "waymark-ids",
- "waymark-ir-conversions",
- "waymark-metrics-util",
- "waymark-proto",
- "waymark-runner-execution-core",
- "waymark-runner-expr",
 ]
 
 [[package]]
@@ -5043,17 +4859,6 @@ dependencies = [
  "waymark-python-workflow-ir-reader",
  "waymark-vm-ast-old",
  "waymark-vm-ast-old-proto",
-]
-
-[[package]]
-name = "waymark-synthetic-exception"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "strum",
- "waymark-ids",
- "waymark-runner-executor-core",
 ]
 
 [[package]]
@@ -6077,15 +5882,6 @@ dependencies = [
  "waymark-vm-compiler-metadata",
  "waymark-vm-runtime",
  "waymark-vm-value",
-]
-
-[[package]]
-name = "waymark-workflow-registry-backend"
-version = "0.1.0"
-dependencies = [
- "either",
- "waymark-backends-core",
- "waymark-ids",
 ]
 
 [[package]]
