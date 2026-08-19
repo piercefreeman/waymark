@@ -9,6 +9,7 @@ waymark-action-runtime-core = { workspace = true }
 waymark-action-runtime-metadata-codec = { workspace = true }
 waymark-convert-core = { workspace = true }
 waymark-proto = { workspace = true }
+waymark-vm-exception-type-ids = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-value-convert-core = { workspace = true }
 waymark-vm-value-python = { workspace = true }
