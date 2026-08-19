@@ -99,7 +99,6 @@ class TestRunInstance:
             workflow_name="testworkflow",
             ir=b"test-ir-bytes",
             ir_hash="abc123",
-            concurrent=False,
         )
         payload = registration.SerializeToString()
 

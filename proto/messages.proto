@@ -152,9 +152,12 @@ message WorkflowRegistration {
   string ir_hash = 3;                // Hash of the IR for immutability checks
   string workflow_version = 7;       // User-defined version identifier
   WorkflowArguments initial_context = 4;
-  bool concurrent = 5;               // Whether multiple instances can run
   // Priority for queue ordering (higher values are processed first, default 0)
   optional int32 priority = 6;
+
+  // Field 5 was `bool concurrent`, retired with the legacy DAG runner.
+  reserved 5;
+  reserved "concurrent";
 }
 
 message RegisterWorkflowRequest {
@@ -255,7 +258,7 @@ message RegisterScheduleRequest {
   ScheduleDefinition schedule = 2;
   // Optional: inputs to pass to each scheduled run
   WorkflowArguments inputs = 3;
-  // Optional: workflow registration to register the DAG before scheduling.
+  // Optional: workflow registration to register the workflow before scheduling.
   // If provided, the workflow version will be registered (or updated) before
   // the schedule is created. This ensures the workflow can execute when the
   // schedule fires.

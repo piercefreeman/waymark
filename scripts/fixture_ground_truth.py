@@ -134,7 +134,6 @@ def main() -> int:
             "workflow_name": workflow_cls.short_name(),
             "workflow_version": workflow_version,
             "ir_hash": ir_hash,
-            "concurrent": bool(workflow_cls.concurrent),
             "ir_bytes": list(ir_bytes),
         },
     }
