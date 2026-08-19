@@ -34,9 +34,9 @@ pub enum Error<ProviderError, EncodeError, RecordError> {
     #[error("waiting for action-call completions: {0}")]
     Completions(#[source] ProviderError),
 
-    /// An action-call outcome could not be encoded for storage.
-    #[error("unable to encode an action-call outcome")]
-    OutcomeEncode(#[source] EncodeError),
+    /// An action-call execution result could not be encoded for storage.
+    #[error("unable to encode an action-call execution result")]
+    ExecutionResultEncode(#[source] EncodeError),
 
     /// The backend reported diverging effect numbers — the
     /// "same effect ⇒ same pair" invariant is broken.
@@ -47,7 +47,7 @@ pub enum Error<ProviderError, EncodeError, RecordError> {
 /// The [`Error`] type produced by [`run`] over the given provider,
 /// backend, and codec.
 type RunError<Provider, Backend, Codec> = Error<
-    <Provider as ActionCallCompletionsProvider>::Error,
+    <Provider as ActionCallCompletionsProvider>::WaitError,
     <Codec as waymark_vm_codec_core::SerializerProvider>::Error,
     <Backend as RecordCompletions>::Error,
 >;
@@ -63,7 +63,7 @@ pub struct Params<Provider, Backend, Codec> {
     /// The durable completions backend to record into.
     pub backend: Arc<Backend>,
 
-    /// The codec used to encode action-call outcomes for storage.
+    /// The codec used to encode action-call execution results for storage.
     pub codec: Codec,
 }
 
@@ -79,6 +79,7 @@ where
     Provider: ActionCallCompletionsProvider,
     Provider::Metadata: VmScoped<VmId = Backend::VmId> + ActionCallCorrelated,
     Provider::Value: serde::Serialize,
+    Provider::ActionExecutionError: serde::Serialize,
     Backend: RecordCompletions,
     Codec: waymark_vm_codec_core::SerializerProvider,
 {
@@ -96,14 +97,17 @@ where
 
         let mut records = Vec::with_capacity(completions.len().get());
         for completion in completions {
-            let ActionCallCompletion { metadata, outcome } = completion;
+            let ActionCallCompletion {
+                metadata,
+                execution_result,
+            } = completion;
 
             let mut blob = Vec::new();
             codec
                 .with_serializer(&mut blob, |serializer| {
-                    serde::Serialize::serialize(&outcome, serializer)
+                    serde::Serialize::serialize(&execution_result, serializer)
                 })
-                .map_err(Error::OutcomeEncode)?;
+                .map_err(Error::ExecutionResultEncode)?;
 
             // The record is keyed by the metadata the provider recovered.
             let correlation = metadata.call_correlation();
@@ -111,7 +115,7 @@ where
                 vm_id: metadata.vm_id(),
                 promise_state_id: correlation.promise_state_id,
                 effect_number: correlation.effect_number,
-                outcome: blob,
+                execution_result: blob,
             });
         }
         let records = NEVec::try_from_vec(records).expect("a non-empty batch resolves non-empty");
@@ -140,12 +144,12 @@ where
             .await
         {
             Ok(RecordingSuccess::AllRecorded) => return Ok(()),
-            Ok(RecordingSuccess::SomeConflictingOutcomes(keys)) => {
+            Ok(RecordingSuccess::SomeConflictingExecutionResults(keys)) => {
                 // At-least-once redelivery of a non-deterministic retry;
-                // the first recorded outcome wins.
+                // the first recorded execution result wins.
                 tracing::error!(
                     conflicting = keys.len().get(),
-                    "conflicting outcomes for already-recorded completions; \
+                    "conflicting execution results for already-recorded completions; \
                      first write wins"
                 );
                 return Ok(());
