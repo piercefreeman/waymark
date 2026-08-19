@@ -1,10 +1,10 @@
 const PROTO_DIR: &str = "../../../proto";
 
 fn if_feature_enabled(
-    builder: tonic_build::Builder,
+    builder: tonic_prost_build::Builder,
     feature: &'static str,
-    f: impl FnOnce(tonic_build::Builder) -> tonic_build::Builder,
-) -> tonic_build::Builder {
+    f: impl FnOnce(tonic_prost_build::Builder) -> tonic_prost_build::Builder,
+) -> tonic_prost_build::Builder {
     let feature_status = std::env::var_os(format!(
         "CARGO_FEATURE_{}",
         feature.replace('-', "_").to_uppercase()
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rerun-if-changed={}", full_path.display());
     }
 
-    let mut builder = tonic_build::configure();
+    let mut builder = tonic_prost_build::configure();
 
     builder = if_feature_enabled(builder, "server", |b| b.build_server(true));
     builder = if_feature_enabled(builder, "client", |b| b.build_server(true));
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     builder
         // Allow large enum variants in generated proto code
         .type_attribute(".", "#[allow(clippy::large_enum_variant)]")
-        .compile_protos(&full_paths[..], &[PROTO_DIR])?;
+        .compile_protos(&full_paths[..], &[proto_dir.to_path_buf()])?;
 
     Ok(())
 }
