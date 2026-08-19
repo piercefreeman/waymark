@@ -63,7 +63,15 @@ where
     })?;
 
     println!("Workflow outcome ({}): {:?}", case.name, workflow_outcome);
-    Ok(())
+
+    match workflow_outcome {
+        waymark_workflow_completion_core::Outcome::Completion(_value) => Ok(()),
+        waymark_workflow_completion_core::Outcome::Exception(exception) => {
+            Err(color_eyre::eyre::eyre!(
+                "workflow terminated with an unhandled exception: {exception:?}"
+            ))
+        }
+    }
 }
 
 async fn run_smoke(base: i64) -> i32 {

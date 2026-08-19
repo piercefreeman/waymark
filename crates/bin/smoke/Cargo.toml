@@ -17,6 +17,7 @@ waymark-worker-core = { workspace = true }
 waymark-worker-python = { workspace = true }
 waymark-worker-remote-bringup = { workspace = true }
 waymark-worker-remote-pool = { workspace = true }
+waymark-workflow-completion-core = { workspace = true }
 
 clap = { workspace = true, features = ["derive"] }
 color-eyre = { workspace = true }
