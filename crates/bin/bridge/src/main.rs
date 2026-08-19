@@ -52,7 +52,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         Some(Arc::new(workflow_store))
     };
 
-    let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+    let (health_reporter, health_service) = tonic_health::server::health_reporter();
 
     let service = BridgeService { store };
     health_reporter

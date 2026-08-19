@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     builder
         // Allow large enum variants in generated proto code
         .type_attribute(".", "#[allow(clippy::large_enum_variant)]")
-        .compile(&full_paths[..], &[PROTO_DIR])?;
+        .compile_protos(&full_paths[..], &[PROTO_DIR])?;
 
     Ok(())
 }
