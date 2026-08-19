@@ -5,7 +5,7 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
-waymark-proto = { workspace = true }
+waymark-proto = { workspace = true, features = ["server"] }
 waymark-worker-message-protocol = { workspace = true }
 waymark-worker-reservation = { workspace = true }
 
@@ -22,3 +22,4 @@ tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "syn
 tokio-stream = { workspace = true, features = ["net"] }
 tokio-util = { workspace = true }
 tonic = { workspace = true, default-features = true }
+waymark-proto = { workspace = true, features = ["client"] }

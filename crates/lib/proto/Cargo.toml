@@ -18,8 +18,6 @@ tonic-prost = { workspace = true, optional = true }
 tonic-prost-build = { workspace = true }
 
 [features]
-default = ["client", "server", "serde"]
-
 client = ["dep:tonic-prost", "tonic/codegen", "tonic/transport"]
 serde = ["dep:serde"]
 server = ["dep:tonic-prost", "tonic/codegen", "tonic/transport"]
