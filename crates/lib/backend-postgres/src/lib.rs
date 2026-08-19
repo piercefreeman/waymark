@@ -140,12 +140,6 @@ impl PostgresBackend {
     pub(crate) fn serialize<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, BackendError> {
         codec::serialize(value).map_err(|e| BackendError::Message(e.to_string()))
     }
-
-    pub(crate) fn deserialize<T: serde::de::DeserializeOwned>(
-        payload: &[u8],
-    ) -> Result<T, BackendError> {
-        codec::deserialize(payload).map_err(|e| BackendError::Message(e.to_string()))
-    }
 }
 
 /// The common postgres backend error.

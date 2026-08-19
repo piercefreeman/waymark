@@ -19,7 +19,6 @@ waymark-action-runtime-metadata-codec = { path = "crates/lib/action-runtime-meta
 waymark-action-runtime-metadata-compat = { path = "crates/lib/action-runtime-metadata-compat" }
 waymark-action-runtime-worker-pool = { path = "crates/lib/action-runtime-worker-pool" }
 waymark-action-runtime-worker-stream = { path = "crates/lib/action-runtime-worker-stream" }
-waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
 waymark-backend-memory = { path = "crates/lib/backend-memory" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
 waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migrations" }
@@ -29,7 +28,6 @@ waymark-blocking-future = { path = "crates/lib/blocking-future" }
 waymark-config = { path = "crates/lib/config" }
 waymark-convert-core = { path = "crates/lib/convert-core" }
 waymark-core-backend = { path = "crates/lib/core-backend" }
-waymark-core-backend-metadata = { path = "crates/lib/core-backend-metadata" }
 waymark-dag = { path = "crates/lib/dag" }
 waymark-dag-builder = { path = "crates/lib/dag-builder" }
 waymark-dag-validator = { path = "crates/lib/dag-validator" }
@@ -40,8 +38,6 @@ waymark-extcall-reconciler-action-compat = { path = "crates/lib/extcall-reconcil
 waymark-extcall-reconciler-core = { path = "crates/lib/extcall-reconciler-core" }
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-fullset-effect-handler = { path = "crates/lib/fullset-effect-handler" }
-waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backend" }
-waymark-garbage-collector-config = { path = "crates/lib/garbage-collector-config" }
 waymark-ids = { path = "crates/lib/ids" }
 waymark-ir-conversions = { path = "crates/lib/ir-conversions" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
@@ -66,7 +62,6 @@ waymark-runner-expr-fmt = { path = "crates/lib/runner-expr-fmt" }
 waymark-runner-retry-policy = { path = "crates/lib/runner-retry-policy" }
 waymark-runner-state = { path = "crates/lib/runner-state" }
 waymark-scheduler-backend = { path = "crates/lib/scheduler-backend" }
-waymark-scheduler-config = { path = "crates/lib/scheduler-config" }
 waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-sleep-compat = { path = "crates/lib/sleep-compat" }
@@ -86,9 +81,6 @@ waymark-support-test = { path = "crates/lib/support-test" }
 waymark-support-test-python = { path = "crates/lib/support-test-python" }
 waymark-synthetic-exception = { path = "crates/lib/synthetic-exception" }
 waymark-system-vm = { path = "crates/lib/system-vm" }
-waymark-tick-loop = { path = "crates/lib/tick-loop" }
-waymark-timed = { path = "crates/lib/timed" }
-waymark-timed-channel = { path = "crates/lib/timed-channel" }
 waymark-timed-future = { path = "crates/lib/timed-future" }
 waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
 waymark-transient-execution-bringup = { path = "crates/lib/transient-execution-bringup" }
@@ -96,8 +88,6 @@ waymark-transient-execution-worker-pool-bringup = { path = "crates/lib/transient
 waymark-transient-execution-worker-stream-bringup = { path = "crates/lib/transient-execution-worker-stream-bringup" }
 waymark-transient-sleep-reconciler = { path = "crates/lib/transient-sleep-reconciler" }
 waymark-typed-vec-serde = { path = "crates/lib/typed-vec-serde" }
-waymark-utils-futures = { path = "crates/lib/utils-futures" }
-waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-vm-ast-old = { path = "crates/lib/vm-ast-old" }
 waymark-vm-ast-old-fmt = { path = "crates/lib/vm-ast-old-fmt" }
 waymark-vm-ast-old-helpers = { path = "crates/lib/vm-ast-old-helpers" }
@@ -185,7 +175,6 @@ chrono = { version = "0.4", default-features = false }
 clap = "4.5"
 color-eyre = "0.6"
 console-subscriber = "0.5"
-const-sub-array = "0.1"
 cron = "0.12"
 dashmap = "6"
 derive-where = "1"
@@ -216,7 +205,6 @@ rustc-hash = "2"
 serde = "1"
 serde_json = "1"
 serial_test = "2"
-sha1_smol = "1"
 sha2 = "0.10"
 slotmap = "1"
 sqlx = { version = "0.8", default-features = false }
@@ -239,6 +227,5 @@ tracing-chrome = "0.7"
 tracing-futures = "0.2"
 tracing-subscriber = "0.3"
 typed_floats = "1"
-typle = "0.13"
 uuid = "1.23"
 zeroize = "1"
