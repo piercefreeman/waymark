@@ -135,6 +135,8 @@ pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> Execute
             ActionCallCorrelation,
         >::new(action_result_rx);
 
+    let cancellation = tokio_util::sync::CancellationToken::new();
+
     let waymark_transient_execution_bringup::Execution {
         workflow_outcome_rx,
         driver_handle,
@@ -143,15 +145,10 @@ pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> Execute
         action_call_requester,
         action_call_completions_provider,
         skip_sleep,
-        tokio_util::sync::CancellationToken::new(),
+        cancellation.clone(),
     );
 
-    // Wait for the driver to finish, then await the workflow outcome
-    // and forward it to out_tx.
     tokio::spawn(async move {
-        let Err(err) = driver_handle.await;
-        tracing::warn!(?err, "vm driver exited");
-
         let response = match workflow_outcome_rx.await {
             Ok(workflow_outcome) => convert_workflow_outcome_to_stream_response(workflow_outcome),
             Err(_recv_error) => {
@@ -165,6 +162,11 @@ pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> Execute
         };
 
         let _ = out_tx.send(response).await;
+
+        cancellation.cancel();
+
+        let Err(err) = driver_handle.await;
+        tracing::warn!(?err, "vm driver exited");
     });
 
     ExecuteChannels {
