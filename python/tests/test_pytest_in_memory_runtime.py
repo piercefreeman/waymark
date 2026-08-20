@@ -12,6 +12,11 @@ async def always_fails() -> None:
     raise ValueError("boom")
 
 
+@action
+async def instant(label: str) -> str:
+    return label
+
+
 @workflow
 class UnhandledFailureWorkflow(Workflow):
     async def run(self) -> None:
@@ -27,6 +32,15 @@ class SleepWorkflow(Workflow):
     async def run(self) -> str:
         await asyncio.sleep(20)
         return "done"
+
+
+@workflow
+class TimeoutPolicyWorkflow(Workflow):
+    async def run(self) -> str:
+        return await self.run_action(
+            instant("prompt"),
+            timeout=timedelta(seconds=30),
+        )
 
 
 @workflow
@@ -53,6 +67,15 @@ def test_pytest_runtime_skips_sleep_nodes() -> None:
     elapsed = time.monotonic() - started
 
     assert result == "done"
+    assert elapsed < 5.0
+
+
+def test_pytest_runtime_does_not_wait_out_action_timeouts() -> None:
+    started = time.monotonic()
+    result = asyncio.run(TimeoutPolicyWorkflow().run())
+    elapsed = time.monotonic() - started
+
+    assert result == "prompt"
     assert elapsed < 5.0
 
 
