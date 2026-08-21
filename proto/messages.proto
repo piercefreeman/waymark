@@ -34,16 +34,21 @@ message ActionDispatch {
   // Action execution details
   string action_name = 4;            // Name of the action function to call
   string module_name = 5;            // Python module containing the action
-  WorkflowArguments kwargs = 6;      // Keyword arguments for the action
+
+  // The call's arguments as one opaque encoded payload (the language's
+  // own arguments message — e.g. `waymark.python_value.ActionArguments`).
+  // The framing knows neither the values nor the shape of the argument
+  // list: both are the language's business. Empty means no arguments.
+  bytes arguments = 12;
 
   // Opaque server correlation metadata; workers echo it untouched.
   // This is the ONLY correlation: wire ids and per-attempt tokens were
   // retired once the action runtime began correlating on metadata alone.
   bytes metadata = 11;
 
-  reserved 1, 2, 3, 7, 8, 9, 10;
-  reserved "action_id", "instance_id", "sequence", "timeout_seconds",
-      "max_retries", "attempt_number", "dispatch_token";
+  reserved 1, 2, 3, 6, 7, 8, 9, 10;
+  reserved "action_id", "instance_id", "sequence", "kwargs",
+      "timeout_seconds", "max_retries", "attempt_number", "dispatch_token";
 }
 
 // Worker -> Server: result of action execution
