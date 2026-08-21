@@ -62,6 +62,18 @@ def build_arguments_from_kwargs(kwargs: dict[str, Any]) -> pb2.WorkflowArguments
     return arguments
 
 
+def action_arguments_to_kwargs(payload: bytes) -> dict[str, Any]:
+    """Decode an encoded ActionArguments payload into call kwargs.
+
+    The bytes carry this language's own arguments message; the entries
+    hold values directly. Empty bytes mean no arguments.
+    """
+    if not payload:
+        return {}
+    message = pb2v.ActionArguments.FromString(payload)
+    return {entry.key: loads(entry.value) for entry in message.arguments}
+
+
 def arguments_to_kwargs(arguments: pb2.WorkflowArguments | None) -> dict[str, Any]:
     if arguments is None:
         return {}

@@ -5,7 +5,6 @@
 mod from_proto;
 mod loss;
 mod to_dispatch;
-mod to_proto;
 
 /// A converter that provides conversion for the action runtime.
 pub struct Converter;
