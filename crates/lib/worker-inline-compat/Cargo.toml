@@ -5,7 +5,6 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
-waymark-action-runtime-convert = { workspace = true }
 waymark-action-runtime-core = { workspace = true }
 waymark-convert-core = { workspace = true }
 waymark-proto = { workspace = true }

@@ -49,7 +49,7 @@ fn decode_arguments(arguments: Vec<u8>) -> HashMap<String, ReadyValue> {
 /// that hands back a pending value names a promise no one can settle —
 /// a bug in the action body, not an outcome it produced.
 fn encode_result(outcome: waymark_action_runtime_core::ActionCallOutcome<ReadyValue>) -> Vec<u8> {
-    waymark_action_runtime_convert::Converter::try_convert(outcome)
+    waymark_vm_value_python_convert_proto::Converter::try_convert(outcome)
         .expect("an action body's outcome holds no pending promise")
 }
 
