@@ -330,9 +330,11 @@ where
                     }
                     // The execution produced no outcome; the promise
                     // settles raised with the loss's exception rendering.
-                    Err(loss) => PromiseResolution::Rejected(
-                        waymark_action_runtime_convert::Converter::convert(loss),
-                    ),
+                    Err(loss) => {
+                        PromiseResolution::Rejected(waymark_action_runtime_convert::Converter::<
+                            waymark_vm_value_python_convert_proto::Converter,
+                        >::convert(loss))
+                    }
                 };
 
                 PromiseSettlement {
