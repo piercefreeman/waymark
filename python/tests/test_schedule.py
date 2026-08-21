@@ -23,7 +23,7 @@ from waymark.schedule import (
     resume_schedule,
     schedule_workflow,
 )
-from waymark.serialization import arguments_to_kwargs
+from waymark.serialization import workflow_arguments_to_kwargs
 from waymark.workflow import Workflow, workflow
 
 
@@ -305,7 +305,7 @@ class TestScheduleWorkflow:
                 DemoScheduleWorkflowWithDefaults,
                 schedule_name="test-inputs",
                 schedule="0 0 * * *",
-                inputs={"batch_size": 100},
+                arguments={"batch_size": 100},
             )
         )
 
@@ -313,8 +313,8 @@ class TestScheduleWorkflow:
         call_args = mock_stub.RegisterSchedule.call_args
         request = call_args[0][0]
         assert request.schedule_name == "test-inputs"
-        assert request.HasField("inputs")
-        assert arguments_to_kwargs(request.inputs) == {"batch_size": 100}
+        assert request.arguments != b""
+        assert workflow_arguments_to_kwargs(request.arguments) == {"batch_size": 100}
 
     def test_schedule_workflow_uses_run_defaults(
         self, monkeypatch: pytest.MonkeyPatch, mock_stub: AsyncMock
@@ -334,8 +334,8 @@ class TestScheduleWorkflow:
         assert result == "schedule-101"
         call_args = mock_stub.RegisterSchedule.call_args
         request = call_args[0][0]
-        assert request.HasField("inputs")
-        assert arguments_to_kwargs(request.inputs) == {"batch_size": 50}
+        assert request.arguments != b""
+        assert workflow_arguments_to_kwargs(request.arguments) == {"batch_size": 50}
 
     def test_schedule_workflow_with_jitter(
         self, monkeypatch: pytest.MonkeyPatch, mock_stub: AsyncMock

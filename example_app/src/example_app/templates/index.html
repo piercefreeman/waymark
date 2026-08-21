@@ -565,8 +565,8 @@
                 </label>
                 <button type="submit">Queue Batch</button>
             </form>
-            <div class="hint" id="batch-hint">Inputs JSON: {"number": 7}</div>
-            <textarea id="batch-inputs" name="inputs" spellcheck="false">
+            <div class="hint" id="batch-hint">Arguments JSON: {"number": 7}</div>
+            <textarea id="batch-arguments" name="arguments" spellcheck="false">
 {"number": 7}</textarea
             >
             <div class="status" id="batch-status"></div>
@@ -1204,27 +1204,27 @@
             const batchForm = document.getElementById("batch-form");
             const batchStatus = document.getElementById("batch-status");
             const batchResult = document.getElementById("batch-result");
-            const batchInputs = document.getElementById("batch-inputs");
+            const batchArguments = document.getElementById("batch-arguments");
             const batchHint = document.getElementById("batch-hint");
             const batchWorkflowSelect =
                 document.getElementById("batch-workflow");
             const batchButton = batchForm.querySelector("button");
             const batchDefaults = {
                 ParallelMathWorkflow: {
-                    hint: 'Inputs JSON: {"number": 7}',
-                    inputs: '{"number": 7}',
+                    hint: 'Arguments JSON: {"number": 7}',
+                    arguments: '{"number": 7}',
                 },
                 ManyActionsWorkflow: {
-                    hint: 'Inputs JSON: {"action_count": 50, "parallel": true}',
-                    inputs: '{"action_count": 50, "parallel": true}',
+                    hint: 'Arguments JSON: {"action_count": 50, "parallel": true}',
+                    arguments: '{"action_count": 50, "parallel": true}',
                 },
                 LoopingSleepWorkflow: {
-                    hint: 'Inputs JSON: {"iterations": 3, "sleep_seconds": 2}',
-                    inputs: '{"iterations": 3, "sleep_seconds": 2}',
+                    hint: 'Arguments JSON: {"iterations": 3, "sleep_seconds": 2}',
+                    arguments: '{"iterations": 3, "sleep_seconds": 2}',
                 },
                 NoOpWorkflow: {
-                    hint: 'Inputs JSON: {"indices": [0, 1, 2, 3, 4], "complexity": 0}',
-                    inputs: '{"indices": [0, 1, 2, 3, 4], "complexity": 0}',
+                    hint: 'Arguments JSON: {"indices": [0, 1, 2, 3, 4], "complexity": 0}',
+                    arguments: '{"indices": [0, 1, 2, 3, 4], "complexity": 0}',
                 },
             };
 
@@ -1232,7 +1232,7 @@
                 const defaults = batchDefaults[workflowName];
                 if (!defaults) return;
                 batchHint.textContent = defaults.hint;
-                batchInputs.value = defaults.inputs;
+                batchArguments.value = defaults.arguments;
             }
 
             batchWorkflowSelect.addEventListener("change", (event) => {
@@ -1255,15 +1255,15 @@
                     .value.trim();
                 const include_instance_ids =
                     document.getElementById("batch-ids").checked;
-                const inputsText = batchInputs.value.trim();
+                const argumentsText = batchArguments.value.trim();
 
                 if (!Number.isFinite(count) || count < 1) return;
                 if (!Number.isFinite(batch_size) || batch_size < 1) return;
 
-                let inputs = null;
-                if (inputsText) {
+                let workflowArguments = null;
+                if (argumentsText) {
                     try {
-                        inputs = JSON.parse(inputsText);
+                        workflowArguments = JSON.parse(argumentsText);
                     } catch (error) {
                         batchStatus.textContent = `Invalid JSON: ${error.message}`;
                         batchStatus.className = "status error";
@@ -1277,8 +1277,8 @@
                     batch_size,
                     include_instance_ids,
                 };
-                if (inputs !== null) {
-                    payload.inputs = inputs;
+                if (workflowArguments !== null) {
+                    payload.arguments = workflowArguments;
                 }
                 if (priorityRaw !== "") {
                     const priority = Number(priorityRaw);
@@ -1386,7 +1386,7 @@
                     const number = Number(
                         form.querySelector("#schedule-input").value,
                     );
-                    const inputs = { number };
+                    const workflowArguments = { number };
                     if (schedule_type === "cron") {
                         const cron_expression = form
                             .querySelector("#schedule-cron")
@@ -1396,7 +1396,7 @@
                                   workflow_name,
                                   schedule_type,
                                   cron_expression,
-                                  inputs,
+                                  arguments: workflowArguments,
                               }
                             : null;
                     } else {
@@ -1408,7 +1408,7 @@
                                   workflow_name,
                                   schedule_type,
                                   interval_seconds,
-                                  inputs,
+                                  arguments: workflowArguments,
                               }
                             : null;
                     }

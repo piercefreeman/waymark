@@ -9,21 +9,6 @@ mod to_dispatch;
 /// A converter that provides conversion for the action runtime.
 pub struct Converter;
 
-/// Error decoding an embedded value out of a framing-level
-/// [`WorkflowArgument`]'s value bytes.
-///
-/// [`WorkflowArgument`]: waymark_proto::messages::WorkflowArgument
-#[derive(Debug, thiserror::Error)]
-#[error("decoding the encoded value of argument {key:?}")]
-pub struct DecodeArgumentError {
-    /// The framing-level argument name the bytes belonged to.
-    pub key: String,
-
-    /// The decode failure.
-    #[source]
-    pub source: prost::DecodeError,
-}
-
 /// The result named no outcome, so the worker never said how the call
 /// completed — neither a returned value nor a raised exception, which is
 /// a worker that violated the protocol rather than a call that produced

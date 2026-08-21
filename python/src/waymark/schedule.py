@@ -47,7 +47,7 @@ async def schedule_workflow(
     schedule_name: str,
     schedule: Union[str, timedelta],
     jitter: Optional[timedelta] = None,
-    inputs: Optional[Dict[str, Any]] = None,
+    arguments: Optional[Dict[str, Any]] = None,
     priority: Optional[int] = None,
     allow_duplicate: bool = False,
 ) -> str:
@@ -66,7 +66,7 @@ async def schedule_workflow(
         schedule: Either a cron expression string (e.g., "0 * * * *" for hourly)
                   or a timedelta for interval-based scheduling.
         jitter: Optional jitter window to add to each scheduled run.
-        inputs: Optional keyword arguments to pass to each scheduled run.
+        arguments: Optional keyword arguments to pass to each scheduled run.
         priority: Optional priority for queue ordering. Higher values are
                   processed first. Default is 0.
         allow_duplicate: If False (default), the scheduler skips creating a new
@@ -91,18 +91,18 @@ async def schedule_workflow(
             schedule=timedelta(minutes=5)
         )
 
-        # Multiple schedules with different inputs
+        # Multiple schedules with different arguments
         await schedule_workflow(
             MyWorkflow,
             schedule_name="small-batch",
             schedule="0 0 * * *",
-            inputs={"batch_size": 100}
+            arguments={"batch_size": 100}
         )
         await schedule_workflow(
             MyWorkflow,
             schedule_name="large-batch",
             schedule="0 12 * * *",
-            inputs={"batch_size": 1000}
+            arguments={"batch_size": 1000}
         )
 
         # High priority schedule
@@ -157,9 +157,9 @@ async def schedule_workflow(
         registration=registration,
     )
 
-    initial_context = workflow_cls._build_initial_context((), inputs or {})
-    if initial_context.arguments:
-        request.inputs.CopyFrom(initial_context)
+    workflow_arguments = workflow_cls._build_workflow_arguments((), arguments or {})
+    if workflow_arguments.arguments:
+        request.arguments = workflow_arguments.SerializeToString()
 
     if priority is not None:
         request.priority = priority
