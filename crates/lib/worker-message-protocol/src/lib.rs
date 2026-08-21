@@ -321,7 +321,7 @@ mod tests {
         proto::ActionDispatch {
             action_name: "do_work".to_string(),
             module_name: "workers.demo".to_string(),
-            kwargs: Some(proto::WorkflowArguments::default()),
+            arguments: Vec::new(),
             metadata: Vec::new(),
         }
     }
