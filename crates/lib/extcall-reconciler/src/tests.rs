@@ -90,7 +90,7 @@ async fn effect_handler_dispatches_action_call() {
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
     let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
         _,
-        waymark_action_runtime_convert::Converter,
+        waymark_action_runtime_convert::Converter<waymark_vm_value_python_convert_proto::Converter>,
     >::new(provider);
     let (sleep_handler, sleep_poller) =
         waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
@@ -128,7 +128,7 @@ async fn effect_handler_records_sleep() {
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
     let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
         _,
-        waymark_action_runtime_convert::Converter,
+        waymark_action_runtime_convert::Converter<waymark_vm_value_python_convert_proto::Converter>,
     >::new(provider);
     let (sleep_handler, sleep_poller) =
         waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
@@ -168,7 +168,7 @@ async fn action_settler_error_propagates() {
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
     let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
         _,
-        waymark_action_runtime_convert::Converter,
+        waymark_action_runtime_convert::Converter<waymark_vm_value_python_convert_proto::Converter>,
     >::new(provider);
     let (sleep_handler, sleep_poller) =
         waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
@@ -197,7 +197,7 @@ async fn sleep_settler_error_propagates() {
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
     let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
         _,
-        waymark_action_runtime_convert::Converter,
+        waymark_action_runtime_convert::Converter<waymark_vm_value_python_convert_proto::Converter>,
     >::new(provider);
     let (sleep_handler, sleep_poller) =
         waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
