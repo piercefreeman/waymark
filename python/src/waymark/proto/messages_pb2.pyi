@@ -287,53 +287,6 @@ class WorkerHello(google.protobuf.message.Message):
 Global___WorkerHello: typing_extensions.TypeAlias = WorkerHello
 
 @typing.final
-class WorkflowArgument(google.protobuf.message.Message):
-    """=============================================================================
-    Value Framing
-    =============================================================================
-    Named arguments at the transport framing level.  The names stay
-    proto-visible; each value is opaque encoded bytes whose format is
-    the producing language's own business (currently a serialized
-    `waymark.python_value.Value`, see python_value.proto).
-    """
-
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    KEY_FIELD_NUMBER: builtins.int
-    VALUE_FIELD_NUMBER: builtins.int
-    key: builtins.str
-    value: builtins.bytes
-    def __init__(
-        self,
-        *,
-        key: builtins.str = ...,
-        value: builtins.bytes = ...,
-    ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
-
-Global___WorkflowArgument: typing_extensions.TypeAlias = WorkflowArgument
-
-@typing.final
-class WorkflowArguments(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    ARGUMENTS_FIELD_NUMBER: builtins.int
-    @property
-    def arguments(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowArgument
-    ]: ...
-    def __init__(
-        self,
-        *,
-        arguments: collections.abc.Iterable[Global___WorkflowArgument] | None = ...,
-    ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["arguments", b"arguments"]) -> None: ...
-
-Global___WorkflowArguments: typing_extensions.TypeAlias = WorkflowArguments
-
-@typing.final
 class WorkflowRegistration(google.protobuf.message.Message):
     """=============================================================================
     Workflow Registration
@@ -349,7 +302,7 @@ class WorkflowRegistration(google.protobuf.message.Message):
     IR_FIELD_NUMBER: builtins.int
     IR_HASH_FIELD_NUMBER: builtins.int
     WORKFLOW_VERSION_FIELD_NUMBER: builtins.int
-    INITIAL_CONTEXT_FIELD_NUMBER: builtins.int
+    ARGUMENTS_FIELD_NUMBER: builtins.int
     PRIORITY_FIELD_NUMBER: builtins.int
     workflow_name: builtins.str
     ir: builtins.bytes
@@ -358,10 +311,16 @@ class WorkflowRegistration(google.protobuf.message.Message):
     """Hash of the IR for immutability checks"""
     workflow_version: builtins.str
     """User-defined version identifier"""
+    arguments: builtins.bytes
+    """The workflow's initial arguments as one opaque encoded payload (the
+    language's own arguments message — e.g.
+    `waymark.python_value.WorkflowArguments`).  The framing knows
+    neither the values nor the shape of the argument list.  Empty means
+    no arguments; inputs the payload does not name default to the
+    language's "nothing" value.
+    """
     priority: builtins.int
     """Priority for queue ordering (higher values are processed first, default 0)"""
-    @property
-    def initial_context(self) -> Global___WorkflowArguments: ...
     def __init__(
         self,
         *,
@@ -369,27 +328,19 @@ class WorkflowRegistration(google.protobuf.message.Message):
         ir: builtins.bytes = ...,
         ir_hash: builtins.str = ...,
         workflow_version: builtins.str = ...,
-        initial_context: Global___WorkflowArguments | None = ...,
+        arguments: builtins.bytes = ...,
         priority: builtins.int | None = ...,
     ) -> None: ...
     def HasField(
-        self,
-        field_name: typing.Literal[
-            "_priority",
-            b"_priority",
-            "initial_context",
-            b"initial_context",
-            "priority",
-            b"priority",
-        ],
+        self, field_name: typing.Literal["_priority", b"_priority", "priority", b"priority"]
     ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
             "_priority",
             b"_priority",
-            "initial_context",
-            b"initial_context",
+            "arguments",
+            b"arguments",
             "ir",
             b"ir",
             "ir_hash",
@@ -459,12 +410,18 @@ class RegisterWorkflowBatchRequest(google.protobuf.message.Message):
 
     REGISTRATION_FIELD_NUMBER: builtins.int
     COUNT_FIELD_NUMBER: builtins.int
-    INPUTS_FIELD_NUMBER: builtins.int
-    INPUTS_LIST_FIELD_NUMBER: builtins.int
+    ARGUMENTS_FIELD_NUMBER: builtins.int
+    ARGUMENTS_LIST_FIELD_NUMBER: builtins.int
     BATCH_SIZE_FIELD_NUMBER: builtins.int
     INCLUDE_INSTANCE_IDS_FIELD_NUMBER: builtins.int
     count: builtins.int
-    """Total number of instances to create when inputs_list is empty."""
+    """Total number of instances to create when arguments_list is empty."""
+    arguments: builtins.bytes
+    """Base arguments to apply to each instance when arguments_list is
+    empty: one opaque encoded arguments payload.  Absent means "fall
+    back to the registration's `arguments`"; present — even empty —
+    overrides.
+    """
     batch_size: builtins.int
     """Batch size for database inserts, clamped to a server-side maximum;
     0 means the server default.
@@ -474,47 +431,51 @@ class RegisterWorkflowBatchRequest(google.protobuf.message.Message):
     @property
     def registration(self) -> Global___WorkflowRegistration: ...
     @property
-    def inputs(self) -> Global___WorkflowArguments:
-        """Base inputs to apply to each instance when inputs_list is empty."""
-
-    @property
-    def inputs_list(
+    def arguments_list(
         self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowArguments
-    ]:
-        """Per-instance inputs (overrides count/inputs when provided)."""
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.bytes]:
+        """Per-instance arguments (overrides count/arguments when provided),
+        each an opaque encoded arguments payload.
+        """
 
     def __init__(
         self,
         *,
         registration: Global___WorkflowRegistration | None = ...,
         count: builtins.int = ...,
-        inputs: Global___WorkflowArguments | None = ...,
-        inputs_list: collections.abc.Iterable[Global___WorkflowArguments] | None = ...,
+        arguments: builtins.bytes | None = ...,
+        arguments_list: collections.abc.Iterable[builtins.bytes] | None = ...,
         batch_size: builtins.int = ...,
         include_instance_ids: builtins.bool = ...,
     ) -> None: ...
     def HasField(
-        self, field_name: typing.Literal["inputs", b"inputs", "registration", b"registration"]
+        self,
+        field_name: typing.Literal[
+            "_arguments", b"_arguments", "arguments", b"arguments", "registration", b"registration"
+        ],
     ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
+            "_arguments",
+            b"_arguments",
+            "arguments",
+            b"arguments",
+            "arguments_list",
+            b"arguments_list",
             "batch_size",
             b"batch_size",
             "count",
             b"count",
             "include_instance_ids",
             b"include_instance_ids",
-            "inputs",
-            b"inputs",
-            "inputs_list",
-            b"inputs_list",
             "registration",
             b"registration",
         ],
     ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_arguments", b"_arguments"]
+    ) -> typing.Literal["arguments"] | None: ...
 
 Global___RegisterWorkflowBatchRequest: typing_extensions.TypeAlias = RegisterWorkflowBatchRequest
 
@@ -750,12 +711,17 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
 
     WORKFLOW_NAME_FIELD_NUMBER: builtins.int
     SCHEDULE_FIELD_NUMBER: builtins.int
-    INPUTS_FIELD_NUMBER: builtins.int
+    ARGUMENTS_FIELD_NUMBER: builtins.int
     REGISTRATION_FIELD_NUMBER: builtins.int
     SCHEDULE_NAME_FIELD_NUMBER: builtins.int
     PRIORITY_FIELD_NUMBER: builtins.int
     ALLOW_DUPLICATE_FIELD_NUMBER: builtins.int
     workflow_name: builtins.str
+    arguments: builtins.bytes
+    """Arguments to pass to each scheduled run — one opaque encoded
+    arguments payload, same plane and emptiness semantics as
+    `WorkflowRegistration.arguments`.
+    """
     schedule_name: builtins.str
     """Required: unique name for this schedule. Allows multiple schedules per workflow
     with different inputs. Must be unique within a workflow.
@@ -769,10 +735,6 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
     @property
     def schedule(self) -> Global___ScheduleDefinition: ...
     @property
-    def inputs(self) -> Global___WorkflowArguments:
-        """Optional: inputs to pass to each scheduled run"""
-
-    @property
     def registration(self) -> Global___WorkflowRegistration:
         """Optional: workflow registration to register the workflow before scheduling.
         If provided, the workflow version will be registered (or updated) before
@@ -785,7 +747,7 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
         *,
         workflow_name: builtins.str = ...,
         schedule: Global___ScheduleDefinition | None = ...,
-        inputs: Global___WorkflowArguments | None = ...,
+        arguments: builtins.bytes = ...,
         registration: Global___WorkflowRegistration | None = ...,
         schedule_name: builtins.str = ...,
         priority: builtins.int | None = ...,
@@ -800,8 +762,6 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
             b"_priority",
             "allow_duplicate",
             b"allow_duplicate",
-            "inputs",
-            b"inputs",
             "priority",
             b"priority",
             "registration",
@@ -819,8 +779,8 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
             b"_priority",
             "allow_duplicate",
             b"allow_duplicate",
-            "inputs",
-            b"inputs",
+            "arguments",
+            b"arguments",
             "priority",
             b"priority",
             "registration",
