@@ -4568,6 +4568,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-maybe-serde"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "waymark-message-conversions"
 version = "0.1.0"
 dependencies = [
@@ -4611,6 +4618,10 @@ dependencies = [
  "tracing-chrome",
  "tracing-subscriber",
 ]
+
+[[package]]
+name = "waymark-phantom-uninhabitable"
+version = "0.1.0"
 
 [[package]]
 name = "waymark-pool-status"
