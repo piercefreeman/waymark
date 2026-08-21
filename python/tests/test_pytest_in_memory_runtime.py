@@ -54,6 +54,21 @@ class ListMergeSyntaxWorkflow(Workflow):
         return left
 
 
+@workflow
+class ResultKeyMappingWorkflow(Workflow):
+    async def run(self) -> dict[str, str]:
+        return {
+            "result": "inner",
+            "other": "must not be lost",
+        }
+
+
+@workflow
+class SingleKeyMappingWorkflow(Workflow):
+    async def run(self) -> dict[str, str]:
+        return {"only": "value"}
+
+
 def test_pytest_runtime_raises_for_unhandled_action_failure() -> None:
     with pytest.raises(RuntimeError, match="workflow failed") as exc_info:
         asyncio.run(UnhandledFailureWorkflow().run())
@@ -83,3 +98,20 @@ def test_pytest_runtime_executes_list_merge_syntax_variants() -> None:
     result = asyncio.run(ListMergeSyntaxWorkflow().run())
 
     assert result == [0, 1, 2, 3, 4, 5, 3, 4]
+
+
+def test_pytest_runtime_preserves_mapping_with_result_key() -> None:
+    """A returned mapping must not treat one user field as an envelope."""
+    result = asyncio.run(ResultKeyMappingWorkflow().run())
+
+    assert result == {
+        "result": "inner",
+        "other": "must not be lost",
+    }
+
+
+def test_pytest_runtime_preserves_single_key_mapping() -> None:
+    """A single-entry mapping must round-trip as a mapping, not its value."""
+    result = asyncio.run(SingleKeyMappingWorkflow().run())
+
+    assert result == {"only": "value"}
