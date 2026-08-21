@@ -304,7 +304,7 @@ impl TryConvert<&[u8], proto_value::ActionOutcome> for Converter {
 #[derive(Debug, thiserror::Error)]
 #[error("argument {key:?} carries no value")]
 pub struct MissingArgumentValueError {
-    /// The framing key of the value-less entry.
+    /// The key of the value-less entry.
     pub key: String,
 }
 
@@ -382,6 +382,40 @@ impl TryConvert<&proto_value::ActionArguments, Vec<(String, ReadyValue)>> for Co
 
     fn try_convert(
         message: &proto_value::ActionArguments,
+    ) -> Result<Vec<(String, ReadyValue)>, Self::Error> {
+        message
+            .arguments
+            .iter()
+            .map(|argument| {
+                let value = argument
+                    .value
+                    .as_ref()
+                    .ok_or_else(|| MissingArgumentValueError {
+                        key: argument.key.clone(),
+                    })?;
+                Ok((argument.key.clone(), Self::convert(value)))
+            })
+            .collect()
+    }
+}
+
+/// Read a workflow arguments message back from the initiation payload's
+/// bytes.
+impl TryConvert<&[u8], proto_value::WorkflowArguments> for Converter {
+    type Error = prost::DecodeError;
+
+    fn try_convert(bytes: &[u8]) -> Result<proto_value::WorkflowArguments, Self::Error> {
+        prost::Message::decode(bytes)
+    }
+}
+
+/// Convert a workflow arguments message into the named ready values it
+/// carries, in message order.
+impl TryConvert<&proto_value::WorkflowArguments, Vec<(String, ReadyValue)>> for Converter {
+    type Error = MissingArgumentValueError;
+
+    fn try_convert(
+        message: &proto_value::WorkflowArguments,
     ) -> Result<Vec<(String, ReadyValue)>, Self::Error> {
         message
             .arguments
@@ -552,8 +586,7 @@ mod tests {
     #[test]
     fn bytes_round_trip_and_match_the_encoded_message() {
         // The byte conversion IS the encoded proto message, byte for
-        // byte — what the framing-level `WorkflowArgument.value`
-        // carries.
+        // byte.
         let value = ReadyValue::Dict(IndexMap::from([
             ("zebra".to_owned(), ready(ReadyValue::Int(1))),
             ("apple".to_owned(), ready(ReadyValue::Int(2))),
@@ -580,5 +613,60 @@ mod tests {
             written.expect_err("a pending promise has no encoding"),
             PendingPromiseError(waymark_vm_runtime_promise_core::PromiseStateId(7)),
         );
+    }
+
+    #[test]
+    fn action_arguments_round_trip_named_values_in_pairing_order() {
+        // The bytes are the encoded arguments message, byte for byte, and
+        // read back as the named values in the order they were paired.
+        let names = ["zebra".to_owned(), "apple".to_owned()];
+        let values = [ReadyValue::Int(1), ReadyValue::String("two".to_owned())];
+
+        let bytes: Vec<u8> =
+            Converter::try_convert((&names[..], &values[..])).expect("no pending promise");
+        let message: proto_value::ActionArguments =
+            Converter::try_convert((&names[..], &values[..])).expect("no pending promise");
+        assert_eq!(bytes, prost::Message::encode_to_vec(&message));
+
+        let read: proto_value::ActionArguments =
+            Converter::try_convert(bytes.as_slice()).expect("the bytes decode");
+        let named: Vec<(String, ReadyValue)> =
+            Converter::try_convert(&read).expect("every entry carries a value");
+        assert_eq!(
+            named,
+            vec![
+                ("zebra".to_owned(), ReadyValue::Int(1)),
+                ("apple".to_owned(), ReadyValue::String("two".to_owned())),
+            ]
+        );
+    }
+
+    #[test]
+    fn none_valued_action_arguments_are_left_out() {
+        // A `None` argument is a dependency marker for the Python side
+        // to resolve from the signature, so it never reaches the message.
+        let names = ["dependency".to_owned(), "count".to_owned()];
+        let values = [ReadyValue::None, ReadyValue::Int(3)];
+
+        let message: proto_value::ActionArguments =
+            Converter::try_convert((&names[..], &values[..])).expect("no pending promise");
+        let named: Vec<(String, ReadyValue)> =
+            Converter::try_convert(&message).expect("every entry carries a value");
+        assert_eq!(named, vec![("count".to_owned(), ReadyValue::Int(3))]);
+    }
+
+    #[test]
+    fn a_value_less_action_argument_entry_is_refused() {
+        let message = proto_value::ActionArguments {
+            arguments: vec![proto_value::ActionArgument {
+                key: "orphan".to_owned(),
+                value: None,
+            }],
+        };
+
+        let read: Result<Vec<(String, ReadyValue)>, _> = Converter::try_convert(&message);
+
+        let error = read.expect_err("an entry without a value is malformed");
+        assert_eq!(error.key, "orphan");
     }
 }
