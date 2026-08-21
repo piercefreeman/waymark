@@ -371,27 +371,23 @@ pub struct RuntimeInterpreter {
     pure: PureSetInterpreter<TestSpec, FunctionId, StateId, TestValue>,
 }
 
-impl<Executable>
-    waymark_vm_runtime_core::CaptureRuntimeView<Executable, FunctionId, StateId, TestValue>
-    for RuntimeInterpreter
+impl<'s, 'r, Executable>
+    waymark_vm_interpreter::CaptureRuntimeView<
+        's,
+        waymark_vm_runtime_core::FullRuntimeView<'r, Executable, FunctionId, StateId, TestValue>,
+    > for RuntimeInterpreter
 {
-    type RuntimeView<'v>
-        = ()
-    where
-        Executable: 'v,
-        FunctionId: 'v,
-        StateId: 'v,
-        TestValue: 'v;
+    type Captured = ();
 
-    fn capture_runtime_view<'r>(
-        _view: waymark_vm_runtime_core::FullRuntimeView<
+    fn capture_runtime_view(
+        _source: &'s mut waymark_vm_runtime_core::FullRuntimeView<
             'r,
             Executable,
             FunctionId,
             StateId,
             TestValue,
         >,
-    ) -> Self::RuntimeView<'r> {
+    ) -> Self::Captured {
     }
 }
 
