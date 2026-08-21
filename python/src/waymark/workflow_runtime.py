@@ -8,20 +8,12 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, Dict, get_type_hints
 
-from pydantic import BaseModel
-
 from waymark.proto import messages_pb2 as pb2
 
 from .dependencies import provide_dependencies
 from .registry import registry
 from .serialization import arguments_to_kwargs
 from .type_coercion import coerce_value as _coerce_value
-
-
-class WorkflowNodeResult(BaseModel):
-    """Result from a workflow node execution containing variable bindings."""
-
-    variables: Dict[str, Any]
 
 
 @dataclass

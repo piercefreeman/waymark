@@ -4239,6 +4239,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-blanket-impl-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "waymark-blocking-future"
 version = "0.1.0"
 dependencies = [
@@ -4825,6 +4834,9 @@ dependencies = [
 [[package]]
 name = "waymark-state-vm-runtimes-backend"
 version = "0.1.0"
+dependencies = [
+ "waymark-blanket-impl-macros",
+]
 
 [[package]]
 name = "waymark-state-vm-runtimes-core"
@@ -5150,6 +5162,7 @@ dependencies = [
 name = "waymark-vm-compiler-for-ast-old-core"
 version = "0.1.0"
 dependencies = [
+ "waymark-blanket-impl-macros",
  "waymark-vm-ast-old",
  "waymark-vm-bytecode",
  "waymark-vm-bytecode-core",
@@ -5279,6 +5292,7 @@ version = "0.1.0"
 dependencies = [
  "derive-where",
  "serde",
+ "waymark-blanket-impl-macros",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
@@ -5302,6 +5316,7 @@ version = "0.1.0"
 dependencies = [
  "derive-where",
  "thiserror",
+ "waymark-blanket-impl-macros",
  "waymark-vm-bytecode",
  "waymark-vm-exception-handler",
  "waymark-vm-executable",
@@ -5321,6 +5336,7 @@ version = "0.1.0"
 dependencies = [
  "derive-where",
  "thiserror",
+ "waymark-blanket-impl-macros",
  "waymark-nonzero-duration",
  "waymark-vm-bytecode",
  "waymark-vm-instructions-extcallset",
@@ -5339,6 +5355,7 @@ version = "0.1.0"
 dependencies = [
  "derive-where",
  "thiserror",
+ "waymark-blanket-impl-macros",
  "waymark-nonzero-duration",
  "waymark-vm-bytecode",
  "waymark-vm-exception-handler",
@@ -5366,6 +5383,7 @@ dependencies = [
  "derive-where",
  "static_assertions",
  "thiserror",
+ "waymark-blanket-impl-macros",
  "waymark-vm-exception-type-ids",
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter",
@@ -5458,6 +5476,7 @@ dependencies = [
  "index_type",
  "serde",
  "thiserror",
+ "waymark-blanket-impl-macros",
 ]
 
 [[package]]
@@ -5831,6 +5850,7 @@ name = "waymark-workflow-completion-backend"
 version = "0.1.0"
 dependencies = [
  "nonempty-collections",
+ "waymark-blanket-impl-macros",
 ]
 
 [[package]]
@@ -5926,6 +5946,7 @@ name = "waymark-workload-pinning-backend"
 version = "0.1.0"
 dependencies = [
  "nonempty-collections",
+ "waymark-blanket-impl-macros",
  "waymark-workload-pinning-core",
 ]
 

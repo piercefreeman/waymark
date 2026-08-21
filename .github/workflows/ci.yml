@@ -596,7 +596,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             artifact-name: waymark-wheel-Linux-x86_64
             build-sdist: true
           - os: ubuntu-24.04-arm
@@ -643,6 +643,23 @@ jobs:
 
       - name: Build wheel artifact
         run: uv run scripts/build_wheel.py --out-dir target/wheels
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ runner.os == 'macOS' && '11.0' || '' }}
+
+      - name: Verify macOS wheel compatibility
+        if: runner.os == 'macOS'
+        run: |
+          test -n "$(find target/wheels -name '*-macosx_11_0_arm64.whl' -print -quit)"
+          otool -l target/release/waymark-bridge | grep -A 3 LC_BUILD_VERSION | grep -q 'minos 11.0'
+
+      - name: Repair Linux wheel
+        if: runner.os == 'Linux'
+        run: |
+          # PyPI rejects raw linux_* tags; auditwheel checks the bundled Rust binaries and emits a compatible manylinux tag.
+          uvx --from auditwheel==6.8.1 auditwheel repair \
+            --patcher none \
+            --wheel-dir target/repaired-wheels \
+            target/wheels/*.whl
 
       - name: Build sdist artifact
         if: matrix.build-sdist
@@ -659,7 +676,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact-name }}
-          path: target/wheels/*.whl
+          path: ${{ runner.os == 'Linux' && 'target/repaired-wheels/*.whl' || 'target/wheels/*.whl' }}
 
   package-release:
     runs-on: ubuntu-latest

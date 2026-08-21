@@ -5,7 +5,7 @@ use waymark_workflow_completion_convert_proto::Converter;
 use waymark_workflow_completion_core::Outcome;
 
 #[test]
-fn completion_wraps_primitive_in_workflow_node_result() {
+fn completion_produces_single_result_argument() {
     use waymark_proto::messages::{
         primitive_workflow_argument::Kind as PrimitiveKind, workflow_argument_value::Kind,
     };
@@ -17,43 +17,78 @@ fn completion_wraps_primitive_in_workflow_node_result() {
     let result_arg = &args.arguments[0];
     assert_eq!(result_arg.key, "result");
 
-    let Some(Kind::Basemodel(basemodel)) = result_arg
+    // The completion value travels as-is: no envelope around it.
+    let Some(Kind::Primitive(primitive)) = result_arg
         .value
         .as_ref()
         .and_then(|value| value.kind.as_ref())
     else {
-        panic!("expected a BaseModel-wrapped result, got {result_arg:?}");
-    };
-    assert_eq!(basemodel.module, "waymark.workflow_runtime");
-    assert_eq!(basemodel.name, "WorkflowNodeResult");
-
-    let variables = &basemodel
-        .data
-        .as_ref()
-        .expect("basemodel carries a dict")
-        .entries;
-    assert_eq!(variables.len(), 1);
-    assert_eq!(variables[0].key, "variables");
-
-    // A non-object completion value is nested under a `result` key.
-    let Some(Kind::DictValue(dict)) = variables[0]
-        .value
-        .as_ref()
-        .and_then(|value| value.kind.as_ref())
-    else {
-        panic!("expected variables to be a dict");
-    };
-    assert_eq!(dict.entries.len(), 1);
-    assert_eq!(dict.entries[0].key, "result");
-
-    let Some(Kind::Primitive(primitive)) = dict.entries[0]
-        .value
-        .as_ref()
-        .and_then(|value| value.kind.as_ref())
-    else {
-        panic!("expected the wrapped result to be a primitive");
+        panic!("expected the result to be a primitive, got {result_arg:?}");
     };
     assert_eq!(primitive.kind, Some(PrimitiveKind::IntValue(42)));
+}
+
+#[test]
+fn completion_dict_passes_through_verbatim() {
+    use waymark_proto::messages::{
+        primitive_workflow_argument::Kind as PrimitiveKind, workflow_argument_value::Kind,
+    };
+
+    // A dict completion is user data, even when its keys collide with the
+    // argument names of the completion plane (`result`).
+    let outcome = Outcome::Completion(waymark_vm_value::ReadyValue::Dict(
+        [
+            (
+                "result".to_string(),
+                waymark_vm_value::Value::Ready(waymark_vm_value::ReadyValue::String(
+                    "inner".to_string(),
+                )),
+            ),
+            (
+                "other".to_string(),
+                waymark_vm_value::Value::Ready(waymark_vm_value::ReadyValue::String(
+                    "kept".to_string(),
+                )),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    ));
+    let args = Converter::try_convert(outcome).expect("conversion is infallible for ready dicts");
+
+    assert_eq!(args.arguments.len(), 1);
+    let result_arg = &args.arguments[0];
+    assert_eq!(result_arg.key, "result");
+
+    let Some(Kind::DictValue(dict)) = result_arg
+        .value
+        .as_ref()
+        .and_then(|value| value.kind.as_ref())
+    else {
+        panic!("expected the result to be a dict, got {result_arg:?}");
+    };
+    let string_entry = |key: &str| {
+        let entry = dict
+            .entries
+            .iter()
+            .find(|entry| entry.key == key)
+            .unwrap_or_else(|| panic!("missing dict entry {key:?}"));
+        let Some(Kind::Primitive(primitive)) =
+            entry.value.as_ref().and_then(|value| value.kind.as_ref())
+        else {
+            panic!("expected the dict entry {key:?} to be a primitive");
+        };
+        primitive.kind.clone()
+    };
+    assert_eq!(dict.entries.len(), 2);
+    assert_eq!(
+        string_entry("result"),
+        Some(PrimitiveKind::StringValue("inner".to_string())),
+    );
+    assert_eq!(
+        string_entry("other"),
+        Some(PrimitiveKind::StringValue("kept".to_string())),
+    );
 }
 
 #[test]
