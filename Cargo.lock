@@ -5198,6 +5198,8 @@ dependencies = [
  "waymark-vm-bytecode-core",
  "waymark-vm-compiler-for-ast-old",
  "waymark-vm-runtime",
+ "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
  "waymark-workflow-completion-convert-proto",
  "waymark-workflow-completion-core",
  "waymark-workflow-initialization-convert-proto",
