@@ -33,7 +33,7 @@ from .actions import deserialize_result_payload
 from .ir_builder import build_workflow_ir
 from .logger import configure as configure_logger
 from .serialization import build_arguments_from_kwargs
-from .workflow_runtime import WorkflowNodeResult, _coerce_value
+from .workflow_runtime import _coerce_value
 
 logger = configure_logger("waymark.workflow")
 
@@ -284,25 +284,6 @@ def _deserialize_workflow_result(
         raise RuntimeError(f"workflow failed: {result.error}")
 
     value = result.result
-
-    # Unwrap WorkflowNodeResult if present (internal worker representation)
-    if isinstance(value, WorkflowNodeResult):
-        variables = value.variables
-        program = workflow_cls.workflow_ir()
-        value = None
-        if program.functions:
-            outputs = list(program.functions[0].io.outputs)
-            for name in outputs:
-                if name in variables:
-                    value = variables[name]
-                    break
-        if value is None:
-            if "result" in variables:
-                value = variables["result"]
-            elif len(variables) == 1:
-                value = next(iter(variables.values()))
-            else:
-                value = variables
     target_type = _resolve_return_type(workflow_cls)
     if target_type is None:
         return value
