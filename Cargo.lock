@@ -4253,7 +4253,6 @@ dependencies = [
  "waymark-convert-core",
  "waymark-ids",
  "waymark-proto",
- "waymark-vm-value-convert-core",
  "waymark-vm-value-python",
  "waymark-vm-value-python-convert-proto",
  "waymark-worker-core",
@@ -4506,6 +4505,8 @@ dependencies = [
  "waymark-system-vm",
  "waymark-vm-codec-rmp",
  "waymark-vm-interpreter-fullset",
+ "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
  "waymark-worker-core",
  "waymark-workflow-completion",
  "waymark-workflow-completion-backend",
@@ -5172,6 +5173,8 @@ dependencies = [
  "waymark-action-runtime-worker-pool",
  "waymark-system-vm",
  "waymark-transient-execution-bringup",
+ "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
  "waymark-worker-core",
 ]
 

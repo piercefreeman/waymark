@@ -468,6 +468,21 @@ impl TryConvert<&[u8], waymark_action_runtime_core::ActionCallOutcome<ReadyValue
     }
 }
 
+/// Read how an action call completed from an owned result payload.
+///
+/// The by-value form of the slice read: transports hand the payload
+/// over whole, so the conversion's error type stays free of the
+/// payload's lifetime.
+impl TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<ReadyValue>> for Converter {
+    type Error = ActionOutcomeError;
+
+    fn try_convert(
+        bytes: Vec<u8>,
+    ) -> Result<waymark_action_runtime_core::ActionCallOutcome<ReadyValue>, Self::Error> {
+        Self::try_convert(bytes.as_slice())
+    }
+}
+
 /// Convert how an action call completed into the flavor's outcome
 /// message: a returned value in the `value` arm, a raised exception in
 /// the `exception` arm.
