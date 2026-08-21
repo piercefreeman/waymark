@@ -62,26 +62,38 @@ def deserialize_action_result(result: pb2.ActionResult) -> ActionResultPayload:
             assert_never(outcome)
 
 
-def deserialize_result_payload(payload: pb2.WorkflowArguments | None) -> ActionResultPayload:
-    """Deserialize a workflow-completion payload.
+@dataclass
+class WorkflowOutcomePayload:
+    result: Any | None
+    error: dict[str, Any] | None
 
-    Workflow completions still travel as named arguments carrying a
-    `result` or an `error` value — a separate plane from the action
-    results above, which discriminate structurally.
+
+def deserialize_workflow_outcome(payload: bytes) -> WorkflowOutcomePayload:
+    """Deserialize an encoded [`WorkflowOutcome`] completion payload.
+
+    Workflow completions discriminate structurally, like the action
+    results above: the value the workflow returned, or the exception
+    that ended it.
     """
-    if payload is None:
-        return ActionResultPayload(result=None, error=None)
-    values = {entry.key: entry.value for entry in payload.arguments}
-    if "error" in values:
-        error_value = values["error"]
-        data = loads(error_value)
-        if not isinstance(data, dict):
-            raise ValueError("error payload must deserialize to a mapping")
-        return ActionResultPayload(result=None, error=data)
-    result_value = values.get("result")
-    if result_value is None:
-        raise ValueError("result payload missing 'result' field")
-    return ActionResultPayload(result=loads(result_value), error=None)
+    outcome_value = pb2v.WorkflowOutcome()
+    outcome_value.ParseFromString(payload)
+
+    outcome = outcome_value.WhichOneof("outcome")
+    match outcome:
+        case "value":
+            return WorkflowOutcomePayload(result=loads(outcome_value.value), error=None)
+        case "exception":
+            return WorkflowOutcomePayload(
+                result=None,
+                error={
+                    "type_id": outcome_value.exception.type_id,
+                    "details": loads(outcome_value.exception.details),
+                },
+            )
+        case None:
+            raise ValueError("workflow outcome names neither arm")
+        case _:
+            assert_never(outcome)
 
 
 @overload

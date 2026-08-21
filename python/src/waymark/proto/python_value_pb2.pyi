@@ -252,6 +252,49 @@ class ActionOutcome(google.protobuf.message.Message):
 Global___ActionOutcome: typing_extensions.TypeAlias = ActionOutcome
 
 @typing.final
+class WorkflowOutcome(google.protobuf.message.Message):
+    """How a workflow instance completed, in this language's terms: the value
+    the workflow returned, or the exception that ended it.
+
+    The server -> client counterpart of `ActionOutcome`, kept separate
+    because the two planes can diverge independently. The completion value
+    travels as-is: user data is never mistaken for framing, whatever shape
+    it takes.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    VALUE_FIELD_NUMBER: builtins.int
+    EXCEPTION_FIELD_NUMBER: builtins.int
+    @property
+    def value(self) -> Global___Value: ...
+    @property
+    def exception(self) -> Global___ExceptionValue: ...
+    def __init__(
+        self,
+        *,
+        value: Global___Value | None = ...,
+        exception: Global___ExceptionValue | None = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing.Literal[
+            "exception", b"exception", "outcome", b"outcome", "value", b"value"
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "exception", b"exception", "outcome", b"outcome", "value", b"value"
+        ],
+    ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing.Literal["outcome", b"outcome"]
+    ) -> typing.Literal["value", "exception"] | None: ...
+
+Global___WorkflowOutcome: typing_extensions.TypeAlias = WorkflowOutcome
+
+@typing.final
 class ExceptionValue(google.protobuf.message.Message):
     """A raised exception, shaped as the VM models one: the type identifying
     it, and the details value carried alongside.
