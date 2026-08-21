@@ -190,7 +190,8 @@ impl WorkflowStore {
         &self,
         instance_id: InstanceId,
         poll_interval: Duration,
-    ) -> Result<Option<proto::WorkflowArguments>, color_eyre::eyre::Report> {
+    ) -> Result<Option<waymark_proto::python_value::WorkflowOutcome>, color_eyre::eyre::Report>
+    {
         let outcome = match self
             .outcome_polling
             .wait_for_outcome(&instance_id, poll_interval)
@@ -203,10 +204,10 @@ impl WorkflowStore {
             Err(err) => return Err(color_eyre::eyre::eyre!("wait for outcome: {err}")),
         };
 
-        let arguments = waymark_workflow_completion_convert_proto::Converter::try_convert(outcome)
+        let outcome = waymark_workflow_completion_convert_proto::Converter::try_convert(outcome)
             .map_err(|err| color_eyre::eyre::eyre!("convert workflow outcome: {err}"))?;
 
-        Ok(Some(arguments))
+        Ok(Some(outcome))
     }
 
     /// Register (or re-point) a schedule: compile and pin the workflow,

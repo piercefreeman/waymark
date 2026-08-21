@@ -1,26 +1,25 @@
 //! Happy-path coverage for the workflow-completion result converter.
 
 use waymark_convert_core::TryConvert;
+use waymark_proto::python_value::workflow_outcome::Outcome as ProtoOutcome;
 use waymark_workflow_completion_convert_proto::Converter;
 use waymark_workflow_completion_core::Outcome;
 
 #[test]
-fn completion_produces_single_result_argument() {
+fn completion_produces_value_outcome() {
     use waymark_proto::python_value::{primitive_value::Kind as PrimitiveKind, value::Kind};
 
     let outcome = Outcome::Completion(waymark_vm_value_python::ReadyValue::Int(42));
-    let args = Converter::try_convert(outcome).expect("conversion is infallible for ready ints");
+    let result: waymark_proto::python_value::WorkflowOutcome =
+        Converter::try_convert(outcome).expect("conversion is infallible for ready ints");
 
-    assert_eq!(args.arguments.len(), 1);
-    let result_arg = &args.arguments[0];
-    assert_eq!(result_arg.key, "result");
-
-    // The completion value travels as-is: no envelope around it.
-    let result_value: waymark_proto::python_value::Value =
-        waymark_vm_value_python_convert_proto::Converter::try_convert(result_arg.value.as_slice())
-            .expect("result argument value decodes");
-    let Some(Kind::Primitive(primitive)) = &result_value.kind else {
-        panic!("expected the result to be a primitive, got {result_value:?}");
+    // The completion value travels as-is in the `value` arm: no envelope
+    // around it.
+    let Some(ProtoOutcome::Value(value)) = &result.outcome else {
+        panic!("expected a value outcome, got {result:?}");
+    };
+    let Some(Kind::Primitive(primitive)) = &value.kind else {
+        panic!("expected the result to be a primitive, got {value:?}");
     };
     assert_eq!(primitive.kind, Some(PrimitiveKind::IntValue(42)));
 }
@@ -29,8 +28,8 @@ fn completion_produces_single_result_argument() {
 fn completion_dict_passes_through_verbatim() {
     use waymark_proto::python_value::{primitive_value::Kind as PrimitiveKind, value::Kind};
 
-    // A dict completion is user data, even when its keys collide with the
-    // argument names of the completion plane (`result`).
+    // A dict completion is user data: no key it carries can collide with
+    // the outcome structure, `result` included.
     let outcome = Outcome::Completion(waymark_vm_value_python::ReadyValue::Dict(
         [
             (
@@ -49,17 +48,14 @@ fn completion_dict_passes_through_verbatim() {
         .into_iter()
         .collect(),
     ));
-    let args = Converter::try_convert(outcome).expect("conversion is infallible for ready dicts");
+    let result: waymark_proto::python_value::WorkflowOutcome =
+        Converter::try_convert(outcome).expect("conversion is infallible for ready dicts");
 
-    assert_eq!(args.arguments.len(), 1);
-    let result_arg = &args.arguments[0];
-    assert_eq!(result_arg.key, "result");
-
-    let result_value: waymark_proto::python_value::Value =
-        waymark_vm_value_python_convert_proto::Converter::try_convert(result_arg.value.as_slice())
-            .expect("result argument value decodes");
-    let Some(Kind::DictValue(dict)) = &result_value.kind else {
-        panic!("expected the result to be a dict, got {result_value:?}");
+    let Some(ProtoOutcome::Value(value)) = &result.outcome else {
+        panic!("expected a value outcome, got {result:?}");
+    };
+    let Some(Kind::DictValue(dict)) = &value.kind else {
+        panic!("expected the result to be a dict, got {value:?}");
     };
     let string_entry = |key: &str| {
         let entry = dict
@@ -86,34 +82,27 @@ fn completion_dict_passes_through_verbatim() {
 }
 
 #[test]
-fn exception_outcome_produces_single_error_argument() {
-    use waymark_proto::python_value::primitive_value::Kind as PrimitiveKind;
-    use waymark_proto::python_value::value::Kind;
+fn exception_outcome_produces_exception_arm() {
+    use waymark_proto::python_value::{primitive_value::Kind as PrimitiveKind, value::Kind};
 
     let exception = waymark_vm_runtime_exception::Exception {
         type_id: "ValueError".to_string(),
         details: waymark_vm_value_python::ReadyValue::String("boom".to_string()),
     };
-    let args = Converter::try_convert(Outcome::Exception(exception))
-        .expect("conversion is infallible for ready exceptions");
-
-    assert_eq!(args.arguments.len(), 1);
-    let error_arg = &args.arguments[0];
-    assert_eq!(error_arg.key, "error");
+    let result: waymark_proto::python_value::WorkflowOutcome =
+        Converter::try_convert(Outcome::Exception(exception))
+            .expect("conversion is infallible for ready exceptions");
 
     // The error payload is the exception itself, not a dict standing in
     // for one: the type identifying it and the details it carries.
-    let error_value: waymark_proto::python_value::Value =
-        waymark_vm_value_python_convert_proto::Converter::try_convert(error_arg.value.as_slice())
-            .expect("error argument value decodes");
-    let Some(Kind::Exception(exception)) = &error_value.kind else {
-        panic!("expected the error payload to be an exception, got {error_value:?}");
+    let Some(ProtoOutcome::Exception(exception)) = &result.outcome else {
+        panic!("expected an exception outcome, got {result:?}");
     };
     assert_eq!(exception.type_id, "ValueError");
 
     let details = exception
         .details
-        .as_deref()
+        .as_ref()
         .expect("the exception carries its details");
     let Some(Kind::Primitive(primitive)) = &details.kind else {
         panic!("expected the details to be a primitive, got {details:?}");
