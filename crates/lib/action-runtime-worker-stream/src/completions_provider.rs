@@ -12,7 +12,7 @@ use waymark_proto::messages as proto;
 /// concretely: this provider merely propagates that conversion's
 /// failure, whatever it is.
 pub type ActionResultConvertError = waymark_convert_core::ConvertErrorFor<
-    waymark_action_runtime_convert::Converter,
+    waymark_action_runtime_convert::Converter<waymark_vm_value_python_convert_proto::Converter>,
     &'static proto::ActionResult,
     waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue>,
 >;
@@ -102,8 +102,10 @@ fn completion_from_result<Metadata: Decode>(
         );
         ReceiveError::Decode(error)
     })?;
-    let outcome = waymark_action_runtime_convert::Converter::try_convert(result)
-        .map_err(ReceiveError::Payload)?;
+    let outcome = waymark_action_runtime_convert::Converter::<
+        waymark_vm_value_python_convert_proto::Converter,
+    >::try_convert(result)
+    .map_err(ReceiveError::Payload)?;
     Ok(ActionCallCompletion {
         metadata,
         execution_result: Ok(outcome),

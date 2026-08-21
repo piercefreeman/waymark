@@ -63,8 +63,10 @@ where
         &self,
         request: waymark_action_runtime_core::ActionCallRequest<Self::Argument, Self::Metadata>,
     ) -> Result<(), Self::Error> {
-        let dispatch = waymark_action_runtime_convert::Converter::try_convert(request)
-            .map_err(RequestActionCallError::ArgumentsConversion)?;
+        let dispatch = waymark_action_runtime_convert::Converter::<
+            waymark_vm_value_python_convert_proto::Converter,
+        >::try_convert(request)
+        .map_err(RequestActionCallError::ArgumentsConversion)?;
 
         self.pool
             .queue(dispatch)
