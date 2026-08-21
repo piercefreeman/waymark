@@ -61,6 +61,22 @@ message ActionOutcome {
   }
 }
 
+// How a workflow instance completed, in this language's terms: the value
+// the workflow returned, or the exception that ended it.
+//
+// The server -> client counterpart of `ActionOutcome`, kept separate
+// because the two planes can diverge independently. The completion value
+// travels as-is: user data is never mistaken for framing, whatever shape
+// it takes.
+message WorkflowOutcome {
+  // Required: an outcome naming neither arm is a malformed completion,
+  // not a workflow that produced nothing.
+  oneof outcome {
+    Value value = 1;
+    ExceptionValue exception = 2;
+  }
+}
+
 // A raised exception, shaped as the VM models one: the type identifying
 // it, and the details value carried alongside.
 //
