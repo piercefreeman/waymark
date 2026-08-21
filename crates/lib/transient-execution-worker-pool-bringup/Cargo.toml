@@ -9,6 +9,8 @@ waymark-action-runtime-metadata = { workspace = true }
 waymark-action-runtime-worker-pool = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
 waymark-transient-execution-bringup = { workspace = true }
+waymark-vm-value-python = { workspace = true }
+waymark-vm-value-python-convert-proto = { workspace = true }
 waymark-worker-core = { workspace = true }
 
 tokio-util = { workspace = true }

@@ -315,6 +315,8 @@ where
                 waymark_ids::InstanceId,
                 waymark_action_runtime_metadata::ActionCallCorrelation,
             >,
+            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python_convert_proto::Converter,
         >::new(worker_pool.clone()),
         backend: Arc::clone(&backend),
         codec: Arc::clone(&codec),
@@ -507,9 +509,12 @@ where
         let held_locks_tx = held_locks_tx.clone();
         move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
             let action_call_requester =
-                waymark_action_runtime_worker_pool::WorkerPoolActionRequester::new(
-                    worker_pool.clone(),
-                );
+                waymark_action_runtime_worker_pool::WorkerPoolActionRequester::<
+                    _,
+                    _,
+                    waymark_vm_value_python::ReadyValue,
+                    waymark_vm_value_python_convert_proto::Converter,
+                >::new(worker_pool.clone());
             let action_call_requester =
                 waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester {
                     vm_id: *vm_id,
@@ -601,9 +606,12 @@ where
         held_locks_tx: held_locks_tx.clone(),
         requester_provider: move |vm_id: &waymark_ids::InstanceId| {
             let action_call_requester =
-                waymark_action_runtime_worker_pool::WorkerPoolActionRequester::new(
-                    requests_factory_worker_pool.clone(),
-                );
+                waymark_action_runtime_worker_pool::WorkerPoolActionRequester::<
+                    _,
+                    _,
+                    waymark_vm_value_python::ReadyValue,
+                    waymark_vm_value_python_convert_proto::Converter,
+                >::new(requests_factory_worker_pool.clone());
             waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester {
                 vm_id: *vm_id,
                 action_call_requester,
