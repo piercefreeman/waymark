@@ -12,7 +12,6 @@ from uuid import UUID
 from google.protobuf import json_format, struct_pb2
 from pydantic import BaseModel
 
-from waymark.proto import messages_pb2 as pb2
 from waymark.proto import python_value_pb2 as pb2v
 from waymark.type_coercion import instantiate_typed_model
 
@@ -53,12 +52,17 @@ def loads(data: Any) -> Any:
     return _from_argument_value(argument)
 
 
-def build_arguments_from_kwargs(kwargs: dict[str, Any]) -> pb2.WorkflowArguments:
-    arguments = pb2.WorkflowArguments()
+def build_arguments_from_kwargs(kwargs: dict[str, Any]) -> pb2v.WorkflowArguments:
+    """Build this language's workflow-arguments message from kwargs.
+
+    The entries hold values directly; the whole message travels as one
+    opaque payload at the framing level.
+    """
+    arguments = pb2v.WorkflowArguments()
     for key, value in kwargs.items():
         entry = arguments.arguments.add()
         entry.key = key
-        entry.value = dumps(value).SerializeToString()
+        entry.value.CopyFrom(dumps(value))
     return arguments
 
 
@@ -74,13 +78,16 @@ def action_arguments_to_kwargs(payload: bytes) -> dict[str, Any]:
     return {entry.key: loads(entry.value) for entry in message.arguments}
 
 
-def arguments_to_kwargs(arguments: pb2.WorkflowArguments | None) -> dict[str, Any]:
-    if arguments is None:
+def workflow_arguments_to_kwargs(payload: bytes | None) -> dict[str, Any]:
+    """Decode an encoded WorkflowArguments payload into kwargs.
+
+    The bytes carry this language's own arguments message; the entries
+    hold values directly. `None` or empty bytes mean no arguments.
+    """
+    if not payload:
         return {}
-    result: dict[str, Any] = {}
-    for entry in arguments.arguments:
-        result[entry.key] = loads(entry.value)
-    return result
+    message = pb2v.WorkflowArguments.FromString(payload)
+    return {entry.key: loads(entry.value) for entry in message.arguments}
 
 
 def _to_argument_value(value: Any) -> pb2v.Value:

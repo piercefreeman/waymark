@@ -25,9 +25,10 @@ class Value(google.protobuf.message.Message):
     """=============================================================================
     The Python flavor's encoded values
     =============================================================================
-    The encoding of a single Python workflow value, carried as
-    the opaque `value` bytes of the framing-level
-    `waymark.messages.WorkflowArgument`.  Python-specific by design — a
+    The encoding of Python workflow values and the four per-language seam
+    messages carrying them (`WorkflowArguments`, `ActionArguments`,
+    `ActionOutcome`, `WorkflowOutcome`), each travelling as one opaque
+    payload at the transport framing level.  Python-specific by design — a
     value never crosses a language boundary in this form, so only the Python
     flavor's own codecs read or write these messages.
     """

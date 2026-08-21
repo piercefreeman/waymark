@@ -399,6 +399,40 @@ impl TryConvert<&proto_value::ActionArguments, Vec<(String, ReadyValue)>> for Co
     }
 }
 
+/// Read a workflow arguments message back from the initiation payload's
+/// bytes.
+impl TryConvert<&[u8], proto_value::WorkflowArguments> for Converter {
+    type Error = prost::DecodeError;
+
+    fn try_convert(bytes: &[u8]) -> Result<proto_value::WorkflowArguments, Self::Error> {
+        prost::Message::decode(bytes)
+    }
+}
+
+/// Convert a workflow arguments message into the named ready values it
+/// carries, in message order.
+impl TryConvert<&proto_value::WorkflowArguments, Vec<(String, ReadyValue)>> for Converter {
+    type Error = MissingArgumentValueError;
+
+    fn try_convert(
+        message: &proto_value::WorkflowArguments,
+    ) -> Result<Vec<(String, ReadyValue)>, Self::Error> {
+        message
+            .arguments
+            .iter()
+            .map(|argument| {
+                let value = argument
+                    .value
+                    .as_ref()
+                    .ok_or_else(|| MissingArgumentValueError {
+                        key: argument.key.clone(),
+                    })?;
+                Ok((argument.key.clone(), Self::convert(value)))
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

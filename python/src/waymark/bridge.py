@@ -286,14 +286,14 @@ async def run_instances_batch(
     payload: bytes,
     *,
     count: int = 1,
-    inputs: Optional[pb2.WorkflowArguments] = None,
-    inputs_list: Optional[list[pb2.WorkflowArguments]] = None,
+    arguments: Optional[bytes] = None,
+    arguments_list: Optional[list[bytes]] = None,
     batch_size: int = 500,
     include_instance_ids: bool = False,
 ) -> RunBatchResult:
     """Register a workflow definition and start multiple instances over the gRPC bridge."""
-    if count < 1 and not inputs_list:
-        raise ValueError("count must be >= 1 when inputs_list is empty")
+    if count < 1 and not arguments_list:
+        raise ValueError("count must be >= 1 when arguments_list is empty")
     if batch_size < 1:
         raise ValueError("batch_size must be >= 1")
 
@@ -307,10 +307,10 @@ async def run_instances_batch(
         batch_size=batch_size,
         include_instance_ids=include_instance_ids,
     )
-    if inputs is not None:
-        request.inputs.CopyFrom(inputs)
-    if inputs_list:
-        request.inputs_list.extend(inputs_list)
+    if arguments is not None:
+        request.arguments = arguments
+    if arguments_list:
+        request.arguments_list.extend(arguments_list)
     try:
         response = await stub.RegisterWorkflowBatch(request, timeout=30.0)
     except aio.AioRpcError as exc:  # pragma: no cover

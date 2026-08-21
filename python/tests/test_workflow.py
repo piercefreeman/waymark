@@ -15,7 +15,7 @@ from waymark.actions import action
 from waymark.proto import ast_pb2 as ir
 from waymark.proto import messages_pb2 as pb2
 from waymark.proto import python_value_pb2 as pb2v
-from waymark.serialization import arguments_to_kwargs, dumps
+from waymark.serialization import dumps, workflow_arguments_to_kwargs
 
 
 def workflow_completion_payload(value: object) -> bytes:
@@ -155,7 +155,7 @@ def test_workflow_registration_applies_defaults(monkeypatch: pytest.MonkeyPatch)
 
     registration = pb2.WorkflowRegistration()
     registration.ParseFromString(captured[0])
-    inputs = arguments_to_kwargs(registration.initial_context)
+    inputs = workflow_arguments_to_kwargs(registration.arguments)
     assert inputs == {"count": 5, "name": "demo"}
 
     os.environ["PYTEST_CURRENT_TEST"] = "true"
@@ -192,7 +192,7 @@ def test_workflow_registration_overrides_defaults(monkeypatch: pytest.MonkeyPatc
 
     registration = pb2.WorkflowRegistration()
     registration.ParseFromString(captured[0])
-    inputs = arguments_to_kwargs(registration.initial_context)
+    inputs = workflow_arguments_to_kwargs(registration.arguments)
     assert inputs == {"count": 9, "name": "demo"}
 
     os.environ["PYTEST_CURRENT_TEST"] = "true"

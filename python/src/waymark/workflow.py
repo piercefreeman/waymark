@@ -27,6 +27,7 @@ from typing import (
 
 from waymark.proto import ast_pb2 as ir
 from waymark.proto import messages_pb2 as pb2
+from waymark.proto import python_value_pb2 as pb2v
 
 from . import bridge
 from .actions import deserialize_workflow_outcome
@@ -95,9 +96,9 @@ class Workflow:
         return {key: value for key, value in bound.arguments.items() if key != "self"}
 
     @classmethod
-    def _build_initial_context(
+    def _build_workflow_arguments(
         cls, args: tuple[Any, ...], kwargs: dict[str, Any]
-    ) -> pb2.WorkflowArguments:
+    ) -> pb2v.WorkflowArguments:
         initial_kwargs = cls._normalize_run_inputs(args, kwargs)
         return build_arguments_from_kwargs(initial_kwargs)
 
@@ -141,7 +142,7 @@ class Workflow:
     @classmethod
     def _build_registration_payload(
         cls,
-        initial_context: Optional[pb2.WorkflowArguments] = None,
+        initial_context: Optional[pb2v.WorkflowArguments] = None,
         priority: Optional[int] = None,
     ) -> pb2.WorkflowRegistration:
         """Build a registration payload with the serialized IR."""
@@ -160,8 +161,8 @@ class Workflow:
             workflow_version=workflow_version,
         )
 
-        if initial_context:
-            message.initial_context.CopyFrom(initial_context)
+        if initial_context is not None:
+            message.arguments = initial_context.SerializeToString()
 
         if priority is not None:
             message.priority = priority
@@ -222,12 +223,12 @@ def workflow(cls: type[TWorkflow]) -> type[TWorkflow]:
                 os.environ.get("WAYMARK_BRIDGE_IN_MEMORY"),
             )
             _enable_in_memory_broker()
-            initial_context = cls._build_initial_context(args, kwargs)
+            initial_context = cls._build_workflow_arguments(args, kwargs)
             payload = cls._build_registration_payload(initial_context, priority=_priority)
             result_bytes = await bridge.execute_workflow(payload.SerializeToString())
             return _deserialize_workflow_result(cls, result_bytes)
 
-        initial_context = cls._build_initial_context(args, kwargs)
+        initial_context = cls._build_workflow_arguments(args, kwargs)
 
         payload = cls._build_registration_payload(initial_context, priority=_priority)
         run_result = await bridge.run_instance(payload.SerializeToString())

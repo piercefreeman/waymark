@@ -81,23 +81,6 @@ message WorkerHello {
 }
 
 // =============================================================================
-// Value Framing
-// =============================================================================
-// Named arguments at the transport framing level.  The names stay
-// proto-visible; each value is opaque encoded bytes whose format is
-// the producing language's own business (currently a serialized
-// `waymark.python_value.Value`, see python_value.proto).
-
-message WorkflowArgument {
-  string key = 1;
-  bytes value = 2;
-}
-
-message WorkflowArguments {
-  repeated WorkflowArgument arguments = 1;
-}
-
-// =============================================================================
 // Workflow Registration
 // =============================================================================
 // Messages for registering workflows and starting instances.
@@ -108,13 +91,23 @@ message WorkflowRegistration {
   bytes ir = 2;                      // Serialized IR program (from ast.proto)
   string ir_hash = 3;                // Hash of the IR for immutability checks
   string workflow_version = 7;       // User-defined version identifier
-  WorkflowArguments initial_context = 4;
+
+  // The workflow's initial arguments as one opaque encoded payload (the
+  // language's own arguments message — e.g.
+  // `waymark.python_value.WorkflowArguments`).  The framing knows
+  // neither the values nor the shape of the argument list.  Empty means
+  // no arguments; inputs the payload does not name default to the
+  // language's "nothing" value.
+  bytes arguments = 8;
+
   // Priority for queue ordering (higher values are processed first, default 0)
   optional int32 priority = 6;
 
   // Field 5 was `bool concurrent`, retired with the legacy DAG runner.
-  reserved 5;
-  reserved "concurrent";
+  // Field 4 was `initial_context` as framing-structured arguments,
+  // retired when argument shape became the language's own business.
+  reserved 4, 5;
+  reserved "concurrent", "initial_context";
 }
 
 message RegisterWorkflowRequest {
@@ -128,12 +121,22 @@ message RegisterWorkflowResponse {
 
 message RegisterWorkflowBatchRequest {
   WorkflowRegistration registration = 1;
-  // Total number of instances to create when inputs_list is empty.
+  // Total number of instances to create when arguments_list is empty.
   uint32 count = 2;
-  // Base inputs to apply to each instance when inputs_list is empty.
-  WorkflowArguments inputs = 3;
-  // Per-instance inputs (overrides count/inputs when provided).
-  repeated WorkflowArguments inputs_list = 4;
+  // Base arguments to apply to each instance when arguments_list is
+  // empty: one opaque encoded arguments payload.  Absent means "fall
+  // back to the registration's `arguments`"; present — even empty —
+  // overrides.
+  optional bytes arguments = 7;
+  // Per-instance arguments (overrides count/arguments when provided),
+  // each an opaque encoded arguments payload.
+  repeated bytes arguments_list = 8;
+
+  // Fields 3 and 4 were `inputs`/`inputs_list` as framing-structured
+  // arguments, retired when argument shape became the language's own
+  // business.
+  reserved 3, 4;
+  reserved "inputs", "inputs_list";
   // Batch size for database inserts, clamped to a server-side maximum;
   // 0 means the server default.
   uint32 batch_size = 5;
@@ -217,8 +220,8 @@ message RegisterScheduleRequest {
   reserved "workflow_name", "inputs", "priority", "allow_duplicate";
   ScheduleDefinition schedule = 2;
   // Required: names the workflow, pins the compiled executable at
-  // registration time, and its initial_context carries the arguments
-  // for every scheduled run.
+  // registration time, and its `arguments` payload carries the
+  // arguments for every scheduled run.
   WorkflowRegistration registration = 4;
   // Required: the schedule's name — the sole key. The namespace is
   // flat; re-registering an existing name re-points it.
