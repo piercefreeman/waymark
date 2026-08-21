@@ -128,10 +128,14 @@ pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> Execute
 
     let action_call_requester = waymark_action_runtime_worker_stream::WorkerStreamActionRequester::<
         ActionCallCorrelation,
+        waymark_vm_value_python::ReadyValue,
+        waymark_vm_value_python_convert_proto::Converter,
     >::new(out_tx.clone());
     let action_call_completions_provider =
         waymark_action_runtime_worker_stream::WorkerStreamActionCallCompletionsProvider::<
             ActionCallCorrelation,
+            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python_convert_proto::Converter,
         >::new(action_result_rx);
 
     let cancellation = tokio_util::sync::CancellationToken::new();
