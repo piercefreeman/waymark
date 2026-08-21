@@ -11,10 +11,6 @@ use waymark_vm_value_convert_core::PendingPromiseError;
 use waymark_workflow_completion_core::Outcome;
 
 /// Converter for workflow-completion results.
-///
-/// Completion results are wrapped in a
-/// [`BaseModelWorkflowArgument`](waymark_proto::messages::BaseModelWorkflowArgument)
-/// (`WorkflowNodeResult`) rather than plain primitive/dict/list values.
 pub struct Converter;
 
 impl TryConvert<Outcome<waymark_vm_value::ReadyValue>, waymark_proto::messages::WorkflowArguments>
@@ -77,41 +73,12 @@ fn exception_workflow_arguments(
 fn completion_workflow_arguments(
     json: serde_json::Value,
 ) -> waymark_proto::messages::WorkflowArguments {
-    use waymark_proto::messages::{
-        BaseModelWorkflowArgument, WorkflowArgument, WorkflowArguments, WorkflowDictArgument,
-        workflow_argument_value::Kind,
-    };
-
-    let variables_value = match &json {
-        serde_json::Value::Object(_) => json.clone(),
-        other => {
-            let mut map = serde_json::Map::new();
-            map.insert("result".to_string(), other.clone());
-            serde_json::Value::Object(map)
-        }
-    };
-
-    let variables_arg =
-        waymark_message_conversions::json_to_workflow_argument_value(&variables_value);
-    let dict = WorkflowDictArgument {
-        entries: vec![WorkflowArgument {
-            key: "variables".to_string(),
-            value: Some(variables_arg),
-        }],
-    };
-
-    let result_value = waymark_proto::messages::WorkflowArgumentValue {
-        kind: Some(Kind::Basemodel(BaseModelWorkflowArgument {
-            module: "waymark.workflow_runtime".to_string(),
-            name: "WorkflowNodeResult".to_string(),
-            data: Some(dict),
-        })),
-    };
+    use waymark_proto::messages::{WorkflowArgument, WorkflowArguments};
 
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "result".to_string(),
-            value: Some(result_value),
+            value: Some(waymark_message_conversions::json_to_workflow_argument_value(&json)),
         }],
     }
 }

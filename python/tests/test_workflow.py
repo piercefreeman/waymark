@@ -420,7 +420,7 @@ def test_workflow_result_union_falls_back(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_workflow_result_direct_return(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that workflow results are returned directly when not using WorkflowNodeResult."""
+    """Test that workflow results are returned directly."""
     os.environ.pop("PYTEST_CURRENT_TEST", None)
 
     expected_result = "test_value"
@@ -432,7 +432,6 @@ def test_workflow_result_direct_return(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     async def fake_wait_for_instance(*, instance_id: str, poll_interval_secs: float = 1.0) -> bytes:
-        # Return a direct result (not wrapped in WorkflowNodeResult)
         payload = serialize_result_payload(expected_result)
         return payload.SerializeToString()
 
