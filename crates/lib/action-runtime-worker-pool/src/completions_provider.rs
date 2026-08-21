@@ -36,7 +36,7 @@ pub enum WorkerPoolCompletionsError<PollError, MetadataDecodeError: core::fmt::D
 /// concretely: this provider merely propagates that conversion's
 /// failure, whatever it is.
 pub type ActionResultConvertError = waymark_convert_core::ConvertErrorFor<
-    waymark_action_runtime_convert::Converter,
+    waymark_action_runtime_convert::Converter<waymark_vm_value_python_convert_proto::Converter>,
     &'static waymark_proto::messages::ActionResult,
     waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue>,
 >;
@@ -141,8 +141,10 @@ where
 {
     let (metadata_bytes, execution_result) = match report {
         waymark_worker_core::ActionExecutionReport::Completed(result) => {
-            let outcome = waymark_action_runtime_convert::Converter::try_convert(&result)
-                .map_err(WorkerPoolCompletionsError::Payload)?;
+            let outcome = waymark_action_runtime_convert::Converter::<
+                waymark_vm_value_python_convert_proto::Converter,
+            >::try_convert(&result)
+            .map_err(WorkerPoolCompletionsError::Payload)?;
             (result.metadata, Ok(outcome))
         }
         waymark_worker_core::ActionExecutionReport::Lost(loss) => {
@@ -177,7 +179,7 @@ mod tests {
     use waymark_ids::InstanceId;
 
     fn completion(metadata: Vec<u8>) -> waymark_proto::messages::ActionResult {
-        let payload = waymark_action_runtime_convert::Converter::try_convert(
+        let payload = waymark_vm_value_python_convert_proto::Converter::try_convert(
             waymark_action_runtime_core::ActionCallOutcome::Value(
                 waymark_vm_value_python::ReadyValue::None,
             ),

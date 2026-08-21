@@ -4023,6 +4023,7 @@ dependencies = [
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
 ]
 
 [[package]]
@@ -4078,18 +4079,12 @@ dependencies = [
 name = "waymark-action-runtime-convert"
 version = "0.1.0"
 dependencies = [
- "indexmap",
- "prost",
- "thiserror",
  "waymark-action-runtime-core",
  "waymark-action-runtime-metadata-codec",
  "waymark-convert-core",
  "waymark-proto",
  "waymark-vm-exception-type-ids",
  "waymark-vm-runtime-exception",
- "waymark-vm-value-convert-core",
- "waymark-vm-value-python",
- "waymark-vm-value-python-convert-proto",
 ]
 
 [[package]]
@@ -4142,6 +4137,7 @@ dependencies = [
  "waymark-proto",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
  "waymark-worker-core",
 ]
 
@@ -4161,6 +4157,7 @@ dependencies = [
  "waymark-convert-core",
  "waymark-proto",
  "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
 ]
 
 [[package]]
@@ -4429,6 +4426,7 @@ dependencies = [
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
 ]
 
 [[package]]
@@ -4969,6 +4967,7 @@ dependencies = [
  "waymark-vm-runtime",
  "waymark-vm-runtime-builder",
  "waymark-vm-runtime-exception",
+ "waymark-vm-value-python-convert-proto",
  "waymark-workflow-completion-core",
  "waymark-workflow-completion-direct",
 ]
@@ -5631,6 +5630,7 @@ dependencies = [
  "prost",
  "thiserror",
  "typed_floats",
+ "waymark-action-runtime-core",
  "waymark-convert-core",
  "waymark-proto",
  "waymark-vm-runtime-exception",
@@ -5725,7 +5725,6 @@ dependencies = [
 name = "waymark-worker-inline-compat"
 version = "0.1.0"
 dependencies = [
- "waymark-action-runtime-convert",
  "waymark-action-runtime-core",
  "waymark-convert-core",
  "waymark-proto",
