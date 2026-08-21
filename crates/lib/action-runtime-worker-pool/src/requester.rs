@@ -12,20 +12,22 @@ use waymark_convert_core::TryConvert;
 /// here.  Deployments that need to route completions back to a VM inject the
 /// VM id into the metadata before it reaches this requester (e.g. via
 /// [`waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester`]).
-pub struct WorkerPoolActionRequester<Pool, Metadata> {
+pub struct WorkerPoolActionRequester<Pool, Metadata, Argument, ValueConverter> {
     /// The worker pool to submit action requests to.
     pub pool: Pool,
 
-    /// Phantom data for the metadata type parameter.
-    pub _metadata: PhantomData<Metadata>,
+    /// Phantom data for the type parameters the requester only relays.
+    pub _phantom: PhantomData<(Metadata, Argument, ValueConverter)>,
 }
 
-impl<Pool, Metadata> WorkerPoolActionRequester<Pool, Metadata> {
+impl<Pool, Metadata, Argument, ValueConverter>
+    WorkerPoolActionRequester<Pool, Metadata, Argument, ValueConverter>
+{
     /// Create a new requester backed by the given worker pool.
     pub fn new(pool: Pool) -> Self {
         Self {
             pool,
-            _metadata: PhantomData,
+            _phantom: PhantomData,
         }
     }
 }
@@ -33,10 +35,13 @@ impl<Pool, Metadata> WorkerPoolActionRequester<Pool, Metadata> {
 /// Errors that can occur when requesting an action call through
 /// the worker pool.
 #[derive(Debug, thiserror::Error)]
-pub enum RequestActionCallError<QueueError> {
-    /// Failed to convert call arguments for the worker pool.
-    #[error("call arguments conversion: {0}")]
-    ArgumentsConversion(#[source] waymark_vm_value_convert_core::PendingPromiseError),
+pub enum RequestActionCallError<ConvertError, QueueError> {
+    /// Failed to convert the request into a dispatch.
+    ///
+    /// Whatever the conversion failed with, expressed as the converter's
+    /// own error: this requester merely propagates it.
+    #[error("request conversion: {0}")]
+    Convert(#[source] ConvertError),
 
     /// The worker pool rejected the action request.
     ///
@@ -46,16 +51,26 @@ pub enum RequestActionCallError<QueueError> {
     PoolQueue(#[source] QueueError),
 }
 
-impl<Pool, Metadata> waymark_action_runtime_core::ActionCallRequester
-    for WorkerPoolActionRequester<Pool, Metadata>
+impl<Pool, Metadata, Argument, ValueConverter> waymark_action_runtime_core::ActionCallRequester
+    for WorkerPoolActionRequester<Pool, Metadata, Argument, ValueConverter>
 where
     Pool: waymark_worker_core::QueueActionDispatch + Send + Sync + 'static,
     Pool::Error: core::fmt::Debug,
     Metadata: Encode + Send + Sync,
+    Argument: Send + Sync,
+    ValueConverter: Send + Sync,
+    waymark_action_runtime_convert::Converter<ValueConverter>: TryConvert<
+            waymark_action_runtime_core::ActionCallRequest<Argument, Metadata>,
+            waymark_proto::messages::ActionDispatch,
+        >,
+    DispatchConvertErrorFor<ValueConverter, Argument, Metadata>: core::fmt::Debug,
 {
-    type Error = RequestActionCallError<Pool::Error>;
+    type Error = RequestActionCallError<
+        DispatchConvertErrorFor<ValueConverter, Argument, Metadata>,
+        Pool::Error,
+    >;
 
-    type Argument = waymark_vm_value_python::ReadyValue;
+    type Argument = Argument;
 
     type Metadata = Metadata;
 
@@ -63,10 +78,9 @@ where
         &self,
         request: waymark_action_runtime_core::ActionCallRequest<Self::Argument, Self::Metadata>,
     ) -> Result<(), Self::Error> {
-        let dispatch = waymark_action_runtime_convert::Converter::<
-            waymark_vm_value_python_convert_proto::Converter,
-        >::try_convert(request)
-        .map_err(RequestActionCallError::ArgumentsConversion)?;
+        let dispatch =
+            waymark_action_runtime_convert::Converter::<ValueConverter>::try_convert(request)
+                .map_err(RequestActionCallError::Convert)?;
 
         self.pool
             .queue(dispatch)
@@ -74,6 +88,16 @@ where
             .map_err(RequestActionCallError::PoolQueue)
     }
 }
+
+/// The error of the request-to-dispatch conversion the requester
+/// delegates to, expressed as a projection through the action runtime's
+/// converter.
+pub type DispatchConvertErrorFor<ValueConverter, Argument, Metadata> =
+    waymark_convert_core::ConvertErrorFor<
+        waymark_action_runtime_convert::Converter<ValueConverter>,
+        waymark_action_runtime_core::ActionCallRequest<Argument, Metadata>,
+        waymark_proto::messages::ActionDispatch,
+    >;
 
 #[cfg(test)]
 mod tests {
@@ -130,8 +154,12 @@ mod tests {
 
     #[tokio::test]
     async fn queued_request_encodes_the_metadata_verbatim() {
-        let requester =
-            WorkerPoolActionRequester::<_, ActionCallCorrelation>::new(RecordingPool::default());
+        let requester = WorkerPoolActionRequester::<
+            _,
+            ActionCallCorrelation,
+            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python_convert_proto::Converter,
+        >::new(RecordingPool::default());
 
         let metadata = correlation();
         requester
@@ -156,6 +184,8 @@ mod tests {
             action_call_requester: WorkerPoolActionRequester::<
                 _,
                 WithVmId<InstanceId, ActionCallCorrelation>,
+                waymark_vm_value_python::ReadyValue,
+                waymark_vm_value_python_convert_proto::Converter,
             >::new(RecordingPool::default()),
         };
 
