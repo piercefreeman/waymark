@@ -12,7 +12,7 @@ from waymark.proto import messages_pb2 as pb2
 
 from .dependencies import provide_dependencies
 from .registry import registry
-from .serialization import arguments_to_kwargs
+from .serialization import action_arguments_to_kwargs
 from .type_coercion import coerce_value as _coerce_value
 
 
@@ -81,7 +81,7 @@ async def execute_action(dispatch: pb2.ActionDispatch) -> ActionExecutionResult:
         )
 
     # Deserialize kwargs
-    kwargs = arguments_to_kwargs(dispatch.kwargs)
+    kwargs = action_arguments_to_kwargs(dispatch.arguments)
 
     # Coerce dict arguments to Pydantic models or dataclasses based on type hints
     # This is needed because the IR converts model constructor calls to dicts

@@ -140,7 +140,7 @@ class ActionDispatch(google.protobuf.message.Message):
 
     ACTION_NAME_FIELD_NUMBER: builtins.int
     MODULE_NAME_FIELD_NUMBER: builtins.int
-    KWARGS_FIELD_NUMBER: builtins.int
+    ARGUMENTS_FIELD_NUMBER: builtins.int
     METADATA_FIELD_NUMBER: builtins.int
     action_name: builtins.str
     """Action execution details
@@ -148,31 +148,32 @@ class ActionDispatch(google.protobuf.message.Message):
     """
     module_name: builtins.str
     """Python module containing the action"""
+    arguments: builtins.bytes
+    """The call's arguments as one opaque encoded payload (the language's
+    own arguments message — e.g. `waymark.python_value.ActionArguments`).
+    The framing knows neither the values nor the shape of the argument
+    list: both are the language's business. Empty means no arguments.
+    """
     metadata: builtins.bytes
     """Opaque server correlation metadata; workers echo it untouched.
     This is the ONLY correlation: wire ids and per-attempt tokens were
     retired once the action runtime began correlating on metadata alone.
     """
-    @property
-    def kwargs(self) -> Global___WorkflowArguments:
-        """Keyword arguments for the action"""
-
     def __init__(
         self,
         *,
         action_name: builtins.str = ...,
         module_name: builtins.str = ...,
-        kwargs: Global___WorkflowArguments | None = ...,
+        arguments: builtins.bytes = ...,
         metadata: builtins.bytes = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing.Literal["kwargs", b"kwargs"]) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
             "action_name",
             b"action_name",
-            "kwargs",
-            b"kwargs",
+            "arguments",
+            b"arguments",
             "metadata",
             b"metadata",
             "module_name",
