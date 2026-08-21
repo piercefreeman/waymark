@@ -5629,6 +5629,7 @@ version = "0.1.0"
 dependencies = [
  "indexmap",
  "prost",
+ "thiserror",
  "typed_floats",
  "waymark-convert-core",
  "waymark-proto",

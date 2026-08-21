@@ -16,12 +16,12 @@ type BoxFuture<'a, T> = std::pin::Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub type ActionCallable<Args, Ret> = Arc<dyn Fn(Args) -> BoxFuture<'static, Ret> + Send + Sync>;
 
 /// The [`ActionCallable`] instantiation the inline worker pool serves:
-/// the framing-level kwargs go to the callable untranslated, the
-/// callable returns the encoded result payload, and the
-/// callable answers with the completion message itself — success and
-/// failure discriminated structurally, never a pool error.  The pool
-/// stamps the correlation metadata; the callable leaves it alone.
-pub type InlineActionCallable = ActionCallable<proto::WorkflowArguments, Vec<u8>>;
+/// the dispatch's opaque encoded arguments go to the callable
+/// untranslated, and the callable returns the encoded result payload —
+/// success and failure discriminated structurally, never a pool error.
+/// The pool stamps the correlation metadata; the callable leaves it
+/// alone.
+pub type InlineActionCallable = ActionCallable<Vec<u8>, Vec<u8>>;
 
 /// Execute action requests by calling async functions in the same loop.
 #[derive(Clone)]
@@ -87,7 +87,7 @@ impl waymark_worker_core::QueueActionDispatch for InlineWorkerPool {
 
         let sender = self.sender.clone();
         let metadata = dispatch.metadata;
-        let kwargs = dispatch.kwargs.unwrap_or_default();
+        let arguments = dispatch.arguments;
 
         tokio::runtime::Handle::try_current().map_err(|_| {
             WorkerPoolError::new(
@@ -97,7 +97,7 @@ impl waymark_worker_core::QueueActionDispatch for InlineWorkerPool {
         })?;
 
         tokio::spawn(async move {
-            let payload = handler(kwargs).await;
+            let payload = handler(arguments).await;
             let result = proto::ActionResult {
                 payload,
                 metadata,
