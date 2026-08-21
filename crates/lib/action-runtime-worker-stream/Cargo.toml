@@ -12,6 +12,7 @@ waymark-action-runtime-metadata-codec = { workspace = true }
 waymark-convert-core = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-vm-value-python = { workspace = true }
+waymark-vm-value-python-convert-proto = { workspace = true }
 
 nonempty-collections = { workspace = true }
 thiserror = { workspace = true }

@@ -1,5 +1,5 @@
 use waymark_action_runtime_core::{ActionCallLossError, ActionCallStage};
-use waymark_convert_core::TryConvert;
+use waymark_convert_core::{Convert, TryConvert};
 
 use crate::Converter;
 
@@ -9,23 +9,21 @@ use crate::Converter;
 /// The runtime states the fact — raised
 /// [`ACTION_EXECUTION_NOT_STARTED`](waymark_vm_exception_type_ids::ACTION_EXECUTION_NOT_STARTED)
 /// or [`ACTION_EXECUTION_LOST`](waymark_vm_exception_type_ids::ACTION_EXECUTION_LOST)
-/// by the stage the call provably reached, with no details — and the
-/// program's own policy (a compiled-in retry, a user `except`, or
+/// by the stage the call provably reached, the details being whatever
+/// the value converter renders a loss as in the flavor's own vocabulary —
+/// and the program's own policy (a compiled-in retry, a user `except`, or
 /// nothing) decides what the loss means.
-impl
-    TryConvert<
-        ActionCallLossError,
-        waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
-    > for Converter
+impl<ValueConverter, Value>
+    TryConvert<ActionCallLossError, waymark_vm_runtime_exception::Exception<Value>>
+    for Converter<ValueConverter>
+where
+    ValueConverter: Convert<ActionCallLossError, Value>,
 {
     type Error = core::convert::Infallible;
 
     fn try_convert(
         loss: ActionCallLossError,
-    ) -> Result<
-        waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
-        Self::Error,
-    > {
+    ) -> Result<waymark_vm_runtime_exception::Exception<Value>, Self::Error> {
         let type_id = match loss.stage {
             ActionCallStage::NotStarted => {
                 waymark_vm_exception_type_ids::ACTION_EXECUTION_NOT_STARTED
@@ -35,7 +33,7 @@ impl
 
         Ok(waymark_vm_runtime_exception::Exception {
             type_id: type_id.to_owned(),
-            details: waymark_vm_value_python::ReadyValue::None,
+            details: ValueConverter::convert(loss),
         })
     }
 }
@@ -43,8 +41,9 @@ impl
 /// A provider whose completions structurally always carry an outcome
 /// never produces an execution error to convert; this impl exists so
 /// such providers satisfy the lowering bound.
-impl<Value> TryConvert<core::convert::Infallible, waymark_vm_runtime_exception::Exception<Value>>
-    for Converter
+impl<ValueConverter, Value>
+    TryConvert<core::convert::Infallible, waymark_vm_runtime_exception::Exception<Value>>
+    for Converter<ValueConverter>
 {
     type Error = core::convert::Infallible;
 

@@ -41,15 +41,17 @@ where
     ) -> impl Future<Output = Result<(), Self::Error>> + Send + '_ {
         // The conversion happens eagerly: a dispatch that cannot be built
         // is sent onto the stream as the error the caller sees.
-        let result = waymark_action_runtime_convert::Converter::try_convert(request)
-            .map(
-                |dispatch: proto::ActionDispatch| proto::WorkflowStreamResponse {
-                    kind: Some(proto::workflow_stream_response::Kind::ActionDispatch(
-                        dispatch,
-                    )),
-                },
-            )
-            .map_err(|err| tonic::Status::internal(format!("action argument conversion: {err}")));
+        let result = waymark_action_runtime_convert::Converter::<
+            waymark_vm_value_python_convert_proto::Converter,
+        >::try_convert(request)
+        .map(
+            |dispatch: proto::ActionDispatch| proto::WorkflowStreamResponse {
+                kind: Some(proto::workflow_stream_response::Kind::ActionDispatch(
+                    dispatch,
+                )),
+            },
+        )
+        .map_err(|err| tonic::Status::internal(format!("action argument conversion: {err}")));
 
         async move { self.tx.send(result).await }
     }
