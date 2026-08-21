@@ -11,8 +11,6 @@ waymark-action-runtime-metadata = { workspace = true }
 waymark-action-runtime-metadata-codec = { workspace = true }
 waymark-convert-core = { workspace = true }
 waymark-proto = { workspace = true }
-waymark-vm-value-python = { workspace = true }
-waymark-vm-value-python-convert-proto = { workspace = true }
 
 nonempty-collections = { workspace = true }
 thiserror = { workspace = true }
@@ -22,6 +20,8 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
+waymark-vm-value-python = { workspace = true }
+waymark-vm-value-python-convert-proto = { workspace = true }
 
 [lib]
 doctest = false
