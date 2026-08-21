@@ -53,7 +53,7 @@ await schedule_workflow(
     DataSyncWorkflow,
     schedule_name="hourly-us-east",
     schedule="0 * * * *",
-    inputs={"region": "us-east"},
+    arguments={"region": "us-east"},
 )
 ```
 
@@ -78,7 +78,7 @@ await schedule_workflow(
     DataSyncWorkflow,
     schedule_name="every-5-min",
     schedule=timedelta(minutes=5),
-    inputs={"region": "us-west"},
+    arguments={"region": "us-west"},
 )
 ```
 

@@ -2,42 +2,6 @@ use waymark_convert_core::{Convert as _, TryConvert};
 
 use crate::{ActionResultError, Converter, MissingOutcomeError};
 
-/// Convert proto workflow arguments back into a VM ready value.
-///
-/// The framing-level argument names become the keys of a
-/// [`waymark_vm_value_python::ReadyValue::Dict`], each carrying the value
-/// its opaque bytes decode to.  The names keep the order the framing
-/// gave them.
-///
-/// Fallible since the framing-level arguments carry their values as
-/// opaque encoded values that decode here.
-impl TryConvert<&waymark_proto::messages::WorkflowArguments, waymark_vm_value_python::ReadyValue>
-    for Converter
-{
-    type Error = crate::DecodeArgumentError;
-
-    fn try_convert(
-        value: &waymark_proto::messages::WorkflowArguments,
-    ) -> Result<waymark_vm_value_python::ReadyValue, Self::Error> {
-        let mut entries = indexmap::IndexMap::with_capacity(value.arguments.len());
-        for argument in &value.arguments {
-            let decoded = waymark_vm_value_python_convert_proto::Converter::try_convert(
-                argument.value.as_slice(),
-            )
-            .map_err(|source| crate::DecodeArgumentError {
-                key: argument.key.clone(),
-                source,
-            })?;
-            entries.insert(
-                argument.key.clone(),
-                waymark_vm_value_python::Value::Ready(decoded),
-            );
-        }
-
-        Ok(waymark_vm_value_python::ReadyValue::Dict(entries))
-    }
-}
-
 /// Convert an action result into the outcome that settles the awaiting
 /// promise.
 ///
