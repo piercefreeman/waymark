@@ -1,0 +1,10 @@
+[package]
+name = "waymark-vm-interpreter-composite"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-vm-interpreter = { workspace = true }
+waymark-vm-interpreter-composite-core = { workspace = true }
+waymark-vm-interpreter-composite-macros = { workspace = true }
