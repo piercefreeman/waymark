@@ -295,6 +295,113 @@ class WorkflowOutcome(google.protobuf.message.Message):
 Global___WorkflowOutcome: typing_extensions.TypeAlias = WorkflowOutcome
 
 @typing.final
+class WorkflowArguments(google.protobuf.message.Message):
+    """The arguments a workflow instance starts with, in this language's
+    terms: named values, in the order the caller gave them.
+
+    One of the four per-language seam types (with `ActionArguments`,
+    `ActionOutcome`, and `WorkflowOutcome`); the whole set travels as one
+    opaque payload at the framing level, so the framing knows neither the
+    values nor the shape of the argument list.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    ARGUMENTS_FIELD_NUMBER: builtins.int
+    @property
+    def arguments(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        Global___WorkflowArgument
+    ]: ...
+    def __init__(
+        self,
+        *,
+        arguments: collections.abc.Iterable[Global___WorkflowArgument] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["arguments", b"arguments"]) -> None: ...
+
+Global___WorkflowArguments: typing_extensions.TypeAlias = WorkflowArguments
+
+@typing.final
+class WorkflowArgument(google.protobuf.message.Message):
+    """One named workflow argument. Structural — never crosses a conversion
+    boundary on its own; only the enclosing `WorkflowArguments` does.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    KEY_FIELD_NUMBER: builtins.int
+    VALUE_FIELD_NUMBER: builtins.int
+    key: builtins.str
+    @property
+    def value(self) -> Global___Value: ...
+    def __init__(
+        self,
+        *,
+        key: builtins.str = ...,
+        value: Global___Value | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["value", b"value"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
+
+Global___WorkflowArgument: typing_extensions.TypeAlias = WorkflowArgument
+
+@typing.final
+class ActionArguments(google.protobuf.message.Message):
+    """The arguments of one action call, in this language's terms: named
+    values, in the order the calling convention paired them.
+
+    The client -> worker counterpart of `WorkflowArguments`, kept
+    separate because the two planes can diverge independently — the
+    calling convention (positional-to-named pairing, dependency-marker
+    omission) is this seam's own.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    ARGUMENTS_FIELD_NUMBER: builtins.int
+    @property
+    def arguments(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        Global___ActionArgument
+    ]: ...
+    def __init__(
+        self,
+        *,
+        arguments: collections.abc.Iterable[Global___ActionArgument] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["arguments", b"arguments"]) -> None: ...
+
+Global___ActionArguments: typing_extensions.TypeAlias = ActionArguments
+
+@typing.final
+class ActionArgument(google.protobuf.message.Message):
+    """One named action-call argument. Structural — never crosses a
+    conversion boundary on its own; only the enclosing `ActionArguments`
+    does.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    KEY_FIELD_NUMBER: builtins.int
+    VALUE_FIELD_NUMBER: builtins.int
+    key: builtins.str
+    @property
+    def value(self) -> Global___Value: ...
+    def __init__(
+        self,
+        *,
+        key: builtins.str = ...,
+        value: Global___Value | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["value", b"value"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
+
+Global___ActionArgument: typing_extensions.TypeAlias = ActionArgument
+
+@typing.final
 class ExceptionValue(google.protobuf.message.Message):
     """A raised exception, shaped as the VM models one: the type identifying
     it, and the details value carried alongside.
