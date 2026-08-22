@@ -4141,6 +4141,7 @@ dependencies = [
  "waymark-vm-driver-core",
  "waymark-vm-exception-type-ids",
  "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-value-python",
  "waymark-vm-value-python-convert-proto",
