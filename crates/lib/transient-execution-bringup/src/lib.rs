@@ -180,8 +180,11 @@ where
     ActionCallCompletionsProvider::WaitError: Send,
     waymark_action_runtime_convert::Converter<waymark_vm_value_python_convert_proto::Converter>:
         waymark_convert_core::Convert<
-                ActionCallCompletionsProvider::ActionExecutionError,
-                waymark_vm_runtime_exception::Exception<waymark_system_vm::ReadyValue>,
+                Result<
+                    waymark_action_runtime_core::ActionCallOutcome<waymark_system_vm::ReadyValue>,
+                    ActionCallCompletionsProvider::ActionExecutionError,
+                >,
+                waymark_vm_driver_core::PromiseResolution<waymark_system_vm::ReadyValue>,
             >,
 {
     let codec = waymark_vm_codec_rmp::RmpCodec;

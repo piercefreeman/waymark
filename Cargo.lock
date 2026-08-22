@@ -4141,7 +4141,6 @@ dependencies = [
  "waymark-vm-driver-core",
  "waymark-vm-exception-type-ids",
  "waymark-vm-runtime-effect",
- "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-value-python",
  "waymark-vm-value-python-convert-proto",
@@ -4204,6 +4203,7 @@ dependencies = [
  "waymark-action-runtime-metadata-codec",
  "waymark-convert-core",
  "waymark-proto",
+ "waymark-vm-driver-core",
  "waymark-vm-exception-type-ids",
  "waymark-vm-runtime-exception",
 ]
@@ -4574,7 +4574,6 @@ dependencies = [
  "waymark-extcall-reconciler-core",
  "waymark-vm-driver-core",
  "waymark-vm-runtime-effect",
- "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
 ]
 
@@ -5164,7 +5163,6 @@ dependencies = [
  "waymark-vm-driver-thread",
  "waymark-vm-runtime",
  "waymark-vm-runtime-builder",
- "waymark-vm-runtime-exception",
  "waymark-vm-value-python-convert-proto",
  "waymark-workflow-completion-core",
  "waymark-workflow-completion-direct",

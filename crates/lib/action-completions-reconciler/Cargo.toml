@@ -15,7 +15,6 @@ waymark-promise-settlement-demand-registry = { workspace = true }
 waymark-vm-codec-core = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
-waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
 nonempty-collections = { workspace = true }
