@@ -232,7 +232,11 @@ async fn drive_one<
             tracing::debug!("VM evicted, parking workload");
             pinned.unpin(waymark_workload_pinning_core::UnpinMode::Park);
         }
-        Evicted::DriverError(_) | Evicted::HandledElsewhere => {
+        Evicted::DriverError(_) => {
+            tracing::error!("VM driver failed");
+            drop(pinned);
+        }
+        Evicted::HandledElsewhere => {
             tracing::debug!("VM evicted, unpinning");
             drop(pinned);
         }
