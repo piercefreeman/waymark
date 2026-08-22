@@ -108,7 +108,7 @@ pub type EffectorFor<ActionCallRequester, ActionCallCompletionsProvider> = (
         waymark_extcall_reconciler_action_compat::PromiseSettler<
             ActionCallCompletionsProvider,
             waymark_action_runtime_convert::Converter<
-                waymark_vm_value_python_convert_proto::Converter,
+                waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
             >,
         >,
         waymark_transient_sleep_reconciler::Poller<
@@ -178,14 +178,15 @@ where
         >,
     ActionCallCompletionsProvider: Send + Sync + 'static,
     ActionCallCompletionsProvider::WaitError: Send,
-    waymark_action_runtime_convert::Converter<waymark_vm_value_python_convert_proto::Converter>:
-        waymark_convert_core::Convert<
-                Result<
-                    waymark_action_runtime_core::ActionCallOutcome<waymark_system_vm::ReadyValue>,
-                    ActionCallCompletionsProvider::ActionExecutionError,
-                >,
-                waymark_vm_driver_core::PromiseResolution<waymark_system_vm::ReadyValue>,
+    waymark_action_runtime_convert::Converter<
+        waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
+    >: waymark_convert_core::Convert<
+            Result<
+                waymark_action_runtime_core::ActionCallOutcome<waymark_system_vm::ReadyValue>,
+                ActionCallCompletionsProvider::ActionExecutionError,
             >,
+            waymark_vm_driver_core::PromiseResolution<waymark_system_vm::ReadyValue>,
+        >,
 {
     let codec = waymark_vm_codec_rmp::RmpCodec;
 
@@ -195,7 +196,9 @@ where
         waymark_extcall_reconciler_action_compat::EffectHandler::new(action_call_requester);
     let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
         _,
-        waymark_action_runtime_convert::Converter<waymark_vm_value_python_convert_proto::Converter>,
+        waymark_action_runtime_convert::Converter<
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
+        >,
     >::new(action_call_completions_provider);
     let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
         waymark_sleep_compat_python::ReadyValueSleepProvider,

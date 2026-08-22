@@ -158,7 +158,7 @@ mod tests {
             _,
             ActionCallCorrelation,
             waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::Converter,
+            waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
         >::new(RecordingPool::default());
 
         let metadata = correlation();
@@ -185,7 +185,7 @@ mod tests {
                 _,
                 WithVmId<InstanceId, ActionCallCorrelation>,
                 waymark_vm_value_python::ReadyValue,
-                waymark_vm_value_python_convert_proto::Converter,
+                waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
             >::new(RecordingPool::default()),
         };
 

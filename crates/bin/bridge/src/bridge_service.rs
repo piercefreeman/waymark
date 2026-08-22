@@ -50,7 +50,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
 
         let call_spec =
             waymark_workflow_initialization_convert_proto::Converter::<
-                waymark_vm_value_python_convert_proto::Converter,
+                waymark_vm_value_python_convert_proto::WorkflowArgumentsConverter,
             >::try_convert((&registration.arguments[..], &entry_input_names[..]))
             .map_err(|err| Status::internal(format!("build entry call spec: {err}")))?;
 
@@ -91,7 +91,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
         #[allow(clippy::result_large_err, reason = "tonic forces this")]
         let build_call_spec = |arguments: &[u8]| {
             waymark_workflow_initialization_convert_proto::Converter::<
-                waymark_vm_value_python_convert_proto::Converter,
+                waymark_vm_value_python_convert_proto::WorkflowArgumentsConverter,
             >::try_convert((arguments, &entry_input_names[..]))
             .map_err(|err| Status::internal(format!("build entry call spec: {err}")))
         };

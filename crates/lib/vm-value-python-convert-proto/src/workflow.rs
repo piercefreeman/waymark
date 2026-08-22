@@ -10,6 +10,14 @@ use waymark_vm_value_convert_core::PendingPromiseError;
 use crate::Converter;
 use crate::common::{MissingArgumentValueError, named_arguments};
 
+/// Stateless converter for the workflow initiation seam: argument
+/// payloads read into the entry function's positional arguments.
+pub struct WorkflowArgumentsConverter;
+
+/// Stateless converter for the workflow completion seam: outcomes
+/// written as this flavor's messages and payloads.
+pub struct WorkflowOutcomeConverter;
+
 /// Error reading the positional entry-function arguments a
 /// workflow-arguments payload encodes.
 #[derive(Debug, thiserror::Error)]
@@ -31,7 +39,7 @@ pub enum WorkflowArgumentsError {
 /// inputs by name; inputs the payload does not name default to this
 /// language's nothing value.  An empty payload (the no-arguments
 /// encoding) defaults every input.
-impl TryConvert<(&[u8], &[String]), Vec<Value>> for Converter {
+impl TryConvert<(&[u8], &[String]), Vec<Value>> for WorkflowArgumentsConverter {
     type Error = WorkflowArgumentsError;
 
     fn try_convert(
@@ -64,7 +72,7 @@ impl TryConvert<(&[u8], &[String]), Vec<Value>> for Converter {
 /// the returned value in the `value` arm, the ending exception in the
 /// `exception` arm.
 impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, proto_value::WorkflowOutcome>
-    for Converter
+    for WorkflowOutcomeConverter
 {
     type Error = PendingPromiseError;
 
@@ -75,10 +83,10 @@ impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, proto_val
 
         let outcome = match outcome {
             waymark_workflow_completion_core::Outcome::Completion(value) => {
-                Outcome::Value(Self::try_convert(&value)?)
+                Outcome::Value(Converter::try_convert(&value)?)
             }
             waymark_workflow_completion_core::Outcome::Exception(exception) => {
-                Outcome::Exception(Self::try_convert(&exception)?)
+                Outcome::Exception(Converter::try_convert(&exception)?)
             }
         };
 
@@ -90,7 +98,9 @@ impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, proto_val
 
 /// Convert how a workflow completed into the bytes the completion
 /// payload carries: the outcome message, encoded.
-impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, Vec<u8>> for Converter {
+impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, Vec<u8>>
+    for WorkflowOutcomeConverter
+{
     type Error = PendingPromiseError;
 
     fn try_convert(

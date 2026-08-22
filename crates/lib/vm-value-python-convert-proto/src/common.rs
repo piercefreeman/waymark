@@ -20,7 +20,7 @@ pub struct MissingArgumentValueError {
 /// messages share — into the map of ready values they carry.
 ///
 /// An entry carrying no value is a [`MissingArgumentValueError`].
-pub fn named_arguments<'a>(
+pub(crate) fn named_arguments<'a>(
     entries: impl Iterator<Item = (&'a String, Option<&'a proto_value::Value>)>,
 ) -> Result<std::collections::HashMap<String, ReadyValue>, MissingArgumentValueError> {
     entries

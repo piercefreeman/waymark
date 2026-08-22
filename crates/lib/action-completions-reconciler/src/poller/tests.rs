@@ -39,7 +39,7 @@ async fn poll_settlements(
 }
 
 /// The test instantiation of the value converter pin.
-type TestConverter = waymark_vm_value_python_convert_proto::Converter;
+type TestConverter = waymark_vm_value_python_convert_proto::ActionOutcomeConverter;
 
 #[allow(clippy::type_complexity, reason = "a test helper's plumbing tuple")]
 fn poller(
@@ -50,8 +50,11 @@ fn poller(
     tokio::sync::mpsc::UnboundedReceiver<CompletionKey<InstanceId>>,
 ) {
     let (ack_tx, ack_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (registrar, state) =
-        super::state::<_, ReadyValue, waymark_vm_value_python_convert_proto::Converter>(ack_tx);
+    let (registrar, state) = super::state::<
+        _,
+        ReadyValue,
+        waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
+    >(ack_tx);
     let params = Params {
         backend: Arc::new(backend.clone()),
         codec: RmpCodec,

@@ -79,7 +79,7 @@ pub fn setup_runtime(
     let executable = std::sync::Arc::new(executable);
 
     let call_spec = waymark_workflow_initialization_convert_proto::Converter::<
-        waymark_vm_value_python_convert_proto::Converter,
+        waymark_vm_value_python_convert_proto::WorkflowArgumentsConverter,
     >::try_convert((&registration.arguments[..], &metadata))
     .map_err(SetupRuntimeError::ConvertWorkflowArguments)?;
 
@@ -128,13 +128,13 @@ pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> Execute
     let action_call_requester = waymark_action_runtime_worker_stream::WorkerStreamActionRequester::<
         ActionCallCorrelation,
         waymark_vm_value_python::ReadyValue,
-        waymark_vm_value_python_convert_proto::Converter,
+        waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
     >::new(out_tx.clone());
     let action_call_completions_provider =
         waymark_action_runtime_worker_stream::WorkerStreamActionCallCompletionsProvider::<
             ActionCallCorrelation,
             waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::Converter,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >::new(action_result_rx);
 
     let cancellation = tokio_util::sync::CancellationToken::new();
@@ -194,8 +194,10 @@ fn convert_workflow_outcome_to_stream_response(
     workflow_outcome: waymark_workflow_completion_core::Outcome<waymark_system_vm::ReadyValue>,
 ) -> Result<proto::WorkflowStreamResponse, Status> {
     let payload: Vec<u8> =
-        waymark_vm_value_python_convert_proto::Converter::try_convert(workflow_outcome)
-            .map_err(|err| Status::internal(format!("convert workflow outcome: {err}")))?;
+        waymark_vm_value_python_convert_proto::WorkflowOutcomeConverter::try_convert(
+            workflow_outcome,
+        )
+        .map_err(|err| Status::internal(format!("convert workflow outcome: {err}")))?;
 
     Ok(proto::WorkflowStreamResponse {
         kind: Some(proto::workflow_stream_response::Kind::WorkflowResult(

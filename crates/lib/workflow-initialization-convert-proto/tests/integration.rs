@@ -5,7 +5,7 @@ use prost::Message as _;
 use waymark_convert_core::TryConvert;
 
 type Converter = waymark_workflow_initialization_convert_proto::Converter<
-    waymark_vm_value_python_convert_proto::Converter,
+    waymark_vm_value_python_convert_proto::WorkflowArgumentsConverter,
 >;
 
 fn int_arg(key: &str, value: i64) -> waymark_proto::python_value::WorkflowArgument {
