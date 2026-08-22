@@ -4381,6 +4381,7 @@ dependencies = [
  "waymark-vm-runtime-builder",
  "waymark-vm-runtime-exception",
  "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
  "waymark-worker-inline",
  "waymark-worker-inline-compat",
  "waymark-workflow-service-vm-executables",
@@ -4627,6 +4628,7 @@ dependencies = [
  "waymark-vm-ast-old-proto",
  "waymark-vm-runtime-exception",
  "waymark-vm-value-python",
+ "waymark-vm-value-python-convert-proto",
  "waymark-worker-inline",
  "waymark-worker-inline-compat",
  "waymark-workflow-completion-core",
@@ -5935,10 +5937,7 @@ version = "0.1.0"
 dependencies = [
  "waymark-action-runtime-core",
  "waymark-convert-core",
- "waymark-proto",
  "waymark-vm-runtime-exception",
- "waymark-vm-value-python",
- "waymark-vm-value-python-convert-proto",
  "waymark-worker-inline",
 ]
 
