@@ -12,7 +12,6 @@ import google.protobuf.descriptor
 import google.protobuf.internal.containers
 import google.protobuf.internal.enum_type_wrapper
 import google.protobuf.message
-import google.protobuf.struct_pb2
 
 if sys.version_info >= (3, 10):
     import typing as typing_extensions
@@ -430,109 +429,28 @@ class WorkerHello(google.protobuf.message.Message):
 Global___WorkerHello: typing_extensions.TypeAlias = WorkerHello
 
 @typing.final
-class WorkflowArgumentValue(google.protobuf.message.Message):
+class WorkflowArgument(google.protobuf.message.Message):
     """=============================================================================
-    Value Serialization
+    Value Framing
     =============================================================================
-    All values passed between Rust and Python must be JSON-serializable.
-    These messages define the wire format for workflow arguments and results.
+    Named arguments at the transport framing level.  The names stay
+    proto-visible; each value is an opaque encoded document whose format is
+    the producing language's own business (currently a serialized
+    `waymark.python_value.WorkflowArgumentValue`, see python_value.proto).
     """
 
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    PRIMITIVE_FIELD_NUMBER: builtins.int
-    BASEMODEL_FIELD_NUMBER: builtins.int
-    EXCEPTION_FIELD_NUMBER: builtins.int
-    LIST_VALUE_FIELD_NUMBER: builtins.int
-    TUPLE_VALUE_FIELD_NUMBER: builtins.int
-    DICT_VALUE_FIELD_NUMBER: builtins.int
-    @property
-    def primitive(self) -> Global___PrimitiveWorkflowArgument: ...
-    @property
-    def basemodel(self) -> Global___BaseModelWorkflowArgument: ...
-    @property
-    def exception(self) -> Global___WorkflowErrorValue: ...
-    @property
-    def list_value(self) -> Global___WorkflowListArgument: ...
-    @property
-    def tuple_value(self) -> Global___WorkflowTupleArgument: ...
-    @property
-    def dict_value(self) -> Global___WorkflowDictArgument: ...
-    def __init__(
-        self,
-        *,
-        primitive: Global___PrimitiveWorkflowArgument | None = ...,
-        basemodel: Global___BaseModelWorkflowArgument | None = ...,
-        exception: Global___WorkflowErrorValue | None = ...,
-        list_value: Global___WorkflowListArgument | None = ...,
-        tuple_value: Global___WorkflowTupleArgument | None = ...,
-        dict_value: Global___WorkflowDictArgument | None = ...,
-    ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "basemodel",
-            b"basemodel",
-            "dict_value",
-            b"dict_value",
-            "exception",
-            b"exception",
-            "kind",
-            b"kind",
-            "list_value",
-            b"list_value",
-            "primitive",
-            b"primitive",
-            "tuple_value",
-            b"tuple_value",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "basemodel",
-            b"basemodel",
-            "dict_value",
-            b"dict_value",
-            "exception",
-            b"exception",
-            "kind",
-            b"kind",
-            "list_value",
-            b"list_value",
-            "primitive",
-            b"primitive",
-            "tuple_value",
-            b"tuple_value",
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["kind", b"kind"]
-    ) -> (
-        typing.Literal[
-            "primitive", "basemodel", "exception", "list_value", "tuple_value", "dict_value"
-        ]
-        | None
-    ): ...
-
-Global___WorkflowArgumentValue: typing_extensions.TypeAlias = WorkflowArgumentValue
-
-@typing.final
-class WorkflowArgument(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     KEY_FIELD_NUMBER: builtins.int
     VALUE_FIELD_NUMBER: builtins.int
     key: builtins.str
-    @property
-    def value(self) -> Global___WorkflowArgumentValue: ...
+    value: builtins.bytes
     def __init__(
         self,
         *,
         key: builtins.str = ...,
-        value: Global___WorkflowArgumentValue | None = ...,
+        value: builtins.bytes = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing.Literal["value", b"value"]) -> builtins.bool: ...
     def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
 
 Global___WorkflowArgument: typing_extensions.TypeAlias = WorkflowArgument
@@ -556,217 +474,6 @@ class WorkflowArguments(google.protobuf.message.Message):
     def ClearField(self, field_name: typing.Literal["arguments", b"arguments"]) -> None: ...
 
 Global___WorkflowArguments: typing_extensions.TypeAlias = WorkflowArguments
-
-@typing.final
-class PrimitiveWorkflowArgument(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    STRING_VALUE_FIELD_NUMBER: builtins.int
-    DOUBLE_VALUE_FIELD_NUMBER: builtins.int
-    INT_VALUE_FIELD_NUMBER: builtins.int
-    BOOL_VALUE_FIELD_NUMBER: builtins.int
-    NULL_VALUE_FIELD_NUMBER: builtins.int
-    string_value: builtins.str
-    double_value: builtins.float
-    int_value: builtins.int
-    bool_value: builtins.bool
-    null_value: google.protobuf.struct_pb2.NullValue.ValueType
-    def __init__(
-        self,
-        *,
-        string_value: builtins.str = ...,
-        double_value: builtins.float = ...,
-        int_value: builtins.int = ...,
-        bool_value: builtins.bool = ...,
-        null_value: google.protobuf.struct_pb2.NullValue.ValueType = ...,
-    ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "bool_value",
-            b"bool_value",
-            "double_value",
-            b"double_value",
-            "int_value",
-            b"int_value",
-            "kind",
-            b"kind",
-            "null_value",
-            b"null_value",
-            "string_value",
-            b"string_value",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "bool_value",
-            b"bool_value",
-            "double_value",
-            b"double_value",
-            "int_value",
-            b"int_value",
-            "kind",
-            b"kind",
-            "null_value",
-            b"null_value",
-            "string_value",
-            b"string_value",
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["kind", b"kind"]
-    ) -> (
-        typing.Literal["string_value", "double_value", "int_value", "bool_value", "null_value"]
-        | None
-    ): ...
-
-Global___PrimitiveWorkflowArgument: typing_extensions.TypeAlias = PrimitiveWorkflowArgument
-
-@typing.final
-class BaseModelWorkflowArgument(google.protobuf.message.Message):
-    """Pydantic BaseModel or similar structured types"""
-
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    MODULE_FIELD_NUMBER: builtins.int
-    NAME_FIELD_NUMBER: builtins.int
-    DATA_FIELD_NUMBER: builtins.int
-    module: builtins.str
-    name: builtins.str
-    @property
-    def data(self) -> Global___WorkflowDictArgument: ...
-    def __init__(
-        self,
-        *,
-        module: builtins.str = ...,
-        name: builtins.str = ...,
-        data: Global___WorkflowDictArgument | None = ...,
-    ) -> None: ...
-    def HasField(self, field_name: typing.Literal["data", b"data"]) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["data", b"data", "module", b"module", "name", b"name"]
-    ) -> None: ...
-
-Global___BaseModelWorkflowArgument: typing_extensions.TypeAlias = BaseModelWorkflowArgument
-
-@typing.final
-class WorkflowErrorValue(google.protobuf.message.Message):
-    """Serialized exception for error propagation"""
-
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    TYPE_FIELD_NUMBER: builtins.int
-    MODULE_FIELD_NUMBER: builtins.int
-    MESSAGE_FIELD_NUMBER: builtins.int
-    TRACEBACK_FIELD_NUMBER: builtins.int
-    VALUES_FIELD_NUMBER: builtins.int
-    TYPE_HIERARCHY_FIELD_NUMBER: builtins.int
-    type: builtins.str
-    module: builtins.str
-    message: builtins.str
-    traceback: builtins.str
-    @property
-    def values(self) -> Global___WorkflowDictArgument: ...
-    @property
-    def type_hierarchy(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
-        """Exception class hierarchy (MRO) for proper except matching.
-        e.g., for KeyError: ["KeyError", "LookupError", "Exception", "BaseException"]
-        This allows `except LookupError:` to catch KeyError.
-        """
-
-    def __init__(
-        self,
-        *,
-        type: builtins.str = ...,
-        module: builtins.str = ...,
-        message: builtins.str = ...,
-        traceback: builtins.str = ...,
-        values: Global___WorkflowDictArgument | None = ...,
-        type_hierarchy: collections.abc.Iterable[builtins.str] | None = ...,
-    ) -> None: ...
-    def HasField(self, field_name: typing.Literal["values", b"values"]) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "message",
-            b"message",
-            "module",
-            b"module",
-            "traceback",
-            b"traceback",
-            "type",
-            b"type",
-            "type_hierarchy",
-            b"type_hierarchy",
-            "values",
-            b"values",
-        ],
-    ) -> None: ...
-
-Global___WorkflowErrorValue: typing_extensions.TypeAlias = WorkflowErrorValue
-
-@typing.final
-class WorkflowListArgument(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    ITEMS_FIELD_NUMBER: builtins.int
-    @property
-    def items(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowArgumentValue
-    ]: ...
-    def __init__(
-        self,
-        *,
-        items: collections.abc.Iterable[Global___WorkflowArgumentValue] | None = ...,
-    ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["items", b"items"]) -> None: ...
-
-Global___WorkflowListArgument: typing_extensions.TypeAlias = WorkflowListArgument
-
-@typing.final
-class WorkflowTupleArgument(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    ITEMS_FIELD_NUMBER: builtins.int
-    @property
-    def items(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowArgumentValue
-    ]: ...
-    def __init__(
-        self,
-        *,
-        items: collections.abc.Iterable[Global___WorkflowArgumentValue] | None = ...,
-    ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["items", b"items"]) -> None: ...
-
-Global___WorkflowTupleArgument: typing_extensions.TypeAlias = WorkflowTupleArgument
-
-@typing.final
-class WorkflowDictArgument(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    ENTRIES_FIELD_NUMBER: builtins.int
-    @property
-    def entries(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowArgument
-    ]: ...
-    def __init__(
-        self,
-        *,
-        entries: collections.abc.Iterable[Global___WorkflowArgument] | None = ...,
-    ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["entries", b"entries"]) -> None: ...
-
-Global___WorkflowDictArgument: typing_extensions.TypeAlias = WorkflowDictArgument
 
 @typing.final
 class WorkflowRegistration(google.protobuf.message.Message):
@@ -901,7 +608,9 @@ class RegisterWorkflowBatchRequest(google.protobuf.message.Message):
     count: builtins.int
     """Total number of instances to create when inputs_list is empty."""
     batch_size: builtins.int
-    """Batch size for database inserts."""
+    """Batch size for database inserts, clamped to a server-side maximum;
+    0 means the server default.
+    """
     include_instance_ids: builtins.bool
     """Whether to return instance IDs in the response."""
     @property

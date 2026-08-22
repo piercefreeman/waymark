@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package waymark.messages;
 
-import "google/protobuf/struct.proto";
 
 // =============================================================================
 // Worker Bridge Communication
@@ -73,71 +72,20 @@ message WorkerHello {
 }
 
 // =============================================================================
-// Value Serialization
+// Value Framing
 // =============================================================================
-// All values passed between Rust and Python must be JSON-serializable.
-// These messages define the wire format for workflow arguments and results.
-
-message WorkflowArgumentValue {
-  oneof kind {
-    PrimitiveWorkflowArgument primitive = 1;
-    BaseModelWorkflowArgument basemodel = 2;
-    WorkflowErrorValue exception = 3;
-    WorkflowListArgument list_value = 4;
-    WorkflowTupleArgument tuple_value = 5;
-    WorkflowDictArgument dict_value = 6;
-  }
-}
+// Named arguments at the transport framing level.  The names stay
+// proto-visible; each value is an opaque encoded document whose format is
+// the producing language's own business (currently a serialized
+// `waymark.python_value.WorkflowArgumentValue`, see python_value.proto).
 
 message WorkflowArgument {
   string key = 1;
-  WorkflowArgumentValue value = 2;
+  bytes value = 2;
 }
 
 message WorkflowArguments {
   repeated WorkflowArgument arguments = 1;
-}
-
-message PrimitiveWorkflowArgument {
-  oneof kind {
-    string string_value = 1;
-    double double_value = 2;
-    sint64 int_value = 3;
-    bool bool_value = 4;
-    google.protobuf.NullValue null_value = 5;
-  }
-}
-
-// Pydantic BaseModel or similar structured types
-message BaseModelWorkflowArgument {
-  string module = 1;
-  string name = 2;
-  WorkflowDictArgument data = 3;
-}
-
-// Serialized exception for error propagation
-message WorkflowErrorValue {
-  string type = 1;
-  string module = 2;
-  string message = 3;
-  string traceback = 4;
-  WorkflowDictArgument values = 5;
-  // Exception class hierarchy (MRO) for proper except matching.
-  // e.g., for KeyError: ["KeyError", "LookupError", "Exception", "BaseException"]
-  // This allows `except LookupError:` to catch KeyError.
-  repeated string type_hierarchy = 6;
-}
-
-message WorkflowListArgument {
-  repeated WorkflowArgumentValue items = 1;
-}
-
-message WorkflowTupleArgument {
-  repeated WorkflowArgumentValue items = 1;
-}
-
-message WorkflowDictArgument {
-  repeated WorkflowArgument entries = 1;
 }
 
 // =============================================================================

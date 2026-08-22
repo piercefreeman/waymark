@@ -4079,8 +4079,9 @@ dependencies = [
  "serde_json",
  "waymark-action-runtime-core",
  "waymark-convert-core",
- "waymark-message-conversions",
  "waymark-proto",
+ "waymark-proto-message-conversions",
+ "waymark-proto-python-value-conversions",
  "waymark-vm-runtime-exception",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-convert-json",
@@ -4568,14 +4569,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-message-conversions"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "waymark-proto",
-]
-
-[[package]]
 name = "waymark-metrics-util"
 version = "0.1.0"
 dependencies = [
@@ -4650,6 +4643,26 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
+]
+
+[[package]]
+name = "waymark-proto-message-conversions"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "serde_json",
+ "thiserror",
+ "waymark-proto",
+ "waymark-proto-python-value-conversions",
+]
+
+[[package]]
+name = "waymark-proto-python-value-conversions"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "serde_json",
+ "waymark-proto",
 ]
 
 [[package]]
@@ -5844,8 +5857,9 @@ dependencies = [
  "tokio",
  "tracing",
  "waymark-managed-process",
- "waymark-message-conversions",
  "waymark-proto",
+ "waymark-proto-message-conversions",
+ "waymark-proto-python-value-conversions",
  "waymark-worker-core",
  "waymark-worker-message-protocol",
  "waymark-worker-metrics",
@@ -5928,8 +5942,8 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "waymark-convert-core",
- "waymark-message-conversions",
  "waymark-proto",
+ "waymark-proto-python-value-conversions",
  "waymark-vm-runtime-exception",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-convert-json",
@@ -5967,6 +5981,7 @@ dependencies = [
  "waymark-action-runtime-convert",
  "waymark-convert-core",
  "waymark-proto",
+ "waymark-proto-python-value-conversions",
  "waymark-vm-compiler-metadata",
  "waymark-vm-runtime",
  "waymark-vm-value-python",
