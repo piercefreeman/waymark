@@ -12,17 +12,15 @@ prost = { workspace = true }
 prost-types = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 tonic = { workspace = true }
-tonic-prost = { workspace = true }
+tonic-prost = { workspace = true, optional = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }
 
 [features]
-default = ["client", "server", "serde"]
-
-client = ["tonic/transport"]
+client = ["dep:tonic-prost", "tonic/codegen", "tonic/transport"]
 serde = ["dep:serde"]
-server = ["tonic/transport"]
+server = ["dep:tonic-prost", "tonic/codegen", "tonic/transport"]
 
 [lib]
 test = false
