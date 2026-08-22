@@ -4326,7 +4326,7 @@ dependencies = [
  "waymark-vm-executable",
  "waymark-vm-interpreter-fullset",
  "waymark-vm-runtime",
- "waymark-workflow-completion-convert-proto",
+ "waymark-vm-value-python-convert-proto",
  "waymark-workflow-initialization-convert-proto",
  "waymark-workflow-service-vm-executables",
  "waymark-workflow-service-vm-runtimes",
@@ -5012,7 +5012,6 @@ dependencies = [
  "waymark-vm-runtime",
  "waymark-vm-value-python",
  "waymark-vm-value-python-convert-proto",
- "waymark-workflow-completion-convert-proto",
  "waymark-workflow-completion-core",
  "waymark-workflow-initialization-convert-proto",
 ]
@@ -5645,6 +5644,7 @@ dependencies = [
  "waymark-vm-runtime-promise-core",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-python",
+ "waymark-workflow-completion-core",
 ]
 
 [[package]]
@@ -5939,19 +5939,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-workflow-completion-convert-proto"
-version = "0.1.0"
-dependencies = [
- "waymark-convert-core",
- "waymark-proto",
- "waymark-vm-runtime-exception",
- "waymark-vm-value-convert-core",
- "waymark-vm-value-python",
- "waymark-vm-value-python-convert-proto",
- "waymark-workflow-completion-core",
-]
-
-[[package]]
 name = "waymark-workflow-completion-core"
 version = "0.1.0"
 dependencies = [
@@ -5978,7 +5965,6 @@ version = "0.1.0"
 dependencies = [
  "index_type",
  "prost",
- "thiserror",
  "waymark-convert-core",
  "waymark-proto",
  "waymark-vm-compiler-metadata",
