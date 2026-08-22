@@ -13,11 +13,11 @@ pub trait RecordCompletions: HasVmId {
     ///
     /// Recording is idempotent per key: a record whose key already exists
     /// with byte-identical data is silently accepted.  A record whose key
-    /// exists with the same effect number but a **conflicting outcome** is
+    /// exists with the same effect number but a **conflicting execution result** is
     /// expected under at-least-once redelivery of non-deterministic
-    /// actions: the first recorded outcome wins, the redelivered one is
+    /// actions: the first recorded execution result wins, the redelivered one is
     /// discarded, and the key is reported via
-    /// [`RecordingSuccess::SomeConflictingOutcomes`].
+    /// [`RecordingSuccess::SomeConflictingExecutionResults`].
     ///
     /// A record whose key exists with a **different effect number**
     /// violates the "same effect ⇒ same pair" invariant and must fail
@@ -32,18 +32,18 @@ pub trait RecordCompletions: HasVmId {
     ) -> impl Future<Output = Result<RecordingSuccess<Self::VmId>, Self::Error>> + Send + 'a;
 }
 
-/// The successful outcome of recording a batch of completions.
+/// The success of recording a batch of completions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecordingSuccess<VmId> {
     /// Every record was recorded, or already existed with identical data.
     AllRecorded,
 
     /// The batch was fully processed, but these keys already existed with
-    /// the same effect number and a conflicting outcome.  First write wins:
-    /// the redelivered outcomes were discarded.  Expected under
+    /// the same effect number and a conflicting execution result.  First write wins:
+    /// the redelivered execution results were discarded.  Expected under
     /// at-least-once redelivery of non-deterministic actions; callers
     /// typically log the keys and move on.
-    SomeConflictingOutcomes(NEVec<CompletionKey<VmId>>),
+    SomeConflictingExecutionResults(NEVec<CompletionKey<VmId>>),
 }
 
 /// Classification interface for completion-recording errors.

@@ -369,7 +369,7 @@ async fn recording_a_completion_removes_the_request() {
         vm_id: vm,
         promise_state_id: PromiseStateId(1),
         effect_number: EffectNumber(10),
-        outcome: b"outcome-1".to_vec(),
+        execution_result: b"outcome-1".to_vec(),
     }])
     .unwrap();
     backend
