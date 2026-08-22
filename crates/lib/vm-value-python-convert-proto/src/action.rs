@@ -20,24 +20,37 @@ pub struct ActionArgumentsConverter;
 /// written and read, and losses rendered.
 pub struct ActionOutcomeConverter;
 
-/// Convert a pair of call-argument names and values straight into the
-/// bytes the dispatch carries: the arguments message, encoded.
+/// Convert an action call — its ref, argument values, and the encoded
+/// correlation metadata — into the worker protocol's dispatch message.
 ///
 /// This is the flavor's calling convention: `call_args` names from the
-/// `ActionRef` paired positionally with the argument values from the
-/// VM into named arguments, in pairing order.
+/// ref paired positionally with the argument values from the VM into
+/// named arguments, in pairing order, and the action's identity rides
+/// as its name and module.  The metadata bytes are opaque here —
+/// encoded by the envelope, echoed by the worker untouched.
 ///
 /// No arguments encode as no bytes — an entry-less message has the
 /// empty encoding, so "empty payload means no arguments" needs no case
 /// of its own.
-impl TryConvert<(Vec<String>, Vec<ReadyValue>), Vec<u8>> for ActionArgumentsConverter {
+impl
+    TryConvert<
+        (waymark_action_core::ActionRef, Vec<ReadyValue>, Vec<u8>),
+        waymark_proto::messages::ActionDispatch,
+    > for ActionArgumentsConverter
+{
     type Error = PendingPromiseError;
 
     fn try_convert(
-        (names, values): (Vec<String>, Vec<ReadyValue>),
-    ) -> Result<Vec<u8>, Self::Error> {
-        let mut arguments = Vec::with_capacity(names.len());
-        for (name, value) in names.iter().zip(values.iter()) {
+        (action_ref, values, metadata): (waymark_action_core::ActionRef, Vec<ReadyValue>, Vec<u8>),
+    ) -> Result<waymark_proto::messages::ActionDispatch, Self::Error> {
+        let waymark_action_core::ActionRef {
+            action_name,
+            module_name,
+            call_args,
+        } = action_ref;
+
+        let mut arguments = Vec::with_capacity(call_args.len());
+        for (name, value) in call_args.iter().zip(values.iter()) {
             // Skip `None`-valued parameters (dependency markers such as
             // `Annotated[T, Depend(…)]` are serialized as `None` by the
             // VM).  The Python side (`provide_dependencies`) will resolve
@@ -52,7 +65,13 @@ impl TryConvert<(Vec<String>, Vec<ReadyValue>), Vec<u8>> for ActionArgumentsConv
             });
         }
         let message = proto_value::ActionArguments { arguments };
-        Ok(prost::Message::encode_to_vec(&message))
+
+        Ok(waymark_proto::messages::ActionDispatch {
+            action_name,
+            module_name: module_name.unwrap_or_default(),
+            arguments: prost::Message::encode_to_vec(&message),
+            metadata,
+        })
     }
 }
 
@@ -334,6 +353,23 @@ mod tests {
 
         assert_eq!(details, ReadyValue::None);
     }
+    /// The encoded arguments of a dispatch for `names` paired with
+    /// `values`.
+    fn dispatch_arguments(names: Vec<String>, values: Vec<ReadyValue>) -> Vec<u8> {
+        let dispatch: waymark_proto::messages::ActionDispatch =
+            ActionArgumentsConverter::try_convert((
+                waymark_action_core::ActionRef {
+                    action_name: "notify".to_owned(),
+                    module_name: None,
+                    call_args: names,
+                },
+                values,
+                Vec::new(),
+            ))
+            .expect("no pending promise");
+        dispatch.arguments
+    }
+
     #[test]
     fn action_arguments_round_trip_named_values() {
         // The bytes are the encoded arguments message, byte for byte, and
@@ -341,8 +377,7 @@ mod tests {
         let names = vec!["zebra".to_owned(), "apple".to_owned()];
         let values = vec![ReadyValue::Int(1), ReadyValue::String("two".to_owned())];
 
-        let bytes: Vec<u8> =
-            ActionArgumentsConverter::try_convert((names, values)).expect("no pending promise");
+        let bytes = dispatch_arguments(names, values);
         let message = proto_value::ActionArguments {
             arguments: vec![
                 proto_value::ActionArgument {
@@ -377,8 +412,7 @@ mod tests {
         let names = vec!["dependency".to_owned(), "count".to_owned()];
         let values = vec![ReadyValue::None, ReadyValue::Int(3)];
 
-        let bytes: Vec<u8> =
-            ActionArgumentsConverter::try_convert((names, values)).expect("no pending promise");
+        let bytes = dispatch_arguments(names, values);
         let named: std::collections::HashMap<String, ReadyValue> =
             ActionArgumentsConverter::try_convert(bytes).expect("every entry carries a value");
         assert_eq!(
