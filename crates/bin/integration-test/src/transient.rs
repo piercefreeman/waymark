@@ -9,7 +9,7 @@ use color_eyre::eyre::{WrapErr as _, bail, eyre};
 use waymark_worker_core::BaseWorkerPool as _;
 
 use crate::ground_truth::PreparedCase;
-use crate::outcome::{CaseOutcome, canonicalize_outcome, check_case_outcome, outcome_from_vm};
+use crate::outcome::{CaseOutcome, check_case_outcome, outcome_from_vm};
 use crate::worker_pool::{PythonWorkerPool, setup_worker_pool, teardown_worker_pool};
 
 pub async fn run_transient_mode(
@@ -106,5 +106,5 @@ async fn run_case_transient(
         )
     })?;
 
-    Ok(canonicalize_outcome(outcome_from_vm(workflow_outcome)?))
+    Ok(outcome_from_vm(workflow_outcome))
 }
