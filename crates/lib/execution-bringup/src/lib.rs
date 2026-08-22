@@ -316,7 +316,7 @@ where
                 waymark_action_runtime_metadata::ActionCallCorrelation,
             >,
             waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::Converter,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >::new(worker_pool.clone()),
         backend: Arc::clone(&backend),
         codec: Arc::clone(&codec),
@@ -359,7 +359,7 @@ where
     let (registrar, poller_state) = waymark_action_completions_reconciler::poller::state::<
         _,
         waymark_vm_value_python::ReadyValue,
-        waymark_vm_value_python_convert_proto::Converter,
+        waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
     >(ack_tx);
     let poller_params = waymark_action_completions_reconciler::poller::Params {
         backend: Arc::clone(&backend),
@@ -517,7 +517,7 @@ where
                     _,
                     _,
                     waymark_vm_value_python::ReadyValue,
-                    waymark_vm_value_python_convert_proto::Converter,
+                    waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
                 >::new(worker_pool.clone());
             let action_call_requester =
                 waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester {
@@ -614,7 +614,7 @@ where
                     _,
                     _,
                     waymark_vm_value_python::ReadyValue,
-                    waymark_vm_value_python_convert_proto::Converter,
+                    waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
                 >::new(requests_factory_worker_pool.clone());
             waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester {
                 vm_id: *vm_id,

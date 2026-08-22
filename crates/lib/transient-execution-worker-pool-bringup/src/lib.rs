@@ -16,13 +16,13 @@ pub type ExecutionFor<Pool> = waymark_transient_execution_bringup::Execution<
             Pool,
             waymark_action_runtime_metadata::ActionCallCorrelation,
             waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::Converter,
+            waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
         >,
         waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider<
             Pool,
             waymark_action_runtime_metadata::ActionCallCorrelation,
             waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::Converter,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >,
     >,
 >;
@@ -60,14 +60,14 @@ where
         _,
         _,
         waymark_vm_value_python::ReadyValue,
-        waymark_vm_value_python_convert_proto::Converter,
+        waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
     >::new(worker_pool.clone());
     let action_call_completions_provider =
         waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::<
             _,
             _,
             waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::Converter,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >::new(worker_pool);
 
     waymark_transient_execution_bringup::execute_with(
