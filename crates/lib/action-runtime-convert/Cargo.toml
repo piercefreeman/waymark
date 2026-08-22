@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 waymark-action-runtime-core = { workspace = true }
+waymark-action-runtime-metadata-codec = { workspace = true }
 waymark-convert-core = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-proto-message-conversions = { workspace = true }
@@ -14,3 +15,7 @@ waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-value-convert-core = { workspace = true }
 waymark-vm-value-convert-json = { workspace = true }
 waymark-vm-value-python = { workspace = true }
+
+prost = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
