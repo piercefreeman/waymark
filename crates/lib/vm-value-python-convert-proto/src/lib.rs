@@ -235,26 +235,27 @@ impl TryConvert<&ReadyValue, Vec<u8>> for Converter {
     }
 }
 
-/// Read a ready value back from the bytes the wire carries.
-impl TryConvert<&[u8], ReadyValue> for Converter {
+/// Read a ready value back from an owned encoded-value payload.
+impl TryConvert<Vec<u8>, ReadyValue> for Converter {
     type Error = prost::DecodeError;
 
-    fn try_convert(bytes: &[u8]) -> Result<ReadyValue, Self::Error> {
-        let message: proto_value::Value = prost::Message::decode(bytes)?;
+    fn try_convert(bytes: Vec<u8>) -> Result<ReadyValue, Self::Error> {
+        let message: proto_value::Value = prost::Message::decode(bytes.as_slice())?;
         Ok(Self::convert(&message))
     }
 }
 
-/// Read an exception back from the bytes its own wire message encodes.
+/// Read an exception back from an owned payload of its own wire
+/// message.
 ///
 /// The exception payload is carried as an encoded
 /// [`proto_value::ExceptionValue`], a message of its own rather than a
 /// value.
-impl TryConvert<&[u8], Exception<ReadyValue>> for Converter {
+impl TryConvert<Vec<u8>, Exception<ReadyValue>> for Converter {
     type Error = prost::DecodeError;
 
-    fn try_convert(bytes: &[u8]) -> Result<Exception<ReadyValue>, Self::Error> {
-        let message: proto_value::ExceptionValue = prost::Message::decode(bytes)?;
+    fn try_convert(bytes: Vec<u8>) -> Result<Exception<ReadyValue>, Self::Error> {
+        let message: proto_value::ExceptionValue = prost::Message::decode(bytes.as_slice())?;
         Ok(Self::convert(&message))
     }
 }
@@ -270,15 +271,6 @@ impl TryConvert<&proto_value::Value, Vec<u8>> for Converter {
     }
 }
 
-/// Read a value message back from the bytes the wire carries.
-impl TryConvert<&[u8], proto_value::Value> for Converter {
-    type Error = prost::DecodeError;
-
-    fn try_convert(bytes: &[u8]) -> Result<proto_value::Value, Self::Error> {
-        prost::Message::decode(bytes)
-    }
-}
-
 /// Write an action outcome message as the bytes the result payload
 /// carries.
 impl TryConvert<&proto_value::ActionOutcome, Vec<u8>> for Converter {
@@ -286,15 +278,6 @@ impl TryConvert<&proto_value::ActionOutcome, Vec<u8>> for Converter {
 
     fn try_convert(message: &proto_value::ActionOutcome) -> Result<Vec<u8>, Self::Error> {
         Ok(prost::Message::encode_to_vec(message))
-    }
-}
-
-/// Read an action outcome message back from the result payload's bytes.
-impl TryConvert<&[u8], proto_value::ActionOutcome> for Converter {
-    type Error = prost::DecodeError;
-
-    fn try_convert(bytes: &[u8]) -> Result<proto_value::ActionOutcome, Self::Error> {
-        prost::Message::decode(bytes)
     }
 }
 
@@ -368,39 +351,6 @@ impl TryConvert<(Vec<String>, Vec<ReadyValue>), Vec<u8>> for Converter {
     }
 }
 
-/// Read an action arguments message back from the dispatch's bytes.
-impl TryConvert<&[u8], proto_value::ActionArguments> for Converter {
-    type Error = prost::DecodeError;
-
-    fn try_convert(bytes: &[u8]) -> Result<proto_value::ActionArguments, Self::Error> {
-        prost::Message::decode(bytes)
-    }
-}
-
-/// Convert an action arguments message into the named ready values it
-/// carries, in message order.
-impl TryConvert<&proto_value::ActionArguments, Vec<(String, ReadyValue)>> for Converter {
-    type Error = MissingArgumentValueError;
-
-    fn try_convert(
-        message: &proto_value::ActionArguments,
-    ) -> Result<Vec<(String, ReadyValue)>, Self::Error> {
-        message
-            .arguments
-            .iter()
-            .map(|argument| {
-                let value = argument
-                    .value
-                    .as_ref()
-                    .ok_or_else(|| MissingArgumentValueError {
-                        key: argument.key.clone(),
-                    })?;
-                Ok((argument.key.clone(), Self::convert(value)))
-            })
-            .collect()
-    }
-}
-
 /// The result named no outcome, so the worker never said how the call
 /// completed — neither a returned value nor a raised exception, which is
 /// a worker that violated the protocol rather than a call that produced
@@ -454,32 +404,17 @@ impl
     }
 }
 
-/// Read how an action call completed back from the result payload's
-/// bytes: the outcome message, decoded and interpreted.
-impl TryConvert<&[u8], waymark_action_runtime_core::ActionCallOutcome<ReadyValue>> for Converter {
-    type Error = ActionOutcomeError;
-
-    fn try_convert(
-        bytes: &[u8],
-    ) -> Result<waymark_action_runtime_core::ActionCallOutcome<ReadyValue>, Self::Error> {
-        let message: proto_value::ActionOutcome =
-            Self::try_convert(bytes).map_err(ActionOutcomeError::Decode)?;
-        Self::try_convert(message.outcome).map_err(ActionOutcomeError::Outcome)
-    }
-}
-
-/// Read how an action call completed from an owned result payload.
-///
-/// The by-value form of the slice read: transports hand the payload
-/// over whole, so the conversion's error type stays free of the
-/// payload's lifetime.
+/// Read how an action call completed from the result payload: the
+/// outcome message, decoded and interpreted.
 impl TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<ReadyValue>> for Converter {
     type Error = ActionOutcomeError;
 
     fn try_convert(
         bytes: Vec<u8>,
     ) -> Result<waymark_action_runtime_core::ActionCallOutcome<ReadyValue>, Self::Error> {
-        Self::try_convert(bytes.as_slice())
+        let message: proto_value::ActionOutcome =
+            prost::Message::decode(bytes.as_slice()).map_err(ActionOutcomeError::Decode)?;
+        Self::try_convert(message.outcome).map_err(ActionOutcomeError::Outcome)
     }
 }
 
@@ -610,13 +545,15 @@ impl TryConvert<&[u8], proto_value::WorkflowArguments> for Converter {
 }
 
 /// Convert a workflow arguments message into the named ready values it
-/// carries, in message order.
-impl TryConvert<&proto_value::WorkflowArguments, Vec<(String, ReadyValue)>> for Converter {
+/// carries.
+impl TryConvert<&proto_value::WorkflowArguments, std::collections::HashMap<String, ReadyValue>>
+    for Converter
+{
     type Error = MissingArgumentValueError;
 
     fn try_convert(
         message: &proto_value::WorkflowArguments,
-    ) -> Result<Vec<(String, ReadyValue)>, Self::Error> {
+    ) -> Result<std::collections::HashMap<String, ReadyValue>, Self::Error> {
         message
             .arguments
             .iter()
@@ -648,7 +585,7 @@ mod tests {
     }
 
     fn read_outcome(payload: &[u8]) -> waymark_action_runtime_core::ActionCallOutcome<ReadyValue> {
-        Converter::try_convert(payload).expect("the encoded outcome decodes")
+        Converter::try_convert(payload.to_vec()).expect("the encoded outcome decodes")
     }
 
     #[test]
@@ -689,7 +626,7 @@ mod tests {
         let empty = prost::Message::encode_to_vec(&proto_value::ActionOutcome { outcome: None });
 
         let converted: Result<waymark_action_runtime_core::ActionCallOutcome<ReadyValue>, _> =
-            Converter::try_convert(empty.as_slice());
+            Converter::try_convert(empty);
 
         assert!(
             matches!(converted, Err(ActionOutcomeError::Outcome(_))),
@@ -902,7 +839,7 @@ mod tests {
             Converter::try_convert(&value).expect("no pending promise");
         assert_eq!(bytes, prost::Message::encode_to_vec(&message));
 
-        let read: ReadyValue = Converter::try_convert(bytes.as_slice()).expect("the bytes decode");
+        let read: ReadyValue = Converter::try_convert(bytes).expect("the bytes decode");
         assert_eq!(read, value);
     }
 

@@ -54,13 +54,15 @@ pub fn outcome_from_encoded(
 
     match status {
         "ok" => {
-            let value = waymark_vm_value_python_convert_proto::Converter::try_convert(value)
-                .wrap_err("decode the expected value")?;
+            let value =
+                waymark_vm_value_python_convert_proto::Converter::try_convert(value.to_vec())
+                    .wrap_err("decode the expected value")?;
             Ok(CaseOutcome::Completion(value))
         }
         "error" => {
-            let exception = waymark_vm_value_python_convert_proto::Converter::try_convert(value)
-                .wrap_err("decode the expected exception")?;
+            let exception =
+                waymark_vm_value_python_convert_proto::Converter::try_convert(value.to_vec())
+                    .wrap_err("decode the expected exception")?;
             Ok(CaseOutcome::Exception(exception))
         }
         other => bail!("unknown expected outcome status {other:?}"),
