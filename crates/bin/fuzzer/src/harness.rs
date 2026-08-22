@@ -25,7 +25,13 @@ where
         > + Send
         + 'static,
 {
-    inline_action::<waymark_vm_value_python_convert_proto::Converter, _, _, _>(body)
+    inline_action::<
+        waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
+        waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
+        _,
+        _,
+        _,
+    >(body)
 }
 
 pub async fn run_case(
