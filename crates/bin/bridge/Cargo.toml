@@ -21,7 +21,7 @@ waymark-vm-codec-rmp = { workspace = true }
 waymark-vm-executable = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
-waymark-workflow-completion-convert-proto = { workspace = true }
+waymark-vm-value-python-convert-proto = { workspace = true }
 waymark-workflow-initialization-convert-proto = { workspace = true }
 waymark-workflow-service-scheduler = { workspace = true }
 waymark-workflow-service-vm-executables = { workspace = true }
