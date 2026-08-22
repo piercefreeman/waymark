@@ -198,7 +198,7 @@ impl WorkflowStore {
         };
 
         let payload: Vec<u8> =
-            waymark_vm_value_python_convert_proto::Converter::try_convert(outcome)
+            waymark_vm_value_python_convert_proto::WorkflowOutcomeConverter::try_convert(outcome)
                 .map_err(|err| color_eyre::eyre::eyre!("convert workflow outcome: {err}"))?;
 
         Ok(Some(payload))

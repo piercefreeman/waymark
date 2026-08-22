@@ -4,9 +4,9 @@
 //! The inline callable surface speaks the dispatch's opaque encoded
 //! arguments and the encoded result payload; action bodies speak VM
 //! values and the flavor's exceptions.  [`inline_action`] bridges the
-//! two by calling the conversions — it owns none of its own: the value
-//! converter decodes the argument payload into named values and encodes
-//! how the call completed.
+//! two by calling the conversions — it owns none of its own: the
+//! arguments converter decodes the argument payload into named values
+//! and the outcome converter encodes how the call completed.
 
 #![warn(missing_docs)]
 
@@ -28,12 +28,12 @@ use waymark_worker_inline::InlineActionCallable;
 /// message: the dispatch was encoded by this very process, so
 /// undecodable bytes are corruption or version skew — a bug, not an
 /// outcome the action produced.
-fn decode_arguments<ValueConverter, Value>(arguments: Vec<u8>) -> HashMap<String, Value>
+fn decode_arguments<ArgumentsConverter, Value>(arguments: Vec<u8>) -> HashMap<String, Value>
 where
-    ValueConverter: TryConvert<Vec<u8>, HashMap<String, Value>>,
-    ConvertErrorFor<ValueConverter, Vec<u8>, HashMap<String, Value>>: core::fmt::Display,
+    ArgumentsConverter: TryConvert<Vec<u8>, HashMap<String, Value>>,
+    ConvertErrorFor<ArgumentsConverter, Vec<u8>, HashMap<String, Value>>: core::fmt::Display,
 {
-    ValueConverter::try_convert(arguments)
+    ArgumentsConverter::try_convert(arguments)
         .unwrap_or_else(|err| panic!("the dispatch's argument bytes do not decode: {err}"))
 }
 
@@ -46,15 +46,18 @@ where
 /// promise): an in-process body that hands back such a value names a
 /// state no one can settle — a bug in the action body, not an outcome
 /// it produced.
-fn encode_result<ValueConverter, Value>(
+fn encode_result<OutcomeConverter, Value>(
     outcome: waymark_action_runtime_core::ActionCallOutcome<Value>,
 ) -> Vec<u8>
 where
-    ValueConverter: TryConvert<waymark_action_runtime_core::ActionCallOutcome<Value>, Vec<u8>>,
-    ConvertErrorFor<ValueConverter, waymark_action_runtime_core::ActionCallOutcome<Value>, Vec<u8>>:
-        core::fmt::Display,
+    OutcomeConverter: TryConvert<waymark_action_runtime_core::ActionCallOutcome<Value>, Vec<u8>>,
+    ConvertErrorFor<
+        OutcomeConverter,
+        waymark_action_runtime_core::ActionCallOutcome<Value>,
+        Vec<u8>,
+    >: core::fmt::Display,
 {
-    ValueConverter::try_convert(outcome)
+    OutcomeConverter::try_convert(outcome)
         .unwrap_or_else(|err| panic!("an action body's outcome does not encode: {err}"))
 }
 
@@ -65,17 +68,22 @@ where
 /// The body's error is the flavor's own exception — raising is the
 /// body's decision, stated in the vocabulary the VM settles promises
 /// with.
-pub fn inline_action<ValueConverter, Value, F, Fut>(body: F) -> InlineActionCallable
+pub fn inline_action<ArgumentsConverter, OutcomeConverter, Value, F, Fut>(
+    body: F,
+) -> InlineActionCallable
 where
     Value: Send + 'static,
-    ValueConverter: TryConvert<Vec<u8>, HashMap<String, Value>>
-        + TryConvert<waymark_action_runtime_core::ActionCallOutcome<Value>, Vec<u8>>
+    ArgumentsConverter: TryConvert<Vec<u8>, HashMap<String, Value>> + Send + Sync + 'static,
+    OutcomeConverter: TryConvert<waymark_action_runtime_core::ActionCallOutcome<Value>, Vec<u8>>
         + Send
         + Sync
         + 'static,
-    ConvertErrorFor<ValueConverter, Vec<u8>, HashMap<String, Value>>: core::fmt::Display,
-    ConvertErrorFor<ValueConverter, waymark_action_runtime_core::ActionCallOutcome<Value>, Vec<u8>>:
-        core::fmt::Display,
+    ConvertErrorFor<ArgumentsConverter, Vec<u8>, HashMap<String, Value>>: core::fmt::Display,
+    ConvertErrorFor<
+        OutcomeConverter,
+        waymark_action_runtime_core::ActionCallOutcome<Value>,
+        Vec<u8>,
+    >: core::fmt::Display,
     F: Fn(HashMap<String, Value>) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<Value, waymark_vm_runtime_exception::Exception<Value>>>
         + Send
@@ -85,13 +93,14 @@ where
     Arc::new(move |arguments: Vec<u8>| {
         let body = Arc::clone(&body);
         Box::pin(async move {
-            let outcome = match body(decode_arguments::<ValueConverter, Value>(arguments)).await {
+            let outcome = match body(decode_arguments::<ArgumentsConverter, Value>(arguments)).await
+            {
                 Ok(value) => waymark_action_runtime_core::ActionCallOutcome::Value(value),
                 Err(exception) => {
                     waymark_action_runtime_core::ActionCallOutcome::Exception(exception)
                 }
             };
-            encode_result::<ValueConverter, Value>(outcome)
+            encode_result::<OutcomeConverter, Value>(outcome)
         })
     })
 }

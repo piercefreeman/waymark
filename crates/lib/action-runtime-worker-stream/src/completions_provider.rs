@@ -143,7 +143,7 @@ mod tests {
         let mut provider = WorkerStreamActionCallCompletionsProvider::<
             ActionCallCorrelation,
             waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::Converter,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >::new(rx);
 
         // A result whose metadata is not the fixed-length correlation encoding
@@ -170,7 +170,7 @@ mod tests {
         let mut provider = WorkerStreamActionCallCompletionsProvider::<
             ActionCallCorrelation,
             waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::Converter,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >::new(rx);
         drop(tx);
 
