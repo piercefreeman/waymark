@@ -52,10 +52,9 @@ impl TryConvert<(&[u8], &[String]), Vec<waymark_vm_value_python::Value>> for Con
         let message: waymark_proto::python_value::WorkflowArguments =
             waymark_vm_value_python_convert_proto::Converter::try_convert(arguments)
                 .map_err(WorkflowArgumentsError::Decode)?;
-        let entries: Vec<(String, waymark_vm_value_python::ReadyValue)> =
+        let args_map: std::collections::HashMap<String, waymark_vm_value_python::ReadyValue> =
             waymark_vm_value_python_convert_proto::Converter::try_convert(&message)
                 .map_err(WorkflowArgumentsError::Arguments)?;
-        let args_map: std::collections::HashMap<_, _> = entries.into_iter().collect();
 
         let positional: Vec<_> = input_names
             .iter()
