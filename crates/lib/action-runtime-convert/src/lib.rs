@@ -10,6 +10,7 @@
 #![warn(missing_docs)]
 
 mod loss;
+mod resolution;
 mod to_dispatch;
 
 /// A converter that provides conversion for the action runtime.
