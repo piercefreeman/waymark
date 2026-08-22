@@ -356,7 +356,11 @@ where
         }
     });
 
-    let (registrar, poller_state) = waymark_action_completions_reconciler::poller::state(ack_tx);
+    let (registrar, poller_state) = waymark_action_completions_reconciler::poller::state::<
+        _,
+        waymark_vm_value_python::ReadyValue,
+        waymark_vm_value_python_convert_proto::Converter,
+    >(ack_tx);
     let poller_params = waymark_action_completions_reconciler::poller::Params {
         backend: Arc::clone(&backend),
         codec: Arc::clone(&codec),
