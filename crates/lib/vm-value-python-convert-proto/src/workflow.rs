@@ -1,5 +1,5 @@
-//! Conversions of the workflow seams: initiation arguments and
-//! completion outcomes.
+//! Conversions of the workflow's initiation arguments and completion
+//! outcomes.
 
 use waymark_convert_core::TryConvert;
 use waymark_proto::python_value as proto_value;
@@ -10,17 +10,25 @@ use waymark_vm_value_convert_core::PendingPromiseError;
 use crate::Converter;
 use crate::common::{MissingArgumentValueError, named_arguments};
 
+/// Stateless converter for the workflow initiation arguments: argument
+/// payloads read into the entry function's positional arguments.
+pub struct WorkflowArgumentsConverter;
+
+/// Stateless converter for the workflow completion outcome: outcomes
+/// written as this flavor's messages and payloads.
+pub struct WorkflowOutcomeConverter;
+
 /// Error reading the positional entry-function arguments a
 /// workflow-arguments payload encodes.
 #[derive(Debug, thiserror::Error)]
 pub enum WorkflowArgumentsError {
     /// The payload's bytes do not decode as this flavor's workflow
     /// arguments message.
-    #[error("decoding the workflow arguments")]
+    #[error("decoding the workflow arguments: {0}")]
     Decode(#[source] prost::DecodeError),
 
     /// The decoded arguments are malformed.
-    #[error("reading the workflow arguments")]
+    #[error("reading the workflow arguments: {0}")]
     Arguments(#[source] MissingArgumentValueError),
 }
 
@@ -31,7 +39,7 @@ pub enum WorkflowArgumentsError {
 /// inputs by name; inputs the payload does not name default to this
 /// language's nothing value.  An empty payload (the no-arguments
 /// encoding) defaults every input.
-impl TryConvert<(&[u8], &[String]), Vec<Value>> for Converter {
+impl TryConvert<(&[u8], &[String]), Vec<Value>> for WorkflowArgumentsConverter {
     type Error = WorkflowArgumentsError;
 
     fn try_convert(
@@ -64,7 +72,7 @@ impl TryConvert<(&[u8], &[String]), Vec<Value>> for Converter {
 /// the returned value in the `value` arm, the ending exception in the
 /// `exception` arm.
 impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, proto_value::WorkflowOutcome>
-    for Converter
+    for WorkflowOutcomeConverter
 {
     type Error = PendingPromiseError;
 
@@ -75,10 +83,10 @@ impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, proto_val
 
         let outcome = match outcome {
             waymark_workflow_completion_core::Outcome::Completion(value) => {
-                Outcome::Value(Self::try_convert(&value)?)
+                Outcome::Value(Converter::try_convert(&value)?)
             }
             waymark_workflow_completion_core::Outcome::Exception(exception) => {
-                Outcome::Exception(Self::try_convert(&exception)?)
+                Outcome::Exception(Converter::try_convert(&exception)?)
             }
         };
 
@@ -90,7 +98,9 @@ impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, proto_val
 
 /// Convert how a workflow completed into the bytes the completion
 /// payload carries: the outcome message, encoded.
-impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, Vec<u8>> for Converter {
+impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, Vec<u8>>
+    for WorkflowOutcomeConverter
+{
     type Error = PendingPromiseError;
 
     fn try_convert(
@@ -98,5 +108,75 @@ impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, Vec<u8>> 
     ) -> Result<Vec<u8>, Self::Error> {
         let message: proto_value::WorkflowOutcome = Self::try_convert(outcome)?;
         Ok(prost::Message::encode_to_vec(&message))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use proto_value::workflow_outcome::Outcome as ProtoOutcome;
+    use waymark_workflow_completion_core::Outcome;
+
+    use super::*;
+
+    #[test]
+    fn a_completion_writes_the_value_arm() {
+        use proto_value::{primitive_value::Kind as PrimitiveKind, value::Kind};
+
+        let message: proto_value::WorkflowOutcome =
+            WorkflowOutcomeConverter::try_convert(Outcome::Completion(ReadyValue::Int(42)))
+                .expect("no pending promise");
+
+        // The returned value travels as-is in the `value` arm: no
+        // envelope around it.
+        let Some(ProtoOutcome::Value(value)) = &message.outcome else {
+            panic!("a completion is the value arm, got {message:?}");
+        };
+        let Some(Kind::Primitive(primitive)) = &value.kind else {
+            panic!("the value is a primitive, got {value:?}");
+        };
+        assert_eq!(primitive.kind, Some(PrimitiveKind::IntValue(42)));
+    }
+
+    #[test]
+    fn an_exception_writes_the_exception_arm() {
+        use proto_value::{primitive_value::Kind as PrimitiveKind, value::Kind};
+
+        let exception = waymark_vm_runtime_exception::Exception {
+            type_id: "ValueError".to_owned(),
+            details: ReadyValue::String("boom".to_owned()),
+        };
+        let message: proto_value::WorkflowOutcome =
+            WorkflowOutcomeConverter::try_convert(Outcome::Exception(exception))
+                .expect("no pending promise");
+
+        // The exception arm is the exception itself: the type id and the
+        // details it carries.
+        let Some(ProtoOutcome::Exception(exception)) = &message.outcome else {
+            panic!("an exception is the exception arm, got {message:?}");
+        };
+        assert_eq!(exception.type_id, "ValueError");
+        let Some(Kind::Primitive(primitive)) = exception
+            .details
+            .as_ref()
+            .and_then(|details| details.kind.as_ref())
+        else {
+            panic!("the details are a primitive, got {exception:?}");
+        };
+        assert_eq!(
+            primitive.kind,
+            Some(PrimitiveKind::StringValue("boom".to_owned()))
+        );
+    }
+
+    #[test]
+    fn an_outcome_payload_is_the_encoded_message() {
+        let bytes: Vec<u8> =
+            WorkflowOutcomeConverter::try_convert(Outcome::Completion(ReadyValue::Int(42)))
+                .expect("no pending promise");
+        let message: proto_value::WorkflowOutcome =
+            WorkflowOutcomeConverter::try_convert(Outcome::Completion(ReadyValue::Int(42)))
+                .expect("no pending promise");
+
+        assert_eq!(bytes, prost::Message::encode_to_vec(&message));
     }
 }

@@ -1,4 +1,5 @@
-//! Argument-reading machinery shared by the action and workflow seams.
+//! Argument-reading machinery shared by the action and workflow
+//! conversions.
 
 use waymark_convert_core::Convert as _;
 use waymark_proto::python_value as proto_value;
@@ -20,7 +21,7 @@ pub struct MissingArgumentValueError {
 /// messages share — into the map of ready values they carry.
 ///
 /// An entry carrying no value is a [`MissingArgumentValueError`].
-pub fn named_arguments<'a>(
+pub(crate) fn named_arguments<'a>(
     entries: impl Iterator<Item = (&'a String, Option<&'a proto_value::Value>)>,
 ) -> Result<std::collections::HashMap<String, ReadyValue>, MissingArgumentValueError> {
     entries

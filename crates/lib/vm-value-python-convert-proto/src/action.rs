@@ -1,5 +1,5 @@
-//! Conversions of the action-call seam: dispatch arguments, result
-//! outcomes, and loss rendering.
+//! Conversions of the action call: dispatch arguments, result outcomes,
+//! and loss rendering.
 
 use std::convert::Infallible;
 
@@ -12,6 +12,14 @@ use waymark_vm_value_convert_core::PendingPromiseError;
 use crate::Converter;
 use crate::common::{MissingArgumentValueError, named_arguments};
 
+/// Stateless converter for the action-call arguments: dispatch payloads
+/// written and read.
+pub struct ActionArgumentsConverter;
+
+/// Stateless converter for the action-call outcome: result payloads
+/// written and read, and losses rendered.
+pub struct ActionOutcomeConverter;
+
 /// Convert a pair of call-argument names and values straight into the
 /// bytes the dispatch carries: the arguments message, encoded.
 ///
@@ -22,7 +30,7 @@ use crate::common::{MissingArgumentValueError, named_arguments};
 /// No arguments encode as no bytes — an entry-less message has the
 /// empty encoding, so "empty payload means no arguments" needs no case
 /// of its own.
-impl TryConvert<(Vec<String>, Vec<ReadyValue>), Vec<u8>> for Converter {
+impl TryConvert<(Vec<String>, Vec<ReadyValue>), Vec<u8>> for ActionArgumentsConverter {
     type Error = PendingPromiseError;
 
     fn try_convert(
@@ -37,7 +45,7 @@ impl TryConvert<(Vec<String>, Vec<ReadyValue>), Vec<u8>> for Converter {
             if matches!(value, ReadyValue::None) {
                 continue;
             }
-            let value: proto_value::Value = Self::try_convert(value)?;
+            let value: proto_value::Value = Converter::try_convert(value)?;
             arguments.push(proto_value::ActionArgument {
                 key: name.clone(),
                 value: Some(value),
@@ -61,11 +69,11 @@ pub struct MissingOutcomeError;
 pub enum ActionOutcomeError {
     /// The payload's bytes do not decode as this flavor's outcome
     /// message.
-    #[error("decoding the action outcome")]
+    #[error("decoding the action outcome: {0}")]
     Decode(#[source] prost::DecodeError),
 
     /// The decoded outcome did not say how the call completed.
-    #[error("reading the action outcome's arms")]
+    #[error("reading the action outcome's arms: {0}")]
     Outcome(#[source] MissingOutcomeError),
 }
 
@@ -79,7 +87,7 @@ impl
     TryConvert<
         Option<proto_value::action_outcome::Outcome>,
         waymark_action_runtime_core::ActionCallOutcome<ReadyValue>,
-    > for Converter
+    > for ActionOutcomeConverter
 {
     type Error = MissingOutcomeError;
 
@@ -90,10 +98,12 @@ impl
 
         let outcome = match outcome.ok_or(MissingOutcomeError)? {
             Outcome::Value(value) => {
-                waymark_action_runtime_core::ActionCallOutcome::Value(Self::convert(&value))
+                waymark_action_runtime_core::ActionCallOutcome::Value(Converter::convert(&value))
             }
             Outcome::Exception(exception) => {
-                waymark_action_runtime_core::ActionCallOutcome::Exception(Self::convert(&exception))
+                waymark_action_runtime_core::ActionCallOutcome::Exception(Converter::convert(
+                    &exception,
+                ))
             }
         };
 
@@ -103,7 +113,9 @@ impl
 
 /// Read how an action call completed from the result payload: the
 /// outcome message, decoded and interpreted.
-impl TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<ReadyValue>> for Converter {
+impl TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<ReadyValue>>
+    for ActionOutcomeConverter
+{
     type Error = ActionOutcomeError;
 
     fn try_convert(
@@ -122,7 +134,7 @@ impl
     TryConvert<
         waymark_action_runtime_core::ActionCallOutcome<ReadyValue>,
         proto_value::ActionOutcome,
-    > for Converter
+    > for ActionOutcomeConverter
 {
     type Error = PendingPromiseError;
 
@@ -133,10 +145,10 @@ impl
 
         let outcome = match outcome {
             waymark_action_runtime_core::ActionCallOutcome::Value(value) => {
-                Outcome::Value(Self::try_convert(&value)?)
+                Outcome::Value(Converter::try_convert(&value)?)
             }
             waymark_action_runtime_core::ActionCallOutcome::Exception(exception) => {
-                Outcome::Exception(Self::try_convert(&exception)?)
+                Outcome::Exception(Converter::try_convert(&exception)?)
             }
         };
 
@@ -148,7 +160,9 @@ impl
 
 /// Convert how an action call completed into the bytes the result
 /// payload carries: the outcome message, encoded.
-impl TryConvert<waymark_action_runtime_core::ActionCallOutcome<ReadyValue>, Vec<u8>> for Converter {
+impl TryConvert<waymark_action_runtime_core::ActionCallOutcome<ReadyValue>, Vec<u8>>
+    for ActionOutcomeConverter
+{
     type Error = PendingPromiseError;
 
     fn try_convert(
@@ -165,7 +179,9 @@ impl TryConvert<waymark_action_runtime_core::ActionCallOutcome<ReadyValue>, Vec<
 /// `ActionExecutionNotStarted` or `ActionExecutionLost` by the stage the
 /// call provably reached — belong to the action runtime's converter, and
 /// the type id carries the whole fact; this flavor has nothing to add.
-impl TryConvert<waymark_action_runtime_core::ActionCallLossError, ReadyValue> for Converter {
+impl TryConvert<waymark_action_runtime_core::ActionCallLossError, ReadyValue>
+    for ActionOutcomeConverter
+{
     type Error = Infallible;
 
     fn try_convert(
@@ -180,11 +196,11 @@ impl TryConvert<waymark_action_runtime_core::ActionCallLossError, ReadyValue> fo
 pub enum ActionArgumentsError {
     /// The payload's bytes do not decode as this flavor's arguments
     /// message.
-    #[error("decoding the action arguments")]
+    #[error("decoding the action arguments: {0}")]
     Decode(#[source] prost::DecodeError),
 
     /// The decoded arguments are malformed.
-    #[error("reading the action arguments")]
+    #[error("reading the action arguments: {0}")]
     Arguments(#[source] MissingArgumentValueError),
 }
 
@@ -193,7 +209,9 @@ pub enum ActionArgumentsError {
 /// is called with.
 ///
 /// Empty bytes are the no-arguments encoding and read as no values.
-impl TryConvert<Vec<u8>, std::collections::HashMap<String, ReadyValue>> for Converter {
+impl TryConvert<Vec<u8>, std::collections::HashMap<String, ReadyValue>>
+    for ActionArgumentsConverter
+{
     type Error = ActionArgumentsError;
 
     fn try_convert(
@@ -222,11 +240,11 @@ mod tests {
     fn outcome_payload(
         outcome: waymark_action_runtime_core::ActionCallOutcome<ReadyValue>,
     ) -> Vec<u8> {
-        Converter::try_convert(outcome).expect("no pending promise in the outcome")
+        ActionOutcomeConverter::try_convert(outcome).expect("no pending promise in the outcome")
     }
 
     fn read_outcome(payload: &[u8]) -> waymark_action_runtime_core::ActionCallOutcome<ReadyValue> {
-        Converter::try_convert(payload.to_vec()).expect("the encoded outcome decodes")
+        ActionOutcomeConverter::try_convert(payload.to_vec()).expect("the encoded outcome decodes")
     }
 
     #[test]
@@ -267,7 +285,7 @@ mod tests {
         let empty = prost::Message::encode_to_vec(&proto_value::ActionOutcome { outcome: None });
 
         let converted: Result<waymark_action_runtime_core::ActionCallOutcome<ReadyValue>, _> =
-            Converter::try_convert(empty);
+            ActionOutcomeConverter::try_convert(empty);
 
         assert!(
             matches!(converted, Err(ActionOutcomeError::Outcome(_))),
@@ -310,7 +328,7 @@ mod tests {
     #[test]
     fn a_loss_renders_as_no_details() {
         let details: ReadyValue =
-            Converter::convert(waymark_action_runtime_core::ActionCallLossError {
+            ActionOutcomeConverter::convert(waymark_action_runtime_core::ActionCallLossError {
                 stage: waymark_action_runtime_core::ActionCallStage::NotStarted,
             });
 
@@ -323,7 +341,8 @@ mod tests {
         let names = vec!["zebra".to_owned(), "apple".to_owned()];
         let values = vec![ReadyValue::Int(1), ReadyValue::String("two".to_owned())];
 
-        let bytes: Vec<u8> = Converter::try_convert((names, values)).expect("no pending promise");
+        let bytes: Vec<u8> =
+            ActionArgumentsConverter::try_convert((names, values)).expect("no pending promise");
         let message = proto_value::ActionArguments {
             arguments: vec![
                 proto_value::ActionArgument {
@@ -341,7 +360,7 @@ mod tests {
         assert_eq!(bytes, prost::Message::encode_to_vec(&message));
 
         let named: std::collections::HashMap<String, ReadyValue> =
-            Converter::try_convert(bytes).expect("every entry carries a value");
+            ActionArgumentsConverter::try_convert(bytes).expect("every entry carries a value");
         assert_eq!(
             named,
             std::collections::HashMap::from([
@@ -358,9 +377,10 @@ mod tests {
         let names = vec!["dependency".to_owned(), "count".to_owned()];
         let values = vec![ReadyValue::None, ReadyValue::Int(3)];
 
-        let bytes: Vec<u8> = Converter::try_convert((names, values)).expect("no pending promise");
+        let bytes: Vec<u8> =
+            ActionArgumentsConverter::try_convert((names, values)).expect("no pending promise");
         let named: std::collections::HashMap<String, ReadyValue> =
-            Converter::try_convert(bytes).expect("every entry carries a value");
+            ActionArgumentsConverter::try_convert(bytes).expect("every entry carries a value");
         assert_eq!(
             named,
             std::collections::HashMap::from([("count".to_owned(), ReadyValue::Int(3))])
@@ -378,7 +398,7 @@ mod tests {
         let bytes = prost::Message::encode_to_vec(&message);
 
         let read: Result<std::collections::HashMap<String, ReadyValue>, _> =
-            Converter::try_convert(bytes);
+            ActionArgumentsConverter::try_convert(bytes);
 
         let ActionArgumentsError::Arguments(error) =
             read.expect_err("an entry without a value is malformed")

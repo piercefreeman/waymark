@@ -6,10 +6,10 @@
 //! [`ReadyValue`](waymark_vm_value_python::ReadyValue) and the
 //! [`Value`](waymark_proto::python_value::Value) carrying it.
 //!
-//! The conversions are grouped by seam: the value tree itself in
-//! `value`, the action-call seam in `action`, and the workflow
-//! initiation and completion seams in `workflow`; the argument-reading
-//! machinery both seams share sits in `common`.
+//! The conversions are grouped by what they convert: the value tree
+//! itself in `value`, the action call in `action`, and the workflow
+//! initiation and completion in `workflow`; the argument-reading
+//! machinery the latter two share sits in `common`.
 
 #![warn(missing_docs)]
 
@@ -18,9 +18,13 @@ mod common;
 mod value;
 mod workflow;
 
-pub use action::{ActionArgumentsError, ActionOutcomeError, MissingOutcomeError};
-pub use common::MissingArgumentValueError;
-pub use workflow::WorkflowArgumentsError;
+pub use action::*;
+pub use common::*;
+pub use workflow::*;
 
-/// Stateless converter with all proto-to-VM value conversion impls.
+/// Stateless converter for the value tree itself: single values,
+/// exceptions, and their encoded payloads.
+///
+/// The action and workflow converters delegate their value-level work
+/// here.
 pub struct Converter;
