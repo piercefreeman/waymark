@@ -27,9 +27,8 @@ impl<SleepAck> From<Ack> for waymark_extcall_reconciler_core::Ack<Ack, SleepAck>
 ///
 /// Implements [`waymark_extcall_reconciler_core::ActionPromiseSettler`]:
 /// completions are correlated into promise settlements carrying no-op
-/// [`Ack`]s.  A completion whose execution failed to produce an outcome
-/// settles its promise raised, with `Converter` stating how the
-/// provider's execution error converts to the raising exception.
+/// [`Ack`]s, with `Converter` stating how each completion's execution
+/// result converts to the settling promise resolution.
 pub struct PromiseSettler<ActionCallCompletionsProvider, Converter> {
     provider: ActionCallCompletionsProvider,
     _converter: core::marker::PhantomData<Converter>,
@@ -69,8 +68,11 @@ where
         waymark_action_runtime_core::ActionCallCompletionsProvider + Send + Sync,
     ActionCallCompletionsProvider::Metadata: ActionCallCorrelated,
     Converter: waymark_convert_core::Convert<
-            ActionCallCompletionsProvider::ActionExecutionError,
-            waymark_vm_runtime_exception::Exception<ActionCallCompletionsProvider::Value>,
+            Result<
+                ActionCallOutcome<ActionCallCompletionsProvider::Value>,
+                ActionCallCompletionsProvider::ActionExecutionError,
+            >,
+            PromiseResolution<ActionCallCompletionsProvider::Value>,
         > + Send
         + Sync,
     UnifiedAck: From<Ack>,
@@ -99,17 +101,7 @@ where
                     promise_state_id, ..
                 } = metadata.call_correlation();
 
-                let resolution = match execution_result {
-                    Ok(ActionCallOutcome::Value(value)) => PromiseResolution::Resolved(value),
-                    Ok(ActionCallOutcome::Exception(exception)) => {
-                        PromiseResolution::Rejected(exception)
-                    }
-                    // The execution produced no outcome; the promise
-                    // settles raised with the error's exception rendering.
-                    Err(execution_error) => {
-                        PromiseResolution::Rejected(Converter::convert(execution_error))
-                    }
-                };
+                let resolution = Converter::convert(execution_result);
 
                 PromiseSettlement {
                     promise_state_id,
