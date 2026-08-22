@@ -298,7 +298,7 @@ where
     VmId: Copy + Eq + std::hash::Hash + Send + Sync + 'static,
     Value: Send,
     waymark_action_runtime_convert::Converter<ValueConverter>:
-        Convert<ActionCallLossError, waymark_vm_runtime_exception::Exception<Value>>,
+        Convert<Result<ActionCallOutcome<Value>, ActionCallLossError>, PromiseResolution<Value>>,
     UnifiedAck: From<Ack<VmId>>,
 {
     type Error = PollActionSettlementsError;
@@ -323,7 +323,7 @@ impl<VmId, Value, ValueConverter> SettlementsHandle<VmId, Value, ValueConverter>
 where
     VmId: Copy + Eq + std::hash::Hash,
     waymark_action_runtime_convert::Converter<ValueConverter>:
-        Convert<ActionCallLossError, waymark_vm_runtime_exception::Exception<Value>>,
+        Convert<Result<ActionCallOutcome<Value>, ActionCallLossError>, PromiseResolution<Value>>,
 {
     /// Turn buffered completions into settlements with key-carrying acks.
     fn settle<UnifiedAck>(
@@ -341,19 +341,10 @@ where
                     execution_result,
                 } = completion;
 
-                let resolution = match execution_result {
-                    Ok(ActionCallOutcome::Value(value)) => PromiseResolution::Resolved(value),
-                    Ok(ActionCallOutcome::Exception(exception)) => {
-                        PromiseResolution::Rejected(exception)
-                    }
-                    // The execution produced no outcome; the promise
-                    // settles raised with the loss's exception rendering.
-                    Err(loss) => {
-                        PromiseResolution::Rejected(waymark_action_runtime_convert::Converter::<
-                            ValueConverter,
-                        >::convert(loss))
-                    }
-                };
+                let resolution =
+                    waymark_action_runtime_convert::Converter::<ValueConverter>::convert(
+                        execution_result,
+                    );
 
                 PromiseSettlement {
                     promise_state_id,
