@@ -200,7 +200,7 @@ mod tests {
     use waymark_ids::InstanceId;
 
     fn completion(metadata: Vec<u8>) -> waymark_proto::messages::ActionResult {
-        let payload = waymark_vm_value_python_convert_proto::Converter::try_convert(
+        let payload = waymark_vm_value_python_convert_proto::ActionOutcomeConverter::try_convert(
             waymark_action_runtime_core::ActionCallOutcome::Value(
                 waymark_vm_value_python::ReadyValue::None,
             ),
@@ -232,7 +232,7 @@ mod tests {
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
             waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::Converter,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >(waymark_worker_core::ActionExecutionReport::Lost(
             waymark_worker_core::ActionExecutionLoss {
                 metadata: encoded,
@@ -262,7 +262,7 @@ mod tests {
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
             waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::Converter,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >(waymark_worker_core::ActionExecutionReport::Completed(
             completion(Vec::new()),
         ));
@@ -285,7 +285,7 @@ mod tests {
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
             waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::Converter,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >(waymark_worker_core::ActionExecutionReport::Completed(
             completion(encoded),
         ))
