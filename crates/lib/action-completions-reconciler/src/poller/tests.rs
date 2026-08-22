@@ -27,7 +27,7 @@ fn poll_once<F: Future>(future: std::pin::Pin<&mut F>) -> Poll<F::Output> {
 
 /// Poll the handle for settlements with the given demanded promise ids.
 async fn poll_settlements(
-    handle: &mut SettlementsHandle<InstanceId>,
+    handle: &mut SettlementsHandle<InstanceId, ReadyValue, TestConverter>,
     ids: &[usize],
 ) -> Result<NEVec<PromiseSettlement<ReadyValue, Ack<InstanceId>>>, PollActionSettlementsError> {
     let demand = demand(ids);
@@ -38,15 +38,20 @@ async fn poll_settlements(
     .await
 }
 
+/// The test instantiation of the value converter pin.
+type TestConverter = waymark_vm_value_python_convert_proto::Converter;
+
+#[allow(clippy::type_complexity, reason = "a test helper's plumbing tuple")]
 fn poller(
     backend: &MockBackend,
 ) -> (
-    DemandRegistrar<InstanceId>,
-    Params<MockBackend, RmpCodec>,
+    DemandRegistrar<InstanceId, ReadyValue, TestConverter>,
+    Params<MockBackend, RmpCodec, ReadyValue>,
     tokio::sync::mpsc::UnboundedReceiver<CompletionKey<InstanceId>>,
 ) {
     let (ack_tx, ack_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (registrar, state) = super::state(ack_tx);
+    let (registrar, state) =
+        super::state::<_, ReadyValue, waymark_vm_value_python_convert_proto::Converter>(ack_tx);
     let params = Params {
         backend: Arc::new(backend.clone()),
         codec: RmpCodec,
