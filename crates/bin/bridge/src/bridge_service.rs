@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
-use prost::Message;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 use waymark_convert_core::{Convert as _, TryConvert as _};
@@ -49,11 +48,11 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             .await
             .map_err(|err| Status::internal(err.to_string()))?;
 
-        let call_spec = waymark_workflow_initialization_convert_proto::Converter::try_convert((
-            &registration.arguments[..],
-            &entry_input_names[..],
-        ))
-        .map_err(|err| Status::internal(format!("build entry call spec: {err}")))?;
+        let call_spec =
+            waymark_workflow_initialization_convert_proto::Converter::<
+                waymark_vm_value_python_convert_proto::Converter,
+            >::try_convert((&registration.arguments[..], &entry_input_names[..]))
+            .map_err(|err| Status::internal(format!("build entry call spec: {err}")))?;
 
         let vm_id = InstanceId::new_uuid_v4();
         store
@@ -91,10 +90,9 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
         // `arguments`, falling back to the registration's own when unset.
         #[allow(clippy::result_large_err, reason = "tonic forces this")]
         let build_call_spec = |arguments: &[u8]| {
-            waymark_workflow_initialization_convert_proto::Converter::try_convert((
-                arguments,
-                &entry_input_names[..],
-            ))
+            waymark_workflow_initialization_convert_proto::Converter::<
+                waymark_vm_value_python_convert_proto::Converter,
+            >::try_convert((arguments, &entry_input_names[..]))
             .map_err(|err| Status::internal(format!("build entry call spec: {err}")))
         };
 
@@ -173,9 +171,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             .map_err(|err| Status::internal(format!("wait failed: {err}")))?
             .ok_or_else(|| Status::not_found("instance not found"))?;
 
-        Ok(Response::new(proto::WaitForInstanceResponse {
-            payload: payload.encode_to_vec(),
-        }))
+        Ok(Response::new(proto::WaitForInstanceResponse { payload }))
     }
 
     async fn execute_workflow(
