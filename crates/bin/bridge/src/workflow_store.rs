@@ -184,8 +184,7 @@ impl WorkflowStore {
         &self,
         instance_id: InstanceId,
         poll_interval: Duration,
-    ) -> Result<Option<waymark_proto::python_value::WorkflowOutcome>, color_eyre::eyre::Report>
-    {
+    ) -> Result<Option<Vec<u8>>, color_eyre::eyre::Report> {
         let outcome = match self
             .outcome_polling
             .wait_for_outcome(&instance_id, poll_interval)
@@ -198,9 +197,10 @@ impl WorkflowStore {
             Err(err) => return Err(color_eyre::eyre::eyre!("wait for outcome: {err}")),
         };
 
-        let outcome = waymark_workflow_completion_convert_proto::Converter::try_convert(outcome)
-            .map_err(|err| color_eyre::eyre::eyre!("convert workflow outcome: {err}"))?;
+        let payload: Vec<u8> =
+            waymark_vm_value_python_convert_proto::WorkflowOutcomeConverter::try_convert(outcome)
+                .map_err(|err| color_eyre::eyre::eyre!("convert workflow outcome: {err}"))?;
 
-        Ok(Some(outcome))
+        Ok(Some(payload))
     }
 }

@@ -5,12 +5,12 @@ use waymark_action_runtime_core::{
     ActionCallCompletion, ActionCallCompletionFor, ActionCallLossError, ActionCallStage,
 };
 use waymark_action_runtime_metadata_codec::Decode;
-use waymark_convert_core::TryConvert as _;
+use waymark_convert_core::TryConvert;
 
 /// Errors that can occur when waiting for action completions from
 /// the worker pool.
 #[derive(Debug, thiserror::Error)]
-pub enum WorkerPoolCompletionsError<PollError, MetadataDecodeError: core::fmt::Display + 'static> {
+pub enum WorkerPoolCompletionsError<PollError, MetadataDecodeError, PayloadError> {
     /// The worker pool can no longer provide completions.
     ///
     /// Whatever polling failed with, expressed as the pool's own error:
@@ -26,19 +26,18 @@ pub enum WorkerPoolCompletionsError<PollError, MetadataDecodeError: core::fmt::D
     /// A completion carried a payload that could not be converted, so
     /// there is nothing valid to settle the promise with.
     #[error("unable to convert an action-completion payload")]
-    Payload(#[source] ActionResultConvertError),
+    Payload(#[source] PayloadError),
 }
 
-/// The error of the action-result conversion the provider delegates to.
+/// The error of the payload conversion the provider delegates to.
 ///
-/// Expressed as a projection through
-/// [`waymark_action_runtime_convert::Converter`] rather than named
-/// concretely: this provider merely propagates that conversion's
+/// Expressed as a projection through the value converter rather than
+/// named concretely: this provider merely propagates that conversion's
 /// failure, whatever it is.
-pub type ActionResultConvertError = waymark_convert_core::ConvertErrorFor<
-    waymark_action_runtime_convert::Converter,
-    &'static waymark_proto::messages::ActionResult,
-    waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue>,
+pub type PayloadConvertErrorFor<ValueConverter, Value> = waymark_convert_core::ConvertErrorFor<
+    ValueConverter,
+    Vec<u8>,
+    waymark_action_runtime_core::ActionCallOutcome<Value>,
 >;
 
 /// Provides action outcomes by polling a
@@ -54,35 +53,42 @@ pub type ActionResultConvertError = waymark_convert_core::ConvertErrorFor<
 /// writer feeding the demand poller) instantiate with a
 /// [`WithVmId`](waymark_action_runtime_metadata::WithVmId)-wrapped metadata
 /// and recover the owning VM from it.
-pub struct WorkerPoolActionCallCompletionsProvider<Pool, Metadata> {
+pub struct WorkerPoolActionCallCompletionsProvider<Pool, Metadata, Value, ValueConverter> {
     /// The worker pool to poll for completed actions.
     pub pool: Pool,
 
-    /// Phantom data for the metadata type parameter.
-    pub _metadata: PhantomData<Metadata>,
+    /// Phantom data for the type parameters the provider only relays.
+    pub _phantom: PhantomData<(Metadata, Value, ValueConverter)>,
 }
 
-impl<Pool, Metadata> WorkerPoolActionCallCompletionsProvider<Pool, Metadata> {
+impl<Pool, Metadata, Value, ValueConverter>
+    WorkerPoolActionCallCompletionsProvider<Pool, Metadata, Value, ValueConverter>
+{
     /// Create a new completions provider backed by the given worker pool.
     pub fn new(pool: Pool) -> Self {
         Self {
             pool,
-            _metadata: PhantomData,
+            _phantom: PhantomData,
         }
     }
 }
 
-impl<Pool, Metadata> waymark_action_runtime_core::ActionCallCompletionsProvider
-    for WorkerPoolActionCallCompletionsProvider<Pool, Metadata>
+impl<Pool, Metadata, Value, ValueConverter>
+    waymark_action_runtime_core::ActionCallCompletionsProvider
+    for WorkerPoolActionCallCompletionsProvider<Pool, Metadata, Value, ValueConverter>
 where
     Pool: waymark_worker_core::PollActionResults + Send + Sync + 'static,
     Pool::Error: core::fmt::Debug,
     Metadata: Decode + Send + Sync + 'static,
     Metadata::Error: core::fmt::Display,
+    Value: Send + Sync,
+    ValueConverter:
+        TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<Value>> + Send + Sync,
+    PayloadConvertErrorFor<ValueConverter, Value>: core::fmt::Debug,
 {
-    type Value = waymark_vm_value_python::ReadyValue;
+    type Value = Value;
     type ActionExecutionError = waymark_action_runtime_core::ActionCallLossError;
-    type WaitError = WorkerPoolCompletionsError<Pool::Error, Metadata::Error>;
+    type WaitError = WorkerPoolCompletionsErrorFor<Pool::Error, Metadata, Value, ValueConverter>;
     type Metadata = Metadata;
 
     async fn wait_for_completions(
@@ -97,7 +103,7 @@ where
 
             let vec: Vec<_> = completions
                 .into_iter()
-                .map(resolve_execution)
+                .map(resolve_execution::<Pool::Error, Metadata, Value, ValueConverter>)
                 .collect::<Result<_, _>>()?;
 
             let Some(nevec) = NEVec::try_from_vec(vec) else {
@@ -108,6 +114,15 @@ where
         }
     }
 }
+
+/// The [`WorkerPoolCompletionsError`] of a provider over the given pool
+/// error, metadata, and value converter.
+pub type WorkerPoolCompletionsErrorFor<PollError, Metadata, Value, ValueConverter> =
+    WorkerPoolCompletionsError<
+        PollError,
+        <Metadata as Decode>::Error,
+        PayloadConvertErrorFor<ValueConverter, Value>,
+    >;
 
 /// Convert a finished execution into an [`ActionCallCompletion`] by
 /// decoding the correlation metadata from the echoed `metadata` bytes
@@ -129,21 +144,29 @@ where
 /// can neither be routed nor turned into a promise settlement.  Dropping it
 /// would strand that promise forever (the action's side effects may have
 /// already happened), so we surface the error to the caller instead.
-fn resolve_execution<PollError, Metadata>(
+#[allow(
+    clippy::type_complexity,
+    reason = "already factored through WorkerPoolCompletionsErrorFor"
+)]
+fn resolve_execution<PollError, Metadata, Value, ValueConverter>(
     report: waymark_worker_core::ActionExecutionReport,
 ) -> Result<
-    ActionCallCompletion<Metadata, waymark_vm_value_python::ReadyValue, ActionCallLossError>,
-    WorkerPoolCompletionsError<PollError, Metadata::Error>,
+    ActionCallCompletion<Metadata, Value, ActionCallLossError>,
+    WorkerPoolCompletionsErrorFor<PollError, Metadata, Value, ValueConverter>,
 >
 where
     Metadata: Decode,
     Metadata::Error: core::fmt::Display,
+    ValueConverter: TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<Value>>,
 {
     let (metadata_bytes, execution_result) = match report {
         waymark_worker_core::ActionExecutionReport::Completed(result) => {
-            let outcome = waymark_action_runtime_convert::Converter::try_convert(&result)
+            let waymark_proto::messages::ActionResult {
+                payload, metadata, ..
+            } = result;
+            let outcome = ValueConverter::try_convert(payload)
                 .map_err(WorkerPoolCompletionsError::Payload)?;
-            (result.metadata, Ok(outcome))
+            (metadata, Ok(outcome))
         }
         waymark_worker_core::ActionExecutionReport::Lost(loss) => {
             let stage = match loss.progress {
@@ -177,7 +200,7 @@ mod tests {
     use waymark_ids::InstanceId;
 
     fn completion(metadata: Vec<u8>) -> waymark_proto::messages::ActionResult {
-        let payload = waymark_action_runtime_convert::Converter::try_convert(
+        let payload = waymark_vm_value_python_convert_proto::ActionOutcomeConverter::try_convert(
             waymark_action_runtime_core::ActionCallOutcome::Value(
                 waymark_vm_value_python::ReadyValue::None,
             ),
@@ -208,6 +231,8 @@ mod tests {
         let resolved = resolve_execution::<
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
+            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >(waymark_worker_core::ActionExecutionReport::Lost(
             waymark_worker_core::ActionExecutionLoss {
                 metadata: encoded,
@@ -236,6 +261,8 @@ mod tests {
         let result = resolve_execution::<
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
+            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >(waymark_worker_core::ActionExecutionReport::Completed(
             completion(Vec::new()),
         ));
@@ -257,6 +284,8 @@ mod tests {
         let resolved = resolve_execution::<
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
+            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >(waymark_worker_core::ActionExecutionReport::Completed(
             completion(encoded),
         ))

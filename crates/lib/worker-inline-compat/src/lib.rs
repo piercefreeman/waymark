@@ -4,22 +4,23 @@
 //! The inline callable surface speaks the dispatch's opaque encoded
 //! arguments and the encoded result payload; action bodies speak VM
 //! values and the flavor's exceptions.  [`inline_action`] bridges the
-//! two by calling the conversions — it owns none of its own.
+//! two by calling the conversions — it owns none of its own: the
+//! arguments converter decodes the argument payload into named values
+//! and the outcome converter encodes how the call completed.
 
 #![warn(missing_docs)]
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use waymark_convert_core::TryConvert as _;
-use waymark_vm_value_python::ReadyValue;
+use waymark_convert_core::{ConvertErrorFor, TryConvert};
 use waymark_worker_inline::InlineActionCallable;
 
 /// Decode the dispatch's opaque encoded arguments into the values the
 /// body is called with.
 ///
-/// The bytes carry this flavor's arguments message; empty bytes mean
-/// no arguments.
+/// The bytes carry the flavor's arguments message; empty bytes mean no
+/// arguments.
 ///
 /// # Panics
 ///
@@ -27,17 +28,13 @@ use waymark_worker_inline::InlineActionCallable;
 /// message: the dispatch was encoded by this very process, so
 /// undecodable bytes are corruption or version skew — a bug, not an
 /// outcome the action produced.
-fn decode_arguments(arguments: Vec<u8>) -> HashMap<String, ReadyValue> {
-    if arguments.is_empty() {
-        return HashMap::new();
-    }
-    let message: waymark_proto::python_value::ActionArguments =
-        waymark_vm_value_python_convert_proto::Converter::try_convert(arguments.as_slice())
-            .unwrap_or_else(|err| panic!("the dispatch's argument bytes do not decode: {err}"));
-    let entries: Vec<(String, ReadyValue)> =
-        waymark_vm_value_python_convert_proto::Converter::try_convert(&message)
-            .unwrap_or_else(|err| panic!("the dispatch's arguments are malformed: {err}"));
-    entries.into_iter().collect()
+fn decode_arguments<ArgumentsConverter, Value>(arguments: Vec<u8>) -> HashMap<String, Value>
+where
+    ArgumentsConverter: TryConvert<Vec<u8>, HashMap<String, Value>>,
+    ConvertErrorFor<ArgumentsConverter, Vec<u8>, HashMap<String, Value>>: core::fmt::Display,
+{
+    ArgumentsConverter::try_convert(arguments)
+        .unwrap_or_else(|err| panic!("the dispatch's argument bytes do not decode: {err}"))
 }
 
 /// Encode how the call completed into the result payload the wire
@@ -45,12 +42,23 @@ fn decode_arguments(arguments: Vec<u8>) -> HashMap<String, ReadyValue> {
 ///
 /// # Panics
 ///
-/// Panics when the outcome holds a pending promise: an in-process body
-/// that hands back a pending value names a promise no one can settle —
-/// a bug in the action body, not an outcome it produced.
-fn encode_result(outcome: waymark_action_runtime_core::ActionCallOutcome<ReadyValue>) -> Vec<u8> {
-    waymark_action_runtime_convert::Converter::try_convert(outcome)
-        .expect("an action body's outcome holds no pending promise")
+/// Panics when the outcome does not encode (e.g. it holds a pending
+/// promise): an in-process body that hands back such a value names a
+/// state no one can settle — a bug in the action body, not an outcome
+/// it produced.
+fn encode_result<OutcomeConverter, Value>(
+    outcome: waymark_action_runtime_core::ActionCallOutcome<Value>,
+) -> Vec<u8>
+where
+    OutcomeConverter: TryConvert<waymark_action_runtime_core::ActionCallOutcome<Value>, Vec<u8>>,
+    ConvertErrorFor<
+        OutcomeConverter,
+        waymark_action_runtime_core::ActionCallOutcome<Value>,
+        Vec<u8>,
+    >: core::fmt::Display,
+{
+    OutcomeConverter::try_convert(outcome)
+        .unwrap_or_else(|err| panic!("an action body's outcome does not encode: {err}"))
 }
 
 /// Adapt an action body to the inline callable surface: decode the
@@ -60,10 +68,24 @@ fn encode_result(outcome: waymark_action_runtime_core::ActionCallOutcome<ReadyVa
 /// The body's error is the flavor's own exception — raising is the
 /// body's decision, stated in the vocabulary the VM settles promises
 /// with.
-pub fn inline_action<F, Fut>(body: F) -> InlineActionCallable
+pub fn inline_action<ArgumentsConverter, OutcomeConverter, Value, F, Fut>(
+    body: F,
+) -> InlineActionCallable
 where
-    F: Fn(HashMap<String, ReadyValue>) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<ReadyValue, waymark_vm_runtime_exception::Exception<ReadyValue>>>
+    Value: Send + 'static,
+    ArgumentsConverter: TryConvert<Vec<u8>, HashMap<String, Value>> + Send + Sync + 'static,
+    OutcomeConverter: TryConvert<waymark_action_runtime_core::ActionCallOutcome<Value>, Vec<u8>>
+        + Send
+        + Sync
+        + 'static,
+    ConvertErrorFor<ArgumentsConverter, Vec<u8>, HashMap<String, Value>>: core::fmt::Display,
+    ConvertErrorFor<
+        OutcomeConverter,
+        waymark_action_runtime_core::ActionCallOutcome<Value>,
+        Vec<u8>,
+    >: core::fmt::Display,
+    F: Fn(HashMap<String, Value>) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Value, waymark_vm_runtime_exception::Exception<Value>>>
         + Send
         + 'static,
 {
@@ -71,13 +93,14 @@ where
     Arc::new(move |arguments: Vec<u8>| {
         let body = Arc::clone(&body);
         Box::pin(async move {
-            let outcome = match body(decode_arguments(arguments)).await {
+            let outcome = match body(decode_arguments::<ArgumentsConverter, Value>(arguments)).await
+            {
                 Ok(value) => waymark_action_runtime_core::ActionCallOutcome::Value(value),
                 Err(exception) => {
                     waymark_action_runtime_core::ActionCallOutcome::Exception(exception)
                 }
             };
-            encode_result(outcome)
+            encode_result::<OutcomeConverter, Value>(outcome)
         })
     })
 }

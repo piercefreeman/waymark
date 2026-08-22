@@ -8,6 +8,30 @@ use waymark_ir_parser::parse_program;
 use waymark_worker_inline::{InlineActionCallable, InlineWorkerPool};
 use waymark_worker_inline_compat::inline_action;
 
+/// The inline adapter pinned to this binary's flavor converter.
+fn py_inline_action<F, Fut>(body: F) -> waymark_worker_inline::InlineActionCallable
+where
+    F: Fn(std::collections::HashMap<String, waymark_vm_value_python::ReadyValue>) -> Fut
+        + Send
+        + Sync
+        + 'static,
+    Fut: Future<
+            Output = Result<
+                waymark_vm_value_python::ReadyValue,
+                waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
+            >,
+        > + Send
+        + 'static,
+{
+    inline_action::<
+        waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
+        waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
+        _,
+        _,
+        _,
+    >(body)
+}
+
 use super::generator::GeneratedCase;
 
 pub async fn run_case(
@@ -96,9 +120,9 @@ pub async fn run_case(
 
 fn action_registry() -> HashMap<String, InlineActionCallable> {
     let mut actions: HashMap<String, InlineActionCallable> = HashMap::new();
-    actions.insert("inc".to_string(), inline_action(action_inc));
-    actions.insert("double".to_string(), inline_action(action_double));
-    actions.insert("sum".to_string(), inline_action(action_sum));
+    actions.insert("inc".to_string(), py_inline_action(action_inc));
+    actions.insert("double".to_string(), py_inline_action(action_double));
+    actions.insert("sum".to_string(), py_inline_action(action_sum));
     actions
 }
 
