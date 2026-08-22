@@ -1,13 +1,10 @@
-//! [`waymark_vm_interpreter_extcallset`] trait implementations for [`Value`].
+//! [`waymark_vm_interpreter_extcallset`] trait implementations for [`crate::Value`].
 
 use std::time::{Duration, TryFromFloatSecsError};
 
 use waymark_nonzero_duration::{NonZeroDuration, ZeroDurationError};
 
 use crate::ReadyValue;
-
-#[cfg(test)]
-static_assertions::assert_impl_all!(crate::Value: waymark_vm_interpreter_extcallset::Value);
 
 /// Errors returned while converting a value into a sleep duration.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -33,7 +30,9 @@ pub enum SleepDurationError {
     FloatConversion(#[source] TryFromFloatSecsError),
 }
 
-impl waymark_vm_interpreter_extcallset::value::SleepDuration for ReadyValue {
+impl<Flavor: crate::Flavor> waymark_vm_interpreter_extcallset::value::SleepDuration
+    for ReadyValue<Flavor>
+{
     type Error = SleepDurationError;
 
     fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
@@ -55,14 +54,19 @@ impl waymark_vm_interpreter_extcallset::value::SleepDuration for ReadyValue {
             | Self::None
             | Self::List(_)
             | Self::Dict(_)
-            | Self::Exception(_) => Err(Self::Error::UnsupportedValue),
+            | Self::Exception(_)
+            | Self::Extension(_) => Err(Self::Error::UnsupportedValue),
         }
     }
 }
 
-impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for ReadyValue {
+impl<Flavor: crate::Flavor> waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument
+    for ReadyValue<Flavor>
+where
+    Flavor::Extension: Clone,
+{
     type Error = core::convert::Infallible;
-    type ActionCallArgument = ReadyValue;
+    type ActionCallArgument = ReadyValue<Flavor>;
 
     fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
         Ok(self.clone())

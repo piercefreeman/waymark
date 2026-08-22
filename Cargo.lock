@@ -4020,7 +4020,7 @@ dependencies = [
  "waymark-vm-driver-core",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
- "waymark-vm-value",
+ "waymark-vm-value-python",
 ]
 
 [[package]]
@@ -4082,9 +4082,9 @@ dependencies = [
  "waymark-message-conversions",
  "waymark-proto",
  "waymark-vm-runtime-exception",
- "waymark-vm-value",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-convert-json",
+ "waymark-vm-value-python",
  "waymark-worker-core",
 ]
 
@@ -4137,8 +4137,8 @@ dependencies = [
  "waymark-action-runtime-metadata-compat",
  "waymark-convert-core",
  "waymark-ids",
- "waymark-vm-value",
  "waymark-vm-value-convert-core",
+ "waymark-vm-value-python",
  "waymark-worker-core",
 ]
 
@@ -4158,7 +4158,7 @@ dependencies = [
  "waymark-action-runtime-metadata-codec",
  "waymark-convert-core",
  "waymark-proto",
- "waymark-vm-value",
+ "waymark-vm-value-python",
 ]
 
 [[package]]
@@ -4368,7 +4368,7 @@ dependencies = [
  "waymark-fullset-effect-handler",
  "waymark-ids",
  "waymark-nonzero-duration",
- "waymark-sleep-compat",
+ "waymark-sleep-compat-python",
  "waymark-sleep-reconciler",
  "waymark-sleep-reconciler-backend",
  "waymark-state-manager",
@@ -4418,13 +4418,13 @@ dependencies = [
  "waymark-extcall-reconciler-action-compat",
  "waymark-extcall-reconciler-core",
  "waymark-nonzero-duration",
- "waymark-sleep-compat",
+ "waymark-sleep-compat-python",
  "waymark-transient-sleep-reconciler",
  "waymark-vm-driver-core",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
- "waymark-vm-value",
+ "waymark-vm-value-python",
 ]
 
 [[package]]
@@ -4672,11 +4672,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-sleep-compat"
+name = "waymark-sleep-compat-python"
 version = "0.1.0"
 dependencies = [
  "waymark-sleep-core",
- "waymark-vm-value",
+ "waymark-vm-value-python",
 ]
 
 [[package]]
@@ -4696,13 +4696,13 @@ dependencies = [
  "waymark-ids",
  "waymark-nonzero-duration",
  "waymark-promise-settlement-demand-registry",
- "waymark-sleep-compat",
+ "waymark-sleep-compat-python",
  "waymark-sleep-core",
  "waymark-sleep-reconciler-backend",
  "waymark-vm-driver-core",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
- "waymark-vm-value",
+ "waymark-vm-value-python",
 ]
 
 [[package]]
@@ -4921,7 +4921,7 @@ dependencies = [
  "waymark-vm-interpreter-fullset",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
- "waymark-vm-value",
+ "waymark-vm-value-python",
 ]
 
 [[package]]
@@ -4953,7 +4953,7 @@ dependencies = [
  "waymark-extcall-reconciler",
  "waymark-extcall-reconciler-action-compat",
  "waymark-fullset-effect-handler",
- "waymark-sleep-compat",
+ "waymark-sleep-compat-python",
  "waymark-system-vm",
  "waymark-transient-sleep-reconciler",
  "waymark-vm-ast-old",
@@ -5015,12 +5015,12 @@ dependencies = [
  "tracing",
  "waymark-extcall-reconciler-core",
  "waymark-nonzero-duration",
- "waymark-sleep-compat",
+ "waymark-sleep-compat-python",
  "waymark-sleep-core",
  "waymark-vm-driver-core",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
- "waymark-vm-value",
+ "waymark-vm-value-python",
 ]
 
 [[package]]
@@ -5185,7 +5185,7 @@ dependencies = [
  "thiserror",
  "typed_floats",
  "waymark-vm-ast-old",
- "waymark-vm-value",
+ "waymark-vm-value-python",
 ]
 
 [[package]]
@@ -5216,7 +5216,7 @@ dependencies = [
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
  "waymark-vm-runtime-core",
- "waymark-vm-value",
+ "waymark-vm-value-python",
 ]
 
 [[package]]
@@ -5572,26 +5572,18 @@ version = "0.1.0"
 name = "waymark-vm-value"
 version = "0.1.0"
 dependencies = [
+ "derive-where",
  "indexmap",
  "serde",
- "static_assertions",
  "thiserror",
  "typed_floats",
  "waymark-nonzero-duration",
- "waymark-vm-bytecode",
- "waymark-vm-instructions-coreset",
- "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
- "waymark-vm-interpreter",
  "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-extcallset",
- "waymark-vm-interpreter-fullset",
  "waymark-vm-interpreter-pureset",
- "waymark-vm-runtime",
- "waymark-vm-runtime-core",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-value",
- "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",
 ]
 
@@ -5612,8 +5604,32 @@ dependencies = [
  "typed_floats",
  "waymark-convert-core",
  "waymark-vm-runtime-exception",
- "waymark-vm-value",
  "waymark-vm-value-convert-core",
+ "waymark-vm-value-python",
+]
+
+[[package]]
+name = "waymark-vm-value-python"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "static_assertions",
+ "thiserror",
+ "typed_floats",
+ "waymark-vm-bytecode",
+ "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-extcallset",
+ "waymark-vm-instructions-pureset",
+ "waymark-vm-interpreter",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-extcallset",
+ "waymark-vm-interpreter-fullset",
+ "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-test",
+ "waymark-vm-value",
 ]
 
 [[package]]
@@ -5915,9 +5931,9 @@ dependencies = [
  "waymark-message-conversions",
  "waymark-proto",
  "waymark-vm-runtime-exception",
- "waymark-vm-value",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-convert-json",
+ "waymark-vm-value-python",
  "waymark-workflow-completion-core",
 ]
 
@@ -5953,7 +5969,7 @@ dependencies = [
  "waymark-proto",
  "waymark-vm-compiler-metadata",
  "waymark-vm-runtime",
- "waymark-vm-value",
+ "waymark-vm-value-python",
 ]
 
 [[package]]
