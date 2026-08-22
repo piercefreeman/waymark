@@ -18,9 +18,12 @@ mod common;
 mod value;
 mod workflow;
 
-pub use action::{ActionArgumentsError, ActionOutcomeError, MissingOutcomeError};
-pub use common::MissingArgumentValueError;
-pub use workflow::WorkflowArgumentsError;
+pub use action::*;
+pub use common::*;
+pub use workflow::*;
 
-/// Stateless converter with all proto-to-VM value conversion impls.
+/// Stateless converter for the value tree itself: single values,
+/// exceptions, and their encoded payloads.
+///
+/// The seam converters delegate their value-level work here.
 pub struct Converter;
