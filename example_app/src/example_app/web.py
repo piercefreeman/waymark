@@ -431,7 +431,7 @@ class ScheduleRequest(BaseModel):
     interval_seconds: Optional[int] = Field(
         default=None, ge=10, description="Interval in seconds (minimum 10)"
     )
-    inputs: Optional[dict] = Field(
+    arguments: Optional[dict] = Field(
         default=None, description="Input arguments to pass to each scheduled run"
     )
 
@@ -456,15 +456,15 @@ class BatchRunRequest(BaseModel):
     count: int = Field(
         default=1,
         ge=1,
-        description="Number of instances to enqueue when inputs_list is not provided",
+        description="Number of instances to enqueue when arguments_list is not provided",
     )
-    inputs: Optional[dict] = Field(
+    arguments: Optional[dict] = Field(
         default=None,
-        description="Base inputs to reuse for all instances when inputs_list is not provided",
+        description="Base arguments to reuse for all instances when arguments_list is not provided",
     )
-    inputs_list: Optional[list[dict]] = Field(
+    arguments_list: Optional[list[dict]] = Field(
         default=None,
-        description="Per-instance inputs; overrides count/inputs if provided",
+        description="Per-instance arguments; overrides count/arguments if provided",
     )
     batch_size: int = Field(
         default=500,
@@ -535,7 +535,7 @@ async def register_schedule(payload: ScheduleRequest) -> ScheduleResponse:
             workflow_cls,
             schedule_name=payload.workflow_name,
             schedule=schedule,
-            inputs=payload.inputs,
+            arguments=payload.arguments,
         )
         return ScheduleResponse(
             success=True,
@@ -555,33 +555,33 @@ async def run_batch_workflow(payload: BatchRunRequest) -> StreamingResponse:
             status_code=404, detail=f"Unknown workflow: {payload.workflow_name}"
         )
 
-    inputs_list = payload.inputs_list
-    if inputs_list is not None and len(inputs_list) == 0:
-        raise HTTPException(status_code=400, detail="inputs_list must not be empty")
+    arguments_list = payload.arguments_list
+    if arguments_list is not None and len(arguments_list) == 0:
+        raise HTTPException(status_code=400, detail="arguments_list must not be empty")
 
-    total = len(inputs_list) if inputs_list is not None else payload.count
+    total = len(arguments_list) if arguments_list is not None else payload.count
     if total < 1:
         raise HTTPException(status_code=400, detail="count must be >= 1")
 
-    base_inputs = dict(payload.inputs or {})
+    base_arguments = dict(payload.arguments or {})
     required_keys = _required_workflow_inputs(workflow_cls)
-    if inputs_list is not None:
-        for idx, inputs in enumerate(inputs_list):
-            missing = _missing_input_keys(required_keys, inputs)
+    if arguments_list is not None:
+        for idx, arguments in enumerate(arguments_list):
+            missing = _missing_input_keys(required_keys, arguments)
             if missing:
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        f"inputs_list[{idx}] missing required keys: "
+                        f"arguments_list[{idx}] missing required keys: "
                         f"{', '.join(missing)}"
                     ),
                 )
     else:
-        missing = _missing_input_keys(required_keys, base_inputs)
+        missing = _missing_input_keys(required_keys, base_arguments)
         if missing:
             raise HTTPException(
                 status_code=400,
-                detail=f"inputs missing required keys: {', '.join(missing)}",
+                detail=f"arguments missing required keys: {', '.join(missing)}",
             )
 
     async def event_stream() -> AsyncIterator[str]:
@@ -599,25 +599,25 @@ async def run_batch_workflow(payload: BatchRunRequest) -> StreamingResponse:
             registration = workflow_cls._build_registration_payload(
                 priority=payload.priority
             )
-            if inputs_list is not None:
-                batch_inputs = [
-                    workflow_cls._build_initial_context((), inputs)
-                    for inputs in inputs_list
+            if arguments_list is not None:
+                batch_arguments = [
+                    workflow_cls._build_workflow_arguments((), arguments).SerializeToString()
+                    for arguments in arguments_list
                 ]
-                base_inputs_message = None
+                base_arguments_message = None
             else:
-                batch_inputs = None
-                base_inputs_message = (
-                    workflow_cls._build_initial_context((), base_inputs)
-                    if payload.inputs is not None
+                batch_arguments = None
+                base_arguments_message = (
+                    workflow_cls._build_workflow_arguments((), base_arguments).SerializeToString()
+                    if payload.arguments is not None
                     else None
                 )
 
             batch_result = await bridge.run_instances_batch(
                 registration.SerializeToString(),
                 count=total,
-                inputs=base_inputs_message,
-                inputs_list=batch_inputs,
+                arguments=base_arguments_message,
+                arguments_list=batch_arguments,
                 batch_size=payload.batch_size,
                 include_instance_ids=payload.include_instance_ids,
             )
