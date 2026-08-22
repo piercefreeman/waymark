@@ -36,23 +36,6 @@ impl TryConvert<&waymark_proto::messages::WorkflowArguments, waymark_vm_value_py
     }
 }
 
-/// Convert a single encoded value back into a VM ready value.
-///
-/// This is the reverse of the
-/// [`TryConvert<&ReadyValue, Value>`] impl on this
-/// converter.
-impl TryConvert<&waymark_proto::python_value::Value, waymark_vm_value_python::ReadyValue>
-    for Converter
-{
-    type Error = core::convert::Infallible;
-
-    fn try_convert(
-        value: &waymark_proto::python_value::Value,
-    ) -> Result<waymark_vm_value_python::ReadyValue, Self::Error> {
-        waymark_vm_value_convert_proto::Converter::try_convert(value)
-    }
-}
-
 /// Convert an action result into the outcome that settles the awaiting
 /// promise.
 ///
@@ -106,34 +89,17 @@ impl
         use waymark_proto::python_value::action_outcome::Outcome;
 
         let outcome = match outcome.ok_or(MissingOutcomeError)? {
-            Outcome::Value(value) => {
-                waymark_action_runtime_core::ActionCallOutcome::Value(Self::convert(&value))
-            }
+            Outcome::Value(value) => waymark_action_runtime_core::ActionCallOutcome::Value(
+                waymark_vm_value_convert_proto::Converter::convert(&value),
+            ),
             Outcome::Exception(exception) => {
-                waymark_action_runtime_core::ActionCallOutcome::Exception(Self::convert(&exception))
+                waymark_action_runtime_core::ActionCallOutcome::Exception(
+                    waymark_vm_value_convert_proto::Converter::convert(&exception),
+                )
             }
         };
 
         Ok(outcome)
-    }
-}
-
-/// Convert a raised exception into the VM exception it denotes.
-impl
-    TryConvert<
-        &waymark_proto::python_value::ExceptionValue,
-        waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
-    > for Converter
-{
-    type Error = core::convert::Infallible;
-
-    fn try_convert(
-        exception: &waymark_proto::python_value::ExceptionValue,
-    ) -> Result<
-        waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
-        Self::Error,
-    > {
-        waymark_vm_value_convert_proto::Converter::try_convert(exception)
     }
 }
 
@@ -157,7 +123,8 @@ mod tests {
     }
 
     fn encoded(value: waymark_vm_value_python::ReadyValue) -> waymark_proto::python_value::Value {
-        Converter::try_convert(&value).expect("no pending promise in the value")
+        waymark_vm_value_convert_proto::Converter::try_convert(&value)
+            .expect("no pending promise in the value")
     }
 
     #[test]
