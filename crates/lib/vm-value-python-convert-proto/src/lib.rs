@@ -556,6 +556,49 @@ impl TryConvert<waymark_action_runtime_core::ActionCallLossError, ReadyValue> fo
     }
 }
 
+/// Error reading the named values an action-arguments payload encodes.
+#[derive(Debug, thiserror::Error)]
+pub enum ActionArgumentsError {
+    /// The payload's bytes do not decode as this flavor's arguments
+    /// message.
+    #[error("decoding the action arguments")]
+    Decode(#[source] prost::DecodeError),
+
+    /// The decoded arguments are malformed.
+    #[error("reading the action arguments")]
+    Arguments(#[source] MissingArgumentValueError),
+}
+
+/// Read the named argument values from an owned action-arguments
+/// payload: the arguments message, decoded into the map an action body
+/// is called with.
+///
+/// Empty bytes are the no-arguments encoding and read as no values.
+impl TryConvert<Vec<u8>, std::collections::HashMap<String, ReadyValue>> for Converter {
+    type Error = ActionArgumentsError;
+
+    fn try_convert(
+        bytes: Vec<u8>,
+    ) -> Result<std::collections::HashMap<String, ReadyValue>, Self::Error> {
+        let message: proto_value::ActionArguments =
+            prost::Message::decode(bytes.as_slice()).map_err(ActionArgumentsError::Decode)?;
+        message
+            .arguments
+            .iter()
+            .map(|argument| {
+                let value = argument
+                    .value
+                    .as_ref()
+                    .ok_or_else(|| MissingArgumentValueError {
+                        key: argument.key.clone(),
+                    })
+                    .map_err(ActionArgumentsError::Arguments)?;
+                Ok((argument.key.clone(), Self::convert(value)))
+            })
+            .collect()
+    }
+}
+
 /// Read a workflow arguments message back from the initiation payload's
 /// bytes.
 impl TryConvert<&[u8], proto_value::WorkflowArguments> for Converter {

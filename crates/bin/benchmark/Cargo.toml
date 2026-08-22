@@ -24,6 +24,7 @@ waymark-vm-compiler-for-ast-old-core = { workspace = true }
 waymark-vm-runtime-builder = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-value-python = { workspace = true }
+waymark-vm-value-python-convert-proto = { workspace = true }
 waymark-worker-inline = { workspace = true }
 waymark-worker-inline-compat = { workspace = true }
 waymark-workflow-service-vm-executables = { workspace = true }
