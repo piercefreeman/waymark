@@ -4197,6 +4197,7 @@ dependencies = [
 name = "waymark-action-runtime-convert"
 version = "0.1.0"
 dependencies = [
+ "waymark-action-core",
  "waymark-action-runtime-core",
  "waymark-action-runtime-metadata-codec",
  "waymark-convert-core",
@@ -5838,6 +5839,7 @@ dependencies = [
  "prost",
  "thiserror",
  "typed_floats",
+ "waymark-action-core",
  "waymark-action-runtime-core",
  "waymark-convert-core",
  "waymark-proto",
