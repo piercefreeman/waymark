@@ -1,8 +1,8 @@
 //! A converter that provides conversion for the action runtime.
 //!
 //! [`Converter`] is generic over a wrapped value converter: the envelope
-//! logic — dispatch assembly and loss lowering — is written once here,
-//! and everything value-specific is delegated through
+//! logic — correlation-metadata encoding and loss lowering — is written
+//! once here, and everything value-specific is delegated through
 //! [`TryConvert`](waymark_convert_core::TryConvert) bounds on the
 //! `ValueConverter` parameter.  Wiring pins the flavor's own conversion
 //! crate as the parameter; nothing in this crate names a flavor.

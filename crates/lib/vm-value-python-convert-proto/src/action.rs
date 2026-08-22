@@ -20,24 +20,37 @@ pub struct ActionArgumentsConverter;
 /// payloads written and read, and losses rendered.
 pub struct ActionOutcomeConverter;
 
-/// Convert a pair of call-argument names and values straight into the
-/// bytes the dispatch carries: the arguments message, encoded.
+/// Convert an action call — its ref, argument values, and the encoded
+/// correlation metadata — into the worker protocol's dispatch message.
 ///
 /// This is the flavor's calling convention: `call_args` names from the
-/// `ActionRef` paired positionally with the argument values from the
-/// VM into named arguments, in pairing order.
+/// ref paired positionally with the argument values from the VM into
+/// named arguments, in pairing order, and the action's identity rides
+/// as its name and module.  The metadata bytes are opaque here —
+/// encoded by the envelope, echoed by the worker untouched.
 ///
 /// No arguments encode as no bytes — an entry-less message has the
 /// empty encoding, so "empty payload means no arguments" needs no case
 /// of its own.
-impl TryConvert<(Vec<String>, Vec<ReadyValue>), Vec<u8>> for ActionArgumentsConverter {
+impl
+    TryConvert<
+        (waymark_action_core::ActionRef, Vec<ReadyValue>, Vec<u8>),
+        waymark_proto::messages::ActionDispatch,
+    > for ActionArgumentsConverter
+{
     type Error = PendingPromiseError;
 
     fn try_convert(
-        (names, values): (Vec<String>, Vec<ReadyValue>),
-    ) -> Result<Vec<u8>, Self::Error> {
-        let mut arguments = Vec::with_capacity(names.len());
-        for (name, value) in names.iter().zip(values.iter()) {
+        (action_ref, values, metadata): (waymark_action_core::ActionRef, Vec<ReadyValue>, Vec<u8>),
+    ) -> Result<waymark_proto::messages::ActionDispatch, Self::Error> {
+        let waymark_action_core::ActionRef {
+            action_name,
+            module_name,
+            call_args,
+        } = action_ref;
+
+        let mut arguments = Vec::with_capacity(call_args.len());
+        for (name, value) in call_args.iter().zip(values.iter()) {
             // Skip `None`-valued parameters (dependency markers such as
             // `Annotated[T, Depend(…)]` are serialized as `None` by the
             // VM).  The Python side (`provide_dependencies`) will resolve
@@ -52,7 +65,13 @@ impl TryConvert<(Vec<String>, Vec<ReadyValue>), Vec<u8>> for ActionArgumentsConv
             });
         }
         let message = proto_value::ActionArguments { arguments };
-        Ok(prost::Message::encode_to_vec(&message))
+
+        Ok(waymark_proto::messages::ActionDispatch {
+            action_name,
+            module_name: module_name.unwrap_or_default(),
+            arguments: prost::Message::encode_to_vec(&message),
+            metadata,
+        })
     }
 }
 
