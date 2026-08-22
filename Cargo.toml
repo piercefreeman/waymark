@@ -149,7 +149,6 @@ waymark-worker-status-core = { path = "crates/lib/worker-status-core" }
 waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
 waymark-workflow-completion = { path = "crates/lib/workflow-completion" }
 waymark-workflow-completion-backend = { path = "crates/lib/workflow-completion-backend" }
-waymark-workflow-completion-convert-proto = { path = "crates/lib/workflow-completion-convert-proto" }
 waymark-workflow-completion-core = { path = "crates/lib/workflow-completion-core" }
 waymark-workflow-completion-direct = { path = "crates/lib/workflow-completion-direct" }
 waymark-workflow-initialization-convert-proto = { path = "crates/lib/workflow-initialization-convert-proto" }

@@ -17,7 +17,6 @@ waymark-vm-compiler-for-ast-old = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-value-python = { workspace = true }
 waymark-vm-value-python-convert-proto = { workspace = true }
-waymark-workflow-completion-convert-proto = { workspace = true }
 waymark-workflow-completion-core = { workspace = true }
 waymark-workflow-initialization-convert-proto = { workspace = true }
 
