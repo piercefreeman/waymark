@@ -43,7 +43,7 @@ pub enum SetupRuntimeError {
     /// failed.
     #[error("convert workflow arguments: {0}")]
     ConvertWorkflowArguments(
-        #[source] waymark_workflow_initialization_convert_proto::WorkflowArgumentsError,
+        #[source] waymark_vm_value_python_convert_proto::WorkflowArgumentsError,
     ),
 
     /// The entry function was not found in the executable.
@@ -78,10 +78,9 @@ pub fn setup_runtime(
     .map_err(SetupRuntimeError::Compile)?;
     let executable = std::sync::Arc::new(executable);
 
-    let call_spec = waymark_workflow_initialization_convert_proto::Converter::try_convert((
-        &registration.arguments[..],
-        &metadata,
-    ))
+    let call_spec = waymark_workflow_initialization_convert_proto::Converter::<
+        waymark_vm_value_python_convert_proto::Converter,
+    >::try_convert((&registration.arguments[..], &metadata))
     .map_err(SetupRuntimeError::ConvertWorkflowArguments)?;
 
     let interpreter = waymark_system_vm::Interpreter::default();
@@ -194,10 +193,9 @@ pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> Execute
 fn convert_workflow_outcome_to_stream_response(
     workflow_outcome: waymark_workflow_completion_core::Outcome<waymark_system_vm::ReadyValue>,
 ) -> Result<proto::WorkflowStreamResponse, Status> {
-    let payload =
-        waymark_workflow_completion_convert_proto::Converter::try_convert(workflow_outcome)
-            .map_err(|err| Status::internal(format!("convert workflow outcome: {err}")))?
-            .encode_to_vec();
+    let payload: Vec<u8> =
+        waymark_vm_value_python_convert_proto::Converter::try_convert(workflow_outcome)
+            .map_err(|err| Status::internal(format!("convert workflow outcome: {err}")))?;
 
     Ok(proto::WorkflowStreamResponse {
         kind: Some(proto::workflow_stream_response::Kind::WorkflowResult(
