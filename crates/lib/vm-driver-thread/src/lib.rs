@@ -173,7 +173,7 @@ where
                     Error::Thread(error)
                 }
                 Ok(Err(error)) => {
-                    tracing::error!(?error, "vm driver terminated");
+                    tracing::debug!(?error, "vm driver terminated");
                     Error::Driver(error)
                 }
             })
