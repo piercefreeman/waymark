@@ -1,7 +1,7 @@
 //! Statement lowering.
 
 use waymark_vm_ast_old::{
-    ActionCall, Block, ElifBranch, ElseBranch, ExceptHandler, Expr, IfBranch, Spanned, Statement,
+    Block, ElifBranch, ElseBranch, ExceptHandler, Expr, IfBranch, Spanned, Statement,
 };
 
 use super::AssignmentCompiler;
@@ -12,6 +12,7 @@ use super::ValueCompiler;
 use super::conditional::{ConditionalJoin, ConditionalJoinFinish};
 use super::env::FlowState;
 use super::r#loop::LoopControlStack;
+use super::plan::call::CallPlanFor;
 use super::plan::r#loop::WhileLoopPlan;
 use super::plan::statement::StatementPlan;
 use super::{Error, ErrorFor, LoopControlKind};
@@ -105,9 +106,9 @@ where
             StatementPlan::SpreadAction {
                 collection,
                 loop_var,
-                action,
+                call,
             } => {
-                self.compile_spread_action(collection, loop_var, action)?;
+                self.compile_spread_action(collection, loop_var, call)?;
             }
             StatementPlan::Return { value } => {
                 self.value_compiler().compile_return_statement(value)?;
@@ -394,10 +395,10 @@ where
         &mut self,
         collection: &Spanned<Expr>,
         loop_var: &str,
-        action: &ActionCall,
+        call: CallPlanFor<'_, Spec>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         self.for_loop_compiler()
-            .compile_spread_statement(collection, loop_var, action)
+            .compile_spread_statement(collection, loop_var, call)
     }
 
     /// Compiles a `break` statement.

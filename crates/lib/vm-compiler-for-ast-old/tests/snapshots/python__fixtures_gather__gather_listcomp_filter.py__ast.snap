@@ -217,29 +217,31 @@ Program {
                                                 },
                                             },
                                             loop_var: "user",
-                                            action: ActionCall {
-                                                action_name: "process_user",
-                                                kwargs: [
-                                                    Kwarg {
-                                                        name: "user",
-                                                        value: Spanned {
-                                                            value: Variable {
-                                                                name: "user",
-                                                            },
-                                                            span: Span {
-                                                                start_line: 3,
-                                                                start_col: 28,
-                                                                end_line: 3,
-                                                                end_col: 32,
+                                            call: Action(
+                                                ActionCall {
+                                                    action_name: "process_user",
+                                                    kwargs: [
+                                                        Kwarg {
+                                                            name: "user",
+                                                            value: Spanned {
+                                                                value: Variable {
+                                                                    name: "user",
+                                                                },
+                                                                span: Span {
+                                                                    start_line: 3,
+                                                                    start_col: 28,
+                                                                    end_line: 3,
+                                                                    end_col: 32,
+                                                                },
                                                             },
                                                         },
-                                                    },
-                                                ],
-                                                policies: [],
-                                                module_name: Some(
-                                                    "gather_listcomp_filter",
-                                                ),
-                                            },
+                                                    ],
+                                                    policies: [],
+                                                    module_name: Some(
+                                                        "gather_listcomp_filter",
+                                                    ),
+                                                },
+                                            ),
                                         },
                                         span: Span {
                                             start_line: 2,

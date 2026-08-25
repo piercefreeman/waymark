@@ -98,11 +98,11 @@ pub fn spread_stmt(
     })
 }
 
-pub fn spread_expr(collection: Spanned<Expr>, loop_var: &str, action: ActionCall) -> Spanned<Expr> {
+pub fn spread_expr(collection: Spanned<Expr>, loop_var: &str, call: Call) -> Spanned<Expr> {
     spanned(Expr::SpreadExpr {
         collection: Box::new(collection),
         loop_var: loop_var.to_owned(),
-        action,
+        call,
     })
 }
 

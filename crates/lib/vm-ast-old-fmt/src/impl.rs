@@ -61,12 +61,12 @@ impl<'a> Fmt<'a, ast::Spanned<ast::Statement>> {
                 ast::Expr::SpreadExpr {
                     collection,
                     loop_var,
-                    action,
+                    call,
                 } => {
                     write_indent(f, padding)?;
                     write_names_or_placeholder(f, targets)?;
                     f.write_str(" = ")?;
-                    write_spread(f, collection, loop_var, action)
+                    write_spread(f, collection, loop_var, Fmt(call))
                 }
                 _ => {
                     write_indent(f, padding)?;
@@ -85,7 +85,7 @@ impl<'a> Fmt<'a, ast::Spanned<ast::Statement>> {
                 action,
             } => {
                 write_indent(f, padding)?;
-                write_spread(f, collection, loop_var, action)
+                write_spread(f, collection, loop_var, Fmt(action))
             }
             ast::Statement::ParallelBlock { calls } => {
                 Fmt(calls.as_slice()).parallel_block_fmt(f, padding, None)
@@ -187,10 +187,10 @@ impl<'a> Fmt<'a, ast::Spanned<ast::Statement>> {
                 ast::Expr::SpreadExpr {
                     collection,
                     loop_var,
-                    action,
+                    call,
                 } => {
                     write_indent(f, padding)?;
-                    write_spread(f, collection, loop_var, action)
+                    write_spread(f, collection, loop_var, Fmt(call))
                 }
                 _ => {
                     write_indent(f, padding)?;
@@ -348,8 +348,8 @@ impl<'a> Fmt<'a, ast::Spanned<ast::Expr>> {
             ast::Expr::SpreadExpr {
                 collection,
                 loop_var,
-                action,
-            } => write_spread(f, collection, loop_var, action),
+                call,
+            } => write_spread(f, collection, loop_var, Fmt(call)),
         }
     }
 }
@@ -378,12 +378,12 @@ fn write_spread(
     f: &mut fmt::Formatter<'_>,
     collection: &ast::Spanned<ast::Expr>,
     loop_var: &str,
-    action: &ast::ActionCall,
+    call: impl fmt::Display,
 ) -> fmt::Result {
     f.write_str("spread ")?;
     Fmt(collection).fmt_with_prec(f, 0)?;
     write!(f, ":{loop_var} -> ")?;
-    write!(f, "{}", Fmt(action))
+    write!(f, "{call}")
 }
 
 fn write_maybe_parenthesized(

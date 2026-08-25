@@ -452,7 +452,8 @@ class TestAsyncioGatherDetection:
 
         # Check the spread details
         assert spread_expr.loop_var == "item"
-        assert spread_expr.action.action_name == "process_item"
+        assert spread_expr.call.HasField("action")
+        assert spread_expr.call.action.action_name == "process_item"
 
         # Check the collection is the 'items' variable
         assert spread_expr.collection.HasField("variable")
@@ -460,6 +461,45 @@ class TestAsyncioGatherDetection:
 
         # Check the target
         assert targets == ["results"]
+
+    def test_gather_starred_comprehension_over_helper(self) -> None:
+        """Test: await asyncio.gather(*[self.helper(x) for x in items], return_exceptions=True)
+
+        This pattern is converted to a SpreadExpr carrying a function call.
+        """
+        from tests.fixtures_gather.gather_listcomp_helper import GatherListCompHelperWorkflow
+
+        program = GatherListCompHelperWorkflow.workflow_ir()
+
+        # Find the SpreadExpr in the IR
+        spread_expr = None
+        targets = []
+        for fn in program.functions:
+            for stmt in fn.body.statements:
+                if stmt.HasField("assignment"):
+                    if stmt.assignment.value.HasField("spread_expr"):
+                        spread_expr = stmt.assignment.value.spread_expr
+                        targets = list(stmt.assignment.targets)
+
+        assert spread_expr is not None, "Expected spread expression from asyncio.gather(*[...])"
+
+        # Check the spread fans out over a helper function call
+        assert spread_expr.loop_var == "item"
+        assert spread_expr.call.HasField("function")
+        assert spread_expr.call.function.name == "helper"
+        assert len(spread_expr.call.function.args) == 1
+
+        # Check the collection is the 'items' variable
+        assert spread_expr.collection.HasField("variable")
+        assert spread_expr.collection.variable.name == "items"
+
+        # Check the target
+        assert targets == ["results"]
+
+        # The helper itself compiles into a program function
+        assert any(fn.name == "helper" for fn in program.functions), (
+            "Expected the helper method to compile into a program function"
+        )
 
     def test_gather_tuple_unpacking(self) -> None:
         """Test: a, b = await asyncio.gather(action1(), action2(), return_exceptions=True)
@@ -2970,7 +3010,7 @@ class TestSpreadAction:
                         spread_expr = stmt.assignment.value.spread_expr
                         # Verify the spread structure
                         assert spread_expr.loop_var == "item"
-                        assert spread_expr.action.action_name == "process_item"
+                        assert spread_expr.call.action.action_name == "process_item"
 
         assert spread_found, "Expected spread expression from asyncio.gather(*[...])"
 
@@ -2994,7 +3034,7 @@ class TestSpreadAction:
         spread_expr = spread_stmt.assignment.value.spread_expr
         assert list(spread_stmt.assignment.targets) == ["results"]
         assert spread_expr.loop_var == "user"
-        assert spread_expr.action.action_name == "process_user"
+        assert spread_expr.call.action.action_name == "process_user"
         assert spread_expr.collection.HasField("variable")
 
         temp_collection_name = spread_expr.collection.variable.name
@@ -3042,7 +3082,7 @@ class TestSpreadAction:
         spread_expr = spread_stmt.assignment.value.spread_expr
         assert list(spread_stmt.assignment.targets) == ["results"]
         assert spread_expr.loop_var == "item"
-        assert spread_expr.action.action_name == "process_item"
+        assert spread_expr.call.action.action_name == "process_item"
         assert spread_expr.collection.HasField("variable")
         assert spread_expr.collection.variable.name == "items"
 
@@ -3065,7 +3105,7 @@ class TestSpreadAction:
 
         spread_expr = spread_stmt.assignment.value.spread_expr
         assert spread_expr.loop_var == "user"
-        assert spread_expr.action.action_name == "process_user"
+        assert spread_expr.call.action.action_name == "process_user"
         assert spread_expr.collection.HasField("variable")
 
         temp_collection_name = spread_expr.collection.variable.name
@@ -3099,12 +3139,12 @@ class TestSpreadAction:
         assert spread_stmt is not None, "Expected spread expression from destructured gather"
 
         spread_expr = spread_stmt.assignment.value.spread_expr
-        assert spread_expr.action.action_name == "process_pair"
+        assert spread_expr.call.action.action_name == "process_pair"
         assert spread_expr.collection.HasField("variable")
         assert spread_expr.collection.variable.name == "pairs"
         assert spread_expr.loop_var.startswith("__spread_item_")
 
-        kwargs = {kw.name: kw.value for kw in spread_expr.action.kwargs}
+        kwargs = {kw.name: kw.value for kw in spread_expr.call.action.kwargs}
         assert {"name", "score"} == set(kwargs)
 
         name_value = kwargs["name"]
@@ -3150,17 +3190,17 @@ class TestSpreadAction:
 
         # Verify the spread structure
         assert spread_expr.loop_var == "item"
-        assert spread_expr.action.action_name == "process_item"
+        assert spread_expr.call.action.action_name == "process_item"
 
         # Verify that policies were extracted from run_action
-        assert len(spread_expr.action.policies) == 2, (
-            f"Expected 2 policies (retry + timeout), got {len(spread_expr.action.policies)}"
+        assert len(spread_expr.call.action.policies) == 2, (
+            f"Expected 2 policies (retry + timeout), got {len(spread_expr.call.action.policies)}"
         )
 
         # Check for retry policy
         retry_found = False
         timeout_found = False
-        for policy_bracket in spread_expr.action.policies:
+        for policy_bracket in spread_expr.call.action.policies:
             if policy_bracket.HasField("retry"):
                 retry_found = True
                 # RetryPolicy(attempts=3) -> max_retries=2

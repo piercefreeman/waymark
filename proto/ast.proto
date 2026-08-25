@@ -327,7 +327,7 @@ message ParallelExpr {
 message SpreadExpr {
   Expr collection = 1;               // The collection to iterate
   string loop_var = 2;               // Variable name for each item
-  ActionCall action = 3;             // The action to call per item
+  Call call = 3;                     // The action or function call per item
 }
 
 // -----------------------------------------------------------------------------

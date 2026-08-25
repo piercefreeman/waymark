@@ -1515,7 +1515,7 @@ class SpreadExpr(google.protobuf.message.Message):
 
     COLLECTION_FIELD_NUMBER: builtins.int
     LOOP_VAR_FIELD_NUMBER: builtins.int
-    ACTION_FIELD_NUMBER: builtins.int
+    CALL_FIELD_NUMBER: builtins.int
     loop_var: builtins.str
     """Variable name for each item"""
     @property
@@ -1523,23 +1523,23 @@ class SpreadExpr(google.protobuf.message.Message):
         """The collection to iterate"""
 
     @property
-    def action(self) -> Global___ActionCall:
-        """The action to call per item"""
+    def call(self) -> Global___Call:
+        """The action or function call per item"""
 
     def __init__(
         self,
         *,
         collection: Global___Expr | None = ...,
         loop_var: builtins.str = ...,
-        action: Global___ActionCall | None = ...,
+        call: Global___Call | None = ...,
     ) -> None: ...
     def HasField(
-        self, field_name: typing.Literal["action", b"action", "collection", b"collection"]
+        self, field_name: typing.Literal["call", b"call", "collection", b"collection"]
     ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
-            "action", b"action", "collection", b"collection", "loop_var", b"loop_var"
+            "call", b"call", "collection", b"collection", "loop_var", b"loop_var"
         ],
     ) -> None: ...
 

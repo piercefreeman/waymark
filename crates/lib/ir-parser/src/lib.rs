@@ -807,12 +807,12 @@ impl ExprParser {
         self.stream.expect(":", None)?;
         let loop_var = self.stream.expect("NAME", None)?.value;
         self.stream.expect("->", None)?;
-        let action = self.parse_action_call()?;
+        let call = self.parse_call()?;
         Ok(ir::Expr {
             kind: Some(ir::expr::Kind::SpreadExpr(Box::new(ir::SpreadExpr {
                 collection: Some(Box::new(collection)),
                 loop_var,
-                action: Some(action),
+                call: Some(call),
             }))),
             span: None,
         })
