@@ -7,6 +7,7 @@ use waymark_vm_ast_old::{
 use crate::function::table::FunctionTable;
 
 use super::ErrorFor;
+use super::call::{CallPlan, CallPlanFor};
 use super::parallel::{ParallelCallPlans, build_parallel_call_plans};
 
 /// A normalized statement shape that the statement compiler knows how to lower.
@@ -38,8 +39,8 @@ where
         /// Loop variable bound for each collection item.
         loop_var: &'a str,
 
-        /// Action invoked for every item.
-        action: &'a ActionCall,
+        /// Planned action call started for every item.
+        call: CallPlanFor<'a, Spec>,
     },
 
     /// Return from the current function.
@@ -152,7 +153,7 @@ where
             } => Ok(Self::SpreadAction {
                 collection,
                 loop_var,
-                action,
+                call: CallPlan::build_action::<Spec, Lowering, _>(action)?,
             }),
             Statement::Return { value } => Ok(Self::Return {
                 value: value.as_ref(),
@@ -286,9 +287,9 @@ mod tests {
                 .expect("spread actions should build"),
             StatementPlan::SpreadAction {
                 loop_var,
-                action,
+                call: CallPlan::Action(_),
                 ..
-            } if loop_var == "item" && action.action_name == "notify"
+            } if loop_var == "item"
         ));
         assert!(matches!(
             StatementPlan::<TestSpec>::build::<TestLowering>(&break_stmt().value, &function_table)

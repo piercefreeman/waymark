@@ -45,6 +45,7 @@ expression: python_test_files
     "fixtures_gather/gather_generator_filter.py",
     "fixtures_gather/gather_listcomp.py",
     "fixtures_gather/gather_listcomp_filter.py",
+    "fixtures_gather/gather_listcomp_helper.py",
     "fixtures_gather/gather_listcomp_tuple_unpack.py",
     "fixtures_gather/gather_nested.py",
     "fixtures_gather/gather_run_action_spread.py",

@@ -1,6 +1,6 @@
 //! Assignment lowering.
 
-use waymark_vm_ast_old::{ActionCall, Expr, Literal, Spanned};
+use waymark_vm_ast_old::{Expr, Literal, Spanned};
 
 use crate::Marked;
 use crate::function::compiler::env::AssignmentTargetMarker;
@@ -14,6 +14,7 @@ use super::ParallelCompiler;
 use super::ValueCompiler;
 use super::r#loop::LoopControlStack;
 use super::plan::assignment::AssignmentStatementPlan;
+use super::plan::call::CallPlanFor;
 
 /// The exception type raised when an unpacked value's length does not match
 /// the assignment target count.
@@ -78,16 +79,16 @@ where
                 target,
                 collection,
                 loop_var,
-                action,
+                call,
             } => {
-                self.compile_spread_assignment(target, collection, loop_var, action)?;
+                self.compile_spread_assignment(target, collection, loop_var, call)?;
             }
             AssignmentStatementPlan::SpreadDiscard {
                 collection,
                 loop_var,
-                action,
+                call,
             } => {
-                self.compile_spread_discard(collection, loop_var, action)?;
+                self.compile_spread_discard(collection, loop_var, call)?;
             }
             AssignmentStatementPlan::Parallel { assignment } => {
                 self.parallel_compiler().compile_assignment(assignment)?;
@@ -241,13 +242,13 @@ where
         target: Marked<LocalSlot, AssignmentTargetMarker>,
         collection: &Spanned<Expr>,
         loop_var: &str,
-        action: &ActionCall,
+        call: CallPlanFor<'_, Spec>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         let accumulator_register = self.context.local_frame.allocate_register();
         self.for_loop_compiler().compile_spread_expr(
             collection,
             loop_var,
-            action,
+            call,
             accumulator_register,
         )?;
 
@@ -266,10 +267,10 @@ where
         &mut self,
         collection: &Spanned<Expr>,
         loop_var: &str,
-        action: &ActionCall,
+        call: CallPlanFor<'_, Spec>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         self.for_loop_compiler()
-            .compile_spread_statement(collection, loop_var, action)
+            .compile_spread_statement(collection, loop_var, call)
     }
 
     /// Creates a value compiler borrowing the current context.

@@ -240,7 +240,7 @@ mod tests {
         let expr = spanned(Expr::SpreadExpr {
             collection: Box::new(variable("items")),
             loop_var: "item".to_owned(),
-            action: action_call("notify", vec![("value", variable("item"))]),
+            call: Call::Action(action_call("notify", vec![("value", variable("item"))])),
         });
 
         let error = ExpressionPlan::build(&expr)

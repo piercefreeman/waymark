@@ -248,7 +248,7 @@ impl Convert<ast::Expr> for Converter {
                         "SpreadExpr.collection",
                     )?),
                     loop_var: spread.loop_var,
-                    action: convert_required(spread.action, "SpreadExpr.action")?,
+                    call: convert_required(spread.call, "SpreadExpr.call")?,
                 }
             }
         };

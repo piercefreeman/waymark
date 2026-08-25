@@ -1,8 +1,8 @@
 //! Tests for spread-statement and spread-expression lowering.
 
 use waymark_vm_ast_old_helpers::{
-    action_call, assignment, assignment_targets, function, program, return_stmt, spread_expr,
-    spread_stmt, variable,
+    action_call, assignment, assignment_targets, function, function_call, program, return_stmt,
+    spread_expr, spread_stmt, variable,
 };
 use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
 
@@ -37,7 +37,10 @@ fn spread_expression_assignments_lower_to_looped_action_collection() {
                 spread_expr(
                     variable("items"),
                     "item",
-                    action_call("double", vec![("value", variable("item"))]),
+                    waymark_vm_ast_old::Call::Action(action_call(
+                        "double",
+                        vec![("value", variable("item"))],
+                    )),
                 ),
             ),
             return_stmt(Some(variable("results"))),
@@ -93,6 +96,84 @@ fn spread_expression_assignments_lower_to_looped_action_collection() {
 }
 
 #[test]
+fn spread_expression_assignments_lower_to_looped_function_collection() {
+    let program = program(vec![
+        function(
+            "main",
+            &["items"],
+            vec![
+                assignment(
+                    "results",
+                    spread_expr(
+                        variable("items"),
+                        "item",
+                        waymark_vm_ast_old::Call::Function(function_call(
+                            "child",
+                            vec![variable("item")],
+                        )),
+                    ),
+                ),
+                return_stmt(Some(variable("results"))),
+            ],
+        ),
+        function(
+            "child",
+            &["value"],
+            vec![return_stmt(Some(variable("value")))],
+        ),
+    ]);
+
+    let executable = compile::<TestSpec, TestLowering>(&program)
+        .expect("function spread expressions should compile");
+
+    insta::assert_snapshot!(waymark_vm_bytecode_fmt::display(&executable), @"
+    f0: [8 registers]
+      s0:
+        PureSet(MakeList { dst: r2, items: [] })
+        PureSet(MakeList { dst: r3, items: [] })
+        PureSet(LoadConst { dst: r4, value: Int(0) })
+        PureSet(Length { dst: r5, src: r0 })
+        CoreSet(Jump { target_state: s1 })
+      s1:
+        PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r4, b: r5 } })
+        CoreSet(JumpIf { target_state: s2, cond: r6 })
+        CoreSet(Jump { target_state: s4 })
+      s2:
+        PureSet(Index { dst: r6, object: r0, index: r4 })
+        CoreSet(Call { dst: r7, function_id: f1, args: [r6] })
+        PureSet(ListAppend { dst: r3, list: r3, item: r7 })
+        CoreSet(Jump { target_state: s3 })
+      s3:
+        PureSet(LoadConst { dst: r6, value: Int(1) })
+        PureSet(Binary { kind: Add, op: BinaryOp { dst: r4, a: r4, b: r6 } })
+        CoreSet(Jump { target_state: s1 })
+      s4:
+        PureSet(LoadConst { dst: r4, value: Int(0) })
+        CoreSet(Jump { target_state: s5 })
+      s5:
+        PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r4, b: r5 } })
+        CoreSet(JumpIf { target_state: s6, cond: r6 })
+        CoreSet(Jump { target_state: s8 })
+      s6:
+        PureSet(Index { dst: r6, object: r3, index: r4 })
+        CoreSet(Await { dst: r6, src: r6, resume: s9 })
+      s7:
+        PureSet(LoadConst { dst: r6, value: Int(1) })
+        PureSet(Binary { kind: Add, op: BinaryOp { dst: r4, a: r4, b: r6 } })
+        CoreSet(Jump { target_state: s5 })
+      s8:
+        PureSet(Copy { dst: r1, src: r2 })
+        CoreSet(Return { src: r1 })
+      s9:
+        PureSet(ListAppend { dst: r2, list: r2, item: r6 })
+        CoreSet(Jump { target_state: s7 })
+    f1: [1 registers]
+      s0:
+        CoreSet(Return { src: r0 })
+    ");
+}
+
+#[test]
 fn zero_target_spread_assignments_compile_as_side_effect_spreads() {
     let program = program(vec![function(
         "main",
@@ -103,7 +184,10 @@ fn zero_target_spread_assignments_compile_as_side_effect_spreads() {
                 spread_expr(
                     variable("items"),
                     "item",
-                    action_call("notify", vec![("value", variable("item"))]),
+                    waymark_vm_ast_old::Call::Action(action_call(
+                        "notify",
+                        vec![("value", variable("item"))],
+                    )),
                 ),
             ),
             return_stmt(None),

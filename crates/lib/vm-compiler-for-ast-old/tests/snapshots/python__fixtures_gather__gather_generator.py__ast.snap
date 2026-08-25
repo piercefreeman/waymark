@@ -44,43 +44,45 @@ Program {
                                                 },
                                             },
                                             loop_var: "item",
-                                            action: ActionCall {
-                                                action_name: "process_item",
-                                                kwargs: [
-                                                    Kwarg {
-                                                        name: "item",
-                                                        value: Spanned {
-                                                            value: Variable {
-                                                                name: "item",
-                                                            },
-                                                            span: Span {
-                                                                start_line: 3,
-                                                                start_col: 27,
-                                                                end_line: 3,
-                                                                end_col: 31,
-                                                            },
-                                                        },
-                                                    },
-                                                    Kwarg {
-                                                        name: "multiplier",
-                                                        value: Spanned {
-                                                            value: Variable {
-                                                                name: "multiplier",
-                                                            },
-                                                            span: Span {
-                                                                start_line: 3,
-                                                                start_col: 44,
-                                                                end_line: 3,
-                                                                end_col: 54,
+                                            call: Action(
+                                                ActionCall {
+                                                    action_name: "process_item",
+                                                    kwargs: [
+                                                        Kwarg {
+                                                            name: "item",
+                                                            value: Spanned {
+                                                                value: Variable {
+                                                                    name: "item",
+                                                                },
+                                                                span: Span {
+                                                                    start_line: 3,
+                                                                    start_col: 27,
+                                                                    end_line: 3,
+                                                                    end_col: 31,
+                                                                },
                                                             },
                                                         },
-                                                    },
-                                                ],
-                                                policies: [],
-                                                module_name: Some(
-                                                    "gather_generator",
-                                                ),
-                                            },
+                                                        Kwarg {
+                                                            name: "multiplier",
+                                                            value: Spanned {
+                                                                value: Variable {
+                                                                    name: "multiplier",
+                                                                },
+                                                                span: Span {
+                                                                    start_line: 3,
+                                                                    start_col: 44,
+                                                                    end_line: 3,
+                                                                    end_col: 54,
+                                                                },
+                                                            },
+                                                        },
+                                                    ],
+                                                    policies: [],
+                                                    module_name: Some(
+                                                        "gather_generator",
+                                                    ),
+                                                },
+                                            ),
                                         },
                                         span: Span {
                                             start_line: 2,

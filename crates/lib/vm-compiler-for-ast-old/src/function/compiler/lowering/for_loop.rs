@@ -18,9 +18,7 @@
 //! `enumerate(...)` is unwrapped during header classification to keep
 //! iteration mechanics independent of variable-binding shape.
 
-use waymark_vm_ast_old::{
-    ActionCall, Block, Expr, FunctionCall, GlobalFunction, Kwarg, Literal, Spanned,
-};
+use waymark_vm_ast_old::{Block, Expr, FunctionCall, GlobalFunction, Kwarg, Literal, Spanned};
 use waymark_vm_bytecode_core::StateId;
 use waymark_vm_instructions_pureset::BinaryOpKind;
 use waymark_vm_runtime_core::RegisterId;
@@ -34,7 +32,7 @@ use super::Unsupported;
 use super::ValueCompiler;
 use super::env::{FlowState, RegisterHandle};
 use super::r#loop::LoopControlStack;
-use super::plan::call::UnsupportedFunctionCall;
+use super::plan::call::{CallPlanFor, UnsupportedFunctionCall};
 use super::plan::r#loop::ForLoopPlan;
 use super::suspend::PromiseMarker;
 use super::{Error, LoopControlKind};
@@ -286,12 +284,12 @@ where
         }
     }
 
-    /// Compiles a spread statement as a looped series of action calls.
+    /// Compiles a spread statement as a looped series of call starts.
     pub fn compile_spread_statement(
         &mut self,
         iterable: &Spanned<Expr>,
         loop_var: &str,
-        action: &ActionCall,
+        call: CallPlanFor<'_, Spec>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         let promises_register = self.context.local_frame.allocate_register();
         self.context
@@ -300,26 +298,20 @@ where
 
         let join_registers = match ResolvedForLoop::build::<Spec, Lowering>(iterable)? {
             ResolvedForLoop::Indexed { iterable, .. } => {
-                Some(self.compile_indexed_spread(iterable, loop_var, action, promises_register)?)
+                Some(self.compile_indexed_spread(iterable, loop_var, call, promises_register)?)
             }
             ResolvedForLoop::Range {
                 range: RangeLoop::Positive { start, end },
                 ..
             } => {
-                self.compile_positive_range_spread(
-                    start,
-                    end,
-                    loop_var,
-                    action,
-                    promises_register,
-                )?;
+                self.compile_positive_range_spread(start, end, loop_var, call, promises_register)?;
                 None
             }
             ResolvedForLoop::Range {
                 range: RangeLoop::Stepped { start, end, step },
                 ..
             } => self
-                .compile_stepped_range_spread(start, end, step, loop_var, action, promises_register)
+                .compile_stepped_range_spread(start, end, step, loop_var, call, promises_register)
                 .map(|()| None)?,
         };
 
@@ -331,7 +323,7 @@ where
         &mut self,
         iterable: &Spanned<Expr>,
         loop_var: &str,
-        action: &ActionCall,
+        call: CallPlanFor<'_, Spec>,
         result_register: RegisterId,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         self.context
@@ -345,26 +337,20 @@ where
 
         let join_registers = match ResolvedForLoop::build::<Spec, Lowering>(iterable)? {
             ResolvedForLoop::Indexed { iterable, .. } => {
-                Some(self.compile_indexed_spread(iterable, loop_var, action, promises_register)?)
+                Some(self.compile_indexed_spread(iterable, loop_var, call, promises_register)?)
             }
             ResolvedForLoop::Range {
                 range: RangeLoop::Positive { start, end },
                 ..
             } => {
-                self.compile_positive_range_spread(
-                    start,
-                    end,
-                    loop_var,
-                    action,
-                    promises_register,
-                )?;
+                self.compile_positive_range_spread(start, end, loop_var, call, promises_register)?;
                 None
             }
             ResolvedForLoop::Range {
                 range: RangeLoop::Stepped { start, end, step },
                 ..
             } => self
-                .compile_stepped_range_spread(start, end, step, loop_var, action, promises_register)
+                .compile_stepped_range_spread(start, end, step, loop_var, call, promises_register)
                 .map(|()| None)?,
         };
 
@@ -452,7 +438,7 @@ where
         &mut self,
         iterable: &Spanned<Expr>,
         loop_var: &str,
-        action: &ActionCall,
+        call: CallPlanFor<'_, Spec>,
         promises_register: RegisterId,
     ) -> Result<IndexedSpreadJoinRegisters, ErrorFor<Spec, Lowering>> {
         let iterable_register = self.resolve_indexed_spread_iterable_register(iterable)?;
@@ -492,7 +478,7 @@ where
                 compiler.compile_spread_fanout_iteration(
                     loop_var,
                     item_register.register(),
-                    action,
+                    call,
                     promises_register,
                 )
             },
@@ -714,7 +700,7 @@ where
         start: Option<&Spanned<Expr>>,
         end: &Spanned<Expr>,
         loop_var: &str,
-        action: &ActionCall,
+        call: CallPlanFor<'_, Spec>,
         promises_register: RegisterId,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         let current_register = self.context.local_frame.allocate_register();
@@ -747,7 +733,7 @@ where
                 compiler.compile_spread_fanout_iteration(
                     loop_var,
                     current_register,
-                    action,
+                    call,
                     promises_register,
                 )
             },
@@ -888,7 +874,7 @@ where
         end: &Spanned<Expr>,
         step: &Spanned<Expr>,
         loop_var: &str,
-        action: &ActionCall,
+        call: CallPlanFor<'_, Spec>,
         promises_register: RegisterId,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         let current_register = self.context.local_frame.allocate_register();
@@ -918,7 +904,7 @@ where
                 compiler.compile_spread_fanout_iteration(
                     loop_var,
                     current_register,
-                    action,
+                    call,
                     promises_register,
                 )
             },
@@ -1333,15 +1319,15 @@ where
         self.context.flow_state.mark_initialized(target);
     }
 
-    /// Starts one spread action and appends the pending promise to the list.
+    /// Starts one spread call and appends the pending promise to the list.
     fn compile_spread_fanout_iteration(
         &mut self,
         loop_var: &str,
         item_register: RegisterId,
-        action: &ActionCall,
+        call: CallPlanFor<'_, Spec>,
         promises_register: RegisterId,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let promise_register = self.start_spread_action(loop_var, item_register, action)?;
+        let promise_register = self.start_spread_call(loop_var, item_register, call)?;
         self.append_list_item(promises_register, promise_register.register());
 
         Ok(())
@@ -1372,17 +1358,17 @@ where
         Ok(())
     }
 
-    /// Starts the spread action call with the current loop item bound.
-    fn start_spread_action(
+    /// Starts the spread action or function call with the current loop item bound.
+    fn start_spread_call(
         &mut self,
         loop_var: &str,
         item_register: RegisterId,
-        action: &ActionCall,
+        call: CallPlanFor<'_, Spec>,
     ) -> Result<Marked<RegisterHandle, PromiseMarker>, ErrorFor<Spec, Lowering>> {
         let mut value_compiler = self
             .value_compiler()
             .with_scoped_binding(loop_var, item_register);
-        value_compiler.compile_action_start(action, super::value::ResultTarget::Allocate)
+        value_compiler.compile_call_start(call, super::value::ResultTarget::Allocate)
     }
 
     /// Appends one item register into a list accumulator in place.
