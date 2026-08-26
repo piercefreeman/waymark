@@ -4742,6 +4742,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-scheduler-backend"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "nonempty-collections",
+]
+
+[[package]]
 name = "waymark-scheduler-core"
 version = "0.1.0"
 dependencies = [
@@ -6010,6 +6018,13 @@ dependencies = [
  "waymark-vm-compiler-metadata",
  "waymark-vm-runtime",
  "waymark-vm-value",
+]
+
+[[package]]
+name = "waymark-workflow-service-scheduler-backend"
+version = "0.1.0"
+dependencies = [
+ "waymark-scheduler-core",
 ]
 
 [[package]]
