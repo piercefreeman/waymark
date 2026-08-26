@@ -12,6 +12,8 @@ waymark-backends-core = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-metrics-util = { workspace = true }
 waymark-observability = { workspace = true }
+waymark-scheduler-backend = { workspace = true }
+waymark-scheduler-core = { workspace = true }
 waymark-secret-string = { workspace = true }
 waymark-sleep-reconciler-backend = { workspace = true }
 waymark-state-vm-executables-backend = { workspace = true }
@@ -23,6 +25,7 @@ waymark-webapp-backend = { workspace = true }
 waymark-webapp-core = { workspace = true }
 waymark-worker-status-backend = { workspace = true }
 waymark-workflow-completion-backend = { workspace = true }
+waymark-workflow-service-scheduler-backend = { workspace = true }
 waymark-workflow-service-vm-executables-backend = { workspace = true }
 waymark-workflow-service-vm-runtimes-backend = { workspace = true }
 waymark-workload-pinning-backend = { workspace = true }

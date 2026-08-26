@@ -14,6 +14,24 @@ pub(super) async fn setup_backend() -> PostgresBackend {
 /// Snapshot bytes written by [`register_test_vm`].
 pub(super) const TEST_VM_SNAPSHOT: &[u8] = b"test-snapshot";
 
+/// Store a compiled-executable row through the production
+/// [`waymark_workflow_service_vm_executables_backend::UpsertExecutable`]
+/// path and return its id, so schedule tests get a real row behind the
+/// executable foreign key.
+pub(super) async fn upsert_test_executable(
+    backend: &PostgresBackend,
+    workflow_name: &str,
+) -> WorkflowVersionId {
+    waymark_workflow_service_vm_executables_backend::UpsertExecutable::upsert_executable(
+        backend,
+        workflow_name,
+        "test-version",
+        b"test-bytecode",
+    )
+    .await
+    .expect("upsert test executable")
+}
+
 /// Register a VM runtime (its snapshot and runnable-workload rows) through the
 /// production [`RegisterVmRuntimes`] path and return its identifiers, so tests
 /// share exactly the registration behavior they exercise.
