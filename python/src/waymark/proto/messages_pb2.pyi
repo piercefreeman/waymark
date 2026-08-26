@@ -901,7 +901,9 @@ class RegisterWorkflowBatchRequest(google.protobuf.message.Message):
     count: builtins.int
     """Total number of instances to create when inputs_list is empty."""
     batch_size: builtins.int
-    """Batch size for database inserts."""
+    """Batch size for database inserts, clamped to a server-side maximum;
+    0 means the server default.
+    """
     include_instance_ids: builtins.bool
     """Whether to return instance IDs in the response."""
     @property
