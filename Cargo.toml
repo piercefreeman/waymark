@@ -47,6 +47,7 @@ waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-b
 waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settlement-demand-registry" }
 waymark-proto = { path = "crates/lib/proto" }
 waymark-python-workflow-ir-reader = { path = "crates/lib/python-workflow-ir-reader" }
+waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-sleep-compat = { path = "crates/lib/sleep-compat" }
 waymark-sleep-core = { path = "crates/lib/sleep-core" }
@@ -157,6 +158,7 @@ chrono = { version = "0.4", default-features = false }
 clap = "4.5"
 color-eyre = "0.6"
 console-subscriber = "0.5"
+cron = "0.12"
 dashmap = "6"
 derive-where = "1"
 either = "1"
