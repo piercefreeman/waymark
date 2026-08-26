@@ -4742,6 +4742,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-scheduler"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "nonempty-collections",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "waymark-nonzero-duration",
+ "waymark-scheduler-backend",
+ "waymark-scheduler-core",
+ "waymark-vm-codec-core",
+ "waymark-vm-codec-rmp",
+]
+
+[[package]]
 name = "waymark-scheduler-backend"
 version = "0.1.0"
 dependencies = [
