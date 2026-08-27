@@ -78,6 +78,10 @@ results = await asyncio.gather(
 )
 ```
 
+The comprehension element can be an `@action` call or a workflow helper
+method - `*[self.process(item) for item in items]` fans out one helper
+call per item, and each helper can await actions internally.
+
 Empty spreads are handled correctly - a `gather` over an empty list
 produces an empty result without dispatching any action invocations.
 

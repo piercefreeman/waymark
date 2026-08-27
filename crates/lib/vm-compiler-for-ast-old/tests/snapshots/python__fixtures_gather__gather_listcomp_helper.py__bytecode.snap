@@ -1,0 +1,59 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_gather/gather_listcomp_helper.py
+---
+fn main(input: [items], output: []):
+    results = spread items:item -> helper(item)
+    return results
+
+fn helper(input: [value], output: []):
+    _return_tmp = @gather_listcomp_helper.increment(value=value)
+    return _return_tmp
+---
+f0: [8 registers]
+  s0:
+    PureSet(MakeList { dst: r2, items: [] })
+    PureSet(MakeList { dst: r3, items: [] })
+    PureSet(LoadConst { dst: r4, value: Int(0) })
+    PureSet(Length { dst: r5, src: r0 })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r4, b: r5 } })
+    CoreSet(JumpIf { target_state: s2, cond: r6 })
+    CoreSet(Jump { target_state: s4 })
+  s2:
+    PureSet(Index { dst: r6, object: r0, index: r4 })
+    CoreSet(Call { dst: r7, function_id: f1, args: [r6] })
+    PureSet(ListAppend { dst: r3, list: r3, item: r7 })
+    CoreSet(Jump { target_state: s3 })
+  s3:
+    PureSet(LoadConst { dst: r6, value: Int(1) })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r4, a: r4, b: r6 } })
+    CoreSet(Jump { target_state: s1 })
+  s4:
+    PureSet(LoadConst { dst: r4, value: Int(0) })
+    CoreSet(Jump { target_state: s5 })
+  s5:
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r4, b: r5 } })
+    CoreSet(JumpIf { target_state: s6, cond: r6 })
+    CoreSet(Jump { target_state: s8 })
+  s6:
+    PureSet(Index { dst: r6, object: r3, index: r4 })
+    CoreSet(Await { dst: r6, src: r6, resume: s9 })
+  s7:
+    PureSet(LoadConst { dst: r6, value: Int(1) })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r4, a: r4, b: r6 } })
+    CoreSet(Jump { target_state: s5 })
+  s8:
+    PureSet(Copy { dst: r1, src: r2 })
+    CoreSet(Return { src: r1 })
+  s9:
+    PureSet(ListAppend { dst: r2, list: r2, item: r6 })
+    CoreSet(Jump { target_state: s7 })
+f1: [2 registers]
+  s0:
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("increment"), args: [r0], resume: s1 })
+  s1:
+    CoreSet(Await { dst: r1, src: r1, resume: s2 })
+  s2:
+    CoreSet(Return { src: r1 })

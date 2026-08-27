@@ -155,15 +155,6 @@ where
         self.compile_call(self.plan_action_call(call)?, target)
     }
 
-    /// Starts an action call and returns the promise register that holds it.
-    pub fn compile_action_start(
-        &mut self,
-        call: &ActionCall,
-        target: ResultTarget,
-    ) -> Result<Marked<RegisterHandle, PromiseMarker>, ErrorFor<Spec, Lowering>> {
-        self.compile_call_start(self.plan_action_call(call)?, target)
-    }
-
     /// Compiles an action call used as a statement.
     pub fn compile_action_statement(
         &mut self,

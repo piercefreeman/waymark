@@ -3260,7 +3260,7 @@ class IRBuilder(ast.NodeVisitor):
     def _build_spread_expr_from_parts(
         self, collection_node: ast.expr, loop_var: str, element_node: ast.expr
     ) -> ir.SpreadExpr:
-        """Build a SpreadExpr from AST collection + action-call element nodes."""
+        """Build a SpreadExpr from AST collection + call element nodes."""
         collection_expr = self._expr_to_ir_with_model_coercion(collection_node)
         if not collection_expr:
             line = collection_node.lineno if hasattr(collection_node, "lineno") else None
@@ -3272,28 +3272,29 @@ class IRBuilder(ast.NodeVisitor):
                 col=col,
             )
 
-        action_call = self._extract_spread_action_call(element_node)
+        call = self._extract_spread_call(element_node)
 
         spread = ir.SpreadExpr()
         spread.collection.CopyFrom(collection_expr)
         spread.loop_var = loop_var
-        spread.action.CopyFrom(action_call)
+        spread.call.CopyFrom(call)
         return spread
 
-    def _extract_spread_action_call(self, element_node: ast.expr) -> ir.ActionCall:
-        """Extract the action call payload from a spread element AST node."""
+    def _extract_spread_call(self, element_node: ast.expr) -> ir.Call:
+        """Extract the action or function call payload from a spread element AST node."""
         if not isinstance(element_node, ast.Call):
             line = element_node.lineno if hasattr(element_node, "lineno") else None
             col = element_node.col_offset if hasattr(element_node, "col_offset") else None
             raise UnsupportedPatternError(
-                "Spread pattern requires an action call in the list comprehension",
-                "Use: [action(x=item) for item in items]",
+                "Spread pattern requires a call in the list comprehension",
+                "Use: [action(x=item) for item in items] or [self.helper(item) for item in items]",
                 line=line,
                 col=col,
             )
 
         action_call: Optional[ir.ActionCall] = None
-        if self._is_run_action_call(element_node):
+        is_run_action = self._is_run_action_call(element_node)
+        if is_run_action:
             if element_node.args:
                 inner_call = element_node.args[0]
                 if isinstance(inner_call, ast.Call):
@@ -3304,13 +3305,23 @@ class IRBuilder(ast.NodeVisitor):
             action_call = self._extract_action_call_from_call(element_node)
 
         if action_call is not None:
-            return action_call
+            call = ir.Call()
+            call.action.CopyFrom(action_call)
+            return call
+
+        if not is_run_action:
+            func_call = self._convert_to_function_call(element_node)
+            if func_call is not None:
+                call = ir.Call()
+                call.function.CopyFrom(func_call)
+                return call
 
         line = element_node.lineno if hasattr(element_node, "lineno") else None
         col = element_node.col_offset if hasattr(element_node, "col_offset") else None
         raise UnsupportedPatternError(
-            "Spread pattern element must be an @action call",
-            "Ensure the function is decorated with @action, or use self.run_action(action(...), ...)",
+            "Spread pattern element must be an @action call or a workflow function call",
+            "Ensure the function is decorated with @action or defined on the workflow, "
+            "or use self.run_action(action(...), ...)",
             line=line,
             col=col,
         )

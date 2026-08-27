@@ -114,7 +114,7 @@ pub enum Expr {
     SpreadExpr {
         collection: Box<Spanned<Expr>>,
         loop_var: String,
-        action: ActionCall,
+        call: Call,
     },
 }
 

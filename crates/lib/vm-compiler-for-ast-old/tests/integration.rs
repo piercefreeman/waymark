@@ -788,7 +788,10 @@ fn compiles_spread_expressions_to_completion() {
                 spread_expr(
                     variable("items"),
                     "item",
-                    action_call("double", vec![("value", variable("item"))]),
+                    waymark_vm_ast_old::Call::Action(action_call(
+                        "double",
+                        vec![("value", variable("item"))],
+                    )),
                 ),
             ),
             return_stmt(Some(variable("results"))),

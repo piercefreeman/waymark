@@ -1,9 +1,10 @@
 //! Assignment planning.
 
 use nonempty_collections::NESlice;
-use waymark_vm_ast_old::{ActionCall, Expr, FunctionCall, GlobalFunction, Spanned};
+use waymark_vm_ast_old::{Expr, FunctionCall, GlobalFunction, Spanned};
 
 use super::ErrorFor;
+use super::call::{CallPlan, CallPlanFor};
 use super::parallel::ParallelAssignmentPlan;
 
 use crate::Marked;
@@ -25,7 +26,7 @@ where
         value: &'a Spanned<Expr>,
     },
 
-    /// A spread expression assignment lowered through looped action fan-out.
+    /// A spread expression assignment lowered through looped call fan-out.
     Spread {
         /// Assignment target that will receive the collected list.
         target: Marked<LocalSlot, AssignmentTargetMarker>,
@@ -36,8 +37,8 @@ where
         /// Loop variable bound for each spread item.
         loop_var: &'a str,
 
-        /// Action invoked per collection item.
-        action: &'a ActionCall,
+        /// Planned action or function call started per collection item.
+        call: CallPlanFor<'a, Spec>,
     },
 
     /// A spread expression evaluated only for its side effects.
@@ -48,8 +49,8 @@ where
         /// Loop variable bound for each spread item.
         loop_var: &'a str,
 
-        /// Action invoked per collection item.
-        action: &'a ActionCall,
+        /// Planned action or function call started per collection item.
+        call: CallPlanFor<'a, Spec>,
     },
 
     /// An assignment sourced from a parallel expression.
@@ -96,13 +97,13 @@ where
             if let Expr::SpreadExpr {
                 collection,
                 loop_var,
-                action,
+                call,
             } = &value.value
             {
                 return Ok(Self::SpreadDiscard {
                     collection,
                     loop_var,
-                    action,
+                    call: CallPlan::build::<Spec, Lowering, _>(call, function_table)?,
                 });
             }
 
@@ -123,7 +124,7 @@ where
         if let Expr::SpreadExpr {
             collection,
             loop_var,
-            action,
+            call,
         } = &value.value
         {
             if targets.len().get() != 1 {
@@ -133,11 +134,12 @@ where
                 .into());
             }
 
+            let call = CallPlan::build::<Spec, Lowering, _>(call, function_table)?;
             return Ok(Self::Spread {
                 target: resolve_target(&targets[0]),
                 collection,
                 loop_var,
-                action,
+                call,
             });
         }
 
@@ -173,7 +175,9 @@ mod tests {
 
     use nonempty_collections::{IntoNonEmptyIterator as _, NonEmptyIterator as _};
     use waymark_vm_ast_old::Expr;
-    use waymark_vm_ast_old_helpers::{action_call, int, parallel_expr, spread_expr, variable};
+    use waymark_vm_ast_old_helpers::{
+        action_call, function_call, int, parallel_expr, spread_expr, variable,
+    };
     use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
     use waymark_vm_runtime_core::RegisterId;
 
@@ -391,7 +395,10 @@ mod tests {
         let value = spread_expr(
             variable("items"),
             "item",
-            action_call("double", vec![("value", variable("item"))]),
+            waymark_vm_ast_old::Call::Action(action_call(
+                "double",
+                vec![("value", variable("item"))],
+            )),
         );
 
         let plan = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(
@@ -406,11 +413,15 @@ mod tests {
             AssignmentStatementPlan::SpreadDiscard {
                 collection,
                 loop_var,
-                action,
+                call,
             } => {
                 assert!(matches!(collection.value, Expr::Variable { ref name } if name == "items"));
                 assert_eq!(loop_var, "item");
-                assert_eq!(action.action_name, "double");
+                let CallPlan::Action(action_plan) = call else {
+                    panic!("action spreads should plan action calls");
+                };
+                let (_, _, action_name, _) = action_plan.into_parts();
+                assert_eq!(action_name, "double");
             }
             AssignmentStatementPlan::Direct { .. } => {
                 panic!("discard spread should not build a direct plan")
@@ -439,7 +450,10 @@ mod tests {
         let value = spread_expr(
             variable("items"),
             "item",
-            action_call("double", vec![("value", variable("item"))]),
+            waymark_vm_ast_old::Call::Action(action_call(
+                "double",
+                vec![("value", variable("item"))],
+            )),
         );
 
         let plan = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(
@@ -461,12 +475,16 @@ mod tests {
                 target,
                 collection,
                 loop_var,
-                action,
+                call,
             } => {
                 assert_eq!(target.register(), RegisterId(0));
                 assert!(matches!(collection.value, Expr::Variable { ref name } if name == "items"));
                 assert_eq!(loop_var, "item");
-                assert_eq!(action.action_name, "double");
+                let CallPlan::Action(action_plan) = call else {
+                    panic!("action spreads should plan action calls");
+                };
+                let (_, _, action_name, _) = action_plan.into_parts();
+                assert_eq!(action_name, "double");
             }
             AssignmentStatementPlan::Direct { .. } => {
                 panic!("spread expressions should build spread plans")
@@ -484,6 +502,63 @@ mod tests {
                 panic!("targeted spread expressions should not build range-values plans")
             }
         }
+    }
+
+    #[test]
+    fn spread_assignment_plans_function_calls() {
+        let function_table = build_function_table();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let targets = vec!["results".to_owned()];
+        let value = spread_expr(
+            variable("items"),
+            "item",
+            waymark_vm_ast_old::Call::Function(function_call("child", vec![variable("item")])),
+        );
+
+        let plan = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(
+            &targets,
+            &value,
+            &function_table,
+            |target| {
+                Marked::<LocalSlot, AssignmentTargetMarker>::get_or_declare(
+                    &mut local_frame,
+                    &mut flow_state,
+                    target,
+                )
+            },
+        )
+        .expect("function spread assignment should build");
+
+        match plan {
+            AssignmentStatementPlan::Spread { call, .. } => {
+                let CallPlan::Function(function_plan) = call else {
+                    panic!("function spreads should plan function calls");
+                };
+                assert_eq!(function_plan.args().len(), 1);
+            }
+            other => panic!("function spreads should build spread plans, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn spread_assignment_rejects_unknown_function_calls() {
+        let function_table = build_function_table();
+        let value = spread_expr(
+            variable("items"),
+            "item",
+            waymark_vm_ast_old::Call::Function(function_call("missing", vec![variable("item")])),
+        );
+
+        let error = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(
+            &["results".to_owned()],
+            &value,
+            &function_table,
+            |_| panic!("unknown-function spreads should fail before resolution"),
+        )
+        .expect_err("unknown-function spreads should fail");
+
+        assert!(matches!(error, Error::UnknownFunction { name } if name == "missing"));
     }
 
     #[test]
@@ -559,7 +634,10 @@ mod tests {
         let value = spread_expr(
             variable("items"),
             "item",
-            action_call("double", vec![("value", variable("item"))]),
+            waymark_vm_ast_old::Call::Action(action_call(
+                "double",
+                vec![("value", variable("item"))],
+            )),
         );
         let error = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(
             &["left".to_owned(), "right".to_owned()],

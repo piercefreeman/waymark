@@ -1,6 +1,6 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: ast for python/tests/fixtures_gather/gather_run_action_spread.py
+expression: ast for python/tests/fixtures_gather/gather_listcomp_helper.py
 ---
 Program {
     functions: [
@@ -36,113 +36,47 @@ Program {
                                                     name: "items",
                                                 },
                                                 span: Span {
-                                                    start_line: 10,
-                                                    start_col: 24,
-                                                    end_line: 10,
-                                                    end_col: 29,
+                                                    start_line: 3,
+                                                    start_col: 40,
+                                                    end_line: 3,
+                                                    end_col: 45,
                                                 },
                                             },
                                             loop_var: "item",
-                                            call: Action(
-                                                ActionCall {
-                                                    action_name: "process_item",
-                                                    kwargs: [
-                                                        Kwarg {
-                                                            name: "item",
-                                                            value: Spanned {
-                                                                value: Variable {
-                                                                    name: "item",
-                                                                },
-                                                                span: Span {
-                                                                    start_line: 6,
-                                                                    start_col: 34,
-                                                                    end_line: 6,
-                                                                    end_col: 38,
-                                                                },
+                                            call: Function(
+                                                FunctionCall {
+                                                    name: "helper",
+                                                    args: [
+                                                        Spanned {
+                                                            value: Variable {
+                                                                name: "item",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 3,
+                                                                start_col: 22,
+                                                                end_line: 3,
+                                                                end_col: 26,
                                                             },
                                                         },
                                                     ],
-                                                    policies: [
-                                                        Retry(
-                                                            RetryPolicy {
-                                                                exception_types: [],
-                                                                max_retries: 2,
-                                                                backoff: None,
-                                                            },
-                                                        ),
-                                                        Timeout(
-                                                            TimeoutPolicy {
-                                                                timeout: DurationLiteral {
-                                                                    seconds: 30,
-                                                                },
-                                                            },
-                                                        ),
-                                                    ],
-                                                    module_name: Some(
-                                                        "gather_run_action_spread",
-                                                    ),
+                                                    kwargs: [],
+                                                    global_function: None,
                                                 },
                                             ),
                                         },
                                         span: Span {
-                                            start_line: 3,
+                                            start_line: 2,
                                             start_col: 4,
-                                            end_line: 13,
+                                            end_line: 5,
                                             end_col: 5,
                                         },
                                     },
                                 },
                                 span: Span {
-                                    start_line: 3,
+                                    start_line: 2,
                                     start_col: 4,
-                                    end_line: 13,
+                                    end_line: 5,
                                     end_col: 5,
-                                },
-                            },
-                            Spanned {
-                                value: Assignment {
-                                    targets: [
-                                        "_return_tmp",
-                                    ],
-                                    value: Spanned {
-                                        value: ActionCall {
-                                            call: ActionCall {
-                                                action_name: "combine_results",
-                                                kwargs: [
-                                                    Kwarg {
-                                                        name: "results",
-                                                        value: Spanned {
-                                                            value: Variable {
-                                                                name: "results",
-                                                            },
-                                                            span: Span {
-                                                                start_line: 14,
-                                                                start_col: 41,
-                                                                end_line: 14,
-                                                                end_col: 48,
-                                                            },
-                                                        },
-                                                    },
-                                                ],
-                                                policies: [],
-                                                module_name: Some(
-                                                    "gather_run_action_spread",
-                                                ),
-                                            },
-                                        },
-                                        span: Span {
-                                            start_line: 14,
-                                            start_col: 4,
-                                            end_line: 14,
-                                            end_col: 49,
-                                        },
-                                    },
-                                },
-                                span: Span {
-                                    start_line: 14,
-                                    start_col: 4,
-                                    end_line: 14,
-                                    end_col: 49,
                                 },
                             },
                             Spanned {
@@ -150,22 +84,22 @@ Program {
                                     value: Some(
                                         Spanned {
                                             value: Variable {
-                                                name: "_return_tmp",
+                                                name: "results",
                                             },
                                             span: Span {
-                                                start_line: 14,
-                                                start_col: 4,
-                                                end_line: 14,
-                                                end_col: 49,
+                                                start_line: 6,
+                                                start_col: 11,
+                                                end_line: 6,
+                                                end_col: 18,
                                             },
                                         },
                                     ),
                                 },
                                 span: Span {
-                                    start_line: 14,
+                                    start_line: 6,
                                     start_col: 4,
-                                    end_line: 14,
-                                    end_col: 49,
+                                    end_line: 6,
+                                    end_col: 18,
                                 },
                             },
                         ],
@@ -181,8 +115,114 @@ Program {
             span: Span {
                 start_line: 1,
                 start_col: 0,
-                end_line: 14,
-                end_col: 49,
+                end_line: 6,
+                end_col: 18,
+            },
+        },
+        Spanned {
+            value: FunctionDef {
+                name: "helper",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [
+                            "value",
+                        ],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "_return_tmp",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "increment",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "value",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "value",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 2,
+                                                                start_col: 33,
+                                                                end_line: 2,
+                                                                end_col: 38,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "gather_listcomp_helper",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 2,
+                                            end_col: 39,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 39,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "_return_tmp",
+                                            },
+                                            span: Span {
+                                                start_line: 2,
+                                                start_col: 4,
+                                                end_line: 2,
+                                                end_col: 39,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 39,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 2,
+                end_col: 39,
             },
         },
     ],
