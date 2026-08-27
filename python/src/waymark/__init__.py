@@ -18,7 +18,10 @@ from .exceptions import (
 from .ir_builder import UnsupportedPatternError, build_workflow_ir
 from .registry import registry
 from .schedule import (
+    Absolute,
     ScheduleInfo,
+    ScheduleName,
+    WorkflowScoped,
     delete_schedule,
     list_schedules,
     pause_schedule,
@@ -59,4 +62,7 @@ __all__ = [
     "delete_schedule",
     "list_schedules",
     "ScheduleInfo",
+    "ScheduleName",
+    "WorkflowScoped",
+    "Absolute",
 ]

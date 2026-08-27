@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from waymark import (
+    WorkflowScoped,
     bridge,
     delete_schedule,
     pause_schedule,
@@ -654,7 +655,7 @@ async def pause_workflow_schedule(
         )
 
     try:
-        result = await pause_schedule(workflow_cls)
+        result = await pause_schedule(WorkflowScoped(workflow_cls, payload.workflow_name))
         if result:
             return ScheduleActionResponse(
                 success=True,
@@ -681,7 +682,7 @@ async def resume_workflow_schedule(
         )
 
     try:
-        result = await resume_schedule(workflow_cls)
+        result = await resume_schedule(WorkflowScoped(workflow_cls, payload.workflow_name))
         if result:
             return ScheduleActionResponse(
                 success=True,
@@ -708,7 +709,7 @@ async def delete_workflow_schedule(
         )
 
     try:
-        result = await delete_schedule(workflow_cls)
+        result = await delete_schedule(WorkflowScoped(workflow_cls, payload.workflow_name))
         if result:
             return ScheduleActionResponse(
                 success=True,
