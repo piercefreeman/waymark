@@ -147,6 +147,7 @@ waymark-workflow-completion-convert-proto = { path = "crates/lib/workflow-comple
 waymark-workflow-completion-core = { path = "crates/lib/workflow-completion-core" }
 waymark-workflow-completion-direct = { path = "crates/lib/workflow-completion-direct" }
 waymark-workflow-initialization-convert-proto = { path = "crates/lib/workflow-initialization-convert-proto" }
+waymark-workflow-service-scheduler = { path = "crates/lib/workflow-service-scheduler" }
 waymark-workflow-service-scheduler-backend = { path = "crates/lib/workflow-service-scheduler-backend" }
 waymark-workflow-service-vm-executables = { path = "crates/lib/workflow-service-vm-executables" }
 waymark-workflow-service-vm-executables-backend = { path = "crates/lib/workflow-service-vm-executables-backend" }
