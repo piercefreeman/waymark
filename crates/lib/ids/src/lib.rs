@@ -136,8 +136,7 @@ uuid_types![
     LockId,
     DispatchToken,
     ExecutionId,
-    WorkflowVersionId,
-    ScheduleId
+    WorkflowVersionId
 ];
 
 #[deprecated = "use InstanceId instead"]
@@ -197,4 +196,3 @@ impl_encode_decode_for_id!(LockId);
 impl_encode_decode_for_id!(DispatchToken);
 impl_encode_decode_for_id!(ExecutionId);
 impl_encode_decode_for_id!(WorkflowVersionId);
-impl_encode_decode_for_id!(ScheduleId);
