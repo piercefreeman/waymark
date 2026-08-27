@@ -16,6 +16,7 @@ pub async fn truncate_all(pool: &PgPool) -> BackendResult<()> {
         r#"
         TRUNCATE action_call_completions,
                  action_call_requests,
+                 schedules,
                  sleep_requests,
                  vm_executables,
                  vm_execution_results,
@@ -42,6 +43,7 @@ pub async fn rebuild_schema(pool: &PgPool) -> BackendResult<()> {
         DROP TABLE IF EXISTS
             worker_status,
             workflow_schedules,
+            schedules,
             queued_instances,
             runner_instances,
             runner_actions_done,

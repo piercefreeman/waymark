@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from waymark import (
+    WorkflowScoped,
     bridge,
     delete_schedule,
     pause_schedule,
@@ -438,7 +439,7 @@ class ScheduleRequest(BaseModel):
 
 class ScheduleResponse(BaseModel):
     success: bool
-    schedule_id: Optional[str] = None
+    schedule_name: Optional[str] = None
     message: str
 
 
@@ -531,7 +532,7 @@ async def register_schedule(payload: ScheduleRequest) -> ScheduleResponse:
                 )
             schedule = timedelta(seconds=payload.interval_seconds)
 
-        schedule_id = await schedule_workflow(
+        schedule_name = await schedule_workflow(
             workflow_cls,
             schedule_name=payload.workflow_name,
             schedule=schedule,
@@ -539,7 +540,7 @@ async def register_schedule(payload: ScheduleRequest) -> ScheduleResponse:
         )
         return ScheduleResponse(
             success=True,
-            schedule_id=schedule_id,
+            schedule_name=schedule_name,
             message=f"Schedule registered for {payload.workflow_name}",
         )
     except Exception as e:
@@ -654,7 +655,7 @@ async def pause_workflow_schedule(
         )
 
     try:
-        result = await pause_schedule(workflow_cls)
+        result = await pause_schedule(WorkflowScoped(workflow_cls, payload.workflow_name))
         if result:
             return ScheduleActionResponse(
                 success=True,
@@ -681,7 +682,7 @@ async def resume_workflow_schedule(
         )
 
     try:
-        result = await resume_schedule(workflow_cls)
+        result = await resume_schedule(WorkflowScoped(workflow_cls, payload.workflow_name))
         if result:
             return ScheduleActionResponse(
                 success=True,
@@ -708,7 +709,7 @@ async def delete_workflow_schedule(
         )
 
     try:
-        result = await delete_schedule(workflow_cls)
+        result = await delete_schedule(WorkflowScoped(workflow_cls, payload.workflow_name))
         if result:
             return ScheduleActionResponse(
                 success=True,

@@ -4,6 +4,7 @@ mod action_call_completions;
 mod action_call_requests;
 mod macros;
 pub mod reset;
+mod scheduler;
 mod sleep_requests;
 mod state_vm_executables;
 #[cfg(test)]
@@ -12,6 +13,7 @@ mod vm_runtimes;
 mod webapp;
 mod worker_status;
 mod workflow_completion;
+mod workflow_service_scheduler;
 mod workflow_service_vm_executables;
 mod workflow_service_vm_runtimes;
 mod workload_pinning;

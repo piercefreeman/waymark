@@ -1,7 +1,11 @@
+import asyncio
 import os
+import time
 
 import pytest
 from fastapi.testclient import TestClient
+from waymark import list_schedules
+from waymark.bridge import wait_for_instance
 
 from example_app.web import app
 
@@ -207,3 +211,49 @@ def test_timeout_probe_workflow_eventual_failure(
     assert payload["final_attempt"] == 2
     assert payload["timeout_seconds"] == 1
     assert payload["max_attempts"] == 2
+
+
+def _wait_for_spawned_instance(schedule_name: str, timeout_seconds: float) -> str:
+    """Poll the schedule listing until it reports a spawned instance."""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        schedules = asyncio.run(list_schedules())
+        for schedule in schedules:
+            if (
+                schedule.schedule_name == schedule_name
+                and schedule.last_instance_id is not None
+            ):
+                return schedule.last_instance_id
+        time.sleep(0.5)
+    raise AssertionError("the schedule never spawned an instance")
+
+
+def test_schedule_fires_and_completes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An interval schedule spawns a run that executes to completion."""
+    _require_real_cluster()
+    _enable_real_cluster(monkeypatch)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/schedule",
+        json={
+            "workflow_name": "NoOpWorkflow",
+            "schedule_type": "interval",
+            "interval_seconds": 10,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True, payload
+    schedule_name = payload["schedule_name"]
+
+    try:
+        instance_id = _wait_for_spawned_instance(schedule_name, timeout_seconds=60.0)
+        payload = asyncio.run(wait_for_instance(instance_id))
+        assert payload is not None, "the spawned instance never completed"
+    finally:
+        response = client.post(
+            "/api/schedule/delete", json={"workflow_name": "NoOpWorkflow"}
+        )
+        assert response.status_code == 200
+        assert response.json()["success"] is True

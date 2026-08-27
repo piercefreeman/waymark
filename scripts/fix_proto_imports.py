@@ -48,27 +48,39 @@ def _rewrite_messages_pb2_imports(proto_dir: Path) -> None:
             stub_target.write_text(stub_text.replace(stub_needle, stub_replacement))
 
 
-STRUCT_IMPORT_LINE = "from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2"
-REGISTER_LINE = "_sym_db.RegisterFileDescriptor(google_dot_protobuf_dot_struct__pb2.DESCRIPTOR)"
+# The well-known google.protobuf files messages.proto imports. The
+# generated module's descriptor depends on them but protoc emits no
+# imports for them here, so they are injected: imported, and registered
+# with the default pool before the serialized file is added.
+WELL_KNOWN_DEPENDENCIES = ["empty", "struct", "timestamp"]
 
 
-def _ensure_struct_import(pb2_text: str) -> str:
-    without_existing = pb2_text.replace(f"\n{STRUCT_IMPORT_LINE}\n", "\n")
+def _import_line(name: str) -> str:
+    return f"from google.protobuf import {name}_pb2 as google_dot_protobuf_dot_{name}__pb2"
+
+
+def _register_line(name: str) -> str:
+    return f"_sym_db.RegisterFileDescriptor(google_dot_protobuf_dot_{name}__pb2.DESCRIPTOR)"
+
+
+def _ensure_well_known_imports(pb2_text: str) -> str:
+    for name in WELL_KNOWN_DEPENDENCIES:
+        pb2_text = pb2_text.replace(f"\n{_import_line(name)}\n", "\n")
     marker = "# @@protoc_insertion_point(imports)\n\n"
-    replacement = f"{marker}{STRUCT_IMPORT_LINE}\n\n"
-    if marker not in without_existing:
-        return without_existing
-    return without_existing.replace(marker, replacement, 1)
+    if marker not in pb2_text:
+        return pb2_text
+    block = "".join(f"{_import_line(name)}\n" for name in WELL_KNOWN_DEPENDENCIES)
+    return pb2_text.replace(marker, f"{marker}{block}\n", 1)
 
 
-def _ensure_struct_registration(pb2_text: str) -> str:
-    needle = f"\n{REGISTER_LINE}\n"
-    without_existing = pb2_text.replace(needle, "\n")
+def _ensure_well_known_registrations(pb2_text: str) -> str:
+    for name in WELL_KNOWN_DEPENDENCIES:
+        pb2_text = pb2_text.replace(f"\n{_register_line(name)}\n", "\n")
     sym_decl = "_sym_db = _symbol_database.Default()\n"
-    if sym_decl not in without_existing:
-        return without_existing
-    replacement = f"{sym_decl}{REGISTER_LINE}\n"
-    return without_existing.replace(sym_decl, replacement, 1)
+    if sym_decl not in pb2_text:
+        return pb2_text
+    block = "".join(f"{_register_line(name)}\n" for name in WELL_KNOWN_DEPENDENCIES)
+    return pb2_text.replace(sym_decl, f"{sym_decl}{block}", 1)
 
 
 def _rewrite_messages_pb2(proto_dir: Path) -> None:
@@ -76,8 +88,8 @@ def _rewrite_messages_pb2(proto_dir: Path) -> None:
     if not target.exists():
         return
     text = target.read_text()
-    text = _ensure_struct_import(text)
-    text = _ensure_struct_registration(text)
+    text = _ensure_well_known_imports(text)
+    text = _ensure_well_known_registrations(text)
     target.write_text(text)
 
 

@@ -8,6 +8,7 @@ import collections.abc
 import sys
 import typing
 
+import google.protobuf.empty_pb2
 import grpc
 import grpc.aio
 
@@ -190,15 +191,15 @@ _WorkflowServiceUpdateScheduleStatusType = typing_extensions.TypeVar(
     "_WorkflowServiceUpdateScheduleStatusType",
     grpc.UnaryUnaryMultiCallable[
         messages_pb2.UpdateScheduleStatusRequest,
-        messages_pb2.UpdateScheduleStatusResponse,
+        google.protobuf.empty_pb2.Empty,
     ],
     grpc.aio.UnaryUnaryMultiCallable[
         messages_pb2.UpdateScheduleStatusRequest,
-        messages_pb2.UpdateScheduleStatusResponse,
+        google.protobuf.empty_pb2.Empty,
     ],
     default=grpc.UnaryUnaryMultiCallable[
         messages_pb2.UpdateScheduleStatusRequest,
-        messages_pb2.UpdateScheduleStatusResponse,
+        google.protobuf.empty_pb2.Empty,
     ],
 )
 
@@ -206,15 +207,15 @@ _WorkflowServiceDeleteScheduleType = typing_extensions.TypeVar(
     "_WorkflowServiceDeleteScheduleType",
     grpc.UnaryUnaryMultiCallable[
         messages_pb2.DeleteScheduleRequest,
-        messages_pb2.DeleteScheduleResponse,
+        google.protobuf.empty_pb2.Empty,
     ],
     grpc.aio.UnaryUnaryMultiCallable[
         messages_pb2.DeleteScheduleRequest,
-        messages_pb2.DeleteScheduleResponse,
+        google.protobuf.empty_pb2.Empty,
     ],
     default=grpc.UnaryUnaryMultiCallable[
         messages_pb2.DeleteScheduleRequest,
-        messages_pb2.DeleteScheduleResponse,
+        google.protobuf.empty_pb2.Empty,
     ],
 )
 
@@ -273,11 +274,11 @@ class WorkflowServiceStub(
             ],
             grpc.UnaryUnaryMultiCallable[
                 messages_pb2.UpdateScheduleStatusRequest,
-                messages_pb2.UpdateScheduleStatusResponse,
+                google.protobuf.empty_pb2.Empty,
             ],
             grpc.UnaryUnaryMultiCallable[
                 messages_pb2.DeleteScheduleRequest,
-                messages_pb2.DeleteScheduleResponse,
+                google.protobuf.empty_pb2.Empty,
             ],
             grpc.UnaryUnaryMultiCallable[
                 messages_pb2.ListSchedulesRequest,
@@ -311,11 +312,11 @@ class WorkflowServiceStub(
             ],
             grpc.aio.UnaryUnaryMultiCallable[
                 messages_pb2.UpdateScheduleStatusRequest,
-                messages_pb2.UpdateScheduleStatusResponse,
+                google.protobuf.empty_pb2.Empty,
             ],
             grpc.aio.UnaryUnaryMultiCallable[
                 messages_pb2.DeleteScheduleRequest,
-                messages_pb2.DeleteScheduleResponse,
+                google.protobuf.empty_pb2.Empty,
             ],
             grpc.aio.UnaryUnaryMultiCallable[
                 messages_pb2.ListSchedulesRequest,
@@ -365,11 +366,11 @@ WorkflowServiceAsyncStub: typing_extensions.TypeAlias = WorkflowServiceStub[
     ],
     grpc.aio.UnaryUnaryMultiCallable[
         messages_pb2.UpdateScheduleStatusRequest,
-        messages_pb2.UpdateScheduleStatusResponse,
+        google.protobuf.empty_pb2.Empty,
     ],
     grpc.aio.UnaryUnaryMultiCallable[
         messages_pb2.DeleteScheduleRequest,
-        messages_pb2.DeleteScheduleResponse,
+        google.protobuf.empty_pb2.Empty,
     ],
     grpc.aio.UnaryUnaryMultiCallable[
         messages_pb2.ListSchedulesRequest,
@@ -433,8 +434,7 @@ class WorkflowServiceServicer(metaclass=abc.ABCMeta):
         request: messages_pb2.UpdateScheduleStatusRequest,
         context: _ServicerContext,
     ) -> typing.Union[
-        messages_pb2.UpdateScheduleStatusResponse,
-        collections.abc.Awaitable[messages_pb2.UpdateScheduleStatusResponse],
+        google.protobuf.empty_pb2.Empty, collections.abc.Awaitable[google.protobuf.empty_pb2.Empty]
     ]: ...
     @abc.abstractmethod
     def DeleteSchedule(
@@ -442,8 +442,7 @@ class WorkflowServiceServicer(metaclass=abc.ABCMeta):
         request: messages_pb2.DeleteScheduleRequest,
         context: _ServicerContext,
     ) -> typing.Union[
-        messages_pb2.DeleteScheduleResponse,
-        collections.abc.Awaitable[messages_pb2.DeleteScheduleResponse],
+        google.protobuf.empty_pb2.Empty, collections.abc.Awaitable[google.protobuf.empty_pb2.Empty]
     ]: ...
     @abc.abstractmethod
     def ListSchedules(

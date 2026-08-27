@@ -1,0 +1,20 @@
+[package]
+name = "waymark-scheduler-bringup"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-ids = { workspace = true }
+waymark-nonzero-duration = { workspace = true }
+waymark-scheduler = { workspace = true }
+waymark-scheduler-backend = { workspace = true }
+waymark-vm-codec-rmp = { workspace = true }
+
+chrono = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[lib]
+doctest = false

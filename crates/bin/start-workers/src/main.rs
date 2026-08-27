@@ -26,6 +26,8 @@
 //! - WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_BATCH_MAX / _DELAY_MS: Request lock batching
 //! - WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_TTL_MS / _HEARTBEAT_MS: Request lock lease timing
 //! - WAYMARK_SLEEP_POLL_INTERVAL_MS: Durable sleep poll interval (default: 250)
+//! - WAYMARK_SCHEDULER_POLL_INTERVAL_MS: Due-schedule poll interval (default: 1000)
+//! - WAYMARK_SCHEDULER_BATCH_MAX: Max due schedules spawned per poll (default: 64)
 //! - WAYMARK_VM_RETENTION_MS / WAYMARK_VM_SWEEP_INTERVAL_MS: Cached VM eviction
 //! - WAYMARK_EXECUTABLE_RETENTION_MS / WAYMARK_EXECUTABLE_SWEEP_INTERVAL_MS: Cached executable eviction
 //! - WAYMARK_WEBAPP_ENABLED / WAYMARK_WEBAPP_ADDR: Web dashboard configuration
@@ -184,7 +186,18 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     )
     .await?;
 
+    // Start the scheduler subsystem (due-schedule polling + spawning).
+    let scheduler_handle = waymark_scheduler_bringup::start(
+        waymark_scheduler_bringup::Config {
+            poll_interval: config.scheduler_poll_interval,
+            max_items: config.scheduler_batch_max,
+        },
+        Arc::new(backend.clone()),
+        shutdown_token.child_token(),
+    );
+
     let _ = shutdown_handle.await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), scheduler_handle).await;
     let _ = tokio::time::timeout(Duration::from_secs(5), execution_handles.pinning_manager).await;
     let _ = tokio::time::timeout(Duration::from_secs(5), execution_handles.execution_driver).await;
     let _ =

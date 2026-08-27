@@ -3,8 +3,8 @@
 /// Maximum gRPC message payload size for Waymark services.
 pub const GRPC_MAX_MESSAGE_SIZE_BYTES: usize = 25 * 1024 * 1024;
 
-/// Re-export [`prost_types`] for easier consumption.
-pub use prost_types;
+/// Re-export [`prost_wkt_types`] for easier consumption.
+pub use prost_wkt_types;
 
 /// Re-export generated protobuf types
 pub mod messages {

@@ -47,6 +47,11 @@ waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-b
 waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settlement-demand-registry" }
 waymark-proto = { path = "crates/lib/proto" }
 waymark-python-workflow-ir-reader = { path = "crates/lib/python-workflow-ir-reader" }
+waymark-scheduler = { path = "crates/lib/scheduler" }
+waymark-scheduler-backend = { path = "crates/lib/scheduler-backend" }
+waymark-scheduler-bringup = { path = "crates/lib/scheduler-bringup" }
+waymark-scheduler-convert-proto = { path = "crates/lib/scheduler-convert-proto" }
+waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-sleep-compat = { path = "crates/lib/sleep-compat" }
 waymark-sleep-core = { path = "crates/lib/sleep-core" }
@@ -142,6 +147,8 @@ waymark-workflow-completion-convert-proto = { path = "crates/lib/workflow-comple
 waymark-workflow-completion-core = { path = "crates/lib/workflow-completion-core" }
 waymark-workflow-completion-direct = { path = "crates/lib/workflow-completion-direct" }
 waymark-workflow-initialization-convert-proto = { path = "crates/lib/workflow-initialization-convert-proto" }
+waymark-workflow-service-scheduler = { path = "crates/lib/workflow-service-scheduler" }
+waymark-workflow-service-scheduler-backend = { path = "crates/lib/workflow-service-scheduler-backend" }
 waymark-workflow-service-vm-executables = { path = "crates/lib/workflow-service-vm-executables" }
 waymark-workflow-service-vm-executables-backend = { path = "crates/lib/workflow-service-vm-executables-backend" }
 waymark-workflow-service-vm-runtimes = { path = "crates/lib/workflow-service-vm-runtimes" }
@@ -157,6 +164,7 @@ chrono = { version = "0.4", default-features = false }
 clap = "4.5"
 color-eyre = "0.6"
 console-subscriber = "0.5"
+cron = "0.12"
 dashmap = "6"
 derive-where = "1"
 either = "1"
@@ -177,7 +185,7 @@ nonempty-collections = "1"
 proc-macro2 = "1"
 proptest = "1.9"
 prost = "0.14"
-prost-types = "0.14"
+prost-wkt-types = "0.7"
 quote = "1"
 rand = "0.9"
 regex = "1"

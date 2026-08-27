@@ -6,7 +6,7 @@ use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as
 use prost::Message;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
-use waymark_convert_core::TryConvert as _;
+use waymark_convert_core::{Convert as _, TryConvert as _};
 use waymark_ids::InstanceId;
 use waymark_proto::messages as proto;
 
@@ -242,42 +242,141 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
 
     async fn register_schedule(
         &self,
-        _request: Request<proto::RegisterScheduleRequest>,
+        request: Request<proto::RegisterScheduleRequest>,
     ) -> Result<Response<proto::RegisterScheduleResponse>, Status> {
-        // Scheduling is currently inert: the scheduler loop that consumed
-        // `find_due_schedules` was removed in the VM-execution rework and has
-        // no replacement yet, so a persisted schedule would never fire. The
-        // whole schedule API reports `Unimplemented` rather than silently
-        // accepting writes or serving state that no scheduler acts on.
-        Err(Status::unimplemented(
-            "workflow scheduling is not currently supported",
-        ))
+        let store = self
+            .store
+            .as_ref()
+            .ok_or_else(|| Status::failed_precondition("bridge running in memory mode"))?;
+        let request = request.into_inner();
+
+        let registration = request
+            .registration
+            .ok_or_else(|| Status::invalid_argument("registration missing"))?;
+        let schedule = request
+            .schedule
+            .ok_or_else(|| Status::invalid_argument("schedule missing"))?;
+        if request.schedule_name.is_empty() {
+            return Err(Status::invalid_argument("schedule_name missing"));
+        }
+
+        // The conversion is the validation point: unset oneof, bad cron,
+        // and non-positive numbers all die here.
+        let definition: waymark_scheduler_core::ScheduleDefinition =
+            waymark_scheduler_convert_proto::Converter::try_convert(&schedule)
+                .map_err(|err| Status::invalid_argument(err.to_string()))?;
+
+        let next_run_at = store
+            .register_schedule(&registration, &request.schedule_name, definition)
+            .await
+            .map_err(|err| match err {
+                crate::workflow_store::RegisterScheduleError::NoOccurrences
+                | crate::workflow_store::RegisterScheduleError::NextRun(_) => {
+                    Status::invalid_argument(err.to_string())
+                }
+                crate::workflow_store::RegisterScheduleError::Internal(report) => {
+                    Status::internal(format!("register schedule: {report}"))
+                }
+            })?;
+
+        Ok(Response::new(proto::RegisterScheduleResponse {
+            next_run_at: Some(waymark_scheduler_convert_proto::Converter::convert(
+                next_run_at,
+            )),
+        }))
     }
 
     async fn update_schedule_status(
         &self,
-        _request: Request<proto::UpdateScheduleStatusRequest>,
-    ) -> Result<Response<proto::UpdateScheduleStatusResponse>, Status> {
-        Err(Status::unimplemented(
-            "workflow scheduling is not currently supported",
-        ))
+        request: Request<proto::UpdateScheduleStatusRequest>,
+    ) -> Result<Response<waymark_proto::prost_wkt_types::Empty>, Status> {
+        let store = self
+            .store
+            .as_ref()
+            .ok_or_else(|| Status::failed_precondition("bridge running in memory mode"))?;
+        let request = request.into_inner();
+
+        let status: waymark_scheduler_core::ScheduleStatus =
+            waymark_scheduler_convert_proto::Converter::try_convert(request.status())
+                .map_err(|err| Status::invalid_argument(err.to_string()))?;
+
+        let updated = store
+            .update_schedule_status(&request.schedule_name, status)
+            .await
+            .map_err(|err| Status::internal(format!("update schedule status: {err}")))?;
+        if !updated {
+            return Err(Status::not_found("no such schedule"));
+        }
+        Ok(Response::new(waymark_proto::prost_wkt_types::Empty {}))
     }
 
     async fn delete_schedule(
         &self,
-        _request: Request<proto::DeleteScheduleRequest>,
-    ) -> Result<Response<proto::DeleteScheduleResponse>, Status> {
-        Err(Status::unimplemented(
-            "workflow scheduling is not currently supported",
-        ))
+        request: Request<proto::DeleteScheduleRequest>,
+    ) -> Result<Response<waymark_proto::prost_wkt_types::Empty>, Status> {
+        let store = self
+            .store
+            .as_ref()
+            .ok_or_else(|| Status::failed_precondition("bridge running in memory mode"))?;
+        let request = request.into_inner();
+
+        let deleted = store
+            .delete_schedule(&request.schedule_name)
+            .await
+            .map_err(|err| Status::internal(format!("delete schedule: {err}")))?;
+        if !deleted {
+            return Err(Status::not_found("no such schedule"));
+        }
+        Ok(Response::new(waymark_proto::prost_wkt_types::Empty {}))
     }
 
     async fn list_schedules(
         &self,
-        _request: Request<proto::ListSchedulesRequest>,
+        request: Request<proto::ListSchedulesRequest>,
     ) -> Result<Response<proto::ListSchedulesResponse>, Status> {
-        Err(Status::unimplemented(
-            "workflow scheduling is not currently supported",
-        ))
+        let store = self
+            .store
+            .as_ref()
+            .ok_or_else(|| Status::failed_precondition("bridge running in memory mode"))?;
+        let request = request.into_inner();
+
+        // The zero value is the no-filter default, not an error.
+        let status_filter = match request.status_filter() {
+            proto::ScheduleStatus::Unspecified => None,
+            proto::ScheduleStatus::Active => Some(waymark_scheduler_core::ScheduleStatus::Active),
+            proto::ScheduleStatus::Paused => Some(waymark_scheduler_core::ScheduleStatus::Paused),
+        };
+
+        let records = store
+            .list_schedules(status_filter)
+            .await
+            .map_err(|err| Status::internal(format!("list schedules: {err}")))?;
+
+        let schedules = records
+            .into_iter()
+            .map(|record| {
+                let wire_definition: proto::ScheduleDefinition =
+                    waymark_scheduler_convert_proto::Converter::try_convert(&record.definition)
+                        .map_err(|err| Status::internal(err.to_string()))?;
+                let status: proto::ScheduleStatus =
+                    waymark_scheduler_convert_proto::Converter::convert(record.status);
+
+                Ok(proto::ScheduleInfo {
+                    workflow_name: record.workflow_name,
+                    status: status.into(),
+                    next_run_at: Some(waymark_scheduler_convert_proto::Converter::convert(
+                        record.next_run_at,
+                    )),
+                    last_instance_id: record
+                        .last_instance_id
+                        .map(|last_instance_id| last_instance_id.to_string())
+                        .unwrap_or_default(),
+                    schedule_name: record.schedule_name,
+                    definition: Some(wire_definition),
+                })
+            })
+            .collect::<Result<Vec<_>, Status>>()?;
+
+        Ok(Response::new(proto::ListSchedulesResponse { schedules }))
     }
 }

@@ -2,7 +2,9 @@ syntax = "proto3";
 
 package waymark.messages;
 
+import "google/protobuf/empty.proto";
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 
 // =============================================================================
 // Worker Bridge Communication
@@ -231,12 +233,6 @@ message WorkflowStreamResponse {
 // =============================================================================
 // Messages for scheduling workflows to run on a recurring basis.
 
-enum ScheduleType {
-  SCHEDULE_TYPE_UNSPECIFIED = 0;
-  SCHEDULE_TYPE_CRON = 1;
-  SCHEDULE_TYPE_INTERVAL = 2;
-}
-
 enum ScheduleStatus {
   SCHEDULE_STATUS_UNSPECIFIED = 0;
   SCHEDULE_STATUS_ACTIVE = 1;
@@ -244,82 +240,75 @@ enum ScheduleStatus {
 }
 
 message ScheduleDefinition {
-  ScheduleType type = 1;
-  // For cron: the cron expression (e.g., "0 * * * *")
-  string cron_expression = 2;
-  // For interval: duration in seconds
-  int64 interval_seconds = 3;
-  // Optional: jitter window in seconds (random 0..jitter_seconds)
+  reserved 1;
+  reserved "type";
+  oneof schedule {
+    // Standard 5-field cron expression (e.g., "0 * * * *"); a 6-field
+    // expression with a seconds column is accepted, a 7-field
+    // expression with a year column is rejected.
+    string cron_expression = 2;
+    // Fixed interval between runs, in seconds. Must be positive.
+    int64 interval_seconds = 3;
+  }
+  // Random delay in [0, jitter_seconds] added to each computed run.
   int64 jitter_seconds = 4;
+  // If false (default), a due run is skipped (the schedule still
+  // advances) while the previous instance is still running.
+  bool allow_duplicate = 5;
 }
 
 message RegisterScheduleRequest {
-  string workflow_name = 1;
+  reserved 1, 3, 6, 7;
+  reserved "workflow_name", "inputs", "priority", "allow_duplicate";
   ScheduleDefinition schedule = 2;
-  // Optional: inputs to pass to each scheduled run
-  WorkflowArguments inputs = 3;
-  // Optional: workflow registration to register the workflow before scheduling.
-  // If provided, the workflow version will be registered (or updated) before
-  // the schedule is created. This ensures the workflow can execute when the
-  // schedule fires.
+  // Required: names the workflow, pins the compiled executable at
+  // registration time, and its initial_context carries the arguments
+  // for every scheduled run.
   WorkflowRegistration registration = 4;
-  // Required: unique name for this schedule. Allows multiple schedules per workflow
-  // with different inputs. Must be unique within a workflow.
+  // Required: the schedule's name — the sole key. The namespace is
+  // flat; re-registering an existing name re-points it.
   string schedule_name = 5;
-  // Priority for queue ordering (higher values are processed first, default 0)
-  optional int32 priority = 6;
-  // If false (default), skip creating a new instance when one is already running
-  // for this schedule. If true, always create a new instance.
-  optional bool allow_duplicate = 7;
 }
 
 message RegisterScheduleResponse {
-  string schedule_id = 1;
-  // The computed next_run_at timestamp (ISO 8601)
-  string next_run_at = 2;
+  reserved 1;
+  reserved "schedule_id";
+  // When the schedule will first fire.
+  google.protobuf.Timestamp next_run_at = 2;
 }
 
 message UpdateScheduleStatusRequest {
-  string workflow_name = 1;
+  reserved 1;
+  reserved "workflow_name";
   ScheduleStatus status = 2;
   // Required: name of the schedule to update.
   string schedule_name = 3;
 }
 
-message UpdateScheduleStatusResponse {
-  bool success = 1;
-}
-
 message DeleteScheduleRequest {
-  string workflow_name = 1;
+  reserved 1;
+  reserved "workflow_name";
   // Required: name of the schedule to delete.
   string schedule_name = 2;
 }
 
-message DeleteScheduleResponse {
-  bool success = 1;
-}
-
 message ListSchedulesRequest {
-  // Optional filter by status ("active", "paused"). If empty, returns all non-deleted.
-  optional string status_filter = 1;
+  // Filter by status; SCHEDULE_STATUS_UNSPECIFIED returns all schedules.
+  ScheduleStatus status_filter = 1;
 }
 
 message ScheduleInfo {
-  string id = 1;
+  reserved 1, 3, 4, 5, 8, 10, 11, 13, 14;
+  reserved "id", "schedule_type", "cron_expression", "interval_seconds",
+      "last_run_at", "created_at", "updated_at", "jitter_seconds",
+      "allow_duplicate";
+  // The pinned executable's workflow name.
   string workflow_name = 2;
-  ScheduleType schedule_type = 3;
-  string cron_expression = 4;       // Empty if interval-based
-  int64 interval_seconds = 5;       // 0 if cron-based
   ScheduleStatus status = 6;
-  string next_run_at = 7;           // ISO 8601 timestamp
-  string last_run_at = 8;           // ISO 8601 timestamp, empty if never run
-  string last_instance_id = 9;      // Empty if never run
-  string created_at = 10;           // ISO 8601 timestamp
-  string updated_at = 11;           // ISO 8601 timestamp
-  string schedule_name = 12;        // Name of this schedule (allows multiple per workflow)
-  int64 jitter_seconds = 13;        // 0 if no jitter configured
-  bool allow_duplicate = 14;        // Whether duplicate instances are allowed
+  google.protobuf.Timestamp next_run_at = 7;
+  string last_instance_id = 9;      // Empty if never fired
+  string schedule_name = 12;
+  ScheduleDefinition definition = 15;
 }
 
 message ListSchedulesResponse {
@@ -346,7 +335,7 @@ service WorkflowService {
       returns (stream WorkflowStreamResponse);
   // Schedule management
   rpc RegisterSchedule(RegisterScheduleRequest) returns (RegisterScheduleResponse);
-  rpc UpdateScheduleStatus(UpdateScheduleStatusRequest) returns (UpdateScheduleStatusResponse);
-  rpc DeleteSchedule(DeleteScheduleRequest) returns (DeleteScheduleResponse);
+  rpc UpdateScheduleStatus(UpdateScheduleStatusRequest) returns (google.protobuf.Empty);
+  rpc DeleteSchedule(DeleteScheduleRequest) returns (google.protobuf.Empty);
   rpc ListSchedules(ListSchedulesRequest) returns (ListSchedulesResponse);
 }

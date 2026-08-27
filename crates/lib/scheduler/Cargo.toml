@@ -1,0 +1,27 @@
+[package]
+name = "waymark-scheduler"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-nonzero-duration = { workspace = true }
+waymark-scheduler-backend = { workspace = true }
+waymark-scheduler-core = { workspace = true }
+waymark-vm-codec-core = { workspace = true }
+
+chrono = { workspace = true, default-features = false, features = ["clock"] }
+nonempty-collections = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+waymark-vm-codec-rmp = { workspace = true }
+
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lib]
+doctest = false
