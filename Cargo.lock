@@ -4382,12 +4382,14 @@ dependencies = [
 name = "waymark-bridge"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "color-eyre",
  "envfury",
  "futures-core",
  "nonempty-collections",
  "prost",
  "sqlx",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tonic",
@@ -4399,6 +4401,8 @@ dependencies = [
  "waymark-fn-main-common",
  "waymark-ids",
  "waymark-proto",
+ "waymark-scheduler-convert-proto",
+ "waymark-scheduler-core",
  "waymark-secret-string",
  "waymark-system-vm",
  "waymark-transient-execution-worker-stream-bringup",
@@ -4409,6 +4413,7 @@ dependencies = [
  "waymark-vm-runtime",
  "waymark-workflow-completion-convert-proto",
  "waymark-workflow-initialization-convert-proto",
+ "waymark-workflow-service-scheduler",
  "waymark-workflow-service-vm-executables",
  "waymark-workflow-service-vm-runtimes",
  "waymark-workflow-service-vm-runtimes-backend",
@@ -4782,6 +4787,18 @@ dependencies = [
  "waymark-scheduler",
  "waymark-scheduler-backend",
  "waymark-vm-codec-rmp",
+]
+
+[[package]]
+name = "waymark-scheduler-convert-proto"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "prost-wkt-types",
+ "thiserror",
+ "waymark-convert-core",
+ "waymark-proto",
+ "waymark-scheduler-core",
 ]
 
 [[package]]
@@ -6054,6 +6071,18 @@ dependencies = [
  "waymark-vm-compiler-metadata",
  "waymark-vm-runtime",
  "waymark-vm-value",
+]
+
+[[package]]
+name = "waymark-workflow-service-scheduler"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "thiserror",
+ "waymark-scheduler-core",
+ "waymark-vm-codec-core",
+ "waymark-workflow-service-scheduler-backend",
 ]
 
 [[package]]
