@@ -439,7 +439,7 @@ class ScheduleRequest(BaseModel):
 
 class ScheduleResponse(BaseModel):
     success: bool
-    schedule_id: Optional[str] = None
+    schedule_name: Optional[str] = None
     message: str
 
 
@@ -532,7 +532,7 @@ async def register_schedule(payload: ScheduleRequest) -> ScheduleResponse:
                 )
             schedule = timedelta(seconds=payload.interval_seconds)
 
-        schedule_id = await schedule_workflow(
+        schedule_name = await schedule_workflow(
             workflow_cls,
             schedule_name=payload.workflow_name,
             schedule=schedule,
@@ -540,7 +540,7 @@ async def register_schedule(payload: ScheduleRequest) -> ScheduleResponse:
         )
         return ScheduleResponse(
             success=True,
-            schedule_id=schedule_id,
+            schedule_name=schedule_name,
             message=f"Schedule registered for {payload.workflow_name}",
         )
     except Exception as e:
