@@ -131,16 +131,7 @@ macro_rules! uuid_types {
     };
 }
 
-uuid_types![
-    InstanceId,
-    LockId,
-    DispatchToken,
-    ExecutionId,
-    WorkflowVersionId
-];
-
-#[deprecated = "use InstanceId instead"]
-pub type ExecutorId = InstanceId;
+uuid_types![InstanceId, ExecutionId, WorkflowVersionId];
 
 // ---------------------------------------------------------------------------
 // Encode / Decode for UUID-based ids
@@ -192,7 +183,5 @@ macro_rules! impl_encode_decode_for_id {
 }
 
 impl_encode_decode_for_id!(InstanceId);
-impl_encode_decode_for_id!(LockId);
-impl_encode_decode_for_id!(DispatchToken);
 impl_encode_decode_for_id!(ExecutionId);
 impl_encode_decode_for_id!(WorkflowVersionId);
