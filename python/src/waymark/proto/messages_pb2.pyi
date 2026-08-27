@@ -13,6 +13,7 @@ import google.protobuf.internal.containers
 import google.protobuf.internal.enum_type_wrapper
 import google.protobuf.message
 import google.protobuf.struct_pb2
+import google.protobuf.timestamp_pb2
 
 if sys.version_info >= (3, 10):
     import typing as typing_extensions
@@ -63,31 +64,6 @@ MESSAGE_KIND_WORKER_HELLO: MessageKind.ValueType  # 5
 """Worker -> Server: handshake on connect"""
 Global___MessageKind: typing_extensions.TypeAlias = MessageKind
 
-class _ScheduleType:
-    ValueType = typing.NewType("ValueType", builtins.int)
-    V: typing_extensions.TypeAlias = ValueType
-
-class _ScheduleTypeEnumTypeWrapper(
-    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_ScheduleType.ValueType],
-    builtins.type,
-):
-    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
-    SCHEDULE_TYPE_UNSPECIFIED: _ScheduleType.ValueType  # 0
-    SCHEDULE_TYPE_CRON: _ScheduleType.ValueType  # 1
-    SCHEDULE_TYPE_INTERVAL: _ScheduleType.ValueType  # 2
-
-class ScheduleType(_ScheduleType, metaclass=_ScheduleTypeEnumTypeWrapper):
-    """=============================================================================
-    Workflow Schedules
-    =============================================================================
-    Messages for scheduling workflows to run on a recurring basis.
-    """
-
-SCHEDULE_TYPE_UNSPECIFIED: ScheduleType.ValueType  # 0
-SCHEDULE_TYPE_CRON: ScheduleType.ValueType  # 1
-SCHEDULE_TYPE_INTERVAL: ScheduleType.ValueType  # 2
-Global___ScheduleType: typing_extensions.TypeAlias = ScheduleType
-
 class _ScheduleStatus:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
@@ -101,7 +77,12 @@ class _ScheduleStatusEnumTypeWrapper(
     SCHEDULE_STATUS_ACTIVE: _ScheduleStatus.ValueType  # 1
     SCHEDULE_STATUS_PAUSED: _ScheduleStatus.ValueType  # 2
 
-class ScheduleStatus(_ScheduleStatus, metaclass=_ScheduleStatusEnumTypeWrapper): ...
+class ScheduleStatus(_ScheduleStatus, metaclass=_ScheduleStatusEnumTypeWrapper):
+    """=============================================================================
+    Workflow Schedules
+    =============================================================================
+    Messages for scheduling workflows to run on a recurring basis.
+    """
 
 SCHEDULE_STATUS_UNSPECIFIED: ScheduleStatus.ValueType  # 0
 SCHEDULE_STATUS_ACTIVE: ScheduleStatus.ValueType  # 1
@@ -1144,38 +1125,60 @@ Global___WorkflowStreamResponse: typing_extensions.TypeAlias = WorkflowStreamRes
 class ScheduleDefinition(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
-    TYPE_FIELD_NUMBER: builtins.int
     CRON_EXPRESSION_FIELD_NUMBER: builtins.int
     INTERVAL_SECONDS_FIELD_NUMBER: builtins.int
     JITTER_SECONDS_FIELD_NUMBER: builtins.int
-    type: Global___ScheduleType.ValueType
+    ALLOW_DUPLICATE_FIELD_NUMBER: builtins.int
     cron_expression: builtins.str
-    """For cron: the cron expression (e.g., "0 * * * *")"""
+    """Standard 5-field cron expression (e.g., "0 * * * *"); a 6-field
+    expression with a seconds column is accepted, a 7-field
+    expression with a year column is rejected.
+    """
     interval_seconds: builtins.int
-    """For interval: duration in seconds"""
+    """Fixed interval between runs, in seconds. Must be positive."""
     jitter_seconds: builtins.int
-    """Optional: jitter window in seconds (random 0..jitter_seconds)"""
+    """Random delay in [0, jitter_seconds] added to each computed run."""
+    allow_duplicate: builtins.bool
+    """If false (default), a due run is skipped (the schedule still
+    advances) while the previous instance is still running.
+    """
     def __init__(
         self,
         *,
-        type: Global___ScheduleType.ValueType = ...,
         cron_expression: builtins.str = ...,
         interval_seconds: builtins.int = ...,
         jitter_seconds: builtins.int = ...,
+        allow_duplicate: builtins.bool = ...,
     ) -> None: ...
-    def ClearField(
+    def HasField(
         self,
         field_name: typing.Literal[
             "cron_expression",
             b"cron_expression",
             "interval_seconds",
             b"interval_seconds",
+            "schedule",
+            b"schedule",
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "allow_duplicate",
+            b"allow_duplicate",
+            "cron_expression",
+            b"cron_expression",
+            "interval_seconds",
+            b"interval_seconds",
             "jitter_seconds",
             b"jitter_seconds",
-            "type",
-            b"type",
+            "schedule",
+            b"schedule",
         ],
     ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing.Literal["schedule", b"schedule"]
+    ) -> typing.Literal["cron_expression", "interval_seconds"] | None: ...
 
 Global___ScheduleDefinition: typing_extensions.TypeAlias = ScheduleDefinition
 
@@ -1183,99 +1186,43 @@ Global___ScheduleDefinition: typing_extensions.TypeAlias = ScheduleDefinition
 class RegisterScheduleRequest(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
-    WORKFLOW_NAME_FIELD_NUMBER: builtins.int
     SCHEDULE_FIELD_NUMBER: builtins.int
-    INPUTS_FIELD_NUMBER: builtins.int
     REGISTRATION_FIELD_NUMBER: builtins.int
     SCHEDULE_NAME_FIELD_NUMBER: builtins.int
-    PRIORITY_FIELD_NUMBER: builtins.int
-    ALLOW_DUPLICATE_FIELD_NUMBER: builtins.int
-    workflow_name: builtins.str
     schedule_name: builtins.str
-    """Required: unique name for this schedule. Allows multiple schedules per workflow
-    with different inputs. Must be unique within a workflow.
-    """
-    priority: builtins.int
-    """Priority for queue ordering (higher values are processed first, default 0)"""
-    allow_duplicate: builtins.bool
-    """If false (default), skip creating a new instance when one is already running
-    for this schedule. If true, always create a new instance.
+    """Required: the schedule's name — the sole key. The namespace is
+    flat; re-registering an existing name re-points it.
     """
     @property
     def schedule(self) -> Global___ScheduleDefinition: ...
     @property
-    def inputs(self) -> Global___WorkflowArguments:
-        """Optional: inputs to pass to each scheduled run"""
-
-    @property
     def registration(self) -> Global___WorkflowRegistration:
-        """Optional: workflow registration to register the workflow before scheduling.
-        If provided, the workflow version will be registered (or updated) before
-        the schedule is created. This ensures the workflow can execute when the
-        schedule fires.
+        """Required: names the workflow, pins the compiled executable at
+        registration time, and its initial_context carries the arguments
+        for every scheduled run.
         """
 
     def __init__(
         self,
         *,
-        workflow_name: builtins.str = ...,
         schedule: Global___ScheduleDefinition | None = ...,
-        inputs: Global___WorkflowArguments | None = ...,
         registration: Global___WorkflowRegistration | None = ...,
         schedule_name: builtins.str = ...,
-        priority: builtins.int | None = ...,
-        allow_duplicate: builtins.bool | None = ...,
     ) -> None: ...
     def HasField(
-        self,
-        field_name: typing.Literal[
-            "_allow_duplicate",
-            b"_allow_duplicate",
-            "_priority",
-            b"_priority",
-            "allow_duplicate",
-            b"allow_duplicate",
-            "inputs",
-            b"inputs",
-            "priority",
-            b"priority",
-            "registration",
-            b"registration",
-            "schedule",
-            b"schedule",
-        ],
+        self, field_name: typing.Literal["registration", b"registration", "schedule", b"schedule"]
     ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
-            "_allow_duplicate",
-            b"_allow_duplicate",
-            "_priority",
-            b"_priority",
-            "allow_duplicate",
-            b"allow_duplicate",
-            "inputs",
-            b"inputs",
-            "priority",
-            b"priority",
             "registration",
             b"registration",
             "schedule",
             b"schedule",
             "schedule_name",
             b"schedule_name",
-            "workflow_name",
-            b"workflow_name",
         ],
     ) -> None: ...
-    @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_allow_duplicate", b"_allow_duplicate"]
-    ) -> typing.Literal["allow_duplicate"] | None: ...
-    @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_priority", b"_priority"]
-    ) -> typing.Literal["priority"] | None: ...
 
 Global___RegisterScheduleRequest: typing_extensions.TypeAlias = RegisterScheduleRequest
 
@@ -1283,21 +1230,20 @@ Global___RegisterScheduleRequest: typing_extensions.TypeAlias = RegisterSchedule
 class RegisterScheduleResponse(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
-    SCHEDULE_ID_FIELD_NUMBER: builtins.int
     NEXT_RUN_AT_FIELD_NUMBER: builtins.int
-    schedule_id: builtins.str
-    next_run_at: builtins.str
-    """The computed next_run_at timestamp (ISO 8601)"""
+    @property
+    def next_run_at(self) -> google.protobuf.timestamp_pb2.Timestamp:
+        """When the schedule will first fire."""
+
     def __init__(
         self,
         *,
-        schedule_id: builtins.str = ...,
-        next_run_at: builtins.str = ...,
+        next_run_at: google.protobuf.timestamp_pb2.Timestamp | None = ...,
     ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal["next_run_at", b"next_run_at", "schedule_id", b"schedule_id"],
-    ) -> None: ...
+    def HasField(
+        self, field_name: typing.Literal["next_run_at", b"next_run_at"]
+    ) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["next_run_at", b"next_run_at"]) -> None: ...
 
 Global___RegisterScheduleResponse: typing_extensions.TypeAlias = RegisterScheduleResponse
 
@@ -1305,115 +1251,52 @@ Global___RegisterScheduleResponse: typing_extensions.TypeAlias = RegisterSchedul
 class UpdateScheduleStatusRequest(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
-    WORKFLOW_NAME_FIELD_NUMBER: builtins.int
     STATUS_FIELD_NUMBER: builtins.int
     SCHEDULE_NAME_FIELD_NUMBER: builtins.int
-    workflow_name: builtins.str
     status: Global___ScheduleStatus.ValueType
     schedule_name: builtins.str
     """Required: name of the schedule to update."""
     def __init__(
         self,
         *,
-        workflow_name: builtins.str = ...,
         status: Global___ScheduleStatus.ValueType = ...,
         schedule_name: builtins.str = ...,
     ) -> None: ...
     def ClearField(
-        self,
-        field_name: typing.Literal[
-            "schedule_name",
-            b"schedule_name",
-            "status",
-            b"status",
-            "workflow_name",
-            b"workflow_name",
-        ],
+        self, field_name: typing.Literal["schedule_name", b"schedule_name", "status", b"status"]
     ) -> None: ...
 
 Global___UpdateScheduleStatusRequest: typing_extensions.TypeAlias = UpdateScheduleStatusRequest
 
 @typing.final
-class UpdateScheduleStatusResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    SUCCESS_FIELD_NUMBER: builtins.int
-    success: builtins.bool
-    def __init__(
-        self,
-        *,
-        success: builtins.bool = ...,
-    ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["success", b"success"]) -> None: ...
-
-Global___UpdateScheduleStatusResponse: typing_extensions.TypeAlias = UpdateScheduleStatusResponse
-
-@typing.final
 class DeleteScheduleRequest(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
-    WORKFLOW_NAME_FIELD_NUMBER: builtins.int
     SCHEDULE_NAME_FIELD_NUMBER: builtins.int
-    workflow_name: builtins.str
     schedule_name: builtins.str
     """Required: name of the schedule to delete."""
     def __init__(
         self,
         *,
-        workflow_name: builtins.str = ...,
         schedule_name: builtins.str = ...,
     ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "schedule_name", b"schedule_name", "workflow_name", b"workflow_name"
-        ],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["schedule_name", b"schedule_name"]) -> None: ...
 
 Global___DeleteScheduleRequest: typing_extensions.TypeAlias = DeleteScheduleRequest
-
-@typing.final
-class DeleteScheduleResponse(google.protobuf.message.Message):
-    DESCRIPTOR: google.protobuf.descriptor.Descriptor
-
-    SUCCESS_FIELD_NUMBER: builtins.int
-    success: builtins.bool
-    def __init__(
-        self,
-        *,
-        success: builtins.bool = ...,
-    ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["success", b"success"]) -> None: ...
-
-Global___DeleteScheduleResponse: typing_extensions.TypeAlias = DeleteScheduleResponse
 
 @typing.final
 class ListSchedulesRequest(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     STATUS_FILTER_FIELD_NUMBER: builtins.int
-    status_filter: builtins.str
-    """Optional filter by status ("active", "paused"). If empty, returns all non-deleted."""
+    status_filter: Global___ScheduleStatus.ValueType
+    """Filter by status; SCHEDULE_STATUS_UNSPECIFIED returns all schedules."""
     def __init__(
         self,
         *,
-        status_filter: builtins.str | None = ...,
+        status_filter: Global___ScheduleStatus.ValueType = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "_status_filter", b"_status_filter", "status_filter", b"status_filter"
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "_status_filter", b"_status_filter", "status_filter", b"status_filter"
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_status_filter", b"_status_filter"]
-    ) -> typing.Literal["status_filter"] | None: ...
+    def ClearField(self, field_name: typing.Literal["status_filter", b"status_filter"]) -> None: ...
 
 Global___ListSchedulesRequest: typing_extensions.TypeAlias = ListSchedulesRequest
 
@@ -1421,91 +1304,48 @@ Global___ListSchedulesRequest: typing_extensions.TypeAlias = ListSchedulesReques
 class ScheduleInfo(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
-    ID_FIELD_NUMBER: builtins.int
     WORKFLOW_NAME_FIELD_NUMBER: builtins.int
-    SCHEDULE_TYPE_FIELD_NUMBER: builtins.int
-    CRON_EXPRESSION_FIELD_NUMBER: builtins.int
-    INTERVAL_SECONDS_FIELD_NUMBER: builtins.int
     STATUS_FIELD_NUMBER: builtins.int
     NEXT_RUN_AT_FIELD_NUMBER: builtins.int
-    LAST_RUN_AT_FIELD_NUMBER: builtins.int
     LAST_INSTANCE_ID_FIELD_NUMBER: builtins.int
-    CREATED_AT_FIELD_NUMBER: builtins.int
-    UPDATED_AT_FIELD_NUMBER: builtins.int
     SCHEDULE_NAME_FIELD_NUMBER: builtins.int
-    JITTER_SECONDS_FIELD_NUMBER: builtins.int
-    ALLOW_DUPLICATE_FIELD_NUMBER: builtins.int
-    id: builtins.str
+    DEFINITION_FIELD_NUMBER: builtins.int
     workflow_name: builtins.str
-    schedule_type: Global___ScheduleType.ValueType
-    cron_expression: builtins.str
-    """Empty if interval-based"""
-    interval_seconds: builtins.int
-    """0 if cron-based"""
+    """The pinned executable's workflow name."""
     status: Global___ScheduleStatus.ValueType
-    next_run_at: builtins.str
-    """ISO 8601 timestamp"""
-    last_run_at: builtins.str
-    """ISO 8601 timestamp, empty if never run"""
     last_instance_id: builtins.str
-    """Empty if never run"""
-    created_at: builtins.str
-    """ISO 8601 timestamp"""
-    updated_at: builtins.str
-    """ISO 8601 timestamp"""
+    """Empty if never fired"""
     schedule_name: builtins.str
-    """Name of this schedule (allows multiple per workflow)"""
-    jitter_seconds: builtins.int
-    """0 if no jitter configured"""
-    allow_duplicate: builtins.bool
-    """Whether duplicate instances are allowed"""
+    @property
+    def next_run_at(self) -> google.protobuf.timestamp_pb2.Timestamp: ...
+    @property
+    def definition(self) -> Global___ScheduleDefinition: ...
     def __init__(
         self,
         *,
-        id: builtins.str = ...,
         workflow_name: builtins.str = ...,
-        schedule_type: Global___ScheduleType.ValueType = ...,
-        cron_expression: builtins.str = ...,
-        interval_seconds: builtins.int = ...,
         status: Global___ScheduleStatus.ValueType = ...,
-        next_run_at: builtins.str = ...,
-        last_run_at: builtins.str = ...,
+        next_run_at: google.protobuf.timestamp_pb2.Timestamp | None = ...,
         last_instance_id: builtins.str = ...,
-        created_at: builtins.str = ...,
-        updated_at: builtins.str = ...,
         schedule_name: builtins.str = ...,
-        jitter_seconds: builtins.int = ...,
-        allow_duplicate: builtins.bool = ...,
+        definition: Global___ScheduleDefinition | None = ...,
     ) -> None: ...
+    def HasField(
+        self, field_name: typing.Literal["definition", b"definition", "next_run_at", b"next_run_at"]
+    ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
-            "allow_duplicate",
-            b"allow_duplicate",
-            "created_at",
-            b"created_at",
-            "cron_expression",
-            b"cron_expression",
-            "id",
-            b"id",
-            "interval_seconds",
-            b"interval_seconds",
-            "jitter_seconds",
-            b"jitter_seconds",
+            "definition",
+            b"definition",
             "last_instance_id",
             b"last_instance_id",
-            "last_run_at",
-            b"last_run_at",
             "next_run_at",
             b"next_run_at",
             "schedule_name",
             b"schedule_name",
-            "schedule_type",
-            b"schedule_type",
             "status",
             b"status",
-            "updated_at",
-            b"updated_at",
             "workflow_name",
             b"workflow_name",
         ],

@@ -2,6 +2,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 
 import grpc
+from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 
 from . import messages_pb2 as messages__pb2
 
@@ -153,12 +154,12 @@ class WorkflowServiceStub(object):
         self.UpdateScheduleStatus = channel.unary_unary(
                 '/waymark.messages.WorkflowService/UpdateScheduleStatus',
                 request_serializer=messages__pb2.UpdateScheduleStatusRequest.SerializeToString,
-                response_deserializer=messages__pb2.UpdateScheduleStatusResponse.FromString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                 _registered_method=True)
         self.DeleteSchedule = channel.unary_unary(
                 '/waymark.messages.WorkflowService/DeleteSchedule',
                 request_serializer=messages__pb2.DeleteScheduleRequest.SerializeToString,
-                response_deserializer=messages__pb2.DeleteScheduleResponse.FromString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                 _registered_method=True)
         self.ListSchedules = channel.unary_unary(
                 '/waymark.messages.WorkflowService/ListSchedules',
@@ -251,12 +252,12 @@ def add_WorkflowServiceServicer_to_server(servicer, server):
             'UpdateScheduleStatus': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateScheduleStatus,
                     request_deserializer=messages__pb2.UpdateScheduleStatusRequest.FromString,
-                    response_serializer=messages__pb2.UpdateScheduleStatusResponse.SerializeToString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
             'DeleteSchedule': grpc.unary_unary_rpc_method_handler(
                     servicer.DeleteSchedule,
                     request_deserializer=messages__pb2.DeleteScheduleRequest.FromString,
-                    response_serializer=messages__pb2.DeleteScheduleResponse.SerializeToString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
             'ListSchedules': grpc.unary_unary_rpc_method_handler(
                     servicer.ListSchedules,
@@ -426,7 +427,7 @@ class WorkflowService(object):
             target,
             '/waymark.messages.WorkflowService/UpdateScheduleStatus',
             messages__pb2.UpdateScheduleStatusRequest.SerializeToString,
-            messages__pb2.UpdateScheduleStatusResponse.FromString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
             options,
             channel_credentials,
             insecure,
@@ -453,7 +454,7 @@ class WorkflowService(object):
             target,
             '/waymark.messages.WorkflowService/DeleteSchedule',
             messages__pb2.DeleteScheduleRequest.SerializeToString,
-            messages__pb2.DeleteScheduleResponse.FromString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
             options,
             channel_credentials,
             insecure,
