@@ -40,6 +40,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     builder
         // Allow large enum variants in generated proto code
         .type_attribute(".", "#[allow(clippy::large_enum_variant)]")
+        // All well-known google.protobuf types come from prost-wkt-types,
+        // which carries the serde support prost-types lacks. Compiling the
+        // well-known types drops the built-in prost-types mapping so the
+        // whole-domain extern path below can take over.
+        .compile_well_known_types(true)
+        .extern_path(".google.protobuf", "::prost_wkt_types")
         .compile_protos(&full_paths[..], &[proto_dir.to_path_buf()])?;
 
     Ok(())
