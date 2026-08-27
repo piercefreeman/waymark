@@ -49,6 +49,7 @@ waymark-proto = { path = "crates/lib/proto" }
 waymark-python-workflow-ir-reader = { path = "crates/lib/python-workflow-ir-reader" }
 waymark-scheduler = { path = "crates/lib/scheduler" }
 waymark-scheduler-backend = { path = "crates/lib/scheduler-backend" }
+waymark-scheduler-bringup = { path = "crates/lib/scheduler-bringup" }
 waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-sleep-compat = { path = "crates/lib/sleep-compat" }

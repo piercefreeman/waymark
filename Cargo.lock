@@ -4770,6 +4770,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-scheduler-bringup"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-ids",
+ "waymark-nonzero-duration",
+ "waymark-scheduler",
+ "waymark-scheduler-backend",
+ "waymark-vm-codec-rmp",
+]
+
+[[package]]
 name = "waymark-scheduler-core"
 version = "0.1.0"
 dependencies = [
@@ -4915,6 +4930,7 @@ dependencies = [
  "waymark-execution-bringup",
  "waymark-fn-main-common",
  "waymark-prometheus-exporter-bringup",
+ "waymark-scheduler-bringup",
  "waymark-tokio-metrics-bringup",
  "waymark-webapp-bringup",
  "waymark-worker-python",

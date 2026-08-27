@@ -11,6 +11,7 @@ waymark-config = { workspace = true }
 waymark-execution-bringup = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-prometheus-exporter-bringup = { workspace = true }
+waymark-scheduler-bringup = { workspace = true }
 waymark-tokio-metrics-bringup = { workspace = true }
 waymark-webapp-bringup = { workspace = true }
 waymark-worker-python = { workspace = true }
