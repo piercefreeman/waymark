@@ -11,6 +11,8 @@ waymark-convert-core = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-proto = { workspace = true }
+waymark-scheduler-convert-proto = { workspace = true }
+waymark-scheduler-core = { workspace = true }
 waymark-secret-string = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
 waymark-transient-execution-worker-stream-bringup = { workspace = true }
@@ -21,16 +23,19 @@ waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-workflow-completion-convert-proto = { workspace = true }
 waymark-workflow-initialization-convert-proto = { workspace = true }
+waymark-workflow-service-scheduler = { workspace = true }
 waymark-workflow-service-vm-executables = { workspace = true }
 waymark-workflow-service-vm-runtimes = { workspace = true }
 waymark-workflow-service-vm-runtimes-backend = { workspace = true }
 
+chrono = { workspace = true, features = ["clock"] }
 color-eyre = { workspace = true }
 envfury = { workspace = true }
 futures-core = { workspace = true }
 nonempty-collections = { workspace = true }
 prost = { workspace = true }
 sqlx = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }

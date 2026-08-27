@@ -11,6 +11,10 @@ use waymark_proto::messages as proto;
 use waymark_secret_string::SecretStr;
 
 pub struct WorkflowStore {
+    schedules: waymark_workflow_service_scheduler::ScheduleService<
+        PostgresBackend,
+        waymark_vm_codec_rmp::RmpCodec,
+    >,
     registration: waymark_workflow_service_vm_runtimes::RegistrationService<
         PostgresBackend,
         waymark_vm_codec_rmp::RmpCodec,
@@ -44,7 +48,9 @@ impl WorkflowStore {
             backend.clone(),
             codec,
         );
+        let schedules = waymark_workflow_service_scheduler::ScheduleService::new(backend, codec);
         Ok(Self {
+            schedules,
             registration,
             executables,
             outcome_polling,
@@ -202,4 +208,126 @@ impl WorkflowStore {
 
         Ok(Some(arguments))
     }
+
+    /// Register (or re-point) a schedule: compile and pin the workflow,
+    /// bake the initial runtime snapshot template from the registration's
+    /// initial context, compute the first run, and upsert the schedule
+    /// row. Returns when the schedule will first fire.
+    pub async fn register_schedule(
+        &self,
+        registration: &proto::WorkflowRegistration,
+        schedule_name: &str,
+        definition: waymark_scheduler_core::ScheduleDefinition,
+    ) -> Result<chrono::DateTime<chrono::Utc>, RegisterScheduleError> {
+        let (executable_id, executable, entry_input_names) = self
+            .compile_and_store(registration)
+            .await
+            .map_err(RegisterScheduleError::Internal)?;
+
+        let call_spec =
+            waymark_workflow_initialization_convert_proto::InitialContextConverter::try_convert((
+                registration.initial_context.as_ref(),
+                &entry_input_names[..],
+            ))
+            .map_err(|err| {
+                RegisterScheduleError::Internal(color_eyre::eyre::eyre!(
+                    "build entry call spec: {err}"
+                ))
+            })?;
+
+        let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::<
+            waymark_system_vm::Spec,
+            Arc<waymark_system_vm::Executable>,
+            waymark_system_vm::Value,
+        >::default();
+        let runtime: waymark_vm_runtime::Runtime<_, _, waymark_system_vm::Value> =
+            waymark_vm_runtime::Runtime::with_custom_entrypoint(interpreter, executable, call_spec)
+                .map_err(|err| {
+                    RegisterScheduleError::Internal(color_eyre::eyre::eyre!(
+                        "create runtime: {err}"
+                    ))
+                })?;
+
+        self.schedules
+            .register_schedule(
+                schedule_name,
+                &executable_id,
+                &definition,
+                chrono::Utc::now(),
+                |serializer| runtime.snapshot(serializer),
+            )
+            .await
+            .map_err(|err| match err {
+                waymark_workflow_service_scheduler::RegisterScheduleError::NoOccurrences => {
+                    RegisterScheduleError::NoOccurrences
+                }
+                waymark_workflow_service_scheduler::RegisterScheduleError::NextRun(err) => {
+                    RegisterScheduleError::NextRun(err)
+                }
+                err => RegisterScheduleError::Internal(color_eyre::eyre::eyre!(
+                    "register schedule: {err}"
+                )),
+            })
+    }
+
+    /// Set a schedule's lifecycle status. Returns `false` when no such
+    /// schedule exists.
+    pub async fn update_schedule_status(
+        &self,
+        schedule_name: &str,
+        status: waymark_scheduler_core::ScheduleStatus,
+    ) -> Result<bool, color_eyre::eyre::Report> {
+        self.schedules
+            .update_schedule_status(schedule_name, status)
+            .await
+            .map_err(|err| color_eyre::eyre::eyre!("update schedule status: {err}"))
+    }
+
+    /// Hard-delete a schedule. Returns `false` when no such schedule
+    /// exists.
+    pub async fn delete_schedule(
+        &self,
+        schedule_name: &str,
+    ) -> Result<bool, color_eyre::eyre::Report> {
+        self.schedules
+            .delete_schedule(schedule_name)
+            .await
+            .map_err(|err| color_eyre::eyre::eyre!("delete schedule: {err}"))
+    }
+
+    /// List schedules, optionally filtered by status, with their
+    /// definitions decoded.
+    pub async fn list_schedules(
+        &self,
+        status: Option<waymark_scheduler_core::ScheduleStatus>,
+    ) -> Result<
+        Vec<
+            waymark_workflow_service_scheduler::ListedSchedule<
+                InstanceId,
+                chrono::DateTime<chrono::Utc>,
+            >,
+        >,
+        color_eyre::eyre::Report,
+    > {
+        self.schedules
+            .list_schedules(status)
+            .await
+            .map_err(|err| color_eyre::eyre::eyre!("list schedules: {err}"))
+    }
+}
+
+/// Error returned by [`WorkflowStore::register_schedule`].
+#[derive(Debug, thiserror::Error)]
+pub enum RegisterScheduleError {
+    /// The definition matches no instant, ever.
+    #[error("the schedule definition matches no instant")]
+    NoOccurrences,
+
+    /// The first run could not be produced from the definition.
+    #[error("no producible first run: {0}")]
+    NextRun(#[source] waymark_scheduler_core::ComputeNextRunError),
+
+    /// Compilation, snapshotting, or persistence failed.
+    #[error(transparent)]
+    Internal(color_eyre::eyre::Report),
 }
