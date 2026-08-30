@@ -32,11 +32,7 @@ services:
       WAYMARK_CONCURRENT_PER_WORKER: 500
       WAYMARK_MAX_CONCURRENT_INSTANCES: 5000
       RUST_LOG: info,waymark=debug
-      WAYMARK_WEBAPP_ENABLED: "true"
-      WAYMARK_WEBAPP_ADDR: "0.0.0.0:24119"
       WAYMARK_RUNNER_PROFILE_INTERVAL_MS: "5000"
-    ports:
-      - "24119:24119"
 
   webapp:
     build: *app-build

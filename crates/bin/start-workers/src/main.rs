@@ -30,7 +30,6 @@
 //! - WAYMARK_SCHEDULER_BATCH_MAX: Max due schedules spawned per poll (default: 64)
 //! - WAYMARK_VM_RETENTION_MS / WAYMARK_VM_SWEEP_INTERVAL_MS: Cached VM eviction
 //! - WAYMARK_EXECUTABLE_RETENTION_MS / WAYMARK_EXECUTABLE_SWEEP_INTERVAL_MS: Cached executable eviction
-//! - WAYMARK_WEBAPP_ENABLED / WAYMARK_WEBAPP_ADDR: Web dashboard configuration
 //! - WAYMARK_RUNNER_PROFILE_INTERVAL_MS: Status reporting interval (default: 5000)
 
 use std::sync::{Arc, atomic::AtomicUsize};
@@ -113,15 +112,6 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     .await?;
 
     let process_pool = Arc::new(process_pool);
-
-    // Start the webapp server.
-    let webapp_backend = Arc::new(backend.clone());
-    let maybe_webapp_handle = waymark_webapp_bringup::start(
-        config.webapp.clone(),
-        webapp_backend,
-        shutdown_token.clone().cancelled_owned(),
-    )
-    .await?;
 
     let active_instance_gauge = Arc::new(AtomicUsize::new(0));
 
@@ -244,11 +234,6 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
 
     if let Err(err) = process_pool.shutdown_arc().await {
         warn!(error = %err, "worker pool shutdown failed");
-    }
-
-    if let Some(webapp_handle) = maybe_webapp_handle {
-        // Wait for graceful termination.
-        webapp_handle.await?;
     }
 
     info!("shutdown complete");
