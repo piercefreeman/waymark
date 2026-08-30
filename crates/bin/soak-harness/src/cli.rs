@@ -54,12 +54,6 @@ pub struct SoakArgs {
     #[arg(long, default_value_t = 5000)]
     pub profile_interval_ms: u64,
 
-    #[arg(long, default_value_t = false)]
-    pub disable_webapp: bool,
-
-    #[arg(long, default_value = "0.0.0.0:24119")]
-    pub webapp_addr: String,
-
     #[arg(long, default_value_t = 5)]
     pub startup_log_interval_secs: u64,
 

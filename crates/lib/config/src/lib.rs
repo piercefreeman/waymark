@@ -34,7 +34,6 @@ pub struct WorkerConfig {
     pub sleep_poll_interval: NonZeroDuration,
     pub scheduler_poll_interval: NonZeroDuration,
     pub scheduler_batch_max: NonZeroUsize,
-    pub webapp: waymark_webapp_config::WebappConfig,
     pub profile_interval: NonZeroDuration,
     pub vm_retention: NonZeroDuration,
     pub vm_sweep_interval: NonZeroDuration,
@@ -136,8 +135,6 @@ impl WorkerConfig {
 
         let scheduler_batch_max = envfury::or_parse("WAYMARK_SCHEDULER_BATCH_MAX", "64")?;
 
-        let webapp = waymark_webapp_config::WebappConfig::from_env();
-
         let FromMillisMin::<_, 1>(profile_interval) =
             envfury::or_parse("WAYMARK_RUNNER_PROFILE_INTERVAL_MS", "5000")?;
 
@@ -177,7 +174,6 @@ impl WorkerConfig {
             sleep_poll_interval,
             scheduler_poll_interval,
             scheduler_batch_max,
-            webapp,
             profile_interval,
             vm_retention,
             vm_sweep_interval,

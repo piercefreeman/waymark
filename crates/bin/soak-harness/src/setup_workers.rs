@@ -21,7 +21,6 @@ pub async fn start_workers(
     args: &crate::cli::SoakArgs,
     run_dir: &Path,
 ) -> Result<WorkerProcess, color_eyre::eyre::Report> {
-    let webapp_enabled = !args.disable_webapp;
     let log_path = run_dir.join("start-workers.log");
     // `CARGO_MANIFEST_DIR` here is `crates/bin/soak-harness`, while the soak action module lives at
     // `<workspace>/python/tests/fixtures_actions/soak_actions.py` and the child binary is resolved from
@@ -61,8 +60,6 @@ pub async fn start_workers(
         "WAYMARK_RUNNER_PROFILE_INTERVAL_MS",
         args.profile_interval_ms.to_string(),
     );
-    cmd.env("WAYMARK_WEBAPP_ENABLED", webapp_enabled.to_string());
-    cmd.env("WAYMARK_WEBAPP_ADDR", &args.webapp_addr);
 
     cmd.stdout(Stdio::from(log_file));
     cmd.stderr(Stdio::from(log_file_err));
@@ -72,8 +69,6 @@ pub async fn start_workers(
         .wrap_err("spawn waymark-start-workers process")?;
     info!(
         log_path = %log_path.display(),
-        webapp_enabled,
-        webapp_addr = %args.webapp_addr,
         "started worker process"
     );
 
