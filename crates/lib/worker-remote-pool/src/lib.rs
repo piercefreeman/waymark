@@ -44,6 +44,8 @@ where
 
     match result {
         Ok(metrics) => {
+            ::metrics::histogram!("waymark_worker_remote_pool_action_handling_seconds")
+                .record(metrics.worker_duration);
             pool.record_latency(metrics.ack_latency, metrics.worker_duration);
             pool.record_completion(worker_idx, Arc::clone(pool));
             ActionExecutionReport::Completed(proto::ActionResult {
@@ -140,6 +142,12 @@ impl<Spec> RemoteWorkerPool<Spec> {
     }
 }
 
+/// Publish the number of action requests waiting in the dispatch queue —
+/// the queue between `queue` and the launch loop that hands them to workers.
+fn record_dispatch_queue_length(queued: usize) {
+    metrics::gauge!("waymark_worker_remote_pool_dispatch_queue_length").set(queued as f64);
+}
+
 impl<Spec> waymark_worker_core::LaunchWorkerPool for RemoteWorkerPool<Spec>
 where
     Spec: waymark_worker_process_spec::Spec,
@@ -172,6 +180,7 @@ where
         // and, finally, send the completion over to the pool for polling.
         tokio::spawn(async move {
             while let Some(request) = request_rx.recv().await {
+                record_dispatch_queue_length(request_rx.len());
                 tokio::spawn({
                     let completion_tx = completion_tx.clone();
                     let pool = Arc::clone(&pool);
@@ -206,7 +215,13 @@ where
                 "RemoteWorkerPoolError",
                 format!("failed to enqueue action request: {err}"),
             )
-        })
+        })?;
+        record_dispatch_queue_length(
+            self.request_tx
+                .max_capacity()
+                .saturating_sub(self.request_tx.capacity()),
+        );
+        Ok(())
     }
 }
 
