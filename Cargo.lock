@@ -5640,6 +5640,8 @@ dependencies = [
 name = "waymark-worker-process-pool"
 version = "0.1.0"
 dependencies = [
+ "metrics",
+ "metrics-util",
  "nonempty-collections",
  "thiserror",
  "tokio",
