@@ -21,8 +21,6 @@ waymark-state-vm-runtimes-backend = { workspace = true }
 waymark-timed-future = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
-waymark-webapp-backend = { workspace = true }
-waymark-webapp-core = { workspace = true }
 waymark-worker-status-backend = { workspace = true }
 waymark-workflow-completion-backend = { workspace = true }
 waymark-workflow-service-scheduler-backend = { workspace = true }

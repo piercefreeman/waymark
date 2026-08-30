@@ -6,8 +6,6 @@
 
 use std::collections::VecDeque;
 
-use serde::Serialize;
-
 /// Maximum entries: 24h * 60 min = 1440
 const MAX_ENTRIES: usize = 1440;
 
@@ -128,48 +126,12 @@ impl PoolTimeSeries {
         }
         Some(Self { entries })
     }
-
-    /// Convert to JSON-friendly entries for the frontend template.
-    pub fn to_json_entries(&self) -> Vec<TimeSeriesJsonEntry> {
-        self.entries
-            .iter()
-            .map(|e| TimeSeriesJsonEntry {
-                t: e.timestamp_secs,
-                aps: e.actions_per_sec,
-                w: e.active_workers,
-                d: e.median_instance_duration_secs,
-                ai: e.active_instances,
-                qd: e.queue_depth,
-                inf: e.in_flight_actions,
-            })
-            .collect()
-    }
 }
 
 impl Default for PoolTimeSeries {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// JSON-serializable time-series entry for the frontend.
-#[derive(Debug, Clone, Serialize)]
-pub struct TimeSeriesJsonEntry {
-    /// Unix timestamp (seconds)
-    pub t: i64,
-    /// Actions per second
-    pub aps: f32,
-    /// Active worker count
-    pub w: u16,
-    /// Median instance duration (seconds)
-    pub d: f32,
-    /// Active workflow instances
-    pub ai: u32,
-    /// Dispatch queue depth
-    pub qd: u32,
-    /// In-flight actions
-    #[serde(rename = "inf")]
-    pub inf: u32,
 }
 
 #[cfg(test)]
@@ -205,8 +167,7 @@ mod tests {
         }
         assert_eq!(ts.len(), MAX_ENTRIES);
         // Oldest entries should have been dropped; first entry should be 60
-        let json = ts.to_json_entries();
-        assert_eq!(json[0].t, 60);
+        assert_eq!(ts.entries[0].timestamp_secs, 60);
     }
 
     #[test]
@@ -235,20 +196,20 @@ mod tests {
         let decoded = PoolTimeSeries::decode(&bytes).expect("decode should succeed");
         assert_eq!(decoded.len(), 2);
 
-        let json = decoded.to_json_entries();
-        assert_eq!(json[0].t, 1700000000);
-        assert!((json[0].aps - 3.25).abs() < 0.001);
-        assert_eq!(json[0].w, 8);
-        assert!((json[0].d - 42.5).abs() < 0.01);
-        assert_eq!(json[0].ai, 100);
-        assert_eq!(json[0].qd, 15);
-        assert_eq!(json[0].inf, 32);
+        let entries = &decoded.entries;
+        assert_eq!(entries[0].timestamp_secs, 1700000000);
+        assert!((entries[0].actions_per_sec - 3.25).abs() < 0.001);
+        assert_eq!(entries[0].active_workers, 8);
+        assert!((entries[0].median_instance_duration_secs - 42.5).abs() < 0.01);
+        assert_eq!(entries[0].active_instances, 100);
+        assert_eq!(entries[0].queue_depth, 15);
+        assert_eq!(entries[0].in_flight_actions, 32);
 
-        assert_eq!(json[1].t, 1700000060);
-        assert_eq!(json[1].w, 6);
-        assert_eq!(json[1].ai, 90);
-        assert_eq!(json[1].qd, 10);
-        assert_eq!(json[1].inf, 24);
+        assert_eq!(entries[1].timestamp_secs, 1700000060);
+        assert_eq!(entries[1].active_workers, 6);
+        assert_eq!(entries[1].active_instances, 90);
+        assert_eq!(entries[1].queue_depth, 10);
+        assert_eq!(entries[1].in_flight_actions, 24);
     }
 
     #[test]
@@ -269,27 +230,5 @@ mod tests {
         // count says 1 entry but no entry data
         let bytes = 1u32.to_le_bytes();
         assert!(PoolTimeSeries::decode(&bytes).is_none());
-    }
-
-    #[test]
-    fn test_to_json_entries() {
-        let mut ts = PoolTimeSeries::new();
-        ts.push(TimeSeriesEntry {
-            timestamp_secs: 100,
-            actions_per_sec: 5.0,
-            active_workers: 2,
-            median_instance_duration_secs: 20.0,
-            active_instances: 50,
-            queue_depth: 3,
-            in_flight_actions: 10,
-        });
-        let json = ts.to_json_entries();
-        assert_eq!(json.len(), 1);
-        assert_eq!(json[0].t, 100);
-        assert!((json[0].aps - 5.0).abs() < f32::EPSILON);
-        assert_eq!(json[0].w, 2);
-        assert_eq!(json[0].ai, 50);
-        assert_eq!(json[0].qd, 3);
-        assert_eq!(json[0].inf, 10);
     }
 }

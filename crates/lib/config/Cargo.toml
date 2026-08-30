@@ -7,7 +7,6 @@ publish.workspace = true
 [dependencies]
 waymark-nonzero-duration = { workspace = true }
 waymark-secret-string = { workspace = true }
-waymark-webapp-config = { workspace = true }
 
 envfury = { workspace = true }
 thiserror = { workspace = true }
