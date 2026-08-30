@@ -4242,10 +4242,12 @@ dependencies = [
 name = "waymark-execution-driver"
 version = "0.1.0"
 dependencies = [
+ "metrics",
  "nonempty-collections",
  "tokio",
  "tokio-util",
  "tracing",
+ "waymark-metrics-util",
  "waymark-state-manager",
  "waymark-state-manager-core",
  "waymark-state-vm-runtimes",
