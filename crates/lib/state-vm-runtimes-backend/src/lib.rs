@@ -81,6 +81,5 @@ pub trait LoadForRevive: HasVmId + HasExecutableId {
 ///
 /// Blanket-implemented for any type that implements both [`StoreSnapshots`]
 /// and [`LoadForRevive`].
+#[waymark_blanket_impl_macros::blanket_impl]
 pub trait VmRuntimesStateBackend: StoreSnapshots + LoadForRevive {}
-
-impl<T> VmRuntimesStateBackend for T where T: StoreSnapshots + LoadForRevive {}

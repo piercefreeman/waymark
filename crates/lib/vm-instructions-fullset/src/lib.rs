@@ -7,6 +7,7 @@
 use derive_where::derive_where;
 
 /// The spec for required data types for the [`FullSet`].
+#[waymark_blanket_impl_macros::blanket_impl]
 pub trait Spec:
     waymark_vm_instructions_coreset::Spec
     + waymark_vm_instructions_extcallset::Spec<
@@ -15,17 +16,6 @@ pub trait Spec:
     > + waymark_vm_instructions_pureset::Spec<
         RegisterId = <Self as waymark_vm_instructions_coreset::Spec>::RegisterId,
     >
-{
-}
-
-impl<T> Spec for T where
-    T: waymark_vm_instructions_coreset::Spec
-        + waymark_vm_instructions_extcallset::Spec<
-            RegisterId = <Self as waymark_vm_instructions_coreset::Spec>::RegisterId,
-            StateId = <Self as waymark_vm_instructions_coreset::Spec>::StateId,
-        > + waymark_vm_instructions_pureset::Spec<
-            RegisterId = <Self as waymark_vm_instructions_coreset::Spec>::RegisterId,
-        >
 {
 }
 
