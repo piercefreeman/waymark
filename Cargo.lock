@@ -4430,6 +4430,7 @@ name = "waymark-metrics-util"
 version = "0.1.0"
 dependencies = [
  "metrics",
+ "metrics-util",
 ]
 
 [[package]]
