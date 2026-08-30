@@ -131,6 +131,10 @@ where
 
         info!(count = workers.len(), "worker pool ready");
 
+        metrics::gauge!("waymark_worker_process_pool_workers").set(worker_count.get() as f64);
+        metrics::gauge!("waymark_worker_process_pool_action_capacity")
+            .set((worker_count.get() * max_concurrent_per_worker.get()) as f64);
+
         let worker_id_sequence = AtomicU64::new(worker_id_sequence);
         let worker_ids = workers.iter().map(|worker| worker.id).collect();
         let action_counts = nevec_fn(worker_count, |_| AtomicU64::new(0));
@@ -250,7 +254,11 @@ impl<Spec> Pool<Spec> {
                 Ordering::AcqRel,
                 Ordering::Relaxed,
             ) {
-                Ok(_) => return true,
+                Ok(_) => {
+                    metrics::counter!("waymark_worker_process_pool_actions_acquired_total")
+                        .increment(1);
+                    return true;
+                }
                 Err(_) => continue, // Retry
             }
         }
@@ -267,6 +275,7 @@ impl<Spec> Pool<Spec> {
                 warn!(worker_idx, "release_slot called with zero in-flight count");
                 counter.store(0, Ordering::Release);
             }
+            metrics::counter!("waymark_worker_process_pool_actions_released_total").increment(1);
         }
     }
 
@@ -334,6 +343,12 @@ where
     {
         // Release the in-flight slot
         self.release_slot(worker_idx);
+        metrics::counter!("waymark_worker_process_pool_actions_completed_total").increment(1);
+        let unix_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        metrics::gauge!("waymark_worker_process_pool_last_action_completed_timestamp_seconds")
+            .set(unix_time.as_secs_f64());
 
         // Update throughput tracking
         if let Ok(mut metrics) = self.metrics.lock() {
@@ -539,6 +554,48 @@ mod tests {
         let values = nevec_fn(NonZeroUsize::new(4).expect("non-zero"), |index| index * 2);
 
         assert_eq!(values.iter().copied().collect::<Vec<_>>(), vec![0, 2, 4, 6]);
+    }
+
+    #[test]
+    fn slot_acquire_release_and_completion_count_on_the_recorder() {
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+
+        metrics::with_local_recorder(&recorder, || {
+            let pool = Arc::new(make_pool(1, 1));
+
+            assert!(pool.try_acquire_slot_for_worker(0));
+            assert!(!pool.try_acquire_slot_for_worker(0), "at capacity");
+            pool.record_completion(0, Arc::clone(&pool));
+        });
+
+        let snapshot = snapshotter.snapshot().into_vec();
+        let counter = |name: &str| -> u64 {
+            snapshot
+                .iter()
+                .find_map(|(key, _, _, value)| match value {
+                    metrics_util::debugging::DebugValue::Counter(value)
+                        if key.key().name() == name =>
+                    {
+                        Some(*value)
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("counter {name} not recorded"))
+        };
+
+        assert_eq!(
+            counter("waymark_worker_process_pool_actions_acquired_total"),
+            1
+        );
+        assert_eq!(
+            counter("waymark_worker_process_pool_actions_released_total"),
+            1
+        );
+        assert_eq!(
+            counter("waymark_worker_process_pool_actions_completed_total"),
+            1
+        );
     }
 
     #[test]
