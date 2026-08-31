@@ -145,7 +145,7 @@ impl waymark_scheduler_backend::RegisterScheduledVmRuntimes for PostgresBackend 
                 WHERE schedules.status = 'active'
                   AND schedules.next_run_at = input.expected_next_run_at
                 ORDER BY schedules.schedule_name
-                FOR UPDATE
+                FOR UPDATE OF schedules
             ),
             gated AS (
                 SELECT input.input_position,
