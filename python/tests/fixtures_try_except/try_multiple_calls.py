@@ -16,6 +16,11 @@ async def risky_step_two(value: str) -> str:
     return f"step2({value})"
 
 
+@action
+async def record_cleanup(value: str) -> str:
+    return value
+
+
 @workflow
 class TryMultipleCallsWorkflow(Workflow):
     """Workflow with try body containing multiple action calls.
@@ -31,3 +36,5 @@ class TryMultipleCallsWorkflow(Workflow):
             return b
         except ValueError:
             return "error"
+        finally:
+            await record_cleanup(value=value)

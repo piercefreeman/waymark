@@ -142,6 +142,7 @@ impl<'a> Fmt<'a, ast::Spanned<ast::Statement>> {
             ast::Statement::TryExcept {
                 handlers,
                 try_block,
+                finally_block,
             } => {
                 write_indent(f, padding)?;
                 f.write_str("try:\n")?;
@@ -165,6 +166,13 @@ impl<'a> Fmt<'a, ast::Spanned<ast::Statement>> {
 
                     f.write_str(":\n")?;
                     Fmt(&handler.value.body).padded_fmt(f, padding + 1)?;
+                }
+
+                if let Some(finally_block) = finally_block {
+                    f.write_str("\n")?;
+                    write_indent(f, padding)?;
+                    f.write_str("finally:\n")?;
+                    Fmt(finally_block).padded_fmt(f, padding + 1)?;
                 }
 
                 Ok(())

@@ -34,6 +34,9 @@ where
 
     /// Active exception-handler nesting depth for this block.
     exception_handler_depth: usize,
+
+    /// Finalizers crossed by control flow leaving the current block.
+    finally_scopes: Vec<FinallyScope>,
 }
 
 /// Whether a compiled branch terminates or continues with a flow state.
@@ -46,6 +49,16 @@ enum BranchBodyOutcome {
         /// Flow state observed when the branch reaches the continuation point.
         flow_state: FlowState,
     },
+}
+
+#[derive(Clone)]
+/// A finalizer and the handler depth outside its protected statement.
+struct FinallyScope {
+    /// Statements executed before control leaves the protected statement.
+    block: Spanned<Block>,
+
+    /// Handler depth restored before the finalizer executes.
+    exception_handler_depth: usize,
 }
 
 impl<'borrow, 'table, Spec, Lowering> StatementCompiler<'borrow, 'table, Spec, Lowering>
@@ -62,12 +75,19 @@ where
             context,
             loop_control,
             exception_handler_depth: 0,
+            finally_scopes: Vec::new(),
         }
     }
 
     /// Returns a compiler configured with the provided active handler depth.
     pub fn with_exception_handler_depth(mut self, exception_handler_depth: usize) -> Self {
         self.exception_handler_depth = exception_handler_depth;
+        self
+    }
+
+    /// Adds one finalizer around blocks compiled by this compiler.
+    fn with_finally_scope(mut self, finally_scope: FinallyScope) -> Self {
+        self.finally_scopes.push(finally_scope);
         self
     }
 
@@ -111,7 +131,7 @@ where
                 self.compile_spread_action(collection, loop_var, call)?;
             }
             StatementPlan::Return { value } => {
-                self.value_compiler().compile_return_statement(value)?;
+                self.compile_return(value)?;
             }
             StatementPlan::Expr { expr } => {
                 self.value_compiler().compile_expression_statement(expr)?;
@@ -142,8 +162,9 @@ where
             StatementPlan::TryExcept {
                 handlers,
                 try_block,
+                finally_block,
             } => {
-                self.compile_try_except(handlers, try_block)?;
+                self.compile_try_except(handlers, try_block, finally_block)?;
             }
             StatementPlan::Break => {
                 self.compile_break()?;
@@ -161,6 +182,7 @@ where
         &mut self,
         handlers: &[Spanned<ExceptHandler>],
         try_block: &Spanned<Block>,
+        finally_block: Option<&Spanned<Block>>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         let incoming_flow = self.context.flow_state.clone();
         let join_state = self.new_state();
@@ -168,6 +190,11 @@ where
             .iter()
             .map(|_| self.new_state())
             .collect::<Vec<_>>();
+        let exception_finally = finally_block.map(|finally_block| {
+            let exception_finally_state = self.new_state();
+            let exception_register = self.context.local_frame.allocate_register();
+            (finally_block, exception_finally_state, exception_register)
+        });
         let mut try_handlers = Vec::with_capacity(handlers.len());
 
         for (handler, handler_state) in handlers.iter().zip(handler_states.iter().copied()) {
@@ -189,23 +216,50 @@ where
                 exception_dst,
             });
         }
-        let try_exception_handler_depth = self.exception_handler_depth + 1;
-        let mut continuation_flows: Option<NEVec<FlowState>> = None;
+        if let Some((_, exception_finally_state, exception_register)) = exception_finally {
+            self.context.emitter.emit_push_exception_handlers(vec![
+                waymark_vm_exception_handler::ExceptionHandler {
+                    handler_state: exception_finally_state,
+                    exception_types: Vec::new(),
+                    exception_dst: Some(exception_register),
+                },
+            ]);
+        }
+        if !try_handlers.is_empty() {
+            self.context
+                .emitter
+                .emit_push_exception_handlers(try_handlers);
+        }
 
-        self.context
-            .emitter
-            .emit_push_exception_handlers(try_handlers);
+        let finally_scope = finally_block.map(|finally_block| FinallyScope {
+            block: finally_block.clone(),
+            exception_handler_depth: self.exception_handler_depth,
+        });
+        let try_exception_handler_depth = self.exception_handler_depth
+            + usize::from(finally_block.is_some())
+            + usize::from(!handlers.is_empty());
+        let handler_exception_handler_depth =
+            self.exception_handler_depth + usize::from(finally_block.is_some());
+        let mut continuation_flows: Option<NEVec<FlowState>> = None;
 
         {
             let mut try_compiler = self
                 .nested_statement_compiler(self.loop_control.clone())
                 .with_exception_handler_depth(try_exception_handler_depth);
+            if let Some(finally_scope) = finally_scope.clone() {
+                try_compiler = try_compiler.with_finally_scope(finally_scope);
+            }
             try_compiler.compile_block(try_block)?;
         }
 
         if self.context.emitter.is_active() {
             let flow_state = self.context.flow_state.clone();
-            self.context.emitter.emit_pop_exception_handlers(1);
+            let handler_count = try_exception_handler_depth - self.exception_handler_depth;
+            if handler_count > 0 {
+                self.context
+                    .emitter
+                    .emit_pop_exception_handlers(handler_count);
+            }
             self.context.emitter.emit_jump(join_state);
             continuation_flows = Some(NEVec::new(flow_state));
         }
@@ -222,13 +276,20 @@ where
             }
 
             {
-                let mut handler_compiler =
-                    self.nested_statement_compiler(self.loop_control.clone());
+                let mut handler_compiler = self
+                    .nested_statement_compiler(self.loop_control.clone())
+                    .with_exception_handler_depth(handler_exception_handler_depth);
+                if let Some(finally_scope) = finally_scope.clone() {
+                    handler_compiler = handler_compiler.with_finally_scope(finally_scope);
+                }
                 handler_compiler.compile_block(&handler.value.body)?;
             }
 
             if self.context.emitter.is_active() {
                 let flow_state = self.context.flow_state.clone();
+                if finally_block.is_some() {
+                    self.context.emitter.emit_pop_exception_handlers(1);
+                }
                 self.context.emitter.emit_jump(join_state);
 
                 match &mut continuation_flows {
@@ -238,8 +299,23 @@ where
             }
         }
 
+        if let Some((finally_block, exception_finally_state, exception_register)) =
+            exception_finally
+        {
+            self.switch_to_with_flow(exception_finally_state, incoming_flow);
+            self.nested_statement_compiler(self.loop_control.clone())
+                .compile_block(finally_block)?;
+            if self.context.emitter.is_active() {
+                self.context.emitter.emit_raise(exception_register);
+            }
+        }
+
         if let Some(continuation_flows) = continuation_flows {
             self.switch_to_with_flow(join_state, FlowState::union_branches(continuation_flows));
+            if let Some(finally_block) = finally_block {
+                self.nested_statement_compiler(self.loop_control.clone())
+                    .compile_block(finally_block)?;
+            }
         }
 
         Ok(())
@@ -446,8 +522,61 @@ where
             return Err(Error::LoopControlOutsideLoop { kind });
         };
 
-        self.emit_pop_exception_handlers_to(loop_scope.exception_handler_depth());
-        self.context.emitter.emit_jump(loop_scope.target(kind));
+        self.compile_pending_finally_to(loop_scope.exception_handler_depth())?;
+        if self.context.emitter.is_active() {
+            self.context.emitter.emit_jump(loop_scope.target(kind));
+        }
+        Ok(())
+    }
+
+    /// Compiles a return, running active finalizers before emitting it.
+    fn compile_return(
+        &mut self,
+        value: Option<&Spanned<Expr>>,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        if self.finally_scopes.is_empty() {
+            return self.value_compiler().compile_return_statement(value);
+        }
+
+        let return_register = match value {
+            Some(value) => {
+                let source = self
+                    .value_compiler()
+                    .compile_expr(value, super::value::ResultTarget::Allocate)?;
+                let source_register = source.register();
+                self.value_compiler()
+                    .unalias_source(source, [source_register])
+            }
+            None => self.value_compiler().compile_none_literal()?,
+        };
+
+        self.compile_pending_finally_to(0)?;
+        if self.context.emitter.is_active() {
+            self.context.emitter.emit_return(return_register.register());
+        }
+        Ok(())
+    }
+
+    /// Runs finalizers crossed while unwinding to `target_exception_handler_depth`.
+    fn compile_pending_finally_to(
+        &mut self,
+        target_exception_handler_depth: usize,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        while self.finally_scopes.last().is_some_and(|finally_scope| {
+            finally_scope.exception_handler_depth >= target_exception_handler_depth
+        }) {
+            let finally_scope = self
+                .finally_scopes
+                .pop()
+                .expect("finally scope should exist");
+            self.emit_pop_exception_handlers_to(finally_scope.exception_handler_depth);
+            self.compile_block(&finally_scope.block)?;
+            if !self.context.emitter.is_active() {
+                return Ok(());
+            }
+        }
+
+        self.emit_pop_exception_handlers_to(target_exception_handler_depth);
         Ok(())
     }
 
@@ -458,6 +587,7 @@ where
             && count > 0
         {
             self.context.emitter.emit_pop_exception_handlers(count);
+            self.exception_handler_depth = target_depth;
         }
     }
 
@@ -490,8 +620,10 @@ where
         &mut self,
         loop_control: LoopControlStack,
     ) -> StatementCompiler<'_, 'table, Spec, Lowering> {
-        StatementCompiler::new(self.context.reborrow_mut(), loop_control)
-            .with_exception_handler_depth(self.exception_handler_depth)
+        let mut compiler = StatementCompiler::new(self.context.reborrow_mut(), loop_control)
+            .with_exception_handler_depth(self.exception_handler_depth);
+        compiler.finally_scopes = self.finally_scopes.clone();
+        compiler
     }
 }
 

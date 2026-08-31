@@ -291,6 +291,7 @@ Program {
                                             end_col: 52,
                                         },
                                     },
+                                    finally_block: None,
                                 },
                                 span: Span {
                                     start_line: 2,

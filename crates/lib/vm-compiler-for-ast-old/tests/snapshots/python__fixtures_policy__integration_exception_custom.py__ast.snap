@@ -184,6 +184,7 @@ Program {
                                             end_col: 55,
                                         },
                                     },
+                                    finally_block: None,
                                 },
                                 span: Span {
                                     start_line: 2,

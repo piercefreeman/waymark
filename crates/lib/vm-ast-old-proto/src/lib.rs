@@ -126,6 +126,9 @@ impl Convert<ast::Statement> for Converter {
                 vm_ast::Statement::TryExcept {
                     handlers,
                     try_block: convert_required(try_except.try_block, "TryExcept.try_block")?,
+                    finally_block: convert_optional_owned::<ast::Block, _>(
+                        try_except.finally_block,
+                    )?,
                 }
             }
             ast::statement::Kind::ReturnStmt(ret) => vm_ast::Statement::Return {
