@@ -10,7 +10,7 @@ use waymark_sleep_reconciler_backend::{
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use super::super::test_helpers::{register_test_vm, setup_backend};
+use super::super::test_helpers::{deadlock, register_test_vm, setup_backend};
 use super::error::RecordError;
 
 fn record(
@@ -246,4 +246,76 @@ async fn snapshot_delete_sweeps_all_rows_of_the_vm_only() {
         .await
         .expect("poll");
     assert_eq!(polled[..], [key(vm_b, 1)]);
+}
+
+/// One choreographed collision of the sleep-ack DELETE and the
+/// snapshot-cleanup trigger's sleep sweep over the same two sleep rows —
+/// the sleeps-table sweep pairing of the multi-row-writer class behind
+/// the 2026-08-31 deadlock outage.
+///
+/// The staging, plan-shape seeding, and contract are those of
+/// `complete_and_renew_across_a_staged_row` in
+/// `action_call_requests::tests`; the sweep's lock order is not
+/// input-driven — it walks the whole VM — so the mirroring axis is the
+/// ack batch's order plus which row is staged.
+async fn ack_and_sweep_across_a_staged_row(ack_order: [usize; 2]) {
+    let backend = setup_backend().await;
+    let (vm, _) = register_test_vm(&backend).await;
+    let wake = Utc::now() - Duration::hours(1);
+
+    let records =
+        NEVec::try_from_vec(vec![record(vm, 1, 10, wake), record(vm, 2, 11, wake)]).unwrap();
+    backend
+        .record_sleeps(records.as_nonempty_slice())
+        .await
+        .expect("record sleeps");
+
+    deadlock::seed_filler_rows(backend.pool(), deadlock::SweptTable::SleepRequests).await;
+
+    // Pre-hold the ack batch's first row.
+    let staged = ack_order[0];
+    let staging = deadlock::hold_row_for_update(
+        backend.pool(),
+        deadlock::SweptTable::SleepRequests,
+        vm,
+        staged,
+    )
+    .await;
+
+    // The ack first: it must be the head of the staged row's wait queue,
+    // so releasing hands the row to it and not to the sweep queued later.
+    let ack_backend = backend.clone();
+    let ack_task = tokio::spawn(async move {
+        let keys = NEVec::try_from_vec(ack_order.iter().map(|&promise| key(vm, promise)).collect())
+            .unwrap();
+        ack_backend.ack_sleeps(keys.as_nonempty_slice()).await
+    });
+    deadlock::wait_until_lock_blocked(backend.pool(), "%DELETE FROM sleep_requests%").await;
+
+    // The sweep's sleep-table pass contends the same two rows.
+    let sweep_task = deadlock::spawn_snapshot_sweep(backend.pool(), vec![vm]);
+    deadlock::wait_until_lock_blocked(backend.pool(), deadlock::SNAPSHOT_SWEEP_PATTERN).await;
+
+    staging.rollback().await.expect("release staged row");
+
+    ack_task
+        .await
+        .expect("join ack")
+        .expect("acking sleeps must not deadlock against the snapshot sweep");
+    sweep_task
+        .await
+        .expect("join sweep")
+        .expect("the snapshot sweep must not deadlock against sleep acks");
+}
+
+#[serial(postgres)]
+#[tokio::test]
+async fn concurrent_ack_and_snapshot_sweep_do_not_deadlock() {
+    // Both ack orders, with the staged row tracking the ack's first key.
+    // These runs pin the ACK side's discipline only: a single-VM sweep
+    // locks its rows in primary-key order under every realizable plan,
+    // so the trigger side cannot regress visibly here — the multi-VM
+    // sweep test in `action_call_requests::tests` covers it.
+    ack_and_sweep_across_a_staged_row([2, 1]).await;
+    ack_and_sweep_across_a_staged_row([1, 2]).await;
 }
