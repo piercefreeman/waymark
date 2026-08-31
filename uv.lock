@@ -705,32 +705,14 @@ wheels = [
 
 [[package]]
 name = "mountaineer-di"
-version = "0.1.0"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.12'",
-]
 dependencies = [
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/12/85/c2916fc2f76cc579038ab52b999e792d7fcb5a5dc7b3aba0f3270a1427d5/mountaineer_di-0.1.0.tar.gz", hash = "sha256:ad2e14c08b853eac2e26b1a4a6745adc729d534029b4cce1178e96102a7129a1", size = 29429, upload-time = "2026-03-30T03:22:45.746Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5a/9f/4220d35915f063ff284243cf33406a4f6b1f7f1c2e9edb8158edb890e113/mountaineer_di-0.3.0.tar.gz", hash = "sha256:b0e95cff4b9e3d0afd9063c7508b9a13aad447b6d158a740fc85afd99d159147", size = 46421, upload-time = "2026-08-31T22:35:40.831Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/48/ad565bc77d861df005de5ccdd05505c80caf82acdbd11c8efbc6e3354fc4/mountaineer_di-0.1.0-py3-none-any.whl", hash = "sha256:529e26b7887d8634216e7e79f523b725f8151821d94dd729c4f2ec954c0ddde8", size = 10224, upload-time = "2026-03-30T03:22:44.606Z" },
-]
-
-[[package]]
-name = "mountaineer-di"
-version = "0.1.2"
-source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version < '3.12'",
-]
-dependencies = [
-    { name = "pydantic" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/14/1990a29b4e945cb61ddee58d030dac0692a62c322d8d3facec3cb9932606/mountaineer_di-0.1.2.tar.gz", hash = "sha256:22e144e79d1aeefebd9989bcd7c63d2632396fdf5f7f6fa165343922a736260a", size = 30449, upload-time = "2026-03-30T03:36:20.36Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a2/3e/e3e7efb91a76a1cdfb5f2b2a827c9b0fe4e361b3fbaf8cfc1bf94679cf0b/mountaineer_di-0.1.2-py3-none-any.whl", hash = "sha256:8a87bd119db9c4b812fa7f992e1659b3c84e8819842393abd3dd63fba66c31cf", size = 10225, upload-time = "2026-03-30T03:36:19.033Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/56/7ced07ef849899bd1c89e8bf2ed9cc269e04e877a988a934d0d73ec9fdf6/mountaineer_di-0.3.0-py3-none-any.whl", hash = "sha256:42481ab3a62dcd6082a983214b7ed7d957a17914ed2297d519a3369fa32ef2a4", size = 12624, upload-time = "2026-08-31T22:35:39.527Z" },
 ]
 
 [[package]]
@@ -1429,8 +1411,7 @@ source = { editable = "python" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },
-    { name = "mountaineer-di", version = "0.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "mountaineer-di", version = "0.1.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "mountaineer-di" },
     { name = "protobuf" },
     { name = "pydantic" },
 ]

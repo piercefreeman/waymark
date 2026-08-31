@@ -1,5 +1,3 @@
-from typing import Any, Callable
-
 from mountaineer_di import (
     DependencyResolver,
     Depends,
@@ -11,16 +9,7 @@ from mountaineer_di import (
 
 DependMarker = type(Depends())
 DependsMarker = DependMarker
-
-
-def Depend(  # noqa: N802
-    dependency: Callable[..., Any] | None = None,
-    *,
-    use_cache: bool = True,
-) -> Any:
-    """Compatibility alias for ``mountaineer_di.Depends``."""
-
-    return Depends(dependency, use_cache=use_cache)
+Depend = Depends
 
 
 __all__ = [
