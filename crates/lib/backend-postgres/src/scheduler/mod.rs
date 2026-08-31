@@ -130,6 +130,23 @@ impl waymark_scheduler_backend::RegisterScheduledVmRuntimes for PostgresBackend 
                     WITH ORDINALITY
                     AS t(schedule_name, expected_next_run_at, vm_id, new_next_run_at, check_overlap, input_position)
             ),
+            -- Canonical lock order (see the renewal statement in
+            -- action_call_requests): concurrent registrars with
+            -- overlapping due batches are the DESIGNED normal case, so
+            -- take the row locks in primary-key order before the fenced
+            -- update.  A row whose fence moved while we waited is
+            -- requalified out of `locked` but its lock is still held, so
+            -- `advanced`'s own re-check below never acquires out of
+            -- order.
+            locked AS MATERIALIZED (
+                SELECT schedules.schedule_name
+                FROM schedules
+                JOIN input ON schedules.schedule_name = input.schedule_name
+                WHERE schedules.status = 'active'
+                  AND schedules.next_run_at = input.expected_next_run_at
+                ORDER BY schedules.schedule_name
+                FOR UPDATE
+            ),
             gated AS (
                 SELECT input.input_position,
                        input.schedule_name,
@@ -152,6 +169,7 @@ impl waymark_scheduler_backend::RegisterScheduledVmRuntimes for PostgresBackend 
                        ) AS blocked
                 FROM schedules
                 JOIN input ON schedules.schedule_name = input.schedule_name
+                JOIN locked ON locked.schedule_name = schedules.schedule_name
                 WHERE schedules.status = 'active'
                   AND schedules.next_run_at = input.expected_next_run_at
             ),
