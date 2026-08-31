@@ -29,8 +29,11 @@ pub struct Config {
 /// Spawn the scheduler's firing loop.
 ///
 /// The task runs until `shutdown_token` is cancelled or the loop stops
-/// on a critical backend failure (logged as an error; the rest of the
-/// process is unaffected — schedules simply stop firing until restart).
+/// on persistent backend failure (isolated failures are retried inside
+/// the loop; the stop is logged as an error). Any exit of the task
+/// cancels `shutdown_token` via a drop guard, so how far the death
+/// reaches — nothing, a subsystem, the whole process — is decided by
+/// the token the caller passes.
 pub fn start<Backend>(
     config: Config,
     backend: Arc<Backend>,
@@ -46,6 +49,11 @@ where
     <Backend as waymark_scheduler_backend::RegisterScheduledVmRuntimes>::Error: std::fmt::Display,
 {
     tokio::spawn(async move {
+        // Any exit of this task — the loop stopping, a panic, an abort
+        // — cancels the token it was given (a no-op when shutdown was
+        // already requested). How far that reaches is the caller's
+        // choice of token.
+        let _shutdown_guard = shutdown_token.clone().drop_guard();
         let params = waymark_scheduler::Params {
             backend,
             codec: Arc::new(waymark_vm_codec_rmp::RmpCodec),
@@ -56,9 +64,9 @@ where
         tokio::select! {
             result = waymark_scheduler::run(params) => {
                 // The loop's success type is uninhabited: finishing
-                // means failing.
+                // means failing persistently.
                 let Err(err) = result;
-                tracing::error!(%err, "scheduler loop stopped on a critical failure");
+                tracing::error!(%err, "scheduler loop stopped on persistent backend failure");
             }
             () = shutdown_token.cancelled() => {
                 tracing::info!("scheduler stopped");
