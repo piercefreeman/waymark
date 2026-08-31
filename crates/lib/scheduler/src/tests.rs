@@ -4,6 +4,7 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use chrono::TimeZone as _;
 use nonempty_collections::{NEVec, nev};
 
+use waymark_scheduler_backend::poll_due_schedules::DueSchedule;
 use waymark_scheduler_backend::register_scheduled_vm_runtimes::Outcome;
 use waymark_scheduler_backend::{PollDueSchedules, RegisterScheduledVmRuntimes};
 use waymark_scheduler_core::{CronExpression, Schedule, ScheduleDefinition};
@@ -226,6 +227,203 @@ async fn an_all_skipped_batch_registers_nothing() {
     process(&backend, &due).await;
 
     assert!(backend.recorded_calls().is_empty());
+}
+
+/// Error type for the mocked flaky backend.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("mock backend failure")]
+struct MockError;
+
+mockall::mock! {
+    FlakyBackend {
+        fn poll_due_schedules(
+            &self,
+            now: chrono::DateTime<chrono::Utc>,
+            max_items: NonZeroUsize,
+        ) -> impl std::future::Future<
+            Output = Result<
+                Option<NEVec<DueSchedule<u32, chrono::DateTime<chrono::Utc>>>>,
+                MockError,
+            >,
+        > + Send;
+
+        fn register_scheduled_vm_runtimes(
+            &self,
+            schedule_names: Vec<String>,
+        ) -> impl std::future::Future<Output = Result<NEVec<Outcome>, MockError>> + Send;
+    }
+}
+
+impl waymark_scheduler_backend::HasVmId for MockFlakyBackend {
+    type VmId = u32;
+}
+
+impl waymark_scheduler_backend::HasTimestamp for MockFlakyBackend {
+    type Timestamp = chrono::DateTime<chrono::Utc>;
+}
+
+impl PollDueSchedules for MockFlakyBackend {
+    type Error = MockError;
+
+    async fn poll_due_schedules(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+        max_items: NonZeroUsize,
+    ) -> Result<
+        Option<NEVec<waymark_scheduler_backend::poll_due_schedules::DueScheduleFor<Self>>>,
+        Self::Error,
+    > {
+        self.poll_due_schedules(now, max_items).await
+    }
+}
+
+impl RegisterScheduledVmRuntimes for MockFlakyBackend {
+    type Error = MockError;
+
+    async fn register_scheduled_vm_runtimes<'a>(
+        &'a self,
+        items: nonempty_collections::NESlice<
+            'a,
+            waymark_scheduler_backend::register_scheduled_vm_runtimes::Item<
+                'a,
+                u32,
+                chrono::DateTime<chrono::Utc>,
+            >,
+        >,
+    ) -> Result<NEVec<Outcome>, Self::Error> {
+        // The mock takes owned names: mockall expectations cannot store
+        // matchers over the borrowed items.
+        let names = items
+            .iter()
+            .map(|item| item.schedule_name.to_string())
+            .collect();
+        self.register_scheduled_vm_runtimes(names).await
+    }
+}
+
+/// One due row for the flaky-backend scripts.
+fn flaky_due_row() -> DueSchedule<u32, chrono::DateTime<chrono::Utc>> {
+    due_row("flaky", interval_definition(3600, true), at(11, 0))
+}
+
+fn loop_params(
+    backend: MockFlakyBackend,
+) -> super::Params<MockFlakyBackend, waymark_vm_codec_rmp::RmpCodec, impl Fn() -> u32 + use<>> {
+    super::Params {
+        backend: std::sync::Arc::new(backend),
+        codec: std::sync::Arc::new(waymark_vm_codec_rmp::RmpCodec),
+        mint_vm_id_fn: sequential_mint(),
+        poll_interval: waymark_nonzero_duration::NonZeroDuration::new(
+            std::time::Duration::from_secs(1),
+        )
+        .unwrap(),
+        max_items: NonZeroUsize::new(10).unwrap(),
+    }
+}
+
+/// The loop must ride out isolated backend failures — one failed poll
+/// and one failed registration, each retried next interval — with the
+/// batch landing on the second registration attempt, instead of
+/// stopping on the first backend error (the pre-fix behavior, which
+/// left schedules silently unfired until restart). The paused clock
+/// auto-advances the retry sleeps, so the script plays out instantly
+/// and deterministically; the timeout elapsing is the liveness proof,
+/// and dropping the mock verifies the whole arc ran.
+#[tokio::test(start_paused = true)]
+async fn the_loop_rides_out_isolated_backend_failures() {
+    let mut backend = MockFlakyBackend::new();
+    let mut seq = mockall::Sequence::new();
+    backend
+        .expect_poll_due_schedules()
+        .times(1)
+        .in_sequence(&mut seq)
+        .returning(|_, _| Box::pin(std::future::ready(Err(MockError))));
+    backend
+        .expect_poll_due_schedules()
+        .times(1)
+        .in_sequence(&mut seq)
+        .returning(|_, _| Box::pin(std::future::ready(Ok(Some(nev![flaky_due_row()])))));
+    backend
+        .expect_register_scheduled_vm_runtimes()
+        .times(1)
+        .in_sequence(&mut seq)
+        .returning(|_| Box::pin(std::future::ready(Err(MockError))));
+    // The failed batch's row stayed due and is served again.
+    backend
+        .expect_poll_due_schedules()
+        .times(1)
+        .in_sequence(&mut seq)
+        .returning(|_, _| Box::pin(std::future::ready(Ok(Some(nev![flaky_due_row()])))));
+    backend
+        .expect_register_scheduled_vm_runtimes()
+        .times(1)
+        .in_sequence(&mut seq)
+        .returning(|_| Box::pin(std::future::ready(Ok(nev![Outcome::Registered]))));
+    backend
+        .expect_poll_due_schedules()
+        .returning(|_, _| Box::pin(std::future::ready(Ok(None))));
+
+    let lived = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        super::run(loop_params(backend)),
+    )
+    .await;
+    assert!(
+        lived.is_err(),
+        "isolated backend failures must not stop the loop"
+    );
+}
+
+/// Persistently failing polls must stop the loop with the poll error
+/// after exactly [`super::MAX_CONSECUTIVE_FAILURES`] attempts — the
+/// binary turns that stop into a loud process exit. Registration has
+/// no expectation: reaching it fails the test.
+#[tokio::test(start_paused = true)]
+async fn persistent_poll_failure_stops_the_loop() {
+    let mut backend = MockFlakyBackend::new();
+    backend
+        .expect_poll_due_schedules()
+        .times(super::MAX_CONSECUTIVE_FAILURES)
+        .returning(|_, _| Box::pin(std::future::ready(Err(MockError))));
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(600),
+        super::run(loop_params(backend)),
+    )
+    .await
+    .expect("the loop must stop within its retry budget");
+
+    // The success type is uninhabited: completing means failing.
+    let Err(error) = result;
+    assert!(matches!(error, super::Error::Poll(MockError)));
+}
+
+/// Persistently failing registrations must stop the loop with the
+/// register error after exactly [`super::MAX_CONSECUTIVE_FAILURES`]
+/// attempts — the healthy poll before each attempt keeps serving the
+/// still-due row and must not reset the registration failure streak.
+#[tokio::test(start_paused = true)]
+async fn persistent_registration_failure_stops_the_loop() {
+    let mut backend = MockFlakyBackend::new();
+    backend
+        .expect_poll_due_schedules()
+        .times(super::MAX_CONSECUTIVE_FAILURES)
+        .returning(|_, _| Box::pin(std::future::ready(Ok(Some(nev![flaky_due_row()])))));
+    backend
+        .expect_register_scheduled_vm_runtimes()
+        .times(super::MAX_CONSECUTIVE_FAILURES)
+        .returning(|_| Box::pin(std::future::ready(Err(MockError))));
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(600),
+        super::run(loop_params(backend)),
+    )
+    .await
+    .expect("the loop must stop within its retry budget");
+
+    // The success type is uninhabited: completing means failing.
+    let Err(error) = result;
+    assert!(matches!(error, super::Error::Register(MockError)));
 }
 
 #[tokio::test]
