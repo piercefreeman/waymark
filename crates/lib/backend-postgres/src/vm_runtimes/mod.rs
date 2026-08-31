@@ -47,9 +47,23 @@ impl waymark_state_vm_runtimes_backend::StoreSnapshots for PostgresBackend {
         // a benign no-op, so `rows_affected` is not inspected.
         sqlx::query(
             r#"
+            -- Canonical lock order (see the renewal statement in
+            -- action_call_requests): overlapping snapshot writes are only
+            -- reachable cross-node in the post-steal dual-ownership
+            -- window, but the day a batched snapshot delete lands this
+            -- table gains a second multi-row writer — locked in primary
+            -- key order now so that day needs no retrofit.
+            WITH locked AS MATERIALIZED (
+                SELECT s.vm_id
+                FROM vm_runtime_snapshots s
+                JOIN UNNEST($1::uuid[]) AS b(vm_id) ON s.vm_id = b.vm_id
+                ORDER BY s.vm_id
+                FOR UPDATE OF s
+            )
             UPDATE vm_runtime_snapshots AS s
             SET snapshot = b.snapshot, updated_at = NOW()
             FROM UNNEST($1::uuid[], $2::bytea[]) AS b(vm_id, snapshot)
+            JOIN locked l ON l.vm_id = b.vm_id
             WHERE s.vm_id = b.vm_id
             "#,
         )
