@@ -1261,6 +1261,9 @@ impl IRParser {
             handlers.push(handler);
         }
 
+        // In the text IR, `finally:` follows `except` at the same indentation as
+        // `try`; in the AST, `TryExcept.finally_block` stores only its indented
+        // body. Consume that sibling header before parsing the child block.
         let finally_block = if self.index < self.lines.len()
             && self.indent_level(&self.current_line())? == indent_level
             && self.current_line().trim() == "finally:"
