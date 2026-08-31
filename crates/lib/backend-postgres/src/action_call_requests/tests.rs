@@ -757,23 +757,15 @@ async fn renew_and_sweep_across_a_staged_row(renewal_order: [usize; 2]) {
             .renew_action_call_request_locks(Utc::now(), live_lock(owner), keys.as_nonempty_slice())
             .await
     });
-    deadlock::wait_until_lock_blocked(backend.pool(), "%WITH input(vm_id, promise_state_id)%")
-        .await;
-
-    // The sweep's requests pass contends the same two rows.
-    let sweep_task = deadlock::spawn_snapshot_sweep(backend.pool(), vec![vm]);
-    deadlock::wait_until_lock_blocked(backend.pool(), deadlock::SNAPSHOT_SWEEP_PATTERN).await;
-
-    staging.rollback().await.expect("release staged row");
-
-    renewal_task
-        .await
-        .expect("join renewal")
-        .expect("renewing locks must not deadlock against the snapshot sweep");
-    sweep_task
-        .await
-        .expect("join sweep")
-        .expect("the snapshot sweep must not deadlock against lock renewal");
+    deadlock::contend_op_with_snapshot_sweep(
+        backend.pool(),
+        staging,
+        "renewal",
+        renewal_task,
+        "%WITH input(vm_id, promise_state_id)%",
+        vm,
+    )
+    .await;
 }
 
 #[serial(postgres)]

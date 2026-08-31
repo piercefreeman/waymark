@@ -26,6 +26,18 @@ pub(crate) enum SweptTable {
 /// (~1KB), so match on text near the FRONT of the statement, never on a
 /// fragment that sits past the first kilobyte.
 pub(crate) async fn wait_until_lock_blocked(pool: &sqlx::PgPool, query_pattern: &str) {
+    wait_until_lock_blocked_at_least(pool, query_pattern, std::num::NonZeroI64::new(1).unwrap())
+        .await;
+}
+
+/// [`wait_until_lock_blocked`] for `count` concurrently blocked
+/// statements matching the pattern — for choreographies whose two
+/// contenders run the same statement text.
+pub(crate) async fn wait_until_lock_blocked_at_least(
+    pool: &sqlx::PgPool,
+    query_pattern: &str,
+    count: std::num::NonZeroI64,
+) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
         let waiting: i64 = sqlx::query_scalar(
@@ -40,7 +52,7 @@ pub(crate) async fn wait_until_lock_blocked(pool: &sqlx::PgPool, query_pattern: 
         .fetch_one(pool)
         .await
         .expect("poll pg_stat_activity");
-        if waiting > 0 {
+        if waiting >= count.get() {
             return;
         }
         assert!(
@@ -159,4 +171,33 @@ pub(crate) fn spawn_snapshot_sweep(
             .execute(&pool)
             .await
     })
+}
+
+/// The shared tail of the single-VM op-versus-sweep choreographies: the
+/// caller has spawned the op task with the staged row as its first
+/// contact; this waits for it to become the staged row's first waiter,
+/// queues the VM's snapshot sweep behind it, releases the staged row so
+/// the two advance into each other, and requires both to succeed.
+pub(crate) async fn contend_op_with_snapshot_sweep<T, OpError: core::fmt::Debug>(
+    pool: &sqlx::PgPool,
+    staging: sqlx::Transaction<'_, sqlx::Postgres>,
+    op_name: &str,
+    op_task: tokio::task::JoinHandle<Result<T, OpError>>,
+    op_pattern: &str,
+    sweep_vm: InstanceId,
+) {
+    wait_until_lock_blocked(pool, op_pattern).await;
+
+    let sweep_task = spawn_snapshot_sweep(pool, vec![sweep_vm]);
+    wait_until_lock_blocked(pool, SNAPSHOT_SWEEP_PATTERN).await;
+
+    staging.rollback().await.expect("release staged row");
+
+    if let Err(error) = op_task.await.expect("join the op") {
+        panic!("the {op_name} must not deadlock against the snapshot sweep: {error:?}");
+    }
+    sweep_task
+        .await
+        .expect("join the sweep")
+        .expect("the snapshot sweep must not deadlock against the op");
 }
