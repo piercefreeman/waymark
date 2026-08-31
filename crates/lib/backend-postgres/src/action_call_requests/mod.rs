@@ -120,6 +120,11 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
             SELECT t.*, $5, NOW() + ($6 * interval '1 microsecond')
             FROM UNNEST($1::uuid[], $2::bigint[], $3::bigint[], $4::bytea[])
                 AS t(vm_id, promise_state_id, effect_number, request)
+            -- Canonical lock order: replayed keys contend on existing
+            -- rows through the conflict arbiter, so insert in primary
+            -- key order like every other multi-row writer on the
+            -- trigger-swept tables.
+            ORDER BY t.vm_id, t.promise_state_id
             ON CONFLICT (vm_id, promise_state_id) DO NOTHING
             RETURNING vm_id, promise_state_id
             "#,
@@ -239,10 +244,25 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
         );
         let locked_rows = sqlx::query(
             r#"
-            UPDATE action_call_requests
+            -- Canonical lock order: take every target row lock in
+            -- primary key order before mutating, so multi-row writers
+            -- can never deadlock with each other on overlapping sets.
+            -- The FOR UPDATE requalifies the predicate on the current
+            -- row version after a lock wait, so a row renewed while we
+            -- waited correctly drops out.
+            WITH locked AS MATERIALIZED (
+                SELECT r.vm_id, r.promise_state_id
+                FROM action_call_requests r
+                WHERE r.vm_id = ANY($1)
+                    AND (r.locked_by IS NULL OR r.lock_expires_at <= NOW())
+                ORDER BY r.vm_id, r.promise_state_id
+                FOR UPDATE
+            )
+            UPDATE action_call_requests r
             SET locked_by = $2, lock_expires_at = NOW() + ($3 * interval '1 microsecond')
-            WHERE vm_id = ANY($1) AND (locked_by IS NULL OR lock_expires_at <= NOW())
-            RETURNING vm_id, promise_state_id, effect_number, request
+            FROM locked l
+            WHERE r.vm_id = l.vm_id AND r.promise_state_id = l.promise_state_id
+            RETURNING r.vm_id, r.promise_state_id, r.effect_number, r.request
             "#,
         )
         .bind(vm_ids.as_ref())
@@ -347,13 +367,31 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
             WITH input(vm_id, promise_state_id) AS (
                 SELECT * FROM UNNEST($1::uuid[], $2::bigint[])
             ),
+            -- Canonical lock order: take every target row lock in
+            -- primary key order before mutating, so multi-row writers
+            -- can never deadlock with each other on overlapping sets.
+            -- The ownership predicate lives here — a locked row is ours
+            -- as long as we hold its lock, so the update needs no
+            -- re-check.  FOR UPDATE is stronger than the FOR NO KEY
+            -- UPDATE a plain UPDATE takes implicitly; nothing references
+            -- these tables by foreign key (0020 rejects them), so
+            -- nothing can newly block — revisit the strength if an FK
+            -- ever appears.
+            locked AS MATERIALIZED (
+                SELECT r.vm_id, r.promise_state_id
+                FROM action_call_requests r
+                JOIN input i
+                    ON r.vm_id = i.vm_id AND r.promise_state_id = i.promise_state_id
+                WHERE r.locked_by = $3
+                ORDER BY r.vm_id, r.promise_state_id
+                FOR UPDATE OF r
+            ),
             renewed AS (
                 UPDATE action_call_requests r
                 SET lock_expires_at = NOW() + ($4 * interval '1 microsecond')
-                FROM input i
-                WHERE r.vm_id = i.vm_id
-                    AND r.promise_state_id = i.promise_state_id
-                    AND r.locked_by = $3
+                FROM locked l
+                WHERE r.vm_id = l.vm_id
+                    AND r.promise_state_id = l.promise_state_id
                 RETURNING r.vm_id, r.promise_state_id
             )
             SELECT i.vm_id, i.promise_state_id,
@@ -481,12 +519,21 @@ impl waymark_action_effect_reconciler_backend::UnlockActionCallRequests for Post
         );
         sqlx::query(
             r#"
+            -- Canonical lock order: see the renewal statement.
+            WITH locked AS MATERIALIZED (
+                SELECT r.vm_id, r.promise_state_id
+                FROM action_call_requests r
+                JOIN UNNEST($1::uuid[], $2::bigint[]) AS d(vm_id, promise_state_id)
+                    ON r.vm_id = d.vm_id AND r.promise_state_id = d.promise_state_id
+                WHERE r.locked_by = $3
+                ORDER BY r.vm_id, r.promise_state_id
+                FOR UPDATE OF r
+            )
             UPDATE action_call_requests r
             SET locked_by = NULL, lock_expires_at = NULL
-            FROM UNNEST($1::uuid[], $2::bigint[]) AS d(vm_id, promise_state_id)
-            WHERE r.vm_id = d.vm_id
-                AND r.promise_state_id = d.promise_state_id
-                AND r.locked_by = $3
+            FROM locked l
+            WHERE r.vm_id = l.vm_id
+                AND r.promise_state_id = l.promise_state_id
             "#,
         )
         .bind(&columns.vm_ids)

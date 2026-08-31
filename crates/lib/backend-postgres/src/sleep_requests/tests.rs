@@ -1,5 +1,5 @@
 use chrono::{Duration, Utc};
-use nonempty_collections::NEVec;
+use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _, nev};
 use serial_test::serial;
 use waymark_ids::InstanceId;
 use waymark_sleep_reconciler_backend::record_sleeps;
@@ -10,7 +10,7 @@ use waymark_sleep_reconciler_backend::{
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use super::super::test_helpers::{register_test_vm, setup_backend};
+use super::super::test_helpers::{deadlock, register_test_vm, setup_backend};
 use super::error::RecordError;
 
 fn record(
@@ -44,12 +44,11 @@ async fn record_then_poll_returns_only_demanded_and_due() {
     let past = now - Duration::hours(1);
     let future = now + Duration::hours(1);
 
-    let records = NEVec::try_from_vec(vec![
+    let records = nev![
         record(vm_a, 1, 10, past),
         record(vm_a, 2, 11, future),
-        record(vm_b, 1, 20, past),
-    ])
-    .unwrap();
+        record(vm_b, 1, 20, past)
+    ];
     backend
         .record_sleeps(records.as_nonempty_slice())
         .await
@@ -57,7 +56,7 @@ async fn record_then_poll_returns_only_demanded_and_due() {
 
     // Demand vm_a's promises plus one that was never recorded: only the
     // due one comes back — not the future one, not the undemanded vm_b.
-    let demand = NEVec::try_from_vec(vec![key(vm_a, 1), key(vm_a, 2), key(vm_a, 99)]).unwrap();
+    let demand = nev![key(vm_a, 1), key(vm_a, 2), key(vm_a, 99)];
     let polled = backend
         .poll_due_sleeps(now, demand.as_nonempty_slice())
         .await
@@ -161,17 +160,16 @@ async fn record_accepts_mixed_batch_of_new_and_replayed_rows() {
         .expect("seed record");
 
     // One replayed duplicate + one new row in the same batch.
-    let batch = NEVec::try_from_vec(vec![
+    let batch = nev![
         record(vm_id, 1, 10, now + Duration::hours(1)),
-        record(vm_id, 2, 11, wake),
-    ])
-    .unwrap();
+        record(vm_id, 2, 11, wake)
+    ];
     backend
         .record_sleeps(batch.as_nonempty_slice())
         .await
         .expect("mixed batch is accepted");
 
-    let demand = NEVec::try_from_vec(vec![key(vm_id, 1), key(vm_id, 2)]).unwrap();
+    let demand = nev![key(vm_id, 1), key(vm_id, 2)];
     let polled = backend
         .poll_due_sleeps(now, demand.as_nonempty_slice())
         .await
@@ -187,8 +185,7 @@ async fn ack_removes_rows_and_is_idempotent() {
     let now = Utc::now();
     let wake = now - Duration::hours(1);
 
-    let records =
-        NEVec::try_from_vec(vec![record(vm_id, 1, 10, wake), record(vm_id, 2, 11, wake)]).unwrap();
+    let records = nev![record(vm_id, 1, 10, wake), record(vm_id, 2, 11, wake)];
     backend
         .record_sleeps(records.as_nonempty_slice())
         .await
@@ -200,13 +197,13 @@ async fn ack_removes_rows_and_is_idempotent() {
         .await
         .expect("ack");
     // Re-acking (crash recovery) and acking a never-recorded key are no-ops.
-    let re_acked = NEVec::try_from_vec(vec![key(vm_id, 1), key(vm_id, 99)]).unwrap();
+    let re_acked = nev![key(vm_id, 1), key(vm_id, 99)];
     backend
         .ack_sleeps(re_acked.as_nonempty_slice())
         .await
         .expect("re-ack is idempotent");
 
-    let demand = NEVec::try_from_vec(vec![key(vm_id, 1), key(vm_id, 2)]).unwrap();
+    let demand = nev![key(vm_id, 1), key(vm_id, 2)];
     let polled = backend
         .poll_due_sleeps(now, demand.as_nonempty_slice())
         .await
@@ -223,12 +220,11 @@ async fn snapshot_delete_sweeps_all_rows_of_the_vm_only() {
     let now = Utc::now();
     let wake = now - Duration::hours(1);
 
-    let records = NEVec::try_from_vec(vec![
+    let records = nev![
         record(vm_a, 1, 10, wake),
         record(vm_a, 2, 11, wake),
-        record(vm_b, 1, 20, wake),
-    ])
-    .unwrap();
+        record(vm_b, 1, 20, wake)
+    ];
     backend
         .record_sleeps(records.as_nonempty_slice())
         .await
@@ -240,10 +236,76 @@ async fn snapshot_delete_sweeps_all_rows_of_the_vm_only() {
         .await
         .expect("delete vm_a snapshot");
 
-    let demand = NEVec::try_from_vec(vec![key(vm_a, 1), key(vm_a, 2), key(vm_b, 1)]).unwrap();
+    let demand = nev![key(vm_a, 1), key(vm_a, 2), key(vm_b, 1)];
     let polled = backend
         .poll_due_sleeps(now, demand.as_nonempty_slice())
         .await
         .expect("poll");
     assert_eq!(polled[..], [key(vm_b, 1)]);
+}
+
+/// One choreographed collision of the sleep-ack DELETE and the
+/// snapshot-cleanup trigger's sleep sweep over the same two sleep rows —
+/// the sleeps-table sweep pairing of the multi-row-writer class behind
+/// the 2026-08-31 deadlock outage.
+///
+/// The staging, plan-shape seeding, and contract are those of
+/// `complete_and_renew_across_a_staged_row` in
+/// `action_call_requests::tests`; the sweep's lock order is not
+/// input-driven — it walks the whole VM — so the mirroring axis is the
+/// ack batch's order plus which row is staged.
+async fn ack_and_sweep_across_a_staged_row(ack_order: [usize; 2]) {
+    let backend = setup_backend().await;
+    let (vm, _) = register_test_vm(&backend).await;
+    let wake = Utc::now() - Duration::hours(1);
+
+    let records = nev![record(vm, 1, 10, wake), record(vm, 2, 11, wake)];
+    backend
+        .record_sleeps(records.as_nonempty_slice())
+        .await
+        .expect("record sleeps");
+
+    deadlock::seed_filler_rows(backend.pool(), deadlock::SweptTable::SleepRequests).await;
+
+    // Pre-hold the ack batch's first row.
+    let staged = ack_order[0];
+    let staging = deadlock::hold_row_for_update(
+        backend.pool(),
+        deadlock::SweptTable::SleepRequests,
+        vm,
+        staged,
+    )
+    .await;
+
+    // The ack first: it must be the head of the staged row's wait queue,
+    // so releasing hands the row to it and not to the sweep queued later.
+    let ack_backend = backend.clone();
+    let ack_task = tokio::spawn(async move {
+        let keys: NEVec<_> = ack_order
+            .into_nonempty_iter()
+            .map(|promise| key(vm, promise))
+            .collect();
+        ack_backend.ack_sleeps(keys.as_nonempty_slice()).await
+    });
+    deadlock::contend_op_with_snapshot_sweep(
+        backend.pool(),
+        staging,
+        "sleep ack",
+        ack_task,
+        "%DELETE FROM sleep_requests%",
+        vm,
+    )
+    .await;
+}
+
+#[serial(postgres)]
+#[tokio::test]
+async fn concurrent_ack_and_snapshot_sweep_do_not_deadlock() {
+    // Both ack orders, with the staged row tracking the ack's first key.
+    // These runs pin the ACK side's discipline only: a single-VM sweep
+    // locks its rows in primary-key order under every realizable plan,
+    // so the trigger side cannot regress visibly here — the multi-VM
+    // sweep test in `action_call_requests::tests` covers it.
+    ack_and_sweep_across_a_staged_row([2, 1]).await;
+    ack_and_sweep_across_a_staged_row([1, 2]).await;
 }

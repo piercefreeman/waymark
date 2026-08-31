@@ -1,4 +1,26 @@
 //! Postgres backend for persisting VM execution state and action results.
+//!
+//! # Invariant: canonical row-lock order for multi-row writers
+//!
+//! Any two multi-row statements that take row locks on overlapping sets
+//! in different orders can deadlock; the 2026-08-31 production outage
+//! was exactly that (the batched lock renewal against the completion
+//! trigger's removal DELETE).  Every multi-row UPDATE/DELETE in this
+//! crate therefore locks its target rows in primary-key order first —
+//! a `locked AS MATERIALIZED (SELECT … ORDER BY <pk> FOR UPDATE)` CTE
+//! in the same statement as the mutation (never a separate statement:
+//! each statement snapshots independently under READ COMMITTED, and a
+//! row committed between snapshots would bypass the ordered queue) —
+//! and every batch INSERT orders its source rows the same way so
+//! conflict-arbiter waits queue canonically too.  The trigger functions
+//! (migration `0023`) follow the identical form.
+//!
+//! **When adding a multi-row writer**, follow the pattern (the renewal
+//! statement in `action_call_requests` is the canonical example) and
+//! add a staged-row deadlock choreography for its contended pairing —
+//! see `test_helpers::deadlock` and the existing
+//! `*_do_not_deadlock` tests.  No mechanical check enforces this; the
+//! reviewed convention is the enforcement.
 
 mod action_call_completions;
 mod action_call_requests;

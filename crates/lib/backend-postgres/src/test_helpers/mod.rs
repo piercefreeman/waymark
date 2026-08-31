@@ -1,3 +1,5 @@
+pub(super) mod deadlock;
+
 use super::PostgresBackend;
 use waymark_ids::{InstanceId, WorkflowVersionId};
 use waymark_support_test::postgres_setup;
@@ -37,6 +39,15 @@ pub(super) async fn upsert_test_executable(
 /// share exactly the registration behavior they exercise.
 pub(super) async fn register_test_vm(backend: &PostgresBackend) -> (InstanceId, WorkflowVersionId) {
     let vm_id = InstanceId::new_uuid_v4();
+    register_test_vm_with_id(backend, vm_id).await
+}
+
+/// [`register_test_vm`] with a caller-chosen VM id, for tests whose
+/// choreography depends on the registration (heap) order of specific ids.
+pub(super) async fn register_test_vm_with_id(
+    backend: &PostgresBackend,
+    vm_id: InstanceId,
+) -> (InstanceId, WorkflowVersionId) {
     let executable_id = WorkflowVersionId::new_uuid_v4();
     let item = waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegisterVmRuntimesItem {
         vm_id: &vm_id,

@@ -84,6 +84,11 @@ impl waymark_action_completions_reconciler_backend::RecordCompletions for Postgr
                 (vm_id, promise_state_id, effect_number, outcome)
             SELECT * FROM UNNEST($1::uuid[], $2::bigint[], $3::bigint[], $4::bytea[])
                 AS t(vm_id, promise_state_id, effect_number, outcome)
+            -- Canonical lock order: replayed keys contend on existing
+            -- rows through the conflict arbiter, so insert in primary
+            -- key order like every other multi-row writer on the
+            -- trigger-swept tables.
+            ORDER BY t.vm_id, t.promise_state_id
             ON CONFLICT (vm_id, promise_state_id) DO NOTHING
             RETURNING vm_id, promise_state_id
             "#,
@@ -260,9 +265,20 @@ impl waymark_action_completions_reconciler_backend::AckCompletions for PostgresB
         );
         sqlx::query(
             r#"
+            -- Canonical lock order: take every target row lock in
+            -- primary key order before mutating, so multi-row writers
+            -- can never deadlock with each other on overlapping sets.
+            WITH locked AS MATERIALIZED (
+                SELECT c.vm_id, c.promise_state_id
+                FROM action_call_completions c
+                JOIN UNNEST($1::uuid[], $2::bigint[]) AS d(vm_id, promise_state_id)
+                    ON c.vm_id = d.vm_id AND c.promise_state_id = d.promise_state_id
+                ORDER BY c.vm_id, c.promise_state_id
+                FOR UPDATE OF c
+            )
             DELETE FROM action_call_completions c
-            USING UNNEST($1::uuid[], $2::bigint[]) AS d(vm_id, promise_state_id)
-            WHERE c.vm_id = d.vm_id AND c.promise_state_id = d.promise_state_id
+            USING locked l
+            WHERE c.vm_id = l.vm_id AND c.promise_state_id = l.promise_state_id
             "#,
         )
         .bind(&columns.vm_ids)
