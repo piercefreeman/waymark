@@ -91,6 +91,11 @@ impl waymark_sleep_reconciler_backend::RecordSleeps for PostgresBackend {
                    NOW() + (t.wake_micros * interval '1 microsecond')
             FROM UNNEST($1::uuid[], $2::bigint[], $3::bigint[], $4::bigint[])
                 AS t(vm_id, promise_state_id, effect_number, wake_micros)
+            -- Canonical lock order: replayed keys contend on existing
+            -- rows through the conflict arbiter, so insert in primary
+            -- key order like every other multi-row writer on the
+            -- trigger-swept tables.
+            ORDER BY t.vm_id, t.promise_state_id
             ON CONFLICT (vm_id, promise_state_id) DO NOTHING
             RETURNING vm_id, promise_state_id
             "#,
@@ -240,9 +245,20 @@ impl waymark_sleep_reconciler_backend::AckSleeps for PostgresBackend {
         );
         sqlx::query(
             r#"
+            -- Canonical lock order: take every target row lock in
+            -- primary key order before mutating, so multi-row writers
+            -- can never deadlock with each other on overlapping sets.
+            WITH locked AS MATERIALIZED (
+                SELECT s.vm_id, s.promise_state_id
+                FROM sleep_requests s
+                JOIN UNNEST($1::uuid[], $2::bigint[]) AS d(vm_id, promise_state_id)
+                    ON s.vm_id = d.vm_id AND s.promise_state_id = d.promise_state_id
+                ORDER BY s.vm_id, s.promise_state_id
+                FOR UPDATE OF s
+            )
             DELETE FROM sleep_requests s
-            USING UNNEST($1::uuid[], $2::bigint[]) AS d(vm_id, promise_state_id)
-            WHERE s.vm_id = d.vm_id AND s.promise_state_id = d.promise_state_id
+            USING locked l
+            WHERE s.vm_id = l.vm_id AND s.promise_state_id = l.promise_state_id
             "#,
         )
         .bind(&columns.vm_ids)
