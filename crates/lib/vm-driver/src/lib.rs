@@ -98,13 +98,17 @@ where
             Frame = waymark_vm_runtime::FrameFor<Executable, Value>,
             Instruction = Executable::Instruction,
         >,
-    Interpreter: for<'r> waymark_vm_runtime_core::CaptureRuntimeView<
-            Executable,
-            Executable::FunctionId,
-            Executable::StateId,
-            Value,
-            RuntimeView<'r> = <Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'r>,
-        >,
+    for<'view, 'runtime> <Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'view>:
+        waymark_vm_runtime_view_capture::CaptureRuntimeView<
+                'view,
+                waymark_vm_runtime_core::FullRuntimeView<
+                    'runtime,
+                    Executable,
+                    Executable::FunctionId,
+                    Executable::StateId,
+                    Value,
+                >,
+            >,
     Value: Clone + 'static + serde::Serialize,
     Value: waymark_vm_runtime_promise_core::Resolvable,
     Effector: waymark_vm_driver_core::EffectHandler<Effect = Interpreter::Effect>,

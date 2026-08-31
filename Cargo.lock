@@ -5049,6 +5049,7 @@ dependencies = [
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-promise-core",
+ "waymark-vm-runtime-view-capture",
 ]
 
 [[package]]
@@ -5439,6 +5440,7 @@ dependencies = [
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
+ "waymark-vm-runtime-view-capture",
 ]
 
 [[package]]
@@ -5472,6 +5474,7 @@ dependencies = [
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
+ "waymark-vm-runtime-view-capture",
 ]
 
 [[package]]
@@ -5549,6 +5552,7 @@ dependencies = [
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",
+ "waymark-vm-runtime-view-capture",
 ]
 
 [[package]]
@@ -5568,6 +5572,7 @@ dependencies = [
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",
+ "waymark-vm-runtime-view-capture",
 ]
 
 [[package]]
@@ -5595,6 +5600,7 @@ dependencies = [
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",
+ "waymark-vm-runtime-view-capture",
 ]
 
 [[package]]
@@ -5642,6 +5648,7 @@ dependencies = [
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
+ "waymark-vm-runtime-view-capture",
 ]
 
 [[package]]
@@ -5672,6 +5679,7 @@ dependencies = [
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-promise-value",
  "waymark-vm-runtime-value",
+ "waymark-vm-runtime-view-capture",
 ]
 
 [[package]]
@@ -5737,6 +5745,10 @@ name = "waymark-vm-runtime-value"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-vm-runtime-view-capture"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-vm-value"
 version = "0.1.0"
 dependencies = [
@@ -5761,6 +5773,7 @@ dependencies = [
  "waymark-vm-runtime-promise-value",
  "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",
+ "waymark-vm-runtime-view-capture",
 ]
 
 [[package]]

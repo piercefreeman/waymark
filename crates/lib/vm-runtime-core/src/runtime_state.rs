@@ -11,7 +11,8 @@ use crate::{Frame, PromiseStates, PromiseWaiter, SelectStates, SettlePromiseErro
 /// the fields by holding it without public visibility.
 ///
 /// The access to the runtime state is indirectly provided to the interpreters
-/// via the [`crate::CaptureRuntimeView`].
+/// via the [`crate::FullRuntimeView`] and the
+/// [`waymark_vm_runtime_view_capture::CaptureRuntimeView`] trait.
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RuntimeState<FunctionId, StateId, Value> {

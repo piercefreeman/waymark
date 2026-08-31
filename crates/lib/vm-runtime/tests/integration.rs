@@ -1,7 +1,5 @@
 use waymark_vm_runtime::{CallSpec, RunError};
-use waymark_vm_runtime_core::{
-    CaptureRuntimeView, FullRuntimeView, RegisterId, SettlePromiseError,
-};
+use waymark_vm_runtime_core::{FullRuntimeView, RegisterId, SettlePromiseError};
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_promise_core::PromiseStateId;
@@ -18,16 +16,6 @@ struct HookInterpreter {
 enum HookMode {
     ExitWithEffect(&'static str),
     RedirectExceptionToState(StateId),
-}
-
-impl CaptureRuntimeView<TestExecutable, FunctionId, StateId, TestValue> for HookInterpreter {
-    type RuntimeView<'r> = FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>;
-
-    fn capture_runtime_view<'r>(
-        view: FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>,
-    ) -> Self::RuntimeView<'r> {
-        view
-    }
 }
 
 impl waymark_vm_interpreter::Interpreter for HookInterpreter {
