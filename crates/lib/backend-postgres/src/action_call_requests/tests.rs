@@ -446,3 +446,172 @@ async fn snapshot_delete_sweeps_only_the_vms_requests() {
     assert_eq!(status_of(vm_a, 1), RenewalStatus::Missing);
     assert_eq!(status_of(vm_b, 1), RenewalStatus::Renewed);
 }
+
+/// Wait until a backend whose current query matches `query_pattern` is
+/// blocked waiting on a lock, so the choreography below can stage each
+/// statement's position in the row-lock queues deterministically.
+async fn wait_until_lock_blocked(pool: &sqlx::PgPool, query_pattern: &str) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let waiting: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM pg_stat_activity
+            WHERE wait_event_type = 'Lock' AND query LIKE $1
+            "#,
+        )
+        .bind(query_pattern)
+        .fetch_one(pool)
+        .await
+        .expect("poll pg_stat_activity");
+        if waiting > 0 {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no statement matching {query_pattern:?} blocked on a lock — \
+             the staging assumptions no longer hold, see the choreography comment"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+
+/// One choreographed collision of the completion trigger's DELETE and
+/// the renewal UPDATE over the same two request rows.
+///
+/// Both statements take their row locks in input order — the trigger in
+/// transition-table (insert) order, the renewal in input-array order,
+/// verified empirically against the real plans at this scale — and
+/// neither imposes a canonical order, so opposite input orders form a
+/// deadlock cycle.  The staging makes the cycle deterministic instead of
+/// probabilistic: a helper transaction pre-holds the completion batch's
+/// FIRST row, which is the renewal batch's LAST row.  The completion
+/// blocks on it holding nothing; the renewal then locks every other row
+/// and queues behind the completion.  Releasing the staged row lets the
+/// completion advance into the renewal's rows while the renewal waits on
+/// the completion's — the deadlock, detected by Postgres within
+/// `deadlock_timeout`.
+///
+/// This is the production outage shape (2026-08-31): batched lock
+/// renewals and batched completion inserts deadlocking on the same
+/// `action_call_requests` rows, at batch sizes where overlap in
+/// conflicting orders is routine.  The test's contract is simply that
+/// both statements succeed: any ordering discipline that makes the
+/// deadlock impossible passes it, and disciplining only one side does
+/// not.
+async fn complete_and_renew_across_a_staged_row(
+    completion_order: [usize; 2],
+    renewal_order: [usize; 2],
+) {
+    let backend = setup_backend().await;
+    let vm = InstanceId::new_uuid_v4();
+    let owner = uuid::Uuid::new_v4();
+
+    let records = NEVec::try_from_vec(vec![
+        record(vm, 1, 10, b"call-1"),
+        record(vm, 2, 11, b"call-2"),
+    ])
+    .unwrap();
+    backend
+        .record_action_call_requests(Utc::now(), live_lock(owner), records.as_nonempty_slice())
+        .await
+        .expect("record requests");
+
+    // The input-order locking above holds for the production plan shape —
+    // small batches probing the primary key of a large table.  Against a
+    // freshly-truncated two-row table the planner walks both statements
+    // through the same seq scan instead, aligning their lock orders and
+    // hiding the bug, so give it the production shape: filler rows and
+    // fresh statistics.
+    sqlx::query(
+        r#"
+        INSERT INTO action_call_requests
+            (vm_id, promise_state_id, effect_number, request)
+        SELECT gen_random_uuid(), n, n, 'filler'
+        FROM generate_series(1, 10000) AS n
+        "#,
+    )
+    .execute(backend.pool())
+    .await
+    .expect("seed filler requests");
+    sqlx::query("ANALYZE action_call_requests, action_call_completions")
+        .execute(backend.pool())
+        .await
+        .expect("analyze");
+
+    // Pre-hold the row where the completion enters and the renewal exits.
+    let staged = completion_order[0];
+    assert_eq!(
+        staged, renewal_order[1],
+        "the staged row must be the completion's first and the renewal's last"
+    );
+    let mut staging = backend.pool().begin().await.expect("begin staging");
+    sqlx::query(
+        r#"
+        SELECT 1 FROM action_call_requests
+        WHERE vm_id = $1 AND promise_state_id = $2 FOR UPDATE
+        "#,
+    )
+    .bind(vm)
+    .bind(i64::try_from(staged).unwrap())
+    .execute(&mut *staging)
+    .await
+    .expect("hold staged row");
+
+    // The completion batch first: it must be the head of the staged
+    // row's wait queue, so releasing hands the row to it and not to the
+    // renewal queued second.
+    let completion_backend = backend.clone();
+    let completion_task = tokio::spawn(async move {
+        let completions = NEVec::try_from_vec(
+            completion_order
+                .iter()
+                .map(|&promise| CompletionRecord {
+                    vm_id: vm,
+                    promise_state_id: PromiseStateId(promise),
+                    effect_number: EffectNumber(promise + 9),
+                    outcome: b"done".to_vec(),
+                })
+                .collect(),
+        )
+        .unwrap();
+        completion_backend
+            .record_completions(completions.as_nonempty_slice())
+            .await
+    });
+    wait_until_lock_blocked(backend.pool(), "%INSERT INTO action_call_completions%").await;
+
+    let renewal_backend = backend.clone();
+    let renewal_task = tokio::spawn(async move {
+        let keys = NEVec::try_from_vec(
+            renewal_order
+                .iter()
+                .map(|&promise| key(vm, promise))
+                .collect(),
+        )
+        .unwrap();
+        renewal_backend
+            .renew_action_call_request_locks(Utc::now(), live_lock(owner), keys.as_nonempty_slice())
+            .await
+    });
+    wait_until_lock_blocked(backend.pool(), "%UPDATE action_call_requests%").await;
+
+    staging.rollback().await.expect("release staged row");
+
+    completion_task
+        .await
+        .expect("join completion")
+        .expect("recording completions must not deadlock against lock renewal");
+    renewal_task
+        .await
+        .expect("join renewal")
+        .expect("renewing locks must not deadlock against completion recording");
+}
+
+#[serial(postgres)]
+#[tokio::test]
+async fn concurrent_completion_and_renewal_batches_do_not_deadlock() {
+    // Both mirrored input orders: each run catches a discipline missing
+    // from one of the two statements.
+    complete_and_renew_across_a_staged_row([2, 1], [1, 2]).await;
+    complete_and_renew_across_a_staged_row([1, 2], [2, 1]).await;
+}
