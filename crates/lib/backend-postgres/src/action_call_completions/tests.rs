@@ -1,4 +1,4 @@
-use nonempty_collections::NEVec;
+use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _, nev};
 use serial_test::serial;
 use waymark_action_completions_reconciler_backend::record_completions;
 use waymark_action_completions_reconciler_backend::record_completions::Error as _;
@@ -41,19 +41,18 @@ async fn record_then_poll_returns_only_demanded() {
     let vm_a = InstanceId::new_uuid_v4();
     let vm_b = InstanceId::new_uuid_v4();
 
-    let records = NEVec::try_from_vec(vec![
+    let records = nev![
         record(vm_a, 1, 10, b"a1"),
         record(vm_a, 2, 11, b"a2"),
-        record(vm_b, 1, 20, b"b1"),
-    ])
-    .unwrap();
+        record(vm_b, 1, 20, b"b1")
+    ];
     backend
         .record_completions(records.as_nonempty_slice())
         .await
         .expect("record");
 
     // Demand only one of vm_a's promises plus one that was never recorded.
-    let demand = NEVec::try_from_vec(vec![key(vm_a, 1), key(vm_a, 99)]).unwrap();
+    let demand = nev![key(vm_a, 1), key(vm_a, 99)];
     let polled = backend
         .poll_completions(demand.as_nonempty_slice())
         .await
@@ -168,18 +167,14 @@ async fn record_accepts_mixed_batch_of_new_and_identical_rows() {
         .expect("seed record");
 
     // One identical duplicate + one new row in the same batch.
-    let batch = NEVec::try_from_vec(vec![
-        record(vm_id, 1, 10, b"one"),
-        record(vm_id, 2, 11, b"two"),
-    ])
-    .unwrap();
+    let batch = nev![record(vm_id, 1, 10, b"one"), record(vm_id, 2, 11, b"two")];
     let success = backend
         .record_completions(batch.as_nonempty_slice())
         .await
         .expect("mixed batch is accepted");
     assert_eq!(success, record_completions::RecordingSuccess::AllRecorded);
 
-    let demand = NEVec::try_from_vec(vec![key(vm_id, 1), key(vm_id, 2)]).unwrap();
+    let demand = nev![key(vm_id, 1), key(vm_id, 2)];
     let polled = backend
         .poll_completions(demand.as_nonempty_slice())
         .await
@@ -193,11 +188,7 @@ async fn ack_removes_rows_and_is_idempotent() {
     let backend = setup_backend().await;
     let vm_id = InstanceId::new_uuid_v4();
 
-    let records = NEVec::try_from_vec(vec![
-        record(vm_id, 1, 10, b"one"),
-        record(vm_id, 2, 11, b"two"),
-    ])
-    .unwrap();
+    let records = nev![record(vm_id, 1, 10, b"one"), record(vm_id, 2, 11, b"two")];
     backend
         .record_completions(records.as_nonempty_slice())
         .await
@@ -209,13 +200,13 @@ async fn ack_removes_rows_and_is_idempotent() {
         .await
         .expect("ack");
     // Re-acking (crash recovery) and acking a never-recorded key are no-ops.
-    let re_acked = NEVec::try_from_vec(vec![key(vm_id, 1), key(vm_id, 99)]).unwrap();
+    let re_acked = nev![key(vm_id, 1), key(vm_id, 99)];
     backend
         .ack_completions(re_acked.as_nonempty_slice())
         .await
         .expect("re-ack is idempotent");
 
-    let demand = NEVec::try_from_vec(vec![key(vm_id, 1), key(vm_id, 2)]).unwrap();
+    let demand = nev![key(vm_id, 1), key(vm_id, 2)];
     let polled = backend
         .poll_completions(demand.as_nonempty_slice())
         .await
@@ -230,12 +221,11 @@ async fn snapshot_delete_sweeps_all_rows_of_the_vm_only() {
     let (vm_a, _) = register_test_vm(&backend).await;
     let (vm_b, _) = register_test_vm(&backend).await;
 
-    let records = NEVec::try_from_vec(vec![
+    let records = nev![
         record(vm_a, 1, 10, b"a1"),
         record(vm_a, 2, 11, b"a2"),
-        record(vm_b, 1, 20, b"b1"),
-    ])
-    .unwrap();
+        record(vm_b, 1, 20, b"b1")
+    ];
     backend
         .record_completions(records.as_nonempty_slice())
         .await
@@ -247,7 +237,7 @@ async fn snapshot_delete_sweeps_all_rows_of_the_vm_only() {
         .await
         .expect("delete vm_a snapshot");
 
-    let demand = NEVec::try_from_vec(vec![key(vm_a, 1), key(vm_a, 2), key(vm_b, 1)]).unwrap();
+    let demand = nev![key(vm_a, 1), key(vm_a, 2), key(vm_b, 1)];
     let polled = backend
         .poll_completions(demand.as_nonempty_slice())
         .await
@@ -269,11 +259,7 @@ async fn ack_and_sweep_across_a_staged_row(ack_order: [usize; 2]) {
     let backend = setup_backend().await;
     let (vm, _) = register_test_vm(&backend).await;
 
-    let records = NEVec::try_from_vec(vec![
-        record(vm, 1, 10, b"done-1"),
-        record(vm, 2, 11, b"done-2"),
-    ])
-    .unwrap();
+    let records = nev![record(vm, 1, 10, b"done-1"), record(vm, 2, 11, b"done-2")];
     backend
         .record_completions(records.as_nonempty_slice())
         .await
@@ -295,8 +281,10 @@ async fn ack_and_sweep_across_a_staged_row(ack_order: [usize; 2]) {
     // so releasing hands the row to it and not to the sweep queued later.
     let ack_backend = backend.clone();
     let ack_task = tokio::spawn(async move {
-        let keys = NEVec::try_from_vec(ack_order.iter().map(|&promise| key(vm, promise)).collect())
-            .unwrap();
+        let keys: NEVec<_> = ack_order
+            .into_nonempty_iter()
+            .map(|promise| key(vm, promise))
+            .collect();
         ack_backend.ack_completions(keys.as_nonempty_slice()).await
     });
     deadlock::contend_op_with_snapshot_sweep(
