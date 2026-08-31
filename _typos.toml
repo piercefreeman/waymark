@@ -3,6 +3,10 @@
 typle = "typle"
 fullset = "fullset"
 
+[default.extend-identifiers]
+# Pluralized SQL keyword, as in "the DELETEs themselves"
+DELETEs = "DELETEs"
+
 
 [files]
 extend-exclude = [
