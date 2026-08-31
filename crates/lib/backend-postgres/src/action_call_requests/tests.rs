@@ -14,7 +14,7 @@ use waymark_ids::InstanceId;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use super::super::test_helpers::{register_test_vm, setup_backend};
+use super::super::test_helpers::{register_test_vm, setup_backend, wait_until_lock_blocked};
 use super::error::RecordError;
 
 fn record(
@@ -445,34 +445,6 @@ async fn snapshot_delete_sweeps_only_the_vms_requests() {
     };
     assert_eq!(status_of(vm_a, 1), RenewalStatus::Missing);
     assert_eq!(status_of(vm_b, 1), RenewalStatus::Renewed);
-}
-
-/// Wait until a backend whose current query matches `query_pattern` is
-/// blocked waiting on a lock, so the choreography below can stage each
-/// statement's position in the row-lock queues deterministically.
-async fn wait_until_lock_blocked(pool: &sqlx::PgPool, query_pattern: &str) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    loop {
-        let waiting: i64 = sqlx::query_scalar(
-            r#"
-            SELECT COUNT(*) FROM pg_stat_activity
-            WHERE wait_event_type = 'Lock' AND query LIKE $1
-            "#,
-        )
-        .bind(query_pattern)
-        .fetch_one(pool)
-        .await
-        .expect("poll pg_stat_activity");
-        if waiting > 0 {
-            return;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "no statement matching {query_pattern:?} blocked on a lock — \
-             the staging assumptions no longer hold, see the choreography comment"
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
 }
 
 /// One choreographed collision of the completion trigger's DELETE and
