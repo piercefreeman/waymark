@@ -11,7 +11,7 @@ use waymark_scheduler_backend::register_scheduled_vm_runtimes::{Item, Outcome};
 use waymark_scheduler_backend::{PollDueSchedules, RegisterScheduledVmRuntimes};
 use waymark_workflow_service_scheduler_backend::{UpsertSchedule, upsert_schedule};
 
-use super::super::test_helpers::{setup_backend, upsert_test_executable};
+use super::super::test_helpers::{deadlock, setup_backend, upsert_test_executable};
 
 const TEST_DEFINITION: &[u8] = b"test-definition";
 const TEST_INITIAL_SNAPSHOT: &[u8] = b"test-initial-snapshot";
@@ -282,4 +282,119 @@ async fn a_batch_reports_per_row_outcomes_in_input_order() {
     assert_eq!(outcomes, nev![Outcome::Registered, Outcome::Superseded]);
     assert!(vm_runtime_registered(&backend, fresh_vm_id).await);
     assert!(!vm_runtime_registered(&backend, stale_vm_id).await);
+}
+
+/// One choreographed collision of two concurrent registrar batches over
+/// the same two due schedules — the schedules-table member of the
+/// multi-row-writer class behind the 2026-08-31 deadlock outage.
+/// Racing registrars are the DESIGNED normal case here (the loser's
+/// rows come back Superseded), so opposite batch orders must queue, not
+/// cycle.
+///
+/// The staging, plan-shape seeding, and contract follow
+/// `complete_and_renew_across_a_staged_row` in
+/// `action_call_requests::tests`: the leader's first key is pre-held so
+/// it blocks holding nothing, the follower locks the other row and
+/// queues behind it.  Both batches run the same statement text, so the
+/// follower's blocked state is staged by waiter count.
+async fn register_against_register_across_a_staged_row(leader_order: [&'static str; 2]) {
+    let backend = setup_backend().await;
+    let executable_id = upsert_test_executable(&backend, "choreography").await;
+    upsert(&backend, "sched-a", &executable_id, at(1)).await;
+    upsert(&backend, "sched-b", &executable_id, at(1)).await;
+
+    // Plan shape, as in the swept-table choreographies: enough analyzed
+    // rows that the registrar statement probes the primary key in input
+    // order instead of seq-scanning both contenders into one order.
+    sqlx::query(
+        r#"
+        INSERT INTO schedules
+            (schedule_name, executable_id, definition, initial_snapshot, status, next_run_at)
+        SELECT 'filler-' || n, $1, 'd', 's', 'active', NOW() + interval '1 hour'
+        FROM generate_series(1, 10000) AS n
+        "#,
+    )
+    .bind(executable_id)
+    .execute(backend.pool())
+    .await
+    .expect("seed filler schedules");
+    sqlx::query("ANALYZE schedules")
+        .execute(backend.pool())
+        .await
+        .expect("analyze");
+
+    // Pre-hold the leader batch's first schedule row.
+    let mut staging = backend.pool().begin().await.expect("begin staging");
+    let held = sqlx::query("SELECT 1 FROM schedules WHERE schedule_name = $1 FOR UPDATE")
+        .bind(leader_order[0])
+        .execute(&mut *staging)
+        .await
+        .expect("hold staged row");
+    assert_eq!(held.rows_affected(), 1, "the staged schedule must exist");
+
+    fn spawn_register(
+        backend: &crate::PostgresBackend,
+        order: [&'static str; 2],
+    ) -> tokio::task::JoinHandle<
+        Result<
+            nonempty_collections::NEVec<Outcome>,
+            <crate::PostgresBackend as RegisterScheduledVmRuntimes>::Error,
+        >,
+    > {
+        let backend = backend.clone();
+        tokio::spawn(async move {
+            let items = nev![
+                Item {
+                    schedule_name: Cow::Borrowed(order[0]),
+                    expected_next_run_at: Cow::Owned(at(1)),
+                    vm_id: Cow::Owned(InstanceId::new_uuid_v4()),
+                    new_next_run_at: Cow::Owned(at(2)),
+                    check_overlap: false,
+                },
+                Item {
+                    schedule_name: Cow::Borrowed(order[1]),
+                    expected_next_run_at: Cow::Owned(at(1)),
+                    vm_id: Cow::Owned(InstanceId::new_uuid_v4()),
+                    new_next_run_at: Cow::Owned(at(2)),
+                    check_overlap: false,
+                },
+            ];
+            backend
+                .register_scheduled_vm_runtimes(items.as_nonempty_slice())
+                .await
+        })
+    }
+    // `input_position` appears only in the registrar statement.
+    let register_pattern = "%input_position%";
+
+    let leader = spawn_register(&backend, leader_order);
+    deadlock::wait_until_lock_blocked(backend.pool(), register_pattern).await;
+    let follower = spawn_register(&backend, [leader_order[1], leader_order[0]]);
+    deadlock::wait_until_lock_blocked_at_least(
+        backend.pool(),
+        register_pattern,
+        std::num::NonZeroI64::new(2).unwrap(),
+    )
+    .await;
+
+    staging.rollback().await.expect("release staged row");
+
+    leader
+        .await
+        .expect("join leader")
+        .expect("a registrar batch must not deadlock against a competing registrar");
+    follower
+        .await
+        .expect("join follower")
+        .expect("a registrar batch must not deadlock against a competing registrar");
+}
+
+#[serial(postgres)]
+#[tokio::test]
+async fn concurrent_registrar_batches_do_not_deadlock() {
+    // Both leader orders, with the staged row tracking the leader's
+    // first key, so an ordering discipline missing from the registrar
+    // statement fails one of the runs.
+    register_against_register_across_a_staged_row(["sched-b", "sched-a"]).await;
+    register_against_register_across_a_staged_row(["sched-a", "sched-b"]).await;
 }
