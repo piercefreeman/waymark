@@ -290,22 +290,15 @@ async fn ack_and_sweep_across_a_staged_row(ack_order: [usize; 2]) {
             .unwrap();
         ack_backend.ack_sleeps(keys.as_nonempty_slice()).await
     });
-    deadlock::wait_until_lock_blocked(backend.pool(), "%DELETE FROM sleep_requests%").await;
-
-    // The sweep's sleep-table pass contends the same two rows.
-    let sweep_task = deadlock::spawn_snapshot_sweep(backend.pool(), vec![vm]);
-    deadlock::wait_until_lock_blocked(backend.pool(), deadlock::SNAPSHOT_SWEEP_PATTERN).await;
-
-    staging.rollback().await.expect("release staged row");
-
-    ack_task
-        .await
-        .expect("join ack")
-        .expect("acking sleeps must not deadlock against the snapshot sweep");
-    sweep_task
-        .await
-        .expect("join sweep")
-        .expect("the snapshot sweep must not deadlock against sleep acks");
+    deadlock::contend_op_with_snapshot_sweep(
+        backend.pool(),
+        staging,
+        "sleep ack",
+        ack_task,
+        "%DELETE FROM sleep_requests%",
+        vm,
+    )
+    .await;
 }
 
 #[serial(postgres)]
