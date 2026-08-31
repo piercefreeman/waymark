@@ -14,17 +14,17 @@ fn main(input: [value], output: []):
 ---
 f0: [6 registers]
   s0:
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s3, exception_types: [], exception_dst: Some(r1) }] })
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ValueError"], exception_dst: None }] })
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s1, exception_types: [], exception_dst: Some(r1) }] })
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s3, exception_types: ["ValueError"], exception_dst: None }] })
     ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("risky_step_one"), args: [r0], resume: s4 })
   s1:
+    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("record_cleanup"), args: [r0], resume: s12 })
   s2:
+  s3:
     PureSet(LoadConst { dst: r4, value: String("error") })
     PureSet(Copy { dst: r5, src: r4 })
     CoreSet(PopExceptionHandlers { count: 1 })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("record_cleanup"), args: [r0], resume: s10 })
-  s3:
-    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("record_cleanup"), args: [r0], resume: s12 })
   s4:
     CoreSet(Await { dst: r2, src: r2, resume: s5 })
   s5:
