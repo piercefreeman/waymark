@@ -19,6 +19,18 @@
 //! warning and stay due; after registration-time validation such rows
 //! are unreachable short of data corruption or the cron evaluation
 //! horizon, so no pausing machinery exists for them.
+//!
+//! Backend failures do not stop the loop outright: the registration
+//! statement is atomic, so nothing of a failed batch landed and its
+//! rows stay due — a failed poll or registration is logged and retried
+//! next interval.  Only [`MAX_CONSECUTIVE_FAILURES`] consecutive
+//! failures of the same statement stop the loop with the error.
+//!
+//! How far that stop reaches is the caller's to decide, not this
+//! crate's.  Today's binary logs it and keeps running: schedules stop
+//! firing until a restart, with nothing else in the process disturbed
+//! — the known zombie-exit gap, which the bringup's drop guard is the
+//! seam for.  Do not read this loop's failure as self-announcing.
 
 #![warn(missing_docs)]
 
@@ -31,7 +43,16 @@ use std::sync::Arc;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_scheduler_backend::{PollDueSchedules, RegisterScheduledVmRuntimes};
 
-/// Error returned when the firing loop stops on a critical failure.
+/// How many consecutive failures of the same backend statement the
+/// firing loop tolerates — logging and retrying next interval — before
+/// it stops with the error.  Spaced by the poll interval, this rides
+/// out a transient database blip (a failover, a deadlock burst) but
+/// not a persistent failure.
+pub const MAX_CONSECUTIVE_FAILURES: usize = 5;
+
+/// Error returned when the firing loop stops on persistent backend
+/// failure — [`MAX_CONSECUTIVE_FAILURES`] consecutive failures of the
+/// same statement.
 #[derive(Debug, thiserror::Error)]
 pub enum Error<PollError, RegisterError> {
     /// The backend failed to poll for due schedules.
@@ -71,11 +92,14 @@ pub struct Params<Backend, Codec, MintVmIdFn> {
     pub max_items: NonZeroUsize,
 }
 
-/// Poll for due schedules and spawn their runs until a critical failure.
+/// Poll for due schedules and spawn their runs until persistent
+/// backend failure.
 ///
-/// Drive this in a background task. The loop never completes normally —
-/// backend errors are critical, and the caller should stop the
-/// subsystem.
+/// Drive this in a background task. Isolated backend failures are
+/// logged and retried next interval — the batch statement is atomic,
+/// so a failed batch's rows simply stay due.  The loop
+/// stops only after [`MAX_CONSECUTIVE_FAILURES`] consecutive failures
+/// of the same statement; the caller must treat that as fatal.
 pub async fn run<Backend, Codec, MintVmIdFn>(
     params: Params<Backend, Codec, MintVmIdFn>,
 ) -> Result<std::convert::Infallible, ErrorFor<Backend>>
@@ -86,6 +110,8 @@ where
     Codec: waymark_vm_codec_core::DeserializerProvider,
     MintVmIdFn: Fn() -> <<Backend as waymark_scheduler_backend::HasVmId>::VmId as ToOwned>::Owned,
     <Backend as waymark_scheduler_backend::HasVmId>::VmId: ToOwned,
+    <Backend as PollDueSchedules>::Error: core::fmt::Display,
+    <Backend as RegisterScheduledVmRuntimes>::Error: core::fmt::Display,
 {
     let Params {
         backend,
@@ -95,22 +121,62 @@ where
         max_items,
     } = params;
 
-    loop {
-        let now = chrono::Utc::now();
-        let due = backend
-            .poll_due_schedules(now, max_items)
-            .await
-            .map_err(Error::Poll)?;
+    // Failures are tracked per statement: a healthy poll must not
+    // vouch for a registration that keeps failing, or a broken
+    // registration path with a healthy poll would retry forever.
+    let mut consecutive_poll_failures = 0usize;
+    let mut consecutive_register_failures = 0usize;
 
-        let Some(due) = due else {
+    loop {
+        // Each error value is returned or logged-and-dropped inside its
+        // match arm, before the retry sleeps below — keeping the future
+        // Send without bounding the backend error types.
+        let now = chrono::Utc::now();
+        let polled = match backend.poll_due_schedules(now, max_items).await {
+            Ok(polled) => {
+                consecutive_poll_failures = 0;
+                polled
+            }
+            Err(error) => {
+                consecutive_poll_failures += 1;
+                if consecutive_poll_failures >= MAX_CONSECUTIVE_FAILURES {
+                    return Err(Error::Poll(error));
+                }
+                tracing::warn!(%error, "polling due schedules failed; will retry");
+                // The retry shares the idle path's sleep below.
+                None
+            }
+        };
+
+        let Some(due) = polled else {
             tokio::time::sleep(poll_interval.get()).await;
             continue;
         };
 
         let full_batch = due.len() == max_items;
-        process_due_batch(&*backend, &*codec, &mint_vm_id_fn, now, &due)
-            .await
-            .map_err(Error::Register)?;
+        let registered =
+            match process_due_batch(&*backend, &*codec, &mint_vm_id_fn, now, &due).await {
+                Ok(()) => {
+                    consecutive_register_failures = 0;
+                    true
+                }
+                Err(error) => {
+                    consecutive_register_failures += 1;
+                    if consecutive_register_failures >= MAX_CONSECUTIVE_FAILURES {
+                        return Err(Error::Register(error));
+                    }
+                    tracing::warn!(
+                        %error,
+                        "registering scheduled VM runtimes failed; the rows stay due, will retry"
+                    );
+                    // The retry shares the idle path's sleep below.
+                    false
+                }
+            };
+        if !registered {
+            tokio::time::sleep(poll_interval.get()).await;
+            continue;
+        }
 
         // A full batch may leave a backlog behind — drain it before
         // waiting out the interval.

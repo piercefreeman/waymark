@@ -4793,6 +4793,7 @@ name = "waymark-scheduler"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "mockall",
  "nonempty-collections",
  "serde",
  "thiserror",
