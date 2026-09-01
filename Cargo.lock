@@ -4194,18 +4194,17 @@ dependencies = [
 name = "waymark-action-runtime-convert"
 version = "0.1.0"
 dependencies = [
+ "indexmap",
  "prost",
- "serde_json",
  "thiserror",
  "waymark-action-runtime-core",
  "waymark-action-runtime-metadata-codec",
  "waymark-convert-core",
  "waymark-proto",
- "waymark-proto-message-conversions",
  "waymark-proto-python-value-conversions",
  "waymark-vm-runtime-exception",
  "waymark-vm-value-convert-core",
- "waymark-vm-value-convert-json",
+ "waymark-vm-value-convert-proto",
  "waymark-vm-value-python",
 ]
 
@@ -4245,7 +4244,6 @@ name = "waymark-action-runtime-worker-pool"
 version = "0.1.0"
 dependencies = [
  "nonempty-collections",
- "serde_json",
  "thiserror",
  "tokio",
  "tracing",
@@ -4260,6 +4258,7 @@ dependencies = [
  "waymark-proto",
  "waymark-proto-python-value-conversions",
  "waymark-vm-value-convert-core",
+ "waymark-vm-value-convert-proto",
  "waymark-vm-value-python",
  "waymark-worker-core",
 ]
@@ -4367,7 +4366,6 @@ dependencies = [
  "tracing",
  "uuid",
  "waymark-backend-postgres",
- "waymark-convert-core",
  "waymark-execution-bringup",
  "waymark-fn-main-common",
  "waymark-ids",
@@ -4384,7 +4382,7 @@ dependencies = [
  "waymark-vm-codec-rmp",
  "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-runtime-builder",
- "waymark-vm-value-convert-json",
+ "waymark-vm-value-python",
  "waymark-worker-core",
  "waymark-worker-inline",
  "waymark-worker-inline-compat",
@@ -4614,7 +4612,6 @@ dependencies = [
  "clap",
  "color-eyre",
  "proptest",
- "serde_json",
  "tokio",
  "tokio-util",
  "tracing",
@@ -4624,6 +4621,7 @@ dependencies = [
  "waymark-transient-execution-bringup",
  "waymark-transient-execution-worker-pool-bringup",
  "waymark-vm-ast-old-proto",
+ "waymark-vm-value-python",
  "waymark-worker-core",
  "waymark-worker-inline",
  "waymark-worker-inline-compat",
@@ -4661,6 +4659,7 @@ dependencies = [
  "waymark-fn-main-common",
  "waymark-ids",
  "waymark-proto",
+ "waymark-proto-python-value-conversions",
  "waymark-secret-string",
  "waymark-support-integration",
  "waymark-system-vm",
@@ -4670,7 +4669,8 @@ dependencies = [
  "waymark-vm-ast-old-proto",
  "waymark-vm-codec-rmp",
  "waymark-vm-runtime-builder",
- "waymark-vm-value-convert-json",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-value-convert-proto",
  "waymark-worker-core",
  "waymark-worker-python",
  "waymark-worker-remote-bringup",
@@ -4776,22 +4776,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-proto-message-conversions"
-version = "0.1.0"
-dependencies = [
- "prost",
- "serde_json",
- "thiserror",
- "waymark-proto",
- "waymark-proto-python-value-conversions",
-]
-
-[[package]]
 name = "waymark-proto-python-value-conversions"
 version = "0.1.0"
 dependencies = [
  "prost",
- "serde_json",
  "waymark-proto",
 ]
 
@@ -5815,14 +5803,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-vm-value-convert-json"
+name = "waymark-vm-value-convert-proto"
 version = "0.1.0"
 dependencies = [
  "indexmap",
- "serde_json",
  "typed_floats",
  "waymark-convert-core",
+ "waymark-proto",
  "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-python",
 ]
@@ -5938,10 +5927,11 @@ dependencies = [
 name = "waymark-worker-inline-compat"
 version = "0.1.0"
 dependencies = [
- "serde_json",
+ "waymark-convert-core",
  "waymark-proto",
- "waymark-proto-message-conversions",
  "waymark-proto-python-value-conversions",
+ "waymark-vm-value-convert-proto",
+ "waymark-vm-value-python",
  "waymark-worker-core",
  "waymark-worker-inline",
 ]
@@ -6149,13 +6139,12 @@ dependencies = [
 name = "waymark-workflow-completion-convert-proto"
 version = "0.1.0"
 dependencies = [
- "serde_json",
  "waymark-convert-core",
  "waymark-proto",
  "waymark-proto-python-value-conversions",
  "waymark-vm-runtime-exception",
  "waymark-vm-value-convert-core",
- "waymark-vm-value-convert-json",
+ "waymark-vm-value-convert-proto",
  "waymark-vm-value-python",
  "waymark-workflow-completion-core",
 ]
