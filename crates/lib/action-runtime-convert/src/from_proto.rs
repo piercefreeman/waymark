@@ -21,14 +21,16 @@ impl TryConvert<&waymark_proto::messages::WorkflowArguments, waymark_vm_value_py
     ) -> Result<waymark_vm_value_python::ReadyValue, Self::Error> {
         let mut entries = indexmap::IndexMap::with_capacity(value.arguments.len());
         for argument in &value.arguments {
-            let decoded = waymark_proto_python_value_conversions::decode_value(&argument.value)
-                .map_err(|source| crate::DecodeArgumentError {
-                    key: argument.key.clone(),
-                    source,
-                })?;
+            let decoded = waymark_vm_value_python_convert_proto::Converter::try_convert(
+                argument.value.as_slice(),
+            )
+            .map_err(|source| crate::DecodeArgumentError {
+                key: argument.key.clone(),
+                source,
+            })?;
             entries.insert(
                 argument.key.clone(),
-                waymark_vm_value_python_convert_proto::Converter::convert(&decoded),
+                waymark_vm_value_python::Value::Ready(decoded),
             );
         }
 
@@ -58,9 +60,11 @@ impl
         waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue>,
         Self::Error,
     > {
-        let action_outcome =
-            waymark_proto_python_value_conversions::decode_action_outcome(&result.payload)
-                .map_err(ActionResultError::Decode)?;
+        let action_outcome: waymark_proto::python_value::ActionOutcome =
+            waymark_vm_value_python_convert_proto::Converter::try_convert(
+                result.payload.as_slice(),
+            )
+            .map_err(ActionResultError::Decode)?;
 
         Self::try_convert(action_outcome.outcome).map_err(ActionResultError::Outcome)
     }
@@ -103,17 +107,79 @@ impl
     }
 }
 
+/// Convert how an action call completed into the flavor's outcome
+/// message: a returned value in the `value` arm, a raised exception in
+/// the `exception` arm.
+impl
+    TryConvert<
+        waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue>,
+        waymark_proto::python_value::ActionOutcome,
+    > for Converter
+{
+    type Error = waymark_vm_value_convert_core::PendingPromiseError;
+
+    fn try_convert(
+        outcome: waymark_action_runtime_core::ActionCallOutcome<
+            waymark_vm_value_python::ReadyValue,
+        >,
+    ) -> Result<waymark_proto::python_value::ActionOutcome, Self::Error> {
+        use waymark_proto::python_value::action_outcome::Outcome;
+
+        let outcome = match outcome {
+            waymark_action_runtime_core::ActionCallOutcome::Value(value) => Outcome::Value(
+                waymark_vm_value_python_convert_proto::Converter::try_convert(&value)?,
+            ),
+            waymark_action_runtime_core::ActionCallOutcome::Exception(exception) => {
+                Outcome::Exception(
+                    waymark_vm_value_python_convert_proto::Converter::try_convert(&exception)?,
+                )
+            }
+        };
+
+        Ok(waymark_proto::python_value::ActionOutcome {
+            outcome: Some(outcome),
+        })
+    }
+}
+
+/// Convert how an action call completed into the bytes the result
+/// payload carries: the outcome message, encoded.
+impl
+    TryConvert<
+        waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue>,
+        Vec<u8>,
+    > for Converter
+{
+    type Error = waymark_vm_value_convert_core::PendingPromiseError;
+
+    fn try_convert(
+        outcome: waymark_action_runtime_core::ActionCallOutcome<
+            waymark_vm_value_python::ReadyValue,
+        >,
+    ) -> Result<Vec<u8>, Self::Error> {
+        let message: waymark_proto::python_value::ActionOutcome = Self::try_convert(outcome)?;
+        let Ok(bytes) = waymark_vm_value_python_convert_proto::Converter::try_convert(&message);
+        Ok(bytes)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn action_result(
-        action_outcome: waymark_proto::python_value::ActionOutcome,
-    ) -> waymark_proto::messages::ActionResult {
+    fn action_result(payload: Vec<u8>) -> waymark_proto::messages::ActionResult {
         waymark_proto::messages::ActionResult {
-            payload: waymark_proto_python_value_conversions::encode_action_outcome(&action_outcome),
+            payload,
             ..Default::default()
         }
+    }
+
+    fn payload(
+        outcome: waymark_action_runtime_core::ActionCallOutcome<
+            waymark_vm_value_python::ReadyValue,
+        >,
+    ) -> Vec<u8> {
+        Converter::try_convert(outcome).expect("no pending promise in the outcome")
     }
 
     fn outcome(
@@ -122,14 +188,9 @@ mod tests {
         Converter::try_convert(result).expect("the encoded value decodes")
     }
 
-    fn encoded(value: waymark_vm_value_python::ReadyValue) -> waymark_proto::python_value::Value {
-        waymark_vm_value_python_convert_proto::Converter::try_convert(&value)
-            .expect("no pending promise in the value")
-    }
-
     #[test]
     fn returned_value_becomes_the_settled_value() {
-        let returned = waymark_proto_python_value_conversions::returned_value(encoded(
+        let returned = payload(waymark_action_runtime_core::ActionCallOutcome::Value(
             waymark_vm_value_python::ReadyValue::Int(42),
         ));
 
@@ -144,16 +205,15 @@ mod tests {
     #[test]
     fn returned_exception_settles_as_an_ordinary_value() {
         // Returning an exception is not raising it: it arrives as a value.
-        let returned = waymark_proto_python_value_conversions::returned_value(
-            waymark_proto::python_value::Value {
-                kind: Some(waymark_proto::python_value::value::Kind::Exception(
-                    Box::new(waymark_proto_python_value_conversions::exception_value(
-                        "ValueError".to_owned(),
-                        "boom".to_owned(),
-                    )),
-                )),
-            },
-        );
+        let exception = waymark_vm_runtime_exception::Exception {
+            type_id: "ValueError".to_owned(),
+            details: waymark_vm_value_python::Value::Ready(
+                waymark_vm_value_python::ReadyValue::String("boom".to_owned()),
+            ),
+        };
+        let returned = payload(waymark_action_runtime_core::ActionCallOutcome::Value(
+            waymark_vm_value_python::ReadyValue::Exception(Box::new(exception)),
+        ));
 
         assert!(matches!(
             outcome(&action_result(returned)),
@@ -181,21 +241,19 @@ mod tests {
 
     #[test]
     fn raised_exception_keeps_its_type_id_and_details() {
-        let raised = waymark_proto_python_value_conversions::raised_exception(
-            waymark_proto::python_value::ExceptionValue {
+        let raised = payload(waymark_action_runtime_core::ActionCallOutcome::Exception(
+            waymark_vm_runtime_exception::Exception {
                 type_id: "RetryCounterError".to_owned(),
-                details: Some(Box::new(encoded(
-                    waymark_vm_value_python::ReadyValue::Dict(indexmap::IndexMap::from([(
-                        "message".to_owned(),
-                        waymark_vm_value_python::Value::Ready(
-                            waymark_vm_value_python::ReadyValue::String(
-                                "attempt 1 has not reached success".to_owned(),
-                            ),
+                details: waymark_vm_value_python::ReadyValue::Dict(indexmap::IndexMap::from([(
+                    "message".to_owned(),
+                    waymark_vm_value_python::Value::Ready(
+                        waymark_vm_value_python::ReadyValue::String(
+                            "attempt 1 has not reached success".to_owned(),
                         ),
-                    )])),
-                ))),
+                    ),
+                )])),
             },
-        );
+        ));
 
         let waymark_action_runtime_core::ActionCallOutcome::Exception(exception) =
             outcome(&action_result(raised))
