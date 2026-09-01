@@ -212,7 +212,7 @@ impl WorkflowStore {
 
     /// Register (or re-point) a schedule: compile and pin the workflow,
     /// bake the initial runtime snapshot template from the registration's
-    /// initial context, compute the first run, and upsert the schedule
+    /// arguments, compute the first run, and upsert the schedule
     /// row. Returns when the schedule will first fire.
     pub async fn register_schedule(
         &self,
@@ -225,16 +225,13 @@ impl WorkflowStore {
             .await
             .map_err(RegisterScheduleError::Internal)?;
 
-        let call_spec =
-            waymark_workflow_initialization_convert_proto::InitialContextConverter::try_convert((
-                registration.initial_context.as_ref(),
-                &entry_input_names[..],
-            ))
-            .map_err(|err| {
-                RegisterScheduleError::Internal(color_eyre::eyre::eyre!(
-                    "build entry call spec: {err}"
-                ))
-            })?;
+        let call_spec = waymark_workflow_initialization_convert_proto::Converter::try_convert((
+            &registration.arguments[..],
+            &entry_input_names[..],
+        ))
+        .map_err(|err| {
+            RegisterScheduleError::Internal(color_eyre::eyre::eyre!("build entry call spec: {err}"))
+        })?;
 
         let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::<
             waymark_system_vm::Spec,

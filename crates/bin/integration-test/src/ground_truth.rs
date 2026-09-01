@@ -57,22 +57,24 @@ fn decode_hex(hex: &str, what: &str) -> Result<Vec<u8>, color_eyre::eyre::Report
 
 /// Encode a case's keyword arguments for the Python helper.
 ///
-/// The arguments cross as the framing message the worker protocol uses,
-/// so the helper reads them with the same reader a worker would.
+/// The arguments cross as the initiation seam's per-language message,
+/// so the helper reads them with the same reader a client's
+/// registration would decode with.
 fn encode_kwargs(case: &FixtureCase) -> Result<String, color_eyre::eyre::Report> {
     use prost::Message as _;
 
     let mut arguments = Vec::with_capacity(case.kwargs.len());
     for (name, kwarg) in case.kwargs {
-        let value = waymark_vm_value_python_convert_proto::Converter::try_convert(&kwarg.value())
-            .wrap_err_with(|| format!("encode kwarg '{name}' of case '{}'", case.id))?;
-        arguments.push(waymark_proto::messages::WorkflowArgument {
+        let value: waymark_proto::python_value::Value =
+            waymark_vm_value_python_convert_proto::Converter::try_convert(&kwarg.value())
+                .wrap_err_with(|| format!("encode kwarg '{name}' of case '{}'", case.id))?;
+        arguments.push(waymark_proto::python_value::WorkflowArgument {
             key: (*name).to_owned(),
-            value,
+            value: Some(value),
         });
     }
 
-    let encoded = waymark_proto::messages::WorkflowArguments { arguments }.encode_to_vec();
+    let encoded = waymark_proto::python_value::WorkflowArguments { arguments }.encode_to_vec();
     Ok(encoded.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 

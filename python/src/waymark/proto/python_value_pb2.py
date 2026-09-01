@@ -32,7 +32,7 @@ _sym_db.RegisterFileDescriptor(google_dot_protobuf_dot_timestamp__pb2.DESCRIPTOR
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12python_value.proto\x12\x14waymark.python_value\x1a\x1cgoogle/protobuf/struct.proto\"\xe7\x02\n\x05Value\x12\x39\n\tprimitive\x18\x01 \x01(\x0b\x32$.waymark.python_value.PrimitiveValueH\x00\x12\x39\n\tbasemodel\x18\x02 \x01(\x0b\x32$.waymark.python_value.BaseModelValueH\x00\x12\x39\n\texception\x18\x03 \x01(\x0b\x32$.waymark.python_value.ExceptionValueH\x00\x12\x35\n\nlist_value\x18\x04 \x01(\x0b\x32\x1f.waymark.python_value.ListValueH\x00\x12\x37\n\x0btuple_value\x18\x05 \x01(\x0b\x32 .waymark.python_value.TupleValueH\x00\x12\x35\n\ndict_value\x18\x06 \x01(\x0b\x32\x1f.waymark.python_value.DictValueH\x00\x42\x06\n\x04kind\"\xa5\x01\n\x0ePrimitiveValue\x12\x16\n\x0cstring_value\x18\x01 \x01(\tH\x00\x12\x16\n\x0c\x64ouble_value\x18\x02 \x01(\x01H\x00\x12\x13\n\tint_value\x18\x03 \x01(\x12H\x00\x12\x14\n\nbool_value\x18\x04 \x01(\x08H\x00\x12\x30\n\nnull_value\x18\x05 \x01(\x0e\x32\x1a.google.protobuf.NullValueH\x00\x42\x06\n\x04kind\"]\n\x0e\x42\x61seModelValue\x12\x0e\n\x06module\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12-\n\x04\x64\x61ta\x18\x03 \x01(\x0b\x32\x1f.waymark.python_value.DictValue\"\x83\x01\n\rActionOutcome\x12,\n\x05value\x18\x01 \x01(\x0b\x32\x1b.waymark.python_value.ValueH\x00\x12\x39\n\texception\x18\x02 \x01(\x0b\x32$.waymark.python_value.ExceptionValueH\x00\x42\t\n\x07outcome\"\x85\x01\n\x0fWorkflowOutcome\x12,\n\x05value\x18\x01 \x01(\x0b\x32\x1b.waymark.python_value.ValueH\x00\x12\x39\n\texception\x18\x02 \x01(\x0b\x32$.waymark.python_value.ExceptionValueH\x00\x42\t\n\x07outcome\"\x93\x01\n\x0e\x45xceptionValue\x12\x0f\n\x07type_id\x18\x01 \x01(\t\x12,\n\x07\x64\x65tails\x18\x02 \x01(\x0b\x32\x1b.waymark.python_value.ValueJ\x04\x08\x03\x10\x04J\x04\x08\x04\x10\x05J\x04\x08\x05\x10\x06J\x04\x08\x06\x10\x07R\x07messageR\ttracebackR\x06valuesR\x0etype_hierarchy\"7\n\tListValue\x12*\n\x05items\x18\x01 \x03(\x0b\x32\x1b.waymark.python_value.Value\"8\n\nTupleValue\x12*\n\x05items\x18\x01 \x03(\x0b\x32\x1b.waymark.python_value.Value\"D\n\tDictEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12*\n\x05value\x18\x02 \x01(\x0b\x32\x1b.waymark.python_value.Value\"=\n\tDictValue\x12\x30\n\x07\x65ntries\x18\x01 \x03(\x0b\x32\x1f.waymark.python_value.DictEntryb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12python_value.proto\x12\x14waymark.python_value\x1a\x1cgoogle/protobuf/struct.proto\"\xe7\x02\n\x05Value\x12\x39\n\tprimitive\x18\x01 \x01(\x0b\x32$.waymark.python_value.PrimitiveValueH\x00\x12\x39\n\tbasemodel\x18\x02 \x01(\x0b\x32$.waymark.python_value.BaseModelValueH\x00\x12\x39\n\texception\x18\x03 \x01(\x0b\x32$.waymark.python_value.ExceptionValueH\x00\x12\x35\n\nlist_value\x18\x04 \x01(\x0b\x32\x1f.waymark.python_value.ListValueH\x00\x12\x37\n\x0btuple_value\x18\x05 \x01(\x0b\x32 .waymark.python_value.TupleValueH\x00\x12\x35\n\ndict_value\x18\x06 \x01(\x0b\x32\x1f.waymark.python_value.DictValueH\x00\x42\x06\n\x04kind\"\xa5\x01\n\x0ePrimitiveValue\x12\x16\n\x0cstring_value\x18\x01 \x01(\tH\x00\x12\x16\n\x0c\x64ouble_value\x18\x02 \x01(\x01H\x00\x12\x13\n\tint_value\x18\x03 \x01(\x12H\x00\x12\x14\n\nbool_value\x18\x04 \x01(\x08H\x00\x12\x30\n\nnull_value\x18\x05 \x01(\x0e\x32\x1a.google.protobuf.NullValueH\x00\x42\x06\n\x04kind\"]\n\x0e\x42\x61seModelValue\x12\x0e\n\x06module\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12-\n\x04\x64\x61ta\x18\x03 \x01(\x0b\x32\x1f.waymark.python_value.DictValue\"\x83\x01\n\rActionOutcome\x12,\n\x05value\x18\x01 \x01(\x0b\x32\x1b.waymark.python_value.ValueH\x00\x12\x39\n\texception\x18\x02 \x01(\x0b\x32$.waymark.python_value.ExceptionValueH\x00\x42\t\n\x07outcome\"\x85\x01\n\x0fWorkflowOutcome\x12,\n\x05value\x18\x01 \x01(\x0b\x32\x1b.waymark.python_value.ValueH\x00\x12\x39\n\texception\x18\x02 \x01(\x0b\x32$.waymark.python_value.ExceptionValueH\x00\x42\t\n\x07outcome\"N\n\x11WorkflowArguments\x12\x39\n\targuments\x18\x01 \x03(\x0b\x32&.waymark.python_value.WorkflowArgument\"K\n\x10WorkflowArgument\x12\x0b\n\x03key\x18\x01 \x01(\t\x12*\n\x05value\x18\x02 \x01(\x0b\x32\x1b.waymark.python_value.Value\"J\n\x0f\x41\x63tionArguments\x12\x37\n\targuments\x18\x01 \x03(\x0b\x32$.waymark.python_value.ActionArgument\"I\n\x0e\x41\x63tionArgument\x12\x0b\n\x03key\x18\x01 \x01(\t\x12*\n\x05value\x18\x02 \x01(\x0b\x32\x1b.waymark.python_value.Value\"\x93\x01\n\x0e\x45xceptionValue\x12\x0f\n\x07type_id\x18\x01 \x01(\t\x12,\n\x07\x64\x65tails\x18\x02 \x01(\x0b\x32\x1b.waymark.python_value.ValueJ\x04\x08\x03\x10\x04J\x04\x08\x04\x10\x05J\x04\x08\x05\x10\x06J\x04\x08\x06\x10\x07R\x07messageR\ttracebackR\x06valuesR\x0etype_hierarchy\"7\n\tListValue\x12*\n\x05items\x18\x01 \x03(\x0b\x32\x1b.waymark.python_value.Value\"8\n\nTupleValue\x12*\n\x05items\x18\x01 \x03(\x0b\x32\x1b.waymark.python_value.Value\"D\n\tDictEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12*\n\x05value\x18\x02 \x01(\x0b\x32\x1b.waymark.python_value.Value\"=\n\tDictValue\x12\x30\n\x07\x65ntries\x18\x01 \x03(\x0b\x32\x1f.waymark.python_value.DictEntryb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -49,14 +49,22 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_ACTIONOUTCOME']._serialized_end=831
   _globals['_WORKFLOWOUTCOME']._serialized_start=834
   _globals['_WORKFLOWOUTCOME']._serialized_end=967
-  _globals['_EXCEPTIONVALUE']._serialized_start=970
-  _globals['_EXCEPTIONVALUE']._serialized_end=1117
-  _globals['_LISTVALUE']._serialized_start=1119
-  _globals['_LISTVALUE']._serialized_end=1174
-  _globals['_TUPLEVALUE']._serialized_start=1176
-  _globals['_TUPLEVALUE']._serialized_end=1232
-  _globals['_DICTENTRY']._serialized_start=1234
-  _globals['_DICTENTRY']._serialized_end=1302
-  _globals['_DICTVALUE']._serialized_start=1304
-  _globals['_DICTVALUE']._serialized_end=1365
+  _globals['_WORKFLOWARGUMENTS']._serialized_start=969
+  _globals['_WORKFLOWARGUMENTS']._serialized_end=1047
+  _globals['_WORKFLOWARGUMENT']._serialized_start=1049
+  _globals['_WORKFLOWARGUMENT']._serialized_end=1124
+  _globals['_ACTIONARGUMENTS']._serialized_start=1126
+  _globals['_ACTIONARGUMENTS']._serialized_end=1200
+  _globals['_ACTIONARGUMENT']._serialized_start=1202
+  _globals['_ACTIONARGUMENT']._serialized_end=1275
+  _globals['_EXCEPTIONVALUE']._serialized_start=1278
+  _globals['_EXCEPTIONVALUE']._serialized_end=1425
+  _globals['_LISTVALUE']._serialized_start=1427
+  _globals['_LISTVALUE']._serialized_end=1482
+  _globals['_TUPLEVALUE']._serialized_start=1484
+  _globals['_TUPLEVALUE']._serialized_end=1540
+  _globals['_DICTENTRY']._serialized_start=1542
+  _globals['_DICTENTRY']._serialized_end=1610
+  _globals['_DICTVALUE']._serialized_start=1612
+  _globals['_DICTVALUE']._serialized_end=1673
 # @@protoc_insertion_point(module_scope)

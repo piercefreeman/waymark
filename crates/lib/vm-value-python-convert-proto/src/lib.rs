@@ -298,6 +298,141 @@ impl TryConvert<&[u8], proto_value::ActionOutcome> for Converter {
     }
 }
 
+/// An argument entry named a key but carried no value, which is a
+/// malformed arguments message rather than an argument that holds
+/// nothing (this flavor's "nothing" is an encoded `None`).
+#[derive(Debug, thiserror::Error)]
+#[error("argument {key:?} carries no value")]
+pub struct MissingArgumentValueError {
+    /// The framing key of the value-less entry.
+    pub key: String,
+}
+
+/// Convert a pair of call-argument names and values into this flavor's
+/// action-arguments message.
+///
+/// This is the flavor's calling convention: `call_args` names from the
+/// `ActionRef` paired positionally with the argument values from the
+/// VM into named arguments, in pairing order.
+impl TryConvert<(&[String], &[ReadyValue]), proto_value::ActionArguments> for Converter {
+    type Error = PendingPromiseError;
+
+    fn try_convert(
+        (names, values): (&[String], &[ReadyValue]),
+    ) -> Result<proto_value::ActionArguments, Self::Error> {
+        let mut arguments = Vec::with_capacity(names.len());
+        for (name, value) in names.iter().zip(values.iter()) {
+            // Skip `None`-valued parameters (dependency markers such as
+            // `Annotated[T, Depend(…)]` are serialized as `None` by the
+            // VM).  The Python side (`provide_dependencies`) will resolve
+            // them from the function signature instead.
+            if matches!(value, ReadyValue::None) {
+                continue;
+            }
+            let value: proto_value::Value = Self::try_convert(value)?;
+            arguments.push(proto_value::ActionArgument {
+                key: name.clone(),
+                value: Some(value),
+            });
+        }
+        Ok(proto_value::ActionArguments { arguments })
+    }
+}
+
+/// Write an action arguments message as the bytes the dispatch carries.
+///
+/// Encoding a built message cannot fail: the buffer is a [`Vec`].
+impl TryConvert<&proto_value::ActionArguments, Vec<u8>> for Converter {
+    type Error = Infallible;
+
+    fn try_convert(message: &proto_value::ActionArguments) -> Result<Vec<u8>, Self::Error> {
+        Ok(prost::Message::encode_to_vec(message))
+    }
+}
+
+/// Convert a pair of call-argument names and values straight into the
+/// bytes the dispatch carries: the arguments message, encoded.
+///
+/// No arguments encode as no bytes — an entry-less message has the
+/// empty encoding, so "empty payload means no arguments" needs no case
+/// of its own.
+impl TryConvert<(&[String], &[ReadyValue]), Vec<u8>> for Converter {
+    type Error = PendingPromiseError;
+
+    fn try_convert(pair: (&[String], &[ReadyValue])) -> Result<Vec<u8>, Self::Error> {
+        let message: proto_value::ActionArguments = Self::try_convert(pair)?;
+        let Ok(bytes) = Self::try_convert(&message);
+        Ok(bytes)
+    }
+}
+
+/// Read an action arguments message back from the dispatch's bytes.
+impl TryConvert<&[u8], proto_value::ActionArguments> for Converter {
+    type Error = prost::DecodeError;
+
+    fn try_convert(bytes: &[u8]) -> Result<proto_value::ActionArguments, Self::Error> {
+        prost::Message::decode(bytes)
+    }
+}
+
+/// Convert an action arguments message into the named ready values it
+/// carries, in message order.
+impl TryConvert<&proto_value::ActionArguments, Vec<(String, ReadyValue)>> for Converter {
+    type Error = MissingArgumentValueError;
+
+    fn try_convert(
+        message: &proto_value::ActionArguments,
+    ) -> Result<Vec<(String, ReadyValue)>, Self::Error> {
+        message
+            .arguments
+            .iter()
+            .map(|argument| {
+                let value = argument
+                    .value
+                    .as_ref()
+                    .ok_or_else(|| MissingArgumentValueError {
+                        key: argument.key.clone(),
+                    })?;
+                Ok((argument.key.clone(), Self::convert(value)))
+            })
+            .collect()
+    }
+}
+
+/// Read a workflow arguments message back from the initiation payload's
+/// bytes.
+impl TryConvert<&[u8], proto_value::WorkflowArguments> for Converter {
+    type Error = prost::DecodeError;
+
+    fn try_convert(bytes: &[u8]) -> Result<proto_value::WorkflowArguments, Self::Error> {
+        prost::Message::decode(bytes)
+    }
+}
+
+/// Convert a workflow arguments message into the named ready values it
+/// carries, in message order.
+impl TryConvert<&proto_value::WorkflowArguments, Vec<(String, ReadyValue)>> for Converter {
+    type Error = MissingArgumentValueError;
+
+    fn try_convert(
+        message: &proto_value::WorkflowArguments,
+    ) -> Result<Vec<(String, ReadyValue)>, Self::Error> {
+        message
+            .arguments
+            .iter()
+            .map(|argument| {
+                let value = argument
+                    .value
+                    .as_ref()
+                    .ok_or_else(|| MissingArgumentValueError {
+                        key: argument.key.clone(),
+                    })?;
+                Ok((argument.key.clone(), Self::convert(value)))
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
