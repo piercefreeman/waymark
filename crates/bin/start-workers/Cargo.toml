@@ -10,6 +10,8 @@ waymark-backend-postgres-migrations = { workspace = true }
 waymark-config = { workspace = true }
 waymark-execution-bringup = { workspace = true }
 waymark-fn-main-common = { workspace = true }
+waymark-http-bringup = { workspace = true }
+waymark-http-healthz = { workspace = true }
 waymark-prometheus-exporter-bringup = { workspace = true }
 waymark-scheduler-bringup = { workspace = true }
 waymark-tokio-metrics-bringup = { workspace = true }
@@ -18,6 +20,7 @@ waymark-worker-remote-bringup = { workspace = true }
 waymark-worker-remote-pool = { workspace = true }
 waymark-worker-status-reporter = { workspace = true }
 
+axum = { workspace = true }
 envfury = { workspace = true }
 metrics = { workspace = true }
 sqlx = { workspace = true }
