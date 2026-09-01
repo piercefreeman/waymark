@@ -27,8 +27,8 @@ pub struct CompletionRecord<VmId> {
     /// number violates the "same effect ⇒ same pair" invariant.
     pub effect_number: EffectNumber,
 
-    /// The opaque codec-encoded action-call outcome.
-    pub outcome: Vec<u8>,
+    /// The opaque codec-encoded action-call execution result.
+    pub execution_result: Vec<u8>,
 }
 
 /// The key identifying a durably-stored completion — used both for demand
