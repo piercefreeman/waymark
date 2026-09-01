@@ -1,6 +1,6 @@
 //! Compile-time assertion that [`Value`] implements the necessary traits.
 
-use waymark_vm_value::Value;
+use waymark_vm_value_python::Value;
 
 #[allow(dead_code)]
 fn assert_fullset_interpreter_impls() {
