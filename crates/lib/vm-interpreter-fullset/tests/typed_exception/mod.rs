@@ -64,6 +64,7 @@ fn raised_typed_exceptions_bubble_into_matching_handlers() {
                 exception_types: vec!["TypeError".to_owned()],
                 exception_dst: Some(RegisterId(2)),
             }],
+            finally_state: None,
         }
         .into(),
     ];
@@ -105,6 +106,7 @@ fn typed_exceptions_raised_in_called_functions_are_caught_by_local_handlers() {
                 exception_types: vec!["TypeError".to_owned()],
                 exception_dst: Some(RegisterId(2)),
             }],
+            finally_state: None,
         }
         .into(),
     ];
@@ -174,6 +176,7 @@ fn typed_exceptions_raised_in_called_functions_propagate_to_caller_handlers() {
                             exception_types: vec!["TypeError".to_owned()],
                             exception_dst: Some(RegisterId(2)),
                         }],
+                        finally_state: None,
                     }
                     .into(),
                     CoreSet::Call {

@@ -20,7 +20,7 @@ pub struct Frame<FunctionId, StateId, Value> {
     pub exception: Option<Exception<Value>>,
 
     /// Exception scopes and shared-state returns active for this frame.
-    pub unwind: UnwindStack<StateId>,
+    pub unwind: UnwindStack<StateId, Value>,
 
     /// The kind of the frame.
     pub kind: FrameKind,

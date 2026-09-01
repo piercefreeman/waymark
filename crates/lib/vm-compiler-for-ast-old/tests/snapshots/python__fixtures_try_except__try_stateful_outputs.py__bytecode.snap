@@ -18,7 +18,7 @@ f0: [6 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: Bool(false) })
     PureSet(LoadConst { dst: r2, value: String("start") })
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ValueError"], exception_dst: None }] })
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ValueError"], exception_dst: None }], finally_state: None })
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("risky_action"), args: [r0], resume: s3 })
   s1:
     PureSet(LoadConst { dst: r4, value: Bool(true) })
@@ -33,8 +33,7 @@ f0: [6 registers]
   s5:
     CoreSet(Await { dst: r2, src: r2, resume: s6 })
   s6:
-    CoreSet(Unwind { depth: 0 })
-    CoreSet(Jump { target_state: s1 })
+    CoreSet(Unwind { depth: 0, target_state: s1 })
   s7:
     CoreSet(Await { dst: r2, src: r2, resume: s8 })
   s8:

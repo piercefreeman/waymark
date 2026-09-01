@@ -90,25 +90,22 @@ pub enum CoreSet<Spec: self::Spec> {
         /// Handlers to activate for subsequent execution in this frame.
         handlers:
             Vec<waymark_vm_exception_handler::ExceptionHandler<Spec::StateId, Spec::RegisterId>>,
+
+        /// State to run whenever control leaves this handler scope.
+        finally_state: Option<Spec::StateId>,
     },
 
-    /// Discard unwind entries above `depth`.
+    /// Leave unwind entries above `depth`, then enter `target_state`.
     Unwind {
         /// Number of unwind entries to preserve.
         depth: usize,
+
+        /// State to enter after crossed finalizers complete.
+        target_state: Spec::StateId,
     },
 
-    /// Call shared states in order, then enter a return state.
-    CallStates {
-        /// States to execute in order with their surrounding unwind depths.
-        targets: Vec<StateTarget<Spec::StateId>>,
-
-        /// State resumed after the targets return, or entered immediately when empty.
-        return_to: StateTarget<Spec::StateId>,
-    },
-
-    /// Return from the current shared state.
-    ReturnState,
+    /// Resume the control transfer suspended while entering a finalizer.
+    ContinueUnwind,
 
     /// Jump to the specified state.
     Jump {
@@ -137,17 +134,6 @@ pub enum CoreSet<Spec: self::Spec> {
         /// The register in the current from to take the return value from.
         src: Spec::RegisterId,
     },
-}
-
-/// A state and the frame unwind depth expected when entering it.
-#[derive(Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct StateTarget<StateId> {
-    /// State to enter.
-    pub state: StateId,
-
-    /// Unwind depth surrounding the state.
-    pub unwind_depth: usize,
 }
 
 /// One arm of a [`CoreSet::Select`] instruction.

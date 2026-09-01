@@ -53,7 +53,7 @@ fn lowers_retry_policies_through_a_wrapper_function() {
         PureSet(LoadConst { dst: r1, value: Int(1) })
         CoreSet(Jump { target_state: s1 })
       s1:
-        CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }] })
+        CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }], finally_state: None })
         ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
       s2:
         PureSet(LoadConst { dst: r8, value: Int(2) })
@@ -67,12 +67,12 @@ fn lowers_retry_policies_through_a_wrapper_function() {
         PureSet(LoadConst { dst: r4, value: Int(30) })
         ExtCallSet(Sleep { dst: r5, duration: r4, resume: s6, unskippable: true })
       s5:
-        CoreSet(Unwind { depth: 0 })
         CoreSet(Return { src: r6 })
       s6:
         CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
       s7:
-        CoreSet(Unwind { depth: 0 })
+        CoreSet(Unwind { depth: 0, target_state: s8 })
+      s8:
         PureSet(LoadConst { dst: r10, value: String("ActionTimeout") })
         PureSet(LoadConst { dst: r11, value: None })
         PureSet(MakeException { dst: r12, type_id: r10, details: r11 })

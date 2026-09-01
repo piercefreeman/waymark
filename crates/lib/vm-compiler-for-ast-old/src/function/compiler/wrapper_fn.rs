@@ -323,7 +323,7 @@ where
             },
         )
         .collect();
-    emitter.emit_push_exception_handlers(handlers);
+    emitter.emit_push_exception_handlers(handlers, None);
 
     let resume_after_call = emitter.reserve_state();
     emitter.emit_extcall(
@@ -347,7 +347,6 @@ where
             emitter.emit_await(result_register, promise_register, ok_state);
 
             emitter.switch_to(ok_state);
-            emitter.emit_unwind(0);
             emitter.emit_return(result_register);
         }
         Some(seconds) => {
@@ -385,14 +384,15 @@ where
             ]);
 
             emitter.switch_to(ok_state);
-            emitter.emit_unwind(0);
             emitter.emit_return(result_register);
 
             // The timeout arm resumed normally, so the attempt's handler
-            // block is still active - pop it first: the compile-time routing
-            // below must never be caught by the attempt's own handlers.
+            // scope is still active. Leave it before routing so a synthesized
+            // timeout cannot be caught by the attempt's own handlers.
+            let timeout_routing_state = emitter.reserve_state();
             emitter.switch_to(timeout_state);
-            emitter.emit_unwind(0);
+            emitter.emit_unwind(0, timeout_routing_state);
+            emitter.switch_to(timeout_routing_state);
             let routed_retry = retry_plans.iter().position(RetryPlan::retries_timeouts);
             match routed_retry {
                 Some(position) => {
@@ -599,7 +599,7 @@ mod tests {
           PureSet(LoadConst { dst: r2, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }] })
+          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }], finally_state: None })
           ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("notify"), args: [r0], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r6, value: Int(2) })
@@ -612,7 +612,6 @@ mod tests {
         s4:
           CoreSet(Await { dst: r5, src: r4, resume: s5 })
         s5:
-          CoreSet(Unwind { depth: 0 })
           CoreSet(Return { src: r5 })
         "#
         );
@@ -628,7 +627,7 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }] })
+          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }], finally_state: None })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r5, value: Int(2) })
@@ -642,7 +641,6 @@ mod tests {
         s4:
           CoreSet(Await { dst: r4, src: r3, resume: s5 })
         s5:
-          CoreSet(Unwind { depth: 0 })
           CoreSet(Return { src: r4 })
         s6:
           CoreSet(Await { dst: r9, src: r8, resume: s7 })
@@ -668,7 +666,7 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }, ExceptionHandler { handler_state: s3, exception_types: ["ValueError"], exception_dst: Some(r2) }] })
+          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }, ExceptionHandler { handler_state: s3, exception_types: ["ValueError"], exception_dst: Some(r2) }], finally_state: None })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s6 })
         s2:
           PureSet(LoadConst { dst: r5, value: Int(3) })
@@ -689,7 +687,6 @@ mod tests {
         s6:
           CoreSet(Await { dst: r4, src: r3, resume: s7 })
         s7:
-          CoreSet(Unwind { depth: 0 })
           CoreSet(Return { src: r4 })
         "#
         );
@@ -705,7 +702,7 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }] })
+          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }], finally_state: None })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r5, value: Int(1) })
@@ -718,7 +715,6 @@ mod tests {
         s4:
           CoreSet(Await { dst: r4, src: r3, resume: s5 })
         s5:
-          CoreSet(Unwind { depth: 0 })
           CoreSet(Return { src: r4 })
         "#
         );
@@ -734,7 +730,7 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }] })
+          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }], finally_state: None })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r8, value: Int(2) })
@@ -748,12 +744,12 @@ mod tests {
           PureSet(LoadConst { dst: r4, value: Int(30) })
           ExtCallSet(Sleep { dst: r5, duration: r4, resume: s6, unskippable: true })
         s5:
-          CoreSet(Unwind { depth: 0 })
           CoreSet(Return { src: r6 })
         s6:
           CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
         s7:
-          CoreSet(Unwind { depth: 0 })
+          CoreSet(Unwind { depth: 0, target_state: s8 })
+        s8:
           PureSet(LoadConst { dst: r10, value: String("ActionTimeout") })
           PureSet(LoadConst { dst: r11, value: None })
           PureSet(MakeException { dst: r12, type_id: r10, details: r11 })
@@ -778,7 +774,7 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ActionTimeout"], exception_dst: Some(r2) }] })
+          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ActionTimeout"], exception_dst: Some(r2) }], finally_state: None })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r8, value: Int(2) })
@@ -792,12 +788,12 @@ mod tests {
           PureSet(LoadConst { dst: r4, value: Int(30) })
           ExtCallSet(Sleep { dst: r5, duration: r4, resume: s6, unskippable: true })
         s5:
-          CoreSet(Unwind { depth: 0 })
           CoreSet(Return { src: r6 })
         s6:
           CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
         s7:
-          CoreSet(Unwind { depth: 0 })
+          CoreSet(Unwind { depth: 0, target_state: s8 })
+        s8:
           PureSet(LoadConst { dst: r8, value: Int(2) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r9, a: r0, b: r8 } })
           CoreSet(JumpIf { target_state: s3, cond: r9 })

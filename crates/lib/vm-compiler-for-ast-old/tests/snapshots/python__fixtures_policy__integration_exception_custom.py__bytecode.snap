@@ -12,7 +12,7 @@ fn main(input: [], output: []):
 ---
 f0: [3 registers]
   s0:
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["CustomError"], exception_dst: None }] })
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["CustomError"], exception_dst: None }], finally_state: None })
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("provide_value"), args: [], resume: s3 })
   s1:
     CoreSet(Return { src: r2 })
@@ -25,8 +25,7 @@ f0: [3 registers]
     CoreSet(Call { dst: r1, function_id: f1, args: [r0] })
     CoreSet(Await { dst: r1, src: r1, resume: s5 })
   s5:
-    CoreSet(Unwind { depth: 0 })
-    CoreSet(Jump { target_state: s1 })
+    CoreSet(Unwind { depth: 0, target_state: s1 })
   s6:
     CoreSet(Await { dst: r2, src: r2, resume: s7 })
   s7:
@@ -37,7 +36,7 @@ f1: [8 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }] })
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }], finally_state: None })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("explode_custom"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r6, value: Int(0) })
@@ -50,5 +49,4 @@ f1: [8 registers]
   s4:
     CoreSet(Await { dst: r5, src: r4, resume: s5 })
   s5:
-    CoreSet(Unwind { depth: 0 })
     CoreSet(Return { src: r5 })

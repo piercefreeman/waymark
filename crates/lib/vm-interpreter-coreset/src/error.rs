@@ -12,10 +12,6 @@ pub enum Error<Spec: waymark_vm_instructions_coreset::Spec> {
     #[error("select: {0}")]
     Select(#[source] SelectError),
 
-    /// Returning from a function failed.
-    #[error("return: {0}")]
-    Return(#[source] FnExitError),
-
     /// JumpIf failed.
     #[error("jump if: {0}")]
     JumpIf(#[source] JumpIfError),
@@ -24,13 +20,13 @@ pub enum Error<Spec: waymark_vm_instructions_coreset::Spec> {
     #[error("unwind: {0}")]
     Unwind(#[source] waymark_vm_runtime_core::UnwindDepthError),
 
-    /// Returning from a shared state failed.
-    #[error("return state: {0}")]
-    ReturnState(#[source] waymark_vm_runtime_core::ReturnStateError),
+    /// Resuming a transfer after finalization failed.
+    #[error("continue unwind: {0}")]
+    ContinueUnwind(#[source] waymark_vm_runtime_core::ContinueUnwindError),
 
-    /// Bubbling a raised exception failed.
-    #[error("bubble exception: {0}")]
-    BubbleException(#[source] FnExitError),
+    /// Exiting the current frame failed.
+    #[error("frame exit: {0}")]
+    FrameExit(#[source] FnExitError),
 
     /// Raising an exception failed.
     #[error("raise: {0}")]
