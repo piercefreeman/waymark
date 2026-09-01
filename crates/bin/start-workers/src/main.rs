@@ -116,7 +116,10 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     let process_pool = Arc::new(process_pool);
 
     // Compose everything the HTTP server serves.
-    let http_routes = axum::Router::new().merge(waymark_http_healthz::router());
+    let http_api_routes = aide::axum::ApiRouter::new();
+    let http_routes = axum::Router::new()
+        .merge(waymark_http_healthz::router())
+        .merge(waymark_http_api::router("/api", http_api_routes));
 
     // Start the HTTP server.
     let maybe_http_handle = if config.http.enabled {
