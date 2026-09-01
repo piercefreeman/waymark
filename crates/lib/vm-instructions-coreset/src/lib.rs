@@ -98,6 +98,21 @@ pub enum CoreSet<Spec: self::Spec> {
         count: usize,
     },
 
+    /// Call shared states in order, then enter a return state.
+    CallStates {
+        /// States to execute in order with their surrounding handler depths.
+        targets: Vec<StateTarget<Spec::StateId>>,
+
+        /// State resumed after the targets return, or entered immediately when empty.
+        return_to: StateTarget<Spec::StateId>,
+
+        /// Active state calls to preserve around this nested call.
+        pending_depth: usize,
+    },
+
+    /// Return from the current shared state.
+    ReturnState,
+
     /// Jump to the specified state.
     Jump {
         /// The state to jump to.
@@ -125,6 +140,17 @@ pub enum CoreSet<Spec: self::Spec> {
         /// The register in the current from to take the return value from.
         src: Spec::RegisterId,
     },
+}
+
+/// A state and the exception-handler depth expected when entering it.
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct StateTarget<StateId> {
+    /// State to enter.
+    pub state: StateId,
+
+    /// Exception-handler depth surrounding the state.
+    pub exception_handler_depth: usize,
 }
 
 /// One arm of a [`CoreSet::Select`] instruction.

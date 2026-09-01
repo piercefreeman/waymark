@@ -223,6 +223,30 @@ where
         self.emit(waymark_vm_instructions_coreset::CoreSet::PopExceptionHandlers { count }.into());
     }
 
+    /// Calls a shared state and terminates the current state.
+    pub fn emit_call_states(
+        &mut self,
+        targets: Vec<waymark_vm_instructions_coreset::StateTarget<StateId>>,
+        return_to: waymark_vm_instructions_coreset::StateTarget<StateId>,
+        pending_depth: usize,
+    ) {
+        self.emit(
+            waymark_vm_instructions_coreset::CoreSet::CallStates {
+                targets,
+                return_to,
+                pending_depth,
+            }
+            .into(),
+        );
+        self.function_states.terminate();
+    }
+
+    /// Returns from a shared state and terminates the current state.
+    pub fn emit_return_state(&mut self) {
+        self.emit(waymark_vm_instructions_coreset::CoreSet::ReturnState.into());
+        self.function_states.terminate();
+    }
+
     /// Emits a conditional jump.
     pub fn emit_jump_if(&mut self, target_state: StateId, cond: RegisterId) {
         self.emit(waymark_vm_instructions_coreset::CoreSet::JumpIf { target_state, cond }.into());

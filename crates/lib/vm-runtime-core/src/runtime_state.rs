@@ -121,7 +121,7 @@ mod tests {
     use crate::{
         Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, PromiseStates,
         PromiseWaiter, RegisterId, Registers, SelectStates, SettlePromiseError,
-        SettledPromiseState,
+        SettledPromiseState, StateCalls,
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,6 +142,7 @@ mod tests {
             regs: Registers::new(2),
             exception: None,
             exception_handler_blocks: ExceptionHandlers::new(),
+            state_calls: StateCalls::new(),
             kind: FrameKind::TopLevel,
         }
     }

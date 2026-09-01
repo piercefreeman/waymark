@@ -40,6 +40,11 @@ impl<StateId> ExceptionHandlers<StateId> {
         Ok(())
     }
 
+    /// Returns the number of active handler blocks.
+    pub fn depth(&self) -> usize {
+        self.0.len()
+    }
+
     /// Returns the innermost matching handler and unwinds active handler blocks
     /// to the surrounding scope of that handler.
     pub fn take_matching(

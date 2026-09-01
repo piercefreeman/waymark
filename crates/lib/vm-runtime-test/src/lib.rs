@@ -35,7 +35,7 @@ use waymark_vm_interpreter::{ExecutionOutcome, Interpreter};
 use waymark_vm_runtime::{CallSpec, FunctionNotFoundError, Runtime};
 use waymark_vm_runtime_core::{
     CaptureRuntimeView, Continuation, ExceptionHandlers, Frame, FrameKind, FullRuntimeView,
-    PromiseState, RegisterId, Registers,
+    PromiseState, RegisterId, Registers, StateCalls,
 };
 use waymark_vm_runtime_exception::{Exception, FromException};
 
@@ -201,6 +201,7 @@ impl Interpreter for TestInterpreter {
                     regs: Registers::new(num_regs),
                     exception: None,
                     exception_handler_blocks: ExceptionHandlers::new(),
+                    state_calls: StateCalls::new(),
                     kind: FrameKind::TopLevel,
                 });
                 Ok(ExecutionOutcome::Continue(frame))
@@ -217,6 +218,7 @@ impl Interpreter for TestInterpreter {
                     regs: Registers::new(num_regs),
                     exception: None,
                     exception_handler_blocks: ExceptionHandlers::new(),
+                    state_calls: StateCalls::new(),
                     kind: FrameKind::TopLevel,
                 });
                 Ok(ExecutionOutcome::ExitFrame)

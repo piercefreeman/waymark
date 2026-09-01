@@ -13,6 +13,9 @@ pub(super) struct LoopScope {
 
     /// Exception-handler block depth that should remain active at loop targets.
     exception_handler_depth: usize,
+
+    /// Number of shared-state calls surrounding the loop.
+    state_call_depth: usize,
 }
 
 /// Stack of loop scopes active during statement lowering.
@@ -20,6 +23,9 @@ pub(super) struct LoopScope {
 pub(super) struct LoopControlStack {
     /// Active loop scopes from outermost to innermost.
     stack: Vec<LoopScope>,
+
+    /// Number of shared-state calls currently being compiled.
+    state_call_depth: usize,
 }
 
 /// The loop-only control statement encountered during compilation.
@@ -43,6 +49,7 @@ impl LoopScope {
             break_state,
             continue_state,
             exception_handler_depth,
+            state_call_depth: 0,
         }
     }
 
@@ -58,6 +65,11 @@ impl LoopScope {
     pub(super) fn exception_handler_depth(self) -> usize {
         self.exception_handler_depth
     }
+
+    /// Returns the state-call depth expected at the loop targets.
+    pub(super) fn state_call_depth(self) -> usize {
+        self.state_call_depth
+    }
 }
 
 impl LoopControlStack {
@@ -67,11 +79,28 @@ impl LoopControlStack {
     }
 
     /// Returns a new stack with `loop_scope` pushed as the innermost scope.
-    pub(super) fn with_loop(&self, loop_scope: LoopScope) -> Self {
+    pub(super) fn with_loop(&self, mut loop_scope: LoopScope) -> Self {
         let mut stack = self.stack.clone();
+        loop_scope.state_call_depth = self.state_call_depth;
         stack.push(loop_scope);
 
-        Self { stack }
+        Self {
+            stack,
+            state_call_depth: self.state_call_depth,
+        }
+    }
+
+    /// Returns a stack scoped inside one shared-state call.
+    pub(super) fn within_state_call(&self) -> Self {
+        Self {
+            stack: self.stack.clone(),
+            state_call_depth: self.state_call_depth + 1,
+        }
+    }
+
+    /// Returns the number of shared-state calls currently being compiled.
+    pub(super) fn state_call_depth(&self) -> usize {
+        self.state_call_depth
     }
 
     /// Returns the innermost active loop scope, if any.

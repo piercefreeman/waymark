@@ -1,7 +1,7 @@
 use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::{ExceptionHandlers, Registers};
+use crate::{ExceptionHandlers, Registers, StateCalls};
 
 /// A frame shape used in runtime.
 #[derive(Debug)]
@@ -21,6 +21,9 @@ pub struct Frame<FunctionId, StateId, Value> {
 
     /// Exception-handler blocks active for this frame from outermost to innermost.
     pub exception_handler_blocks: ExceptionHandlers<StateId>,
+
+    /// Return targets for shared state calls.
+    pub state_calls: StateCalls<StateId>,
 
     /// The kind of the frame.
     pub kind: FrameKind,

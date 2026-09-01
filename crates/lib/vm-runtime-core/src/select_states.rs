@@ -134,7 +134,7 @@ mod tests {
     use waymark_vm_runtime_promise_value::PromiseValue;
 
     use super::{SelectStateId, SelectStates};
-    use crate::{Continuation, ExceptionHandlers, Frame, FrameKind, Registers};
+    use crate::{Continuation, ExceptionHandlers, Frame, FrameKind, Registers, StateCalls};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct TestReadyValue;
@@ -153,6 +153,7 @@ mod tests {
             regs: Registers::new(2),
             exception: None,
             exception_handler_blocks: ExceptionHandlers::new(),
+            state_calls: StateCalls::new(),
             kind: FrameKind::TopLevel,
         })
     }

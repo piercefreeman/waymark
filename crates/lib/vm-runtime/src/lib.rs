@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 
 use waymark_vm_runtime_core::{
     ExceptionHandlers, Frame, FrameKind, PromiseStates, Registers, RuntimeState, SelectStates,
-    SettlePromiseError,
+    SettlePromiseError, StateCalls,
 };
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
@@ -99,6 +99,7 @@ where
             regs,
             exception: None,
             exception_handler_blocks: ExceptionHandlers::new(),
+            state_calls: StateCalls::new(),
             kind: FrameKind::TopLevel,
         });
 

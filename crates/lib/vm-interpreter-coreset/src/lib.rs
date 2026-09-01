@@ -9,7 +9,7 @@ use derive_where::derive_where;
 use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_runtime_core::{
     Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, Registers, RuntimeState,
-    SettledPromiseState,
+    SettledPromiseState, StateCalls,
 };
 
 pub use self::error::*;
@@ -72,12 +72,17 @@ where
             .exception_handler_blocks
             .take_matching(&exception.type_id)
         {
+            frame
+                .state_calls
+                .unwind_to_handler_depth(frame.exception_handler_blocks.depth());
             if let Some(dst) = handler.exception_dst {
                 frame.regs.set(dst, Value::from_exception(exception));
             }
             frame.state = handler.handler_state;
             return Ok(ExecutionOutcome::Continue(frame));
         }
+
+        frame.state_calls.clear();
 
         Ok(match frame.kind {
             FrameKind::FnCall { ret } => {
@@ -106,6 +111,26 @@ where
                 ExecutionOutcome::ExitFrameWithEffect(Effect::UnhandledException(exception))
             }
         })
+    }
+
+    fn switch_state(
+        frame: &mut FrameFor<Spec, Value>,
+        state: Spec::StateId,
+        exception_handler_depth: usize,
+    ) -> Result<(), StateCallError> {
+        let active = frame.exception_handler_blocks.depth();
+        let Some(count) = active.checked_sub(exception_handler_depth) else {
+            return Err(StateCallError::ExceptionHandlerDepth {
+                target: exception_handler_depth,
+                active,
+            });
+        };
+        frame
+            .exception_handler_blocks
+            .pop(count)
+            .expect("checked handler depth should not underflow");
+        frame.state = state;
+        Ok(())
     }
 }
 
@@ -200,6 +225,7 @@ where
                     regs,
                     exception: None,
                     exception_handler_blocks: ExceptionHandlers::new(),
+                    state_calls: StateCalls::new(),
                     kind: FrameKind::FnCall {
                         ret: promise_state_id,
                     },
@@ -335,6 +361,41 @@ where
                     .pop(*count)
                     .map_err(ExceptionHandlersError::Pop)
                     .map_err(Error::ExceptionHandlers)?;
+            }
+            waymark_vm_instructions_coreset::CoreSet::CallStates {
+                targets,
+                return_to,
+                pending_depth,
+            } => {
+                let target = frame
+                    .state_calls
+                    .push(
+                        *pending_depth,
+                        targets
+                            .iter()
+                            .map(|target| waymark_vm_runtime_core::StateTarget {
+                                state: target.state,
+                                exception_handler_depth: target.exception_handler_depth,
+                            })
+                            .collect(),
+                        waymark_vm_runtime_core::StateTarget {
+                            state: return_to.state,
+                            exception_handler_depth: return_to.exception_handler_depth,
+                        },
+                    )
+                    .map_err(StateCallError::Depth)
+                    .map_err(Error::StateCall)?;
+                Self::switch_state(&mut frame, target.state, target.exception_handler_depth)
+                    .map_err(Error::StateCall)?;
+            }
+            waymark_vm_instructions_coreset::CoreSet::ReturnState => {
+                let target = frame
+                    .state_calls
+                    .pop()
+                    .map_err(StateCallError::Return)
+                    .map_err(Error::StateCall)?;
+                Self::switch_state(&mut frame, target.state, target.exception_handler_depth)
+                    .map_err(Error::StateCall)?;
             }
             waymark_vm_instructions_coreset::CoreSet::Jump { target_state } => {
                 frame.state = *target_state;

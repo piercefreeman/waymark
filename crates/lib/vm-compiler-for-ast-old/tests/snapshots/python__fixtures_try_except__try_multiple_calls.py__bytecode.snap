@@ -1,5 +1,6 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+assertion_line: 113
 expression: bytecode for python/tests/fixtures_try_except/try_multiple_calls.py
 ---
 fn main(input: [value], output: []):
@@ -15,35 +16,33 @@ fn main(input: [value], output: []):
 f0: [6 registers]
   s0:
     CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s1, exception_types: [], exception_dst: Some(r1) }] })
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s3, exception_types: ["ValueError"], exception_dst: None }] })
-    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("risky_step_one"), args: [r0], resume: s4 })
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s4, exception_types: ["ValueError"], exception_dst: None }] })
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("risky_step_one"), args: [r0], resume: s5 })
   s1:
-    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("record_cleanup"), args: [r0], resume: s12 })
+    CoreSet(CallStates { targets: [StateTarget { state: s2, exception_handler_depth: 0 }], return_to: StateTarget { state: s11, exception_handler_depth: 0 }, pending_depth: 0 })
   s2:
+    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("record_cleanup"), args: [r0], resume: s12 })
   s3:
+  s4:
     PureSet(LoadConst { dst: r4, value: String("error") })
     PureSet(Copy { dst: r5, src: r4 })
-    CoreSet(PopExceptionHandlers { count: 1 })
-    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("record_cleanup"), args: [r0], resume: s10 })
-  s4:
-    CoreSet(Await { dst: r2, src: r2, resume: s5 })
+    CoreSet(CallStates { targets: [StateTarget { state: s2, exception_handler_depth: 0 }], return_to: StateTarget { state: s10, exception_handler_depth: 0 }, pending_depth: 0 })
   s5:
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("risky_step_two"), args: [r2], resume: s6 })
+    CoreSet(Await { dst: r2, src: r2, resume: s6 })
   s6:
-    CoreSet(Await { dst: r3, src: r3, resume: s7 })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("risky_step_two"), args: [r2], resume: s7 })
   s7:
-    PureSet(Copy { dst: r4, src: r3 })
-    CoreSet(PopExceptionHandlers { count: 2 })
-    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("record_cleanup"), args: [r0], resume: s8 })
+    CoreSet(Await { dst: r3, src: r3, resume: s8 })
   s8:
-    CoreSet(Await { dst: r5, src: r5, resume: s9 })
+    PureSet(Copy { dst: r4, src: r3 })
+    CoreSet(CallStates { targets: [StateTarget { state: s2, exception_handler_depth: 0 }], return_to: StateTarget { state: s9, exception_handler_depth: 0 }, pending_depth: 0 })
   s9:
     CoreSet(Return { src: r4 })
   s10:
-    CoreSet(Await { dst: r4, src: r4, resume: s11 })
-  s11:
     CoreSet(Return { src: r5 })
+  s11:
+    CoreSet(Raise { src: r1 })
   s12:
     CoreSet(Await { dst: r5, src: r5, resume: s13 })
   s13:
-    CoreSet(Raise { src: r1 })
+    CoreSet(ReturnState)
