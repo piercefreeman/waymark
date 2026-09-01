@@ -34,6 +34,7 @@ waymark-extcall-reconciler-action-compat = { path = "crates/lib/extcall-reconcil
 waymark-extcall-reconciler-core = { path = "crates/lib/extcall-reconciler-core" }
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-fullset-effect-handler = { path = "crates/lib/fullset-effect-handler" }
+waymark-http-api = { path = "crates/lib/http-api" }
 waymark-http-bringup = { path = "crates/lib/http-bringup" }
 waymark-http-config = { path = "crates/lib/http-config" }
 waymark-http-healthz = { path = "crates/lib/http-healthz" }
@@ -160,6 +161,7 @@ waymark-workload-pinning-backend = { path = "crates/lib/workload-pinning-backend
 waymark-workload-pinning-core = { path = "crates/lib/workload-pinning-core" }
 waymark-workload-pinning-manager = { path = "crates/lib/workload-pinning-manager" }
 
+aide = { version = "0.16.0-alpha.4", features = ["axum"] }
 async-stream = "0.3"
 async-walkdir = "2"
 axum = "0.8"
