@@ -244,10 +244,13 @@ checksum = "8b52af3cb4058c895d37317bb27508dccc8e5f2d39454016b297bf4a400597b8"
 dependencies = [
  "axum-core",
  "bytes",
+ "form_urlencoded",
  "futures-util",
  "http",
  "http-body",
  "http-body-util",
+ "hyper",
+ "hyper-util",
  "itoa",
  "matchit",
  "memchr",
@@ -255,10 +258,15 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "serde_core",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_urlencoded",
  "sync_wrapper",
+ "tokio",
  "tower",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -277,6 +285,7 @@ dependencies = [
  "sync_wrapper",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -2754,6 +2763,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_path_to_error"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457"
+dependencies = [
+ "itoa",
+ "serde",
+ "serde_core",
+]
+
+[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4188,6 +4208,7 @@ version = "0.1.0"
 dependencies = [
  "envfury",
  "thiserror",
+ "waymark-http-config",
  "waymark-nonzero-duration",
  "waymark-secret-string",
 ]
@@ -4356,6 +4377,37 @@ dependencies = [
  "waymark-worker-inline",
  "waymark-worker-inline-compat",
  "waymark-workflow-completion-core",
+]
+
+[[package]]
+name = "waymark-http-bringup"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "waymark-http-config"
+version = "0.1.0"
+dependencies = [
+ "envfury",
+ "thiserror",
+]
+
+[[package]]
+name = "waymark-http-healthz"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
 ]
 
 [[package]]
@@ -4700,6 +4752,7 @@ dependencies = [
 name = "waymark-start-workers"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "envfury",
  "metrics",
  "sqlx",
@@ -4712,6 +4765,8 @@ dependencies = [
  "waymark-config",
  "waymark-execution-bringup",
  "waymark-fn-main-common",
+ "waymark-http-bringup",
+ "waymark-http-healthz",
  "waymark-prometheus-exporter-bringup",
  "waymark-scheduler-bringup",
  "waymark-tokio-metrics-bringup",
