@@ -5,7 +5,7 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
-waymark-proto = { workspace = true }
+waymark-proto = { workspace = true, features = ["server"] }
 waymark-worker-message-protocol = { workspace = true }
 waymark-worker-remote-bridge-service = { workspace = true }
 waymark-worker-reservation = { workspace = true }
@@ -13,5 +13,5 @@ waymark-worker-reservation = { workspace = true }
 tokio = { workspace = true, features = ["rt", "net"] }
 tokio-stream = { workspace = true, features = ["net"] }
 tokio-util = { workspace = true }
-tonic = { workspace = true }
+tonic = { workspace = true, default-features = true }
 tracing = { workspace = true }
