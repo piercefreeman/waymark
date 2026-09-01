@@ -20,13 +20,13 @@ pub enum Error<Spec: waymark_vm_instructions_coreset::Spec> {
     #[error("jump if: {0}")]
     JumpIf(#[source] JumpIfError),
 
-    /// Managing exception-handler blocks failed.
-    #[error("exception handlers: {0}")]
-    ExceptionHandlers(#[source] ExceptionHandlersError),
+    /// Unwinding the current frame failed.
+    #[error("unwind: {0}")]
+    Unwind(#[source] waymark_vm_runtime_core::UnwindDepthError),
 
-    /// Calling or returning from a shared state failed.
-    #[error("state call: {0}")]
-    StateCall(#[source] StateCallError),
+    /// Returning from a shared state failed.
+    #[error("return state: {0}")]
+    ReturnState(#[source] waymark_vm_runtime_core::ReturnStateError),
 
     /// Bubbling a raised exception failed.
     #[error("bubble exception: {0}")]
@@ -82,36 +82,6 @@ pub enum JumpIfError {
     /// The resolved condition value could not be interpreted as conditional.
     #[error("condition check: {0}")]
     ConditionCheck(#[source] crate::value::NotAConditionalError),
-}
-
-/// Errors produced while managing exception-handler blocks.
-#[derive(Debug, thiserror::Error)]
-pub enum ExceptionHandlersError {
-    /// A pop tried to remove more blocks than were active.
-    #[error("pop: {0}")]
-    Pop(#[source] waymark_vm_runtime_core::PopExceptionHandlersError),
-}
-
-/// Errors produced while calling or returning from shared states.
-#[derive(Debug, thiserror::Error)]
-pub enum StateCallError {
-    /// Bytecode referred to a nonexistent state-call depth.
-    #[error("depth: {0}")]
-    Depth(#[source] waymark_vm_runtime_core::StateCallDepthError),
-
-    /// Bytecode tried to return when no shared state was active.
-    #[error("return: {0}")]
-    Return(#[source] waymark_vm_runtime_core::ReturnStateError),
-
-    /// A state requested an exception-handler depth above the active depth.
-    #[error("exception handler depth {target} exceeds active depth {active}")]
-    ExceptionHandlerDepth {
-        /// Requested handler depth.
-        target: usize,
-
-        /// Active handler depth.
-        active: usize,
-    },
 }
 
 /// Errors produced while evaluating a `Raise` instruction.

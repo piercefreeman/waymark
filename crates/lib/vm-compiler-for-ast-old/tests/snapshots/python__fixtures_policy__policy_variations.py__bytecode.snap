@@ -86,7 +86,7 @@ f3: [11 registers]
   s4:
     CoreSet(Await { dst: r5, src: r4, resume: s5 })
   s5:
-    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Unwind { depth: 0 })
     CoreSet(Return { src: r5 })
   s6:
     CoreSet(Await { dst: r10, src: r9, resume: s7 })
@@ -111,7 +111,7 @@ f4: [8 registers]
   s4:
     CoreSet(Await { dst: r5, src: r4, resume: s5 })
   s5:
-    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Unwind { depth: 0 })
     CoreSet(Return { src: r5 })
 f5: [8 registers]
   s0:
@@ -132,7 +132,7 @@ f5: [8 registers]
   s4:
     CoreSet(Await { dst: r5, src: r4, resume: s5 })
   s5:
-    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Unwind { depth: 0 })
     CoreSet(Return { src: r5 })
 f6: [9 registers]
   s0:

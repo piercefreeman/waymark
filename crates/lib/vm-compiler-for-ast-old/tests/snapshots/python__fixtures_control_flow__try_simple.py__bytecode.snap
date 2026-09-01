@@ -20,7 +20,7 @@ f0: [1 registers]
   s3:
     CoreSet(Await { dst: r0, src: r0, resume: s4 })
   s4:
-    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Unwind { depth: 0 })
     CoreSet(Jump { target_state: s1 })
   s5:
     CoreSet(Await { dst: r0, src: r0, resume: s6 })

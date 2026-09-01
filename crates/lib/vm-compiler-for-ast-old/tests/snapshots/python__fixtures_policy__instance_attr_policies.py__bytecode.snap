@@ -40,7 +40,7 @@ f1: [11 registers]
   s4:
     CoreSet(Await { dst: r5, src: r4, resume: s5 })
   s5:
-    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Unwind { depth: 0 })
     CoreSet(Return { src: r5 })
   s6:
     CoreSet(Await { dst: r10, src: r9, resume: s7 })
@@ -81,12 +81,12 @@ f3: [14 registers]
     PureSet(LoadConst { dst: r5, value: Int(120) })
     ExtCallSet(Sleep { dst: r6, duration: r5, resume: s6, unskippable: true })
   s5:
-    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Unwind { depth: 0 })
     CoreSet(Return { src: r7 })
   s6:
     CoreSet(Select { arms: [SelectArm { src: r4, dst: r7, resume: s5 }, SelectArm { src: r6, dst: r8, resume: s7 }] })
   s7:
-    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Unwind { depth: 0 })
     PureSet(LoadConst { dst: r11, value: String("ActionTimeout") })
     PureSet(LoadConst { dst: r12, value: None })
     PureSet(MakeException { dst: r13, type_id: r11, details: r12 })

@@ -218,9 +218,9 @@ where
         );
     }
 
-    /// Emits a pop of `count` exception-handler blocks.
-    pub fn emit_pop_exception_handlers(&mut self, count: usize) {
-        self.emit(waymark_vm_instructions_coreset::CoreSet::PopExceptionHandlers { count }.into());
+    /// Discards unwind entries above `depth`.
+    pub fn emit_unwind(&mut self, depth: usize) {
+        self.emit(waymark_vm_instructions_coreset::CoreSet::Unwind { depth }.into());
     }
 
     /// Calls a shared state and terminates the current state.
@@ -228,15 +228,9 @@ where
         &mut self,
         targets: Vec<waymark_vm_instructions_coreset::StateTarget<StateId>>,
         return_to: waymark_vm_instructions_coreset::StateTarget<StateId>,
-        pending_depth: usize,
     ) {
         self.emit(
-            waymark_vm_instructions_coreset::CoreSet::CallStates {
-                targets,
-                return_to,
-                pending_depth,
-            }
-            .into(),
+            waymark_vm_instructions_coreset::CoreSet::CallStates { targets, return_to }.into(),
         );
         self.function_states.terminate();
     }

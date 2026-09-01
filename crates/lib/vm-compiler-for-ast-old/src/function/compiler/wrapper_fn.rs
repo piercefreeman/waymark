@@ -347,7 +347,7 @@ where
             emitter.emit_await(result_register, promise_register, ok_state);
 
             emitter.switch_to(ok_state);
-            emitter.emit_pop_exception_handlers(1);
+            emitter.emit_unwind(0);
             emitter.emit_return(result_register);
         }
         Some(seconds) => {
@@ -385,14 +385,14 @@ where
             ]);
 
             emitter.switch_to(ok_state);
-            emitter.emit_pop_exception_handlers(1);
+            emitter.emit_unwind(0);
             emitter.emit_return(result_register);
 
             // The timeout arm resumed normally, so the attempt's handler
             // block is still active - pop it first: the compile-time routing
             // below must never be caught by the attempt's own handlers.
             emitter.switch_to(timeout_state);
-            emitter.emit_pop_exception_handlers(1);
+            emitter.emit_unwind(0);
             let routed_retry = retry_plans.iter().position(RetryPlan::retries_timeouts);
             match routed_retry {
                 Some(position) => {
@@ -612,7 +612,7 @@ mod tests {
         s4:
           CoreSet(Await { dst: r5, src: r4, resume: s5 })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          CoreSet(Unwind { depth: 0 })
           CoreSet(Return { src: r5 })
         "#
         );
@@ -642,7 +642,7 @@ mod tests {
         s4:
           CoreSet(Await { dst: r4, src: r3, resume: s5 })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          CoreSet(Unwind { depth: 0 })
           CoreSet(Return { src: r4 })
         s6:
           CoreSet(Await { dst: r9, src: r8, resume: s7 })
@@ -689,7 +689,7 @@ mod tests {
         s6:
           CoreSet(Await { dst: r4, src: r3, resume: s7 })
         s7:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          CoreSet(Unwind { depth: 0 })
           CoreSet(Return { src: r4 })
         "#
         );
@@ -718,7 +718,7 @@ mod tests {
         s4:
           CoreSet(Await { dst: r4, src: r3, resume: s5 })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          CoreSet(Unwind { depth: 0 })
           CoreSet(Return { src: r4 })
         "#
         );
@@ -748,12 +748,12 @@ mod tests {
           PureSet(LoadConst { dst: r4, value: Int(30) })
           ExtCallSet(Sleep { dst: r5, duration: r4, resume: s6, unskippable: true })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          CoreSet(Unwind { depth: 0 })
           CoreSet(Return { src: r6 })
         s6:
           CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
         s7:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          CoreSet(Unwind { depth: 0 })
           PureSet(LoadConst { dst: r10, value: String("ActionTimeout") })
           PureSet(LoadConst { dst: r11, value: None })
           PureSet(MakeException { dst: r12, type_id: r10, details: r11 })
@@ -792,12 +792,12 @@ mod tests {
           PureSet(LoadConst { dst: r4, value: Int(30) })
           ExtCallSet(Sleep { dst: r5, duration: r4, resume: s6, unskippable: true })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          CoreSet(Unwind { depth: 0 })
           CoreSet(Return { src: r6 })
         s6:
           CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
         s7:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          CoreSet(Unwind { depth: 0 })
           PureSet(LoadConst { dst: r8, value: Int(2) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r9, a: r0, b: r8 } })
           CoreSet(JumpIf { target_state: s3, cond: r9 })

@@ -29,8 +29,8 @@ where
     /// Mutable compiler context for assignment lowering.
     context: CompilerContextMut<'borrow, 'table, Spec, Lowering>,
 
-    /// Active exception-handler nesting depth for this assignment context.
-    exception_handler_depth: usize,
+    /// Active frame unwind depth for this assignment context.
+    unwind_depth: usize,
 }
 
 impl<'borrow, 'table, Spec, Lowering> AssignmentCompiler<'borrow, 'table, Spec, Lowering>
@@ -41,11 +41,11 @@ where
     /// Creates an assignment compiler over the provided context.
     pub fn new(
         context: CompilerContextMut<'borrow, 'table, Spec, Lowering>,
-        exception_handler_depth: usize,
+        unwind_depth: usize,
     ) -> Self {
         Self {
             context,
-            exception_handler_depth,
+            unwind_depth,
         }
     }
 
@@ -288,7 +288,7 @@ where
         ForLoopCompiler::new(
             self.context.reborrow_mut(),
             LoopControlStack::new(),
-            self.exception_handler_depth,
+            self.unwind_depth,
         )
     }
 }

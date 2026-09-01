@@ -49,8 +49,8 @@ where
     /// Active loop scopes visible to nested statements.
     loop_control: LoopControlStack,
 
-    /// Active exception-handler nesting depth while lowering this loop.
-    exception_handler_depth: usize,
+    /// Active frame unwind depth while lowering this loop.
+    unwind_depth: usize,
 }
 
 /// How a `for` loop binds values into its loop variables.
@@ -253,12 +253,12 @@ where
     pub fn new(
         context: CompilerContextMut<'borrow, 'table, Spec, Lowering>,
         loop_control: LoopControlStack,
-        exception_handler_depth: usize,
+        unwind_depth: usize,
     ) -> Self {
         Self {
             context,
             loop_control,
-            exception_handler_depth,
+            unwind_depth,
         }
     }
 
@@ -399,7 +399,7 @@ where
         self.context
             .emitter
             .emit_length(length_register, iterable_register);
-        let exception_handler_depth = self.exception_handler_depth;
+        let unwind_depth = self.unwind_depth;
 
         self.compile_loop_skeleton(
             body,
@@ -410,7 +410,7 @@ where
                     length_register,
                     for_loop.body_state(),
                     for_loop
-                        .loop_scope(exception_handler_depth)
+                        .loop_scope(unwind_depth)
                         .target(LoopControlKind::Break),
                 );
                 Ok(())
@@ -452,7 +452,7 @@ where
             .emit_length(length_register, iterable_register);
 
         let empty_body = self.empty_block(iterable);
-        let exception_handler_depth = self.exception_handler_depth;
+        let unwind_depth = self.unwind_depth;
 
         self.compile_loop_skeleton(
             &empty_body,
@@ -463,7 +463,7 @@ where
                     length_register,
                     for_loop.body_state(),
                     for_loop
-                        .loop_scope(exception_handler_depth)
+                        .loop_scope(unwind_depth)
                         .target(LoopControlKind::Break),
                 );
                 Ok(())
@@ -552,7 +552,7 @@ where
         self.compile_expr_into_register(end, end_register)?;
 
         let enumerate_index_register = self.allocate_enumerate_index_register(binding)?;
-        let exception_handler_depth = self.exception_handler_depth;
+        let unwind_depth = self.unwind_depth;
 
         self.compile_loop_skeleton(
             body,
@@ -563,7 +563,7 @@ where
                     end_register,
                     for_loop.body_state(),
                     for_loop
-                        .loop_scope(exception_handler_depth)
+                        .loop_scope(unwind_depth)
                         .target(LoopControlKind::Break),
                 );
                 Ok(())
@@ -623,7 +623,7 @@ where
         self.compile_expr_into_register(end, end_register)?;
 
         let empty_body = self.empty_block(end);
-        let exception_handler_depth = self.exception_handler_depth;
+        let unwind_depth = self.unwind_depth;
 
         self.compile_loop_skeleton(
             &empty_body,
@@ -634,7 +634,7 @@ where
                     end_register,
                     for_loop.body_state(),
                     for_loop
-                        .loop_scope(exception_handler_depth)
+                        .loop_scope(unwind_depth)
                         .target(LoopControlKind::Break),
                 );
                 Ok(())
@@ -665,7 +665,7 @@ where
         self.compile_expr_into_register(step, step_register)?;
 
         let empty_body = self.empty_block(step);
-        let exception_handler_depth = self.exception_handler_depth;
+        let unwind_depth = self.unwind_depth;
 
         self.compile_loop_skeleton(
             &empty_body,
@@ -675,7 +675,7 @@ where
                     current_register,
                     end_register,
                     step_register,
-                    exception_handler_depth,
+                    unwind_depth,
                 )
             },
             |compiler| {
@@ -713,7 +713,7 @@ where
         self.compile_expr_into_register(end, end_register)?;
 
         let empty_body = self.empty_block(end);
-        let exception_handler_depth = self.exception_handler_depth;
+        let unwind_depth = self.unwind_depth;
 
         self.compile_loop_skeleton(
             &empty_body,
@@ -724,7 +724,7 @@ where
                     end_register,
                     for_loop.body_state(),
                     for_loop
-                        .loop_scope(exception_handler_depth)
+                        .loop_scope(unwind_depth)
                         .target(LoopControlKind::Break),
                 );
                 Ok(())
@@ -788,13 +788,13 @@ where
 
         let positive_condition_state = self.new_state();
         let negative_condition_state = self.new_state();
-        let exception_handler_depth = self.exception_handler_depth;
+        let unwind_depth = self.unwind_depth;
 
         self.compile_loop_skeleton(
             body,
             |compiler, for_loop| {
                 let break_target = for_loop
-                    .loop_scope(exception_handler_depth)
+                    .loop_scope(unwind_depth)
                     .target(LoopControlKind::Break);
                 let incoming_flow = for_loop.condition_flow();
 
@@ -887,7 +887,7 @@ where
         self.compile_expr_into_register(step, step_register)?;
 
         let empty_body = self.empty_block(step);
-        let exception_handler_depth = self.exception_handler_depth;
+        let unwind_depth = self.unwind_depth;
 
         self.compile_loop_skeleton(
             &empty_body,
@@ -897,7 +897,7 @@ where
                     current_register,
                     end_register,
                     step_register,
-                    exception_handler_depth,
+                    unwind_depth,
                 )
             },
             |compiler| {
@@ -950,7 +950,7 @@ where
         };
 
         let empty_body = self.empty_block(template);
-        let exception_handler_depth = self.exception_handler_depth;
+        let unwind_depth = self.unwind_depth;
 
         self.compile_loop_skeleton(
             &empty_body,
@@ -961,7 +961,7 @@ where
                     length_register,
                     for_loop.body_state(),
                     for_loop
-                        .loop_scope(exception_handler_depth)
+                        .loop_scope(unwind_depth)
                         .target(LoopControlKind::Break),
                 );
                 Ok(())
@@ -1036,10 +1036,10 @@ where
         current_register: RegisterId,
         end_register: RegisterId,
         step_register: RegisterId,
-        exception_handler_depth: usize,
+        unwind_depth: usize,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         let break_target = for_loop
-            .loop_scope(exception_handler_depth)
+            .loop_scope(unwind_depth)
             .target(LoopControlKind::Break);
         let incoming_flow = for_loop.condition_flow();
 
@@ -1144,7 +1144,7 @@ where
     where
         F: FnOnce(&mut Self) -> Result<(), ErrorFor<Spec, Lowering>>,
     {
-        let body_loop_scope = for_loop.loop_scope(self.exception_handler_depth);
+        let body_loop_scope = for_loop.loop_scope(self.unwind_depth);
         let body_loop_control = self.loop_control.with_loop(body_loop_scope);
 
         self.switch_to_with_flow(for_loop.body_state(), for_loop.body_flow());
@@ -1488,7 +1488,7 @@ where
         loop_control: LoopControlStack,
     ) -> StatementCompiler<'_, 'table, Spec, Lowering> {
         StatementCompiler::new(self.context.reborrow_mut(), loop_control)
-            .with_exception_handler_depth(self.exception_handler_depth)
+            .with_unwind_depth(self.unwind_depth)
     }
 }
 

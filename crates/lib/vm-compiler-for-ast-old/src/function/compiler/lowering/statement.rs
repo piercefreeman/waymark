@@ -33,8 +33,8 @@ where
     /// Active loop scopes available to nested statements.
     loop_control: LoopControlStack,
 
-    /// Active exception-handler nesting depth for this block.
-    exception_handler_depth: usize,
+    /// Active frame unwind depth for this block.
+    unwind_depth: usize,
 
     /// Finalizers crossed by control flow leaving the current block.
     finally_scopes: Vec<FinallyScope>,
@@ -53,13 +53,13 @@ enum BranchBodyOutcome {
 }
 
 #[derive(Clone, Copy)]
-/// A finalizer and the handler depth outside its protected statement.
+/// A finalizer and the unwind depth outside its protected statement.
 struct FinallyScope {
     /// Shared state containing the finalizer body.
     state: StateId,
 
-    /// Handler depth restored before the finalizer executes.
-    exception_handler_depth: usize,
+    /// Stack depth restored before the finalizer executes.
+    unwind_depth: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -88,14 +88,14 @@ where
         Self {
             context,
             loop_control,
-            exception_handler_depth: 0,
+            unwind_depth: 0,
             finally_scopes: Vec::new(),
         }
     }
 
-    /// Returns a compiler configured with the provided active handler depth.
-    pub fn with_exception_handler_depth(mut self, exception_handler_depth: usize) -> Self {
-        self.exception_handler_depth = exception_handler_depth;
+    /// Returns a compiler configured with the provided active unwind depth.
+    pub fn with_unwind_depth(mut self, unwind_depth: usize) -> Self {
+        self.unwind_depth = unwind_depth;
         self
     }
 
@@ -215,15 +215,15 @@ where
             },
         ]);
 
-        let protected_exception_handler_depth = self.exception_handler_depth + 1;
+        let protected_unwind_depth = self.unwind_depth + 1;
         let finally_scope = FinallyScope {
             state: finally_state,
-            exception_handler_depth: self.exception_handler_depth,
+            unwind_depth: self.unwind_depth,
         };
         {
             let mut protected_compiler = self
                 .nested_statement_compiler(self.loop_control.clone())
-                .with_exception_handler_depth(protected_exception_handler_depth)
+                .with_unwind_depth(protected_unwind_depth)
                 .with_finally_scope(finally_scope);
             if handlers.is_empty() {
                 protected_compiler.compile_block(try_block)?;
@@ -238,8 +238,7 @@ where
             self.emit_finalizer_calls(
                 vec![finally_scope],
                 ControlTransfer::Jump(continuation_state),
-                self.exception_handler_depth,
-                self.loop_control.state_call_depth(),
+                self.unwind_depth,
             );
             (continuation_state, flow_state)
         });
@@ -248,12 +247,13 @@ where
         self.emit_finalizer_calls(
             vec![finally_scope],
             ControlTransfer::Raise(exception_register),
-            self.exception_handler_depth,
-            self.loop_control.state_call_depth(),
+            self.unwind_depth,
         );
 
         self.switch_to_with_flow(finally_state, incoming_flow);
-        self.nested_statement_compiler(self.loop_control.within_state_call())
+        let finalizer_unwind_depth = self.unwind_depth + 1;
+        self.nested_statement_compiler(self.loop_control.clone())
+            .with_unwind_depth(finalizer_unwind_depth)
             .compile_block(finally_block)?;
         let finalizer_flow = self.context.emitter.is_active().then(|| {
             let flow_state = self.context.flow_state.clone();
@@ -308,7 +308,7 @@ where
                 exception_dst,
             });
         }
-        let try_exception_handler_depth = self.exception_handler_depth + 1;
+        let try_unwind_depth = self.unwind_depth + 1;
         let mut continuation_flows: Option<NEVec<FlowState>> = None;
 
         self.context
@@ -318,13 +318,13 @@ where
         {
             let mut try_compiler = self
                 .nested_statement_compiler(self.loop_control.clone())
-                .with_exception_handler_depth(try_exception_handler_depth);
+                .with_unwind_depth(try_unwind_depth);
             try_compiler.compile_block(try_block)?;
         }
 
         if self.context.emitter.is_active() {
             let flow_state = self.context.flow_state.clone();
-            self.context.emitter.emit_pop_exception_handlers(1);
+            self.context.emitter.emit_unwind(self.unwind_depth);
             self.context.emitter.emit_jump(join_state);
             continuation_flows = Some(NEVec::new(flow_state));
         }
@@ -468,7 +468,7 @@ where
         let exit_state = self.new_state();
         let while_loop =
             WhileLoopPlan::new(&incoming_flow, condition_state, body_state, exit_state);
-        let body_loop_scope = while_loop.loop_scope(self.exception_handler_depth);
+        let body_loop_scope = while_loop.loop_scope(self.unwind_depth);
 
         self.context.emitter.emit_jump(while_loop.condition_state());
 
@@ -566,8 +566,7 @@ where
         };
 
         self.compile_finally_transfer_to(
-            loop_scope.exception_handler_depth(),
-            loop_scope.state_call_depth(),
+            loop_scope.unwind_depth(),
             ControlTransfer::Jump(loop_scope.target(kind)),
         );
         Ok(())
@@ -594,15 +593,14 @@ where
             None => self.value_compiler().compile_none_literal()?,
         };
 
-        self.compile_finally_transfer_to(0, 0, ControlTransfer::Return(return_register.register()));
+        self.compile_finally_transfer_to(0, ControlTransfer::Return(return_register.register()));
         Ok(())
     }
 
     /// Runs shared finalizer states before completing a non-local transfer.
     fn compile_finally_transfer_to(
         &mut self,
-        target_exception_handler_depth: usize,
-        target_state_call_depth: usize,
+        target_unwind_depth: usize,
         transfer: ControlTransfer,
     ) {
         let finalizers = self
@@ -610,24 +608,16 @@ where
             .iter()
             .rev()
             .copied()
-            .take_while(|finally_scope| {
-                finally_scope.exception_handler_depth >= target_exception_handler_depth
-            })
+            .take_while(|finally_scope| finally_scope.unwind_depth >= target_unwind_depth)
             .collect::<Vec<_>>();
 
-        if finalizers.is_empty() && self.loop_control.state_call_depth() == target_state_call_depth
-        {
-            self.emit_pop_exception_handlers_to(target_exception_handler_depth);
+        if finalizers.is_empty() {
+            self.emit_unwind_to(target_unwind_depth);
             self.emit_control_transfer(transfer);
             return;
         }
 
-        self.emit_finalizer_calls(
-            finalizers,
-            transfer,
-            target_exception_handler_depth,
-            target_state_call_depth,
-        );
+        self.emit_finalizer_calls(finalizers, transfer, target_unwind_depth);
     }
 
     /// Calls finalizer states in order before completing `transfer`.
@@ -635,8 +625,7 @@ where
         &mut self,
         finalizers: Vec<FinallyScope>,
         transfer: ControlTransfer,
-        transfer_exception_handler_depth: usize,
-        pending_state_call_depth: usize,
+        transfer_unwind_depth: usize,
     ) {
         let transfer_state = match transfer {
             ControlTransfer::Jump(state) => state,
@@ -649,15 +638,14 @@ where
                 .map(
                     |finally_scope| waymark_vm_instructions_coreset::StateTarget {
                         state: finally_scope.state,
-                        exception_handler_depth: finally_scope.exception_handler_depth,
+                        unwind_depth: finally_scope.unwind_depth,
                     },
                 )
                 .collect(),
             waymark_vm_instructions_coreset::StateTarget {
                 state: transfer_state,
-                exception_handler_depth: transfer_exception_handler_depth,
+                unwind_depth: transfer_unwind_depth,
             },
-            pending_state_call_depth,
         );
 
         if !matches!(transfer, ControlTransfer::Jump(_)) {
@@ -675,14 +663,11 @@ where
         }
     }
 
-    /// Pops any handler blocks deeper than `target_depth`.
-    fn emit_pop_exception_handlers_to(&mut self, target_depth: usize) {
-        let active_depth = self.exception_handler_depth;
-        if let Some(count) = active_depth.checked_sub(target_depth)
-            && count > 0
-        {
-            self.context.emitter.emit_pop_exception_handlers(count);
-            self.exception_handler_depth = target_depth;
+    /// Discards unwind entries deeper than `target_depth`.
+    fn emit_unwind_to(&mut self, target_depth: usize) {
+        if self.unwind_depth > target_depth {
+            self.context.emitter.emit_unwind(target_depth);
+            self.unwind_depth = target_depth;
         }
     }
 
@@ -696,13 +681,13 @@ where
         ForLoopCompiler::new(
             self.context.reborrow_mut(),
             self.loop_control.clone(),
-            self.exception_handler_depth,
+            self.unwind_depth,
         )
     }
 
     /// Creates an assignment compiler borrowing the current context mutably.
     fn assignment_compiler(&mut self) -> AssignmentCompiler<'_, 'table, Spec, Lowering> {
-        AssignmentCompiler::new(self.context.reborrow_mut(), self.exception_handler_depth)
+        AssignmentCompiler::new(self.context.reborrow_mut(), self.unwind_depth)
     }
 
     /// Creates a parallel compiler borrowing the current context mutably.
@@ -716,7 +701,7 @@ where
         loop_control: LoopControlStack,
     ) -> StatementCompiler<'_, 'table, Spec, Lowering> {
         let mut compiler = StatementCompiler::new(self.context.reborrow_mut(), loop_control)
-            .with_exception_handler_depth(self.exception_handler_depth);
+            .with_unwind_depth(self.unwind_depth);
         compiler.finally_scopes = self.finally_scopes.clone();
         compiler
     }

@@ -186,7 +186,7 @@ mod tests {
     use waymark_vm_runtime_promise_value::PromiseValue;
 
     use super::{Continuation, SelectArm};
-    use crate::{ExceptionHandlers, Frame, FrameKind, RegisterId, Registers, StateCalls};
+    use crate::{Frame, FrameKind, RegisterId, Registers, UnwindStack};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum TestReadyValue {
@@ -205,8 +205,7 @@ mod tests {
             state,
             regs: Registers::new(2),
             exception: None,
-            exception_handler_blocks: ExceptionHandlers::new(),
-            state_calls: StateCalls::new(),
+            unwind: UnwindStack::new(),
             kind: FrameKind::TopLevel,
         }
     }

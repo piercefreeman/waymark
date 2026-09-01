@@ -8,10 +8,10 @@ use waymark_vm_runtime_test::{StateId, executable, function};
 
 use crate::support::{Instruction, TestReadyValue, TestValue, new_runtime_with_args};
 
-fn target(state: usize, exception_handler_depth: usize) -> StateTarget<StateId> {
+fn target(state: usize, unwind_depth: usize) -> StateTarget<StateId> {
     StateTarget {
         state: StateId(state),
-        exception_handler_depth,
+        unwind_depth,
     }
 }
 
@@ -23,12 +23,10 @@ fn runtime_resumes_nested_finalizer_calls() {
             vec![CoreSet::CallStates {
                 targets: vec![target(1, 0), target(3, 0)],
                 return_to: target(4, 0),
-                pending_depth: 0,
             }],
             vec![CoreSet::CallStates {
-                targets: vec![target(2, 0)],
-                return_to: target(5, 0),
-                pending_depth: 1,
+                targets: vec![target(2, 1)],
+                return_to: target(5, 1),
             }],
             vec![CoreSet::ReturnState],
             vec![CoreSet::ReturnState],
@@ -64,7 +62,6 @@ fn exception_from_finalizer_replaces_its_pending_return() {
                 CoreSet::CallStates {
                     targets: vec![target(1, 1)],
                     return_to: target(3, 1),
-                    pending_depth: 0,
                 },
             ],
             vec![CoreSet::Raise { src: RegisterId(0) }],

@@ -92,22 +92,19 @@ pub enum CoreSet<Spec: self::Spec> {
             Vec<waymark_vm_exception_handler::ExceptionHandler<Spec::StateId, Spec::RegisterId>>,
     },
 
-    /// Pop `count` innermost exception-handler blocks.
-    PopExceptionHandlers {
-        /// Number of blocks to remove.
-        count: usize,
+    /// Discard unwind entries above `depth`.
+    Unwind {
+        /// Number of unwind entries to preserve.
+        depth: usize,
     },
 
     /// Call shared states in order, then enter a return state.
     CallStates {
-        /// States to execute in order with their surrounding handler depths.
+        /// States to execute in order with their surrounding unwind depths.
         targets: Vec<StateTarget<Spec::StateId>>,
 
         /// State resumed after the targets return, or entered immediately when empty.
         return_to: StateTarget<Spec::StateId>,
-
-        /// Active state calls to preserve around this nested call.
-        pending_depth: usize,
     },
 
     /// Return from the current shared state.
@@ -142,15 +139,15 @@ pub enum CoreSet<Spec: self::Spec> {
     },
 }
 
-/// A state and the exception-handler depth expected when entering it.
+/// A state and the frame unwind depth expected when entering it.
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StateTarget<StateId> {
     /// State to enter.
     pub state: StateId,
 
-    /// Exception-handler depth surrounding the state.
-    pub exception_handler_depth: usize,
+    /// Unwind depth surrounding the state.
+    pub unwind_depth: usize,
 }
 
 /// One arm of a [`CoreSet::Select`] instruction.
