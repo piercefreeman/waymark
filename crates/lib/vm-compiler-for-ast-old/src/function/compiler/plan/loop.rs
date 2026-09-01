@@ -64,14 +64,11 @@ impl WhileLoopPlan {
     }
 
     /// Returns the loop-control scope used for `break` and `continue`.
-    pub fn loop_scope(
-        &self,
-        exception_handler_depth: usize,
-    ) -> crate::function::compiler::r#loop::LoopScope {
+    pub fn loop_scope(&self, unwind_depth: usize) -> crate::function::compiler::r#loop::LoopScope {
         crate::function::compiler::r#loop::LoopScope::new(
             self.exit_state,
             self.condition_state,
-            exception_handler_depth,
+            unwind_depth,
         )
     }
 
@@ -126,14 +123,11 @@ impl ForLoopPlan {
     }
 
     /// Returns the loop-control scope used for `break` and `continue`.
-    pub fn loop_scope(
-        &self,
-        exception_handler_depth: usize,
-    ) -> crate::function::compiler::r#loop::LoopScope {
+    pub fn loop_scope(&self, unwind_depth: usize) -> crate::function::compiler::r#loop::LoopScope {
         crate::function::compiler::r#loop::LoopScope::new(
             self.exit_state,
             self.continue_state,
-            exception_handler_depth,
+            unwind_depth,
         )
     }
 

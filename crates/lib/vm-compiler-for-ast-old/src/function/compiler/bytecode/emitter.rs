@@ -212,15 +212,33 @@ where
     pub fn emit_push_exception_handlers(
         &mut self,
         handlers: Vec<waymark_vm_exception_handler::ExceptionHandler<StateId, RegisterId>>,
+        finally_state: Option<StateId>,
     ) {
         self.emit(
-            waymark_vm_instructions_coreset::CoreSet::PushExceptionHandlers { handlers }.into(),
+            waymark_vm_instructions_coreset::CoreSet::PushExceptionHandlers {
+                handlers,
+                finally_state,
+            }
+            .into(),
         );
     }
 
-    /// Emits a pop of `count` exception-handler blocks.
-    pub fn emit_pop_exception_handlers(&mut self, count: usize) {
-        self.emit(waymark_vm_instructions_coreset::CoreSet::PopExceptionHandlers { count }.into());
+    /// Leaves unwind scopes, runs their finalizers, and enters `target_state`.
+    pub fn emit_unwind(&mut self, depth: usize, target_state: StateId) {
+        self.emit(
+            waymark_vm_instructions_coreset::CoreSet::Unwind {
+                depth,
+                target_state,
+            }
+            .into(),
+        );
+        self.function_states.terminate();
+    }
+
+    /// Resumes the transfer suspended while entering a finalizer.
+    pub fn emit_continue_unwind(&mut self) {
+        self.emit(waymark_vm_instructions_coreset::CoreSet::ContinueUnwind.into());
+        self.function_states.terminate();
     }
 
     /// Emits a conditional jump.

@@ -161,6 +161,7 @@ message ElseBranch {
 message TryExcept {
   repeated ExceptHandler handlers = 2;
   Block try_block = 3;
+  Block finally_block = 4;
 }
 
 message ExceptHandler {

@@ -107,6 +107,9 @@ where
 
         /// Protected block.
         try_block: &'a Spanned<Block>,
+
+        /// Block that runs whenever the protected statement exits.
+        finally_block: Option<&'a Spanned<Block>>,
     },
 
     /// Exit the innermost loop.
@@ -185,9 +188,11 @@ where
             Statement::TryExcept {
                 handlers,
                 try_block,
+                finally_block,
             } => Ok(Self::TryExcept {
                 handlers,
                 try_block,
+                finally_block: finally_block.as_ref(),
             }),
             Statement::Break => Ok(Self::Break),
             Statement::Continue => Ok(Self::Continue),
@@ -312,6 +317,7 @@ mod tests {
         let try_except = spanned(Statement::TryExcept {
             handlers: Vec::<Spanned<waymark_vm_ast_old::ExceptHandler>>::new(),
             try_block: block(Vec::new()),
+            finally_block: None,
         });
 
         assert!(matches!(

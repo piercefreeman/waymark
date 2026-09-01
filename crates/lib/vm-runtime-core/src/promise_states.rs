@@ -166,8 +166,8 @@ mod tests {
 
     use super::{PromiseStateId, PromiseStateNotFoundError, PromiseStates, SettlePromiseError};
     use crate::{
-        Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, PromiseWaiter, RegisterId,
-        Registers, SettledPromiseState,
+        Continuation, Frame, FrameKind, PromiseState, PromiseWaiter, RegisterId, Registers,
+        SettledPromiseState, UnwindStack,
     };
 
     fn continuation(
@@ -180,7 +180,7 @@ mod tests {
                 state: 0,
                 regs: Registers::new(2),
                 exception: None,
-                exception_handler_blocks: ExceptionHandlers::new(),
+                unwind: UnwindStack::new(),
                 kind: FrameKind::TopLevel,
             },
             resume_state,

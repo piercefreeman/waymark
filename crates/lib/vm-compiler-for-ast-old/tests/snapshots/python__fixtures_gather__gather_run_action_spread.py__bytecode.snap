@@ -57,7 +57,7 @@ f1: [14 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }] })
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }], finally_state: None })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("process_item"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r9, value: Int(2) })
@@ -71,12 +71,12 @@ f1: [14 registers]
     PureSet(LoadConst { dst: r5, value: Int(30) })
     ExtCallSet(Sleep { dst: r6, duration: r5, resume: s6, unskippable: true })
   s5:
-    CoreSet(PopExceptionHandlers { count: 1 })
     CoreSet(Return { src: r7 })
   s6:
     CoreSet(Select { arms: [SelectArm { src: r4, dst: r7, resume: s5 }, SelectArm { src: r6, dst: r8, resume: s7 }] })
   s7:
-    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Unwind { depth: 0, target_state: s8 })
+  s8:
     PureSet(LoadConst { dst: r11, value: String("ActionTimeout") })
     PureSet(LoadConst { dst: r12, value: None })
     PureSet(MakeException { dst: r13, type_id: r11, details: r12 })

@@ -7,5 +7,6 @@
 mod support;
 
 mod call_await;
+mod finally;
 mod jump;
 mod raise;

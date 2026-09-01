@@ -840,6 +840,7 @@ class TryExcept(google.protobuf.message.Message):
 
     HANDLERS_FIELD_NUMBER: builtins.int
     TRY_BLOCK_FIELD_NUMBER: builtins.int
+    FINALLY_BLOCK_FIELD_NUMBER: builtins.int
     @property
     def handlers(
         self,
@@ -848,15 +849,24 @@ class TryExcept(google.protobuf.message.Message):
     ]: ...
     @property
     def try_block(self) -> Global___Block: ...
+    @property
+    def finally_block(self) -> Global___Block: ...
     def __init__(
         self,
         *,
         handlers: collections.abc.Iterable[Global___ExceptHandler] | None = ...,
         try_block: Global___Block | None = ...,
+        finally_block: Global___Block | None = ...,
     ) -> None: ...
-    def HasField(self, field_name: typing.Literal["try_block", b"try_block"]) -> builtins.bool: ...
+    def HasField(
+        self,
+        field_name: typing.Literal["finally_block", b"finally_block", "try_block", b"try_block"],
+    ) -> builtins.bool: ...
     def ClearField(
-        self, field_name: typing.Literal["handlers", b"handlers", "try_block", b"try_block"]
+        self,
+        field_name: typing.Literal[
+            "finally_block", b"finally_block", "handlers", b"handlers", "try_block", b"try_block"
+        ],
     ) -> None: ...
 
 Global___TryExcept: typing_extensions.TypeAlias = TryExcept

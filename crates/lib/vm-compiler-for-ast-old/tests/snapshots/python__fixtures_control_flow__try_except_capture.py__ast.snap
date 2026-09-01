@@ -143,6 +143,7 @@ Program {
                                             end_col: 54,
                                         },
                                     },
+                                    finally_block: None,
                                 },
                                 span: Span {
                                     start_line: 2,

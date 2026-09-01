@@ -202,16 +202,63 @@ Program {
                                         span: Span {
                                             start_line: 2,
                                             start_col: 4,
-                                            end_line: 8,
-                                            end_col: 22,
+                                            end_line: 10,
+                                            end_col: 41,
                                         },
                                     },
+                                    finally_block: Some(
+                                        Spanned {
+                                            value: Block {
+                                                statements: [
+                                                    Spanned {
+                                                        value: ActionCall {
+                                                            call: ActionCall {
+                                                                action_name: "record_cleanup",
+                                                                kwargs: [
+                                                                    Kwarg {
+                                                                        name: "value",
+                                                                        value: Spanned {
+                                                                            value: Variable {
+                                                                                name: "value",
+                                                                            },
+                                                                            span: Span {
+                                                                                start_line: 10,
+                                                                                start_col: 35,
+                                                                                end_line: 10,
+                                                                                end_col: 40,
+                                                                            },
+                                                                        },
+                                                                    },
+                                                                ],
+                                                                policies: [],
+                                                                module_name: Some(
+                                                                    "try_multiple_calls",
+                                                                ),
+                                                            },
+                                                        },
+                                                        span: Span {
+                                                            start_line: 10,
+                                                            start_col: 8,
+                                                            end_line: 10,
+                                                            end_col: 41,
+                                                        },
+                                                    },
+                                                ],
+                                            },
+                                            span: Span {
+                                                start_line: 2,
+                                                start_col: 4,
+                                                end_line: 10,
+                                                end_col: 41,
+                                            },
+                                        },
+                                    ),
                                 },
                                 span: Span {
                                     start_line: 2,
                                     start_col: 4,
-                                    end_line: 8,
-                                    end_col: 22,
+                                    end_line: 10,
+                                    end_col: 41,
                                 },
                             },
                         ],
@@ -227,8 +274,8 @@ Program {
             span: Span {
                 start_line: 1,
                 start_col: 0,
-                end_line: 8,
-                end_col: 22,
+                end_line: 10,
+                end_col: 41,
             },
         },
     ],

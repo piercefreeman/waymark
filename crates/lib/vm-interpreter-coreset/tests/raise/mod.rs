@@ -68,6 +68,7 @@ fn bubble_exception_handles_same_frame_exceptions_with_local_handlers() {
                         exception_types: vec!["ValueError".to_owned()],
                         exception_dst: Some(RegisterId(1)),
                     }],
+                    finally_state: None,
                 },
                 CoreSet::Raise { src: RegisterId(0) },
             ],

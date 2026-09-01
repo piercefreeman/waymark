@@ -1261,9 +1261,22 @@ impl IRParser {
             handlers.push(handler);
         }
 
-        if handlers.is_empty() {
+        // In the text IR, `finally:` follows `except` at the same indentation as
+        // `try`; in the AST, `TryExcept.finally_block` stores only its indented
+        // body. Consume that sibling header before parsing the child block.
+        let finally_block = if self.index < self.lines.len()
+            && self.indent_level(&self.current_line())? == indent_level
+            && self.current_line().trim() == "finally:"
+        {
+            self.index += 1;
+            Some(self.parse_block(indent_level + 1)?)
+        } else {
+            None
+        };
+
+        if handlers.is_empty() && finally_block.is_none() {
             return Err(IRParseError(
-                "try block missing except handlers".to_string(),
+                "try block missing except or finally".to_string(),
             ));
         }
 
@@ -1271,6 +1284,7 @@ impl IRParser {
             kind: Some(ir::statement::Kind::TryExcept(ir::TryExcept {
                 handlers,
                 try_block: Some(try_block),
+                finally_block,
             })),
             span: None,
         })

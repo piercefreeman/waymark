@@ -57,6 +57,7 @@ pub enum Statement {
     TryExcept {
         handlers: Vec<Spanned<ExceptHandler>>,
         try_block: Spanned<Block>,
+        finally_block: Option<Spanned<Block>>,
     },
     Return {
         value: Option<Spanned<Expr>>,

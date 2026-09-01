@@ -11,8 +11,8 @@ pub mod step;
 use std::collections::VecDeque;
 
 use waymark_vm_runtime_core::{
-    ExceptionHandlers, Frame, FrameKind, PromiseStates, Registers, RuntimeState, SelectStates,
-    SettlePromiseError,
+    Frame, FrameKind, PromiseStates, Registers, RuntimeState, SelectStates, SettlePromiseError,
+    UnwindStack,
 };
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
@@ -98,7 +98,7 @@ where
             state: Executable::StateId::default(),
             regs,
             exception: None,
-            exception_handler_blocks: ExceptionHandlers::new(),
+            unwind: UnwindStack::new(),
             kind: FrameKind::TopLevel,
         });
 

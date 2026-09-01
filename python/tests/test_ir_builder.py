@@ -3448,6 +3448,8 @@ class TestTryExceptWithMultipleCalls:
         assert try_except is not None, "Expected try/except in IR"
         assert try_except.HasField("try_block"), "Expected try_block"
         assert len(try_except.try_block.statements) >= 2, "Expected multi-statement try body"
+        assert try_except.HasField("finally_block"), "Expected finally_block"
+        assert try_except.finally_block.statements[0].HasField("action_call")
 
 
 class TestTryExceptStatefulOutputs:

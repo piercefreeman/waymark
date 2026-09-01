@@ -9,20 +9,28 @@ fn main(input: [value], output: []):
         return b
     except ValueError:
         return "error"
+    finally:
+        @try_multiple_calls.record_cleanup(value=value)
 ---
 f0: [4 registers]
   s0:
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ValueError"], exception_dst: None }] })
-    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("risky_step_one"), args: [r0], resume: s3 })
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s3, exception_types: ["ValueError"], exception_dst: None }], finally_state: Some(s1) })
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("risky_step_one"), args: [r0], resume: s4 })
   s1:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("record_cleanup"), args: [r0], resume: s8 })
   s2:
+  s3:
     PureSet(LoadConst { dst: r3, value: String("error") })
     CoreSet(Return { src: r3 })
-  s3:
-    CoreSet(Await { dst: r1, src: r1, resume: s4 })
   s4:
-    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("risky_step_two"), args: [r1], resume: s5 })
+    CoreSet(Await { dst: r1, src: r1, resume: s5 })
   s5:
-    CoreSet(Await { dst: r2, src: r2, resume: s6 })
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("risky_step_two"), args: [r1], resume: s6 })
   s6:
+    CoreSet(Await { dst: r2, src: r2, resume: s7 })
+  s7:
     CoreSet(Return { src: r2 })
+  s8:
+    CoreSet(Await { dst: r3, src: r3, resume: s9 })
+  s9:
+    CoreSet(ContinueUnwind)

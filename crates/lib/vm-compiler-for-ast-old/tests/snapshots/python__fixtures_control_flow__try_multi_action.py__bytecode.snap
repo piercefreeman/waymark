@@ -13,7 +13,7 @@ fn main(input: [], output: []):
 ---
 f0: [3 registers]
   s0:
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: None }] })
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: None }], finally_state: None })
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("step_1_try"), args: [], resume: s3 })
   s1:
     CoreSet(Return { src: r2 })
@@ -30,8 +30,7 @@ f0: [3 registers]
   s7:
     CoreSet(Await { dst: r2, src: r2, resume: s8 })
   s8:
-    CoreSet(PopExceptionHandlers { count: 1 })
-    CoreSet(Jump { target_state: s1 })
+    CoreSet(Unwind { depth: 0, target_state: s1 })
   s9:
     CoreSet(Await { dst: r2, src: r2, resume: s10 })
   s10:

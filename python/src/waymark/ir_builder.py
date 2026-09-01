@@ -2115,6 +2115,13 @@ class IRBuilder(ast.NodeVisitor):
                             if target not in seen:
                                 seen.add(target)
                                 assigned.append(target)
+                if stmt.try_except.HasField("finally_block"):
+                    for target in self._collect_assigned_vars_in_order(
+                        list(stmt.try_except.finally_block.statements)
+                    ):
+                        if target not in seen:
+                            seen.add(target)
+                            assigned.append(target)
 
         return assigned
 
@@ -2221,6 +2228,11 @@ class IRBuilder(ast.NodeVisitor):
                             if var not in seen:
                                 seen.add(var)
                                 vars_found.append(var)
+                if te.HasField("finally_block"):
+                    for var in self._collect_variables_from_block(te.finally_block):
+                        if var not in seen:
+                            seen.add(var)
+                            vars_found.append(var)
 
             if stmt.HasField("parallel_block"):
                 for call in stmt.parallel_block.calls:
@@ -2294,6 +2306,17 @@ class IRBuilder(ast.NodeVisitor):
             handlers=handlers,
             try_block=ir.Block(statements=try_body, span=_make_span(node)),
         )
+        if node.finalbody:
+            try_except.finally_block.CopyFrom(
+                ir.Block(
+                    statements=[
+                        statement
+                        for body_node in node.finalbody
+                        for statement in self._visit_statement(body_node)
+                    ],
+                    span=_make_span(node),
+                )
+            )
         try_stmt.try_except.CopyFrom(try_except)
 
         return [try_stmt]

@@ -11,8 +11,8 @@ pub(super) struct LoopScope {
     /// State reached by a `continue`.
     continue_state: StateId,
 
-    /// Exception-handler block depth that should remain active at loop targets.
-    exception_handler_depth: usize,
+    /// Frame unwind depth that should remain active at loop targets.
+    unwind_depth: usize,
 }
 
 /// Stack of loop scopes active during statement lowering.
@@ -34,15 +34,11 @@ pub enum LoopControlKind {
 
 impl LoopScope {
     /// Creates a loop scope with its `break` and `continue` targets.
-    pub(super) fn new(
-        break_state: StateId,
-        continue_state: StateId,
-        exception_handler_depth: usize,
-    ) -> Self {
+    pub(super) fn new(break_state: StateId, continue_state: StateId, unwind_depth: usize) -> Self {
         Self {
             break_state,
             continue_state,
-            exception_handler_depth,
+            unwind_depth,
         }
     }
 
@@ -54,9 +50,9 @@ impl LoopScope {
         }
     }
 
-    /// Returns the exception-handler block depth expected at loop targets.
-    pub(super) fn exception_handler_depth(self) -> usize {
-        self.exception_handler_depth
+    /// Returns the frame unwind depth expected at loop targets.
+    pub(super) fn unwind_depth(self) -> usize {
+        self.unwind_depth
     }
 }
 
@@ -70,7 +66,6 @@ impl LoopControlStack {
     pub(super) fn with_loop(&self, loop_scope: LoopScope) -> Self {
         let mut stack = self.stack.clone();
         stack.push(loop_scope);
-
         Self { stack }
     }
 
@@ -130,9 +125,9 @@ mod tests {
 
         assert_eq!(outer_scope.target(LoopControlKind::Break), StateId(1));
         assert_eq!(outer_scope.target(LoopControlKind::Continue), StateId(2));
-        assert_eq!(outer_scope.exception_handler_depth(), 0);
+        assert_eq!(outer_scope.unwind_depth(), 0);
         assert_eq!(inner_scope.target(LoopControlKind::Break), StateId(3));
         assert_eq!(inner_scope.target(LoopControlKind::Continue), StateId(4));
-        assert_eq!(inner_scope.exception_handler_depth(), 1);
+        assert_eq!(inner_scope.unwind_depth(), 1);
     }
 }

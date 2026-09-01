@@ -90,13 +90,22 @@ pub enum CoreSet<Spec: self::Spec> {
         /// Handlers to activate for subsequent execution in this frame.
         handlers:
             Vec<waymark_vm_exception_handler::ExceptionHandler<Spec::StateId, Spec::RegisterId>>,
+
+        /// State to run whenever control leaves this handler scope.
+        finally_state: Option<Spec::StateId>,
     },
 
-    /// Pop `count` innermost exception-handler blocks.
-    PopExceptionHandlers {
-        /// Number of blocks to remove.
-        count: usize,
+    /// Leave unwind entries above `depth`, then enter `target_state`.
+    Unwind {
+        /// Number of unwind entries to preserve.
+        depth: usize,
+
+        /// State to enter after crossed finalizers complete.
+        target_state: Spec::StateId,
     },
+
+    /// Resume the control transfer suspended while entering a finalizer.
+    ContinueUnwind,
 
     /// Jump to the specified state.
     Jump {

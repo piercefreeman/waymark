@@ -22,10 +22,12 @@ nonempty-collections = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+waymark-ir-parser = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-support-test-python = { workspace = true }
 waymark-vm-ast-old-fmt = { workspace = true }
 waymark-vm-ast-old-helpers = { workspace = true }
+waymark-vm-ast-old-proto = { workspace = true }
 waymark-vm-bytecode-fmt = { workspace = true }
 waymark-vm-compiler-for-ast-old-test-support = { workspace = true }
 waymark-vm-interpreter-coreset = { workspace = true }

@@ -68,6 +68,44 @@ fn compiles_assignments_and_addition_to_completion() {
 }
 
 #[test]
+fn compiled_finalizers_preserve_control_flow() {
+    let cases = [
+        (
+            "nested normal flow",
+            "fn main(input: [], output: []):\n    value = 1\n    try:\n        try:\n            value = 2\n        finally:\n            value = value + 3\n    finally:\n        value = value * 2\n    return value\n",
+            10,
+        ),
+        (
+            "nested return",
+            "fn main(input: [], output: []):\n    value = 1\n    try:\n        try:\n            return value\n        finally:\n            value = value + 3\n    finally:\n        return value * 2\n",
+            8,
+        ),
+        (
+            "break from finalizer",
+            "fn main(input: [], output: []):\n    value = 0\n    while value < 3:\n        try:\n            value = value + 1\n        finally:\n            break\n    return value\n",
+            1,
+        ),
+        (
+            "continue from finalizer",
+            "fn main(input: [], output: []):\n    value = 0\n    while value < 2:\n        try:\n            value = value + 1\n        finally:\n            continue\n    return value\n",
+            2,
+        ),
+    ];
+
+    for (name, ir, expected) in cases {
+        let program = waymark_vm_ast_old_proto::convert(
+            waymark_ir_parser::parse_program(ir).expect("IR should parse"),
+        )
+        .expect("IR should convert to the compiler AST");
+        let emitted_effect = runtime(compile_program(&program))
+            .run()
+            .unwrap_or_else(|error| panic!("{name} should complete: {error:?}"));
+
+        assert_eq!(completed_int(emitted_effect), expected, "{name}");
+    }
+}
+
+#[test]
 fn compiles_supported_scalar_literals_to_completion() {
     struct LiteralCase {
         name: &'static str,

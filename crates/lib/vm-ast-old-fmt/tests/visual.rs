@@ -187,6 +187,7 @@ fn fmt_display_prints_program() {
                         ),
                     }),
                 })]),
+                finally_block: None,
             }),
             return_stmt(Some(spanned(Expr::Dict {
                 entries: vec![
