@@ -57,12 +57,6 @@ impl waymark_vm_runtime_value::RootValueAccess for TestValue {
     type RootValue = Self;
 }
 
-impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestValue {
-    fn capture_call_argument(&self) -> Self {
-        self.clone()
-    }
-}
-
 impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for TestValue {
     type ActionCallArgument = i32;
     type Error = UnresolvedPromiseError;
