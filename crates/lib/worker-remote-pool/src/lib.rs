@@ -11,7 +11,7 @@ use nonempty_collections::NEVec;
 use tokio::sync::{Mutex, mpsc};
 
 use waymark_proto::messages as proto;
-use waymark_worker_core::WorkerPoolError;
+use waymark_worker_core::{WorkerPoolError, WorkerPoolGoneError};
 
 async fn execute_remote_request<Spec>(
     pool: &Arc<waymark_worker_process_pool::Pool<Spec>>,
@@ -131,12 +131,14 @@ impl<Spec> RemoteWorkerPool<Spec> {
     }
 }
 
-impl<Spec> waymark_worker_core::BaseWorkerPool for RemoteWorkerPool<Spec>
+impl<Spec> waymark_worker_core::LaunchWorkerPool for RemoteWorkerPool<Spec>
 where
     Spec: waymark_worker_process_spec::Spec,
     Spec: Send + Sync + 'static,
 {
-    async fn launch(&self) -> std::result::Result<(), waymark_worker_core::WorkerPoolError> {
+    type Error = WorkerPoolError;
+
+    async fn launch(&self) -> std::result::Result<(), Self::Error> {
         if self.launched.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
@@ -180,8 +182,16 @@ where
 
         Ok(())
     }
+}
 
-    fn queue(&self, dispatch: proto::ActionDispatch) -> Result<(), WorkerPoolError> {
+impl<Spec> waymark_worker_core::QueueActionDispatch for RemoteWorkerPool<Spec>
+where
+    Spec: waymark_worker_process_spec::Spec,
+    Spec: Send + Sync + 'static,
+{
+    type Error = WorkerPoolError;
+
+    async fn queue(&self, dispatch: proto::ActionDispatch) -> Result<(), Self::Error> {
         self.request_tx.try_send(dispatch).map_err(|err| {
             WorkerPoolError::new(
                 "RemoteWorkerPoolError",
@@ -189,11 +199,19 @@ where
             )
         })
     }
+}
 
-    async fn poll_complete(&self) -> Option<NEVec<proto::ActionResult>> {
+impl<Spec> waymark_worker_core::PollActionResults for RemoteWorkerPool<Spec>
+where
+    Spec: waymark_worker_process_spec::Spec,
+    Spec: Send + Sync + 'static,
+{
+    type Error = WorkerPoolGoneError;
+
+    async fn poll_complete(&self) -> Result<NEVec<proto::ActionResult>, Self::Error> {
         let mut receiver = self.completion_rx.lock().await;
 
-        let first = receiver.recv().await?;
+        let first = receiver.recv().await.ok_or(WorkerPoolGoneError)?;
 
         let mut completions = NEVec::new(first);
 
@@ -201,7 +219,7 @@ where
             completions.push(item);
         }
 
-        Some(completions)
+        Ok(completions)
     }
 }
 

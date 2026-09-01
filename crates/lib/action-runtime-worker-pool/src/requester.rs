@@ -33,23 +33,27 @@ impl<Pool, Metadata> WorkerPoolActionRequester<Pool, Metadata> {
 /// Errors that can occur when requesting an action call through
 /// the worker pool.
 #[derive(Debug, thiserror::Error)]
-pub enum RequestActionCallError {
+pub enum RequestActionCallError<QueueError> {
     /// Failed to convert call arguments for the worker pool.
     #[error("call arguments conversion: {0}")]
     ArgumentsConversion(#[source] waymark_vm_value_convert_core::PendingPromiseError),
 
     /// The worker pool rejected the action request.
-    #[error("worker pool queue: {0}")]
-    PoolQueue(#[source] waymark_worker_core::WorkerPoolError),
+    ///
+    /// Whatever queueing failed with, expressed as the pool's own error:
+    /// this requester merely propagates it.
+    #[error("worker pool queue")]
+    PoolQueue(#[source] QueueError),
 }
 
 impl<Pool, Metadata> waymark_action_runtime_core::ActionCallRequester
     for WorkerPoolActionRequester<Pool, Metadata>
 where
-    Pool: waymark_worker_core::BaseWorkerPool + Send + Sync + 'static,
+    Pool: waymark_worker_core::QueueActionDispatch + Send + Sync + 'static,
+    Pool::Error: core::fmt::Debug,
     Metadata: Encode + Send + Sync,
 {
-    type Error = RequestActionCallError;
+    type Error = RequestActionCallError<Pool::Error>;
 
     type Argument = waymark_vm_value_python::ReadyValue;
 
@@ -64,6 +68,7 @@ where
 
         self.pool
             .queue(dispatch)
+            .await
             .map_err(RequestActionCallError::PoolQueue)
     }
 }
@@ -72,7 +77,6 @@ where
 mod tests {
     use std::sync::Mutex;
 
-    use nonempty_collections::NEVec;
     use waymark_action_core::ActionRef;
     use waymark_action_runtime_core::{ActionCallRequest, ActionCallRequester as _};
     use waymark_action_runtime_metadata::{ActionCallCorrelation, WithVmId};
@@ -88,17 +92,17 @@ mod tests {
         queued: Mutex<Vec<waymark_proto::messages::ActionDispatch>>,
     }
 
-    impl waymark_worker_core::BaseWorkerPool for RecordingPool {
-        fn queue(
+    // Only queueing: a requester never polls, so the pool it is given
+    // need not know how to.
+    impl waymark_worker_core::QueueActionDispatch for RecordingPool {
+        type Error = waymark_worker_core::WorkerPoolError;
+
+        async fn queue(
             &self,
             dispatch: waymark_proto::messages::ActionDispatch,
-        ) -> Result<(), waymark_worker_core::WorkerPoolError> {
+        ) -> Result<(), Self::Error> {
             self.queued.lock().unwrap().push(dispatch);
             Ok(())
-        }
-
-        async fn poll_complete(&self) -> Option<NEVec<waymark_proto::messages::ActionResult>> {
-            unreachable!("the requester test never polls for completions")
         }
     }
 
