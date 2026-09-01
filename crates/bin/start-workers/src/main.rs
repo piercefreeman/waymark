@@ -114,8 +114,18 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
 
     let process_pool = Arc::new(process_pool);
 
+    // The API routes get documented as they are built, from here on; aide
+    // reports what it can not document only through this hook, on this
+    // thread.
+    waymark_http_api::report_generation_errors();
+
     // Compose everything the HTTP server serves.
-    let http_routes = axum::Router::new().merge(waymark_http_healthz::router());
+    let http_api_routes = aide::axum::ApiRouter::new();
+    let http_routes = axum::Router::new()
+        .merge(waymark_http_healthz::router())
+        // Mount the `/api` as an isolated service to avoid applying potential fallback
+        // rules to it.
+        .nest_service("/api", waymark_http_api::router(http_api_routes, &["/api"]));
 
     // Start the HTTP server.
     let maybe_http_handle = if config.http.enabled {
