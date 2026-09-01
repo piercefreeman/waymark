@@ -23,11 +23,10 @@ use waymark_action_completions_reconciler_backend::{
     CompletionKey, CompletionRecord, PollCompletions,
 };
 use waymark_action_runtime_core::{ActionCallLossError, ActionCallOutcome};
-use waymark_convert_core::Convert as _;
+use waymark_convert_core::Convert;
 use waymark_promise_settlement_demand_registry::registry;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime_promise_core::PromiseStateId;
-use waymark_vm_value_python::ReadyValue;
 
 /// Error returned when the shared poll loop stops on a critical failure.
 #[derive(Debug, thiserror::Error)]
@@ -79,12 +78,12 @@ impl<VmId, SleepAck> From<Ack<VmId>> for waymark_extcall_reconciler_core::Ack<Ac
 
 /// One decoded completion parked in a handle's buffer, keyed by the
 /// promise it settles.
-struct BufferedCompletion {
+struct BufferedCompletion<Value> {
     promise_state_id: PromiseStateId,
-    execution_result: Result<ActionCallOutcome<ReadyValue>, ActionCallLossError>,
+    execution_result: Result<ActionCallOutcome<Value>, ActionCallLossError>,
 }
 
-impl registry::HasPromiseStateId for BufferedCompletion {
+impl<Value> registry::HasPromiseStateId for BufferedCompletion<Value> {
     fn promise_state_id(&self) -> PromiseStateId {
         self.promise_state_id
     }
@@ -102,15 +101,21 @@ impl registry::HasPromiseStateId for BufferedCompletion {
 /// `ack_tx` is where the settlements produced by the subscribed handles
 /// push their keys on acknowledgement — pair it with an
 /// [`acker::run`](crate::acker::run) loop driving the receiving half.
-pub fn state<VmId>(
+pub fn state<VmId, Value, ValueConverter>(
     ack_tx: tokio::sync::mpsc::UnboundedSender<CompletionKey<VmId>>,
-) -> (DemandRegistrar<VmId>, StateToken<VmId>)
+) -> (
+    DemandRegistrar<VmId, Value, ValueConverter>,
+    StateToken<VmId, Value>,
+)
 where
     VmId: Eq + std::hash::Hash,
 {
     let (registrar, token) = registry::state(ack_tx);
     (
-        DemandRegistrar { inner: registrar },
+        DemandRegistrar {
+            inner: registrar,
+            _value_converter: std::marker::PhantomData,
+        },
         StateToken { inner: token },
     )
 }
@@ -119,36 +124,38 @@ where
 ///
 /// Created by [`state`]; its only job is to be handed to [`run`] via
 /// [`Params`].
-pub struct StateToken<VmId>
+pub struct StateToken<VmId, Value>
 where
     VmId: Eq + std::hash::Hash,
 {
-    inner: registry::StateToken<VmId, BufferedCompletion, CompletionKey<VmId>>,
+    inner: registry::StateToken<VmId, BufferedCompletion<Value>, CompletionKey<VmId>>,
 }
 
 /// Subscribes VMs to the shared poller state.
 ///
 /// Created by [`state`]; cloneable, so it can be handed out to every
 /// place that wires up VMs.
-pub struct DemandRegistrar<VmId>
+pub struct DemandRegistrar<VmId, Value, ValueConverter>
 where
     VmId: Eq + std::hash::Hash,
 {
-    inner: registry::DemandRegistrar<VmId, BufferedCompletion, CompletionKey<VmId>>,
+    inner: registry::DemandRegistrar<VmId, BufferedCompletion<Value>, CompletionKey<VmId>>,
+    _value_converter: std::marker::PhantomData<fn() -> ValueConverter>,
 }
 
-impl<VmId> Clone for DemandRegistrar<VmId>
+impl<VmId, Value, ValueConverter> Clone for DemandRegistrar<VmId, Value, ValueConverter>
 where
     VmId: Eq + std::hash::Hash,
 {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
+            _value_converter: std::marker::PhantomData,
         }
     }
 }
 
-impl<VmId> DemandRegistrar<VmId>
+impl<VmId, Value, ValueConverter> DemandRegistrar<VmId, Value, ValueConverter>
 where
     VmId: Copy + Eq + std::hash::Hash,
 {
@@ -157,9 +164,10 @@ where
     /// Subscribing a VM that already has a live entry replaces the entry:
     /// the previous handle keeps its buffer but will no longer receive
     /// deliveries, and its eventual drop does not disturb the new entry.
-    pub fn subscribe(&self, vm_id: VmId) -> SettlementsHandle<VmId> {
+    pub fn subscribe(&self, vm_id: VmId) -> SettlementsHandle<VmId, Value, ValueConverter> {
         SettlementsHandle {
             inner: self.inner.subscribe(vm_id),
+            _value_converter: std::marker::PhantomData,
         }
     }
 }
@@ -169,7 +177,7 @@ where
 // ---------------------------------------------------------------------------
 
 /// Parameters for [`run`].
-pub struct Params<Backend, Codec>
+pub struct Params<Backend, Codec, Value>
 where
     Backend: PollCompletions,
     Backend::VmId: Eq + std::hash::Hash,
@@ -181,7 +189,7 @@ where
     pub codec: Codec,
 
     /// The token of the shared state to poll for and deliver to.
-    pub state: StateToken<Backend::VmId>,
+    pub state: StateToken<Backend::VmId, Value>,
 }
 
 /// Poll the backend for demanded completions until a critical failure.
@@ -191,13 +199,14 @@ where
 /// errors are critical, and the caller should stop the subsystem.  When
 /// the loop returns (or its future is dropped after starting), the shared
 /// state is marked closed and all waiting handles fail.
-pub async fn run<Backend, Codec>(
-    params: Params<Backend, Codec>,
+pub async fn run<Backend, Codec, Value>(
+    params: Params<Backend, Codec, Value>,
 ) -> Result<std::convert::Infallible, Error<Backend::Error, Codec::Error>>
 where
     Backend: PollCompletions,
     Backend::VmId: Copy + Eq + std::hash::Hash,
     Codec: waymark_vm_codec_core::DeserializerProvider,
+    Value: serde::de::DeserializeOwned,
 {
     let Params {
         backend,
@@ -258,31 +267,39 @@ where
 /// registers the demanded promise ids, waits until the shared poller
 /// delivers matching completions, and settles them with [`Ack`]s minted
 /// from the rows' own keys.
-pub struct SettlementsHandle<VmId>
+pub struct SettlementsHandle<VmId, Value, ValueConverter>
 where
     VmId: Eq + std::hash::Hash,
 {
-    inner: registry::DemandHandle<VmId, BufferedCompletion, CompletionKey<VmId>>,
+    inner: registry::DemandHandle<VmId, BufferedCompletion<Value>, CompletionKey<VmId>>,
+    _value_converter: std::marker::PhantomData<fn() -> ValueConverter>,
 }
 
-impl<VmId> waymark_extcall_reconciler_core::SettlerAck for SettlementsHandle<VmId>
+impl<VmId, Value, ValueConverter> waymark_extcall_reconciler_core::SettlerAck
+    for SettlementsHandle<VmId, Value, ValueConverter>
 where
     VmId: Eq + std::hash::Hash,
 {
     type Ack = Ack<VmId>;
 }
 
-impl<VmId> waymark_extcall_reconciler_core::HasValue for SettlementsHandle<VmId>
+impl<VmId, Value, ValueConverter> waymark_extcall_reconciler_core::HasValue
+    for SettlementsHandle<VmId, Value, ValueConverter>
 where
     VmId: Eq + std::hash::Hash,
 {
-    type Value = ReadyValue;
+    type Value = Value;
 }
 
-impl<VmId, UnifiedAck> waymark_extcall_reconciler_core::ActionPromiseSettler<UnifiedAck>
-    for SettlementsHandle<VmId>
+impl<VmId, Value, ValueConverter, UnifiedAck>
+    waymark_extcall_reconciler_core::ActionPromiseSettler<UnifiedAck>
+    for SettlementsHandle<VmId, Value, ValueConverter>
 where
     VmId: Copy + Eq + std::hash::Hash + Send + Sync + 'static,
+    Value: Send + Sync,
+    ValueConverter: Send + Sync,
+    waymark_action_runtime_convert::Converter<ValueConverter>:
+        Convert<Result<ActionCallOutcome<Value>, ActionCallLossError>, PromiseResolution<Value>>,
     UnifiedAck: From<Ack<VmId>>,
 {
     type Error = PollActionSettlementsError;
@@ -303,15 +320,17 @@ where
     }
 }
 
-impl<VmId> SettlementsHandle<VmId>
+impl<VmId, Value, ValueConverter> SettlementsHandle<VmId, Value, ValueConverter>
 where
     VmId: Copy + Eq + std::hash::Hash,
+    waymark_action_runtime_convert::Converter<ValueConverter>:
+        Convert<Result<ActionCallOutcome<Value>, ActionCallLossError>, PromiseResolution<Value>>,
 {
     /// Turn buffered completions into settlements with key-carrying acks.
     fn settle<UnifiedAck>(
         &self,
-        completions: NEVec<BufferedCompletion>,
-    ) -> NEVec<PromiseSettlement<ReadyValue, UnifiedAck>>
+        completions: NEVec<BufferedCompletion<Value>>,
+    ) -> NEVec<PromiseSettlement<Value, UnifiedAck>>
     where
         UnifiedAck: From<Ack<VmId>>,
     {
@@ -323,17 +342,10 @@ where
                     execution_result,
                 } = completion;
 
-                let resolution = match execution_result {
-                    Ok(ActionCallOutcome::Value(value)) => PromiseResolution::Resolved(value),
-                    Ok(ActionCallOutcome::Exception(exception)) => {
-                        PromiseResolution::Rejected(exception)
-                    }
-                    // The execution produced no outcome; the promise
-                    // settles raised with the loss's exception rendering.
-                    Err(loss) => PromiseResolution::Rejected(
-                        waymark_action_runtime_convert::Converter::convert(loss),
-                    ),
-                };
+                let resolution =
+                    waymark_action_runtime_convert::Converter::<ValueConverter>::convert(
+                        execution_result,
+                    );
 
                 PromiseSettlement {
                     promise_state_id,

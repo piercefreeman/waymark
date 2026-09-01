@@ -24,7 +24,7 @@ waymark-vm-driver-core = { workspace = true, features = ["tokio"] }
 waymark-vm-driver-thread = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-builder = { workspace = true }
-waymark-vm-runtime-exception = { workspace = true }
+waymark-vm-value-python-convert-proto = { workspace = true }
 waymark-workflow-completion-core = { workspace = true }
 waymark-workflow-completion-direct = { workspace = true }
 
