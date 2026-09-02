@@ -51,6 +51,7 @@ waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
 waymark-observability = { path = "crates/lib/observability" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }
+waymark-observability-store-postgres-config = { path = "crates/lib/observability-store-postgres-config" }
 waymark-observability-store-postgres-migrations = { path = "crates/lib/observability-store-postgres-migrations" }
 waymark-pool-status = { path = "crates/lib/pool-status" }
 waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-bringup" }

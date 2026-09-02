@@ -166,6 +166,7 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 | `WAYMARK_MAX_ACTION_LIFECYCLE` | Max actions per worker before worker recycle | unset (no recycle limit) |
 | `WAYMARK_HTTP_ENABLED` | Enable the HTTP interface | `false` |
 | `WAYMARK_HTTP_ADDR` | HTTP server bind address | `0.0.0.0:24119` |
+| `WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS` | Connection cap per observability pool (Postgres store); when sharing the main database these are additive to the main pool's connections | `4` |
 
 #### Advanced tuning
 
