@@ -4307,6 +4307,7 @@ dependencies = [
  "thiserror",
  "waymark-http-config",
  "waymark-nonzero-duration",
+ "waymark-observability-config",
  "waymark-secret-string",
 ]
 
@@ -4675,6 +4676,16 @@ version = "0.1.0"
 dependencies = [
  "tracing",
  "waymark-observability-macros",
+]
+
+[[package]]
+name = "waymark-observability-config"
+version = "0.1.0"
+dependencies = [
+ "envfury",
+ "thiserror",
+ "waymark-observability-store-postgres-config",
+ "waymark-secret-string",
 ]
 
 [[package]]
