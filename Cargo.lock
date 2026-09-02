@@ -4328,6 +4328,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-essential-metrics-config"
+version = "0.1.0"
+dependencies = [
+ "envfury",
+ "thiserror",
+ "waymark-lossy-batcher",
+ "waymark-nonzero-duration",
+]
+
+[[package]]
 name = "waymark-essential-metrics-core"
 version = "0.1.0"
 dependencies = [
@@ -4688,6 +4698,7 @@ version = "0.1.0"
 dependencies = [
  "envfury",
  "thiserror",
+ "waymark-essential-metrics-config",
  "waymark-observability-store-postgres-config",
  "waymark-secret-string",
 ]
