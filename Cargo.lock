@@ -4912,6 +4912,7 @@ dependencies = [
  "waymark-http-api",
  "waymark-http-bringup",
  "waymark-http-healthz",
+ "waymark-ids",
  "waymark-prometheus-exporter-bringup",
  "waymark-scheduler-bringup",
  "waymark-tokio-metrics-bringup",
