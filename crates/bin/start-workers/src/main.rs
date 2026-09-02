@@ -59,7 +59,12 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
 
     tracing::debug!(target: "raw-config", ?config, "raw config");
 
+    // Mint this boot's node identity, shared by every subsystem that
+    // identifies the node.
+    let node_id = waymark_ids::NodeId::new_uuid_v4();
+
     info!(
+        %node_id,
         worker_count = config.worker_count,
         concurrent_per_worker = config.concurrent_per_worker,
         user_modules = ?config.user_modules,
@@ -68,6 +73,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
 
     metrics::gauge!(
         "waymark_start_workers_up",
+        "node_id" => node_id.to_string(),
         "worker_count" => config.worker_count.to_string(),
         "concurrent_per_worker" => config.concurrent_per_worker.to_string(),
         "user_modules" => format!("{:?}", config.user_modules),
@@ -162,7 +168,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
 
     // Start the execution subsystem (workload pinning + execution driver).
     let bringup_config = waymark_execution_bringup::Config {
-        node_id: Uuid::new_v4(),
+        node_id: node_id.into(),
         action_effect_reconciler_lock_ttl: config.action_effect_reconciler_lock_ttl,
         action_effect_reconciler_lock_heartbeat: config.action_effect_reconciler_lock_heartbeat,
         max_pinned: config.max_concurrent_instances,
