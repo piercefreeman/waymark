@@ -4322,6 +4322,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-essential-metrics-query-backend"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "waymark-essential-metrics-core",
+ "waymark-nonzero-duration",
+]
+
+[[package]]
+name = "waymark-essential-metrics-retention-backend"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+]
+
+[[package]]
+name = "waymark-essential-metrics-sink-backend"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "waymark-essential-metrics-core",
+]
+
+[[package]]
 name = "waymark-execution-bringup"
 version = "0.1.0"
 dependencies = [
