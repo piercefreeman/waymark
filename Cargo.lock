@@ -4315,6 +4315,13 @@ name = "waymark-convert-core"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-essential-metrics-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+]
+
+[[package]]
 name = "waymark-execution-bringup"
 version = "0.1.0"
 dependencies = [
