@@ -1,0 +1,15 @@
+[package]
+name = "waymark-metrics-bringup"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-essential-metrics-sampler = { workspace = true }
+waymark-prometheus-exporter-bringup = { workspace = true }
+
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+metrics-util = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
