@@ -4348,6 +4348,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-essential-metrics-sampler"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "metrics",
+ "metrics-util",
+ "nonempty-collections",
+ "tokio",
+ "waymark-essential-metrics-core",
+ "waymark-lossy-batcher",
+ "waymark-nonzero-duration",
+]
+
+[[package]]
 name = "waymark-essential-metrics-sink-backend"
 version = "0.1.0"
 dependencies = [
