@@ -1,0 +1,18 @@
+[package]
+name = "waymark-observability-store-postgres-bringup"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-observability-store-postgres-config = { workspace = true }
+waymark-sqlx-postgres-schema-pool = { workspace = true }
+
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio"] }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+waymark-support-integration = { workspace = true }
+waymark-support-test = { workspace = true }
+
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
