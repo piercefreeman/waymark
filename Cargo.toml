@@ -28,6 +28,8 @@ waymark-blocking-future = { path = "crates/lib/blocking-future" }
 waymark-config = { path = "crates/lib/config" }
 waymark-convert-core = { path = "crates/lib/convert-core" }
 waymark-essential-metrics-core = { path = "crates/lib/essential-metrics-core" }
+waymark-essential-metrics-query-backend = { path = "crates/lib/essential-metrics-query-backend" }
+waymark-essential-metrics-retention-backend = { path = "crates/lib/essential-metrics-retention-backend" }
 waymark-essential-metrics-sink-backend = { path = "crates/lib/essential-metrics-sink-backend" }
 waymark-execution-bringup = { path = "crates/lib/execution-bringup" }
 waymark-execution-driver = { path = "crates/lib/execution-driver" }
@@ -49,6 +51,7 @@ waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
 waymark-observability = { path = "crates/lib/observability" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }
+waymark-observability-store-postgres-migrations = { path = "crates/lib/observability-store-postgres-migrations" }
 waymark-pool-status = { path = "crates/lib/pool-status" }
 waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-bringup" }
 waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settlement-demand-registry" }
@@ -65,6 +68,7 @@ waymark-sleep-core = { path = "crates/lib/sleep-core" }
 waymark-sleep-reconciler = { path = "crates/lib/sleep-reconciler" }
 waymark-sleep-reconciler-backend = { path = "crates/lib/sleep-reconciler-backend" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
+waymark-sqlx-postgres-schema-pool = { path = "crates/lib/sqlx-postgres-schema-pool" }
 waymark-state-manager = { path = "crates/lib/state-manager" }
 waymark-state-manager-core = { path = "crates/lib/state-manager-core" }
 waymark-state-vm-executables = { path = "crates/lib/state-vm-executables" }
