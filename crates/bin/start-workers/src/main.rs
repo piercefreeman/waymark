@@ -49,7 +49,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     waymark_fn_main_common::init()?;
 
     let metrics_addr: std::net::SocketAddr = envfury::or_parse("METRICS_ADDR", "0.0.0.0:9118")?;
-    waymark_prometheus_exporter_bringup::spawn_and_install_recorder(metrics_addr)?;
+    let _essential_metrics_sampling_handle = waymark_metrics_bringup::start(metrics_addr)?;
 
     let _task_monitor = waymark_tokio_metrics_bringup::bringup(env!("CARGO_BIN_NAME"));
 
