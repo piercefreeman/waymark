@@ -5,6 +5,7 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+waymark-essential-metrics-config = { workspace = true }
 waymark-observability-store-postgres-config = { workspace = true }
 waymark-secret-string = { workspace = true }
 
