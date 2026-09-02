@@ -4717,6 +4717,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-observability-bringup"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "thiserror",
+ "tokio-util",
+ "waymark-essential-metrics-bringup",
+ "waymark-essential-metrics-sampler",
+ "waymark-ids",
+ "waymark-observability-config",
+ "waymark-observability-store-postgres",
+ "waymark-observability-store-postgres-bringup",
+ "waymark-observability-store-postgres-migrations",
+]
+
+[[package]]
 name = "waymark-observability-config"
 version = "0.1.0"
 dependencies = [
