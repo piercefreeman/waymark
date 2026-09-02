@@ -4316,6 +4316,21 @@ name = "waymark-convert-core"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-essential-metrics-bringup"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tokio-util",
+ "waymark-essential-metrics-compat",
+ "waymark-essential-metrics-config",
+ "waymark-essential-metrics-retention-backend",
+ "waymark-essential-metrics-sampler",
+ "waymark-essential-metrics-sink-backend",
+ "waymark-lossy-batcher",
+ "waymark-retention-sweeper",
+]
+
+[[package]]
 name = "waymark-essential-metrics-compat"
 version = "0.1.0"
 dependencies = [
