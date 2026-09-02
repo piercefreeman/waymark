@@ -14,6 +14,9 @@ use waymark_secret_string::SecretString;
 pub struct ObservabilityConfig {
     /// The observability database.
     pub db: Db,
+
+    /// The essential-metrics subsystem's config.
+    pub essential_metrics: waymark_essential_metrics_config::EssentialMetricsConfig,
 }
 
 /// An observability database, dispatched by URL scheme.
@@ -41,6 +44,10 @@ pub enum FromEnvError {
     /// The Postgres store's config could not be read.
     #[error("postgres: {0}")]
     Postgres(#[from] waymark_observability_store_postgres_config::FromEnvError),
+
+    /// The essential-metrics subsystem's config could not be read.
+    #[error("essential metrics: {0}")]
+    EssentialMetrics(#[from] waymark_essential_metrics_config::FromEnvError),
 }
 
 impl ObservabilityConfig {
@@ -54,7 +61,12 @@ impl ObservabilityConfig {
             default_database_url.clone()
         })?;
         let db = Db::from_url_and_env(url)?;
-        Ok(Self { db })
+        let essential_metrics =
+            waymark_essential_metrics_config::EssentialMetricsConfig::from_env()?;
+        Ok(Self {
+            db,
+            essential_metrics,
+        })
     }
 }
 
