@@ -4315,6 +4315,16 @@ name = "waymark-convert-core"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-essential-metrics-compat"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "waymark-essential-metrics-core",
+ "waymark-essential-metrics-sink-backend",
+ "waymark-lossy-batcher",
+]
+
+[[package]]
 name = "waymark-essential-metrics-core"
 version = "0.1.0"
 dependencies = [
