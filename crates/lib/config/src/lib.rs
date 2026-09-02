@@ -36,6 +36,7 @@ pub struct WorkerConfig {
     pub scheduler_poll_interval: NonZeroDuration,
     pub scheduler_batch_max: NonZeroUsize,
     pub http: waymark_http_config::HttpConfig,
+    pub observability: waymark_observability_config::ObservabilityConfig,
     pub profile_interval: NonZeroDuration,
     pub vm_retention: NonZeroDuration,
     pub vm_sweep_interval: NonZeroDuration,
@@ -69,6 +70,10 @@ pub enum FromEnvError {
     /// The HTTP server configuration could not be read.
     #[error(transparent)]
     Http(#[from] waymark_http_config::FromEnvError),
+
+    /// The observability configuration could not be read.
+    #[error(transparent)]
+    Observability(#[from] waymark_observability_config::FromEnvError),
 }
 
 impl WorkerConfig {
@@ -145,6 +150,9 @@ impl WorkerConfig {
 
         let http = waymark_http_config::HttpConfig::from_env()?;
 
+        let observability =
+            waymark_observability_config::ObservabilityConfig::from_env(&database_url)?;
+
         let FromMillisMin::<_, 1>(profile_interval) =
             envfury::or_parse("WAYMARK_RUNNER_PROFILE_INTERVAL_MS", "5000")?;
 
@@ -186,6 +194,7 @@ impl WorkerConfig {
             scheduler_poll_interval,
             scheduler_batch_max,
             http,
+            observability,
             profile_interval,
             vm_retention,
             vm_sweep_interval,
