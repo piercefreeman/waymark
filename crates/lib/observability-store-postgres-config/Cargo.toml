@@ -1,0 +1,11 @@
+[package]
+name = "waymark-observability-store-postgres-config"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-secret-string = { workspace = true }
+
+envfury = { workspace = true }
+thiserror = { workspace = true }
