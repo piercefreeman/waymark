@@ -1,13 +1,11 @@
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use color_eyre::eyre::{WrapErr as _, bail, eyre};
+use color_eyre::eyre::{WrapErr as _, bail};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use tokio::process::Command;
 use waymark_secret_string::SecretStr;
-
-const DB_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 pub async fn boot_postgres() -> Result<(), color_eyre::eyre::Report> {
     let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -30,31 +28,40 @@ pub async fn boot_postgres() -> Result<(), color_eyre::eyre::Report> {
     Ok(())
 }
 
-pub async fn wait_for_database(
+pub async fn connect(
     dsn: &SecretStr,
     timeout: Duration,
 ) -> Result<PgPool, color_eyre::eyre::Report> {
-    let deadline = Instant::now() + timeout;
-    let mut last_error: Option<String> = None;
-
-    while Instant::now() < deadline {
-        match PgPoolOptions::new()
+    let pool = crate::common::wait_for_database("the main database", timeout, || async {
+        PgPoolOptions::new()
             .max_connections(16)
             .acquire_timeout(Duration::from_secs(5))
             .connect(dsn.expose_secret())
             .await
-        {
-            Ok(pool) => return Ok(pool),
-            Err(err) => {
-                last_error = Some(err.to_string());
-                tokio::time::sleep(DB_RETRY_DELAY).await;
-            }
-        }
-    }
+            .map_err(|error| {
+                if is_permanent(&error) {
+                    crate::common::WaitForDatabaseAttemptError::Stop(error)
+                } else {
+                    crate::common::WaitForDatabaseAttemptError::Retry(error)
+                }
+            })
+    })
+    .await
+    .wrap_err("connect to the database")?;
+    Ok(pool)
+}
 
-    Err(eyre!(
-        "timed out waiting for Postgres at {}; last error: {}",
-        dsn.expose_secret(),
-        last_error.unwrap_or_else(|| "unknown".to_string())
-    ))
+/// Whether a failed connect is one another attempt meets again: a bad
+/// URL or TLS setup, a wrong password, a role or client the server
+/// refuses, a database that does not exist. The server not being up yet
+/// is not.
+fn is_permanent(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Configuration(_) | sqlx::Error::Tls(_) => true,
+        sqlx::Error::Database(error) => {
+            let code = error.code();
+            matches!(code.as_deref(), Some("28P01" | "28000" | "3D000"))
+        }
+        _ => false,
+    }
 }
