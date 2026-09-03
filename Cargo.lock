@@ -5084,6 +5084,7 @@ dependencies = [
  "waymark-http-healthz",
  "waymark-ids",
  "waymark-metrics-bringup",
+ "waymark-observability-bringup",
  "waymark-scheduler-bringup",
  "waymark-tokio-metrics-bringup",
  "waymark-worker-python",
