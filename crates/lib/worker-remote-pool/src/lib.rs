@@ -46,7 +46,6 @@ where
         Ok(metrics) => {
             ::metrics::histogram!("waymark_worker_remote_pool_action_handling_seconds")
                 .record(metrics.worker_duration);
-            pool.record_latency(metrics.ack_latency, metrics.worker_duration);
             pool.record_completion(worker_idx, Arc::clone(pool));
             ActionExecutionReport::Completed(proto::ActionResult {
                 payload: metrics.response_payload,
@@ -244,11 +243,5 @@ where
         }
 
         Ok(completions)
-    }
-}
-
-impl<Spec> waymark_worker_status_core::WorkerPoolStats for RemoteWorkerPool<Spec> {
-    fn stats_snapshot(&self) -> waymark_worker_status_core::WorkerPoolStatsSnapshot {
-        self.pool.stats_snapshot()
     }
 }

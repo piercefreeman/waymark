@@ -21,8 +21,7 @@ pub async fn truncate_all(pool: &PgPool) -> BackendResult<()> {
                  vm_executables,
                  vm_execution_results,
                  vm_runtime_snapshots,
-                 runnable_workloads,
-                 worker_status
+                 runnable_workloads
         RESTART IDENTITY CASCADE
         "#,
     )

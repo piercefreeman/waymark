@@ -754,8 +754,7 @@ async def reset_database() -> ResetResponse:
                     vm_executables,
                     vm_runtime_snapshots,
                     vm_execution_results,
-                    runnable_workloads,
-                    worker_status
+                    runnable_workloads
                 RESTART IDENTITY CASCADE
             """)
             return ResetResponse(success=True, message="All workflow data cleared")

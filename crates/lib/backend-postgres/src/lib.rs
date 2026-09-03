@@ -32,7 +32,6 @@ mod state_vm_executables;
 #[cfg(test)]
 mod test_helpers;
 mod vm_runtimes;
-mod worker_status;
 mod workflow_completion;
 mod workflow_service_scheduler;
 mod workflow_service_vm_executables;
