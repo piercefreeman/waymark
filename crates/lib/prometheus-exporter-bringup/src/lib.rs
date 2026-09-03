@@ -26,9 +26,20 @@ pub fn build(
         .with_recommended_naming(true)
         .with_http_listener(metrics_addr)
         .set_bucket_duration(std::time::Duration::from_secs(600))?
+        // One ladder covers every `_seconds` histogram, so it has to span
+        // the whole range they occupy: slot acquisition settles in tens of
+        // microseconds, while action handling runs to the minute. A ladder
+        // starting at 0.1 puts every acquisition observation in the first
+        // bucket, where `histogram_quantile` can only interpolate across
+        // `[0, 0.1]` and answers ~0.05 for a median three orders of
+        // magnitude below it. The decade steps below 0.1 give the low end
+        // boundaries to interpolate between.
         .set_buckets_for_metric(
             metrics_exporter_prometheus::Matcher::Suffix("_seconds".to_string()),
-            &[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10., 30., 60., 300., 600.],
+            &[
+                1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.,
+                30., 60., 300., 600.,
+            ],
         )?
         .build()?;
 
