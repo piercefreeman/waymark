@@ -41,50 +41,81 @@ pub async fn fetch_workload_snapshot(
     Ok(row)
 }
 
-#[derive(Debug, Clone, Serialize, FromRow)]
-pub struct WorkerStatusSnapshot {
-    pub pool_id: Uuid,
-    pub actions_per_sec: f64,
-    pub throughput_per_min: f64,
-    pub total_completed: i64,
-    pub active_workers: i32,
-    pub total_in_flight: i64,
-    pub dispatch_queue_size: i64,
-    pub median_dequeue_ms: Option<i64>,
-    pub median_handling_ms: Option<i64>,
-    pub last_action_at: Option<DateTime<Utc>>,
-    pub updated_at: DateTime<Utc>,
-    pub active_instance_count: i32,
+/// The latest essential-metrics node sample, mirrored into a
+/// serializable shape for health samples and diagnostics.
+#[derive(Debug, Clone, Serialize)]
+pub struct NodeSampleReport {
+    pub node_id: waymark_ids::NodeId,
+    pub sampled_at: DateTime<Utc>,
+    pub worker_pool_size: u64,
+    pub max_in_flight_actions: u64,
+    pub in_flight_actions: u64,
+    pub queued_action_dispatches: u64,
+    pub driven_vm_runtimes: u64,
+    pub actions_completed_total: u64,
+    pub last_action_completed_at: Option<DateTime<Utc>>,
+    pub action_dequeue_seconds_p50: Option<f64>,
+    pub action_handling_seconds_p50: Option<f64>,
+    pub action_dequeue_seconds_sum: f64,
+    pub action_handling_seconds_sum: f64,
+    pub essential_metrics_dropped_total: u64,
 }
 
-pub async fn fetch_latest_worker_status(
-    pool: &PgPool,
-) -> Result<Option<WorkerStatusSnapshot>, color_eyre::eyre::Report> {
-    let row = sqlx::query_as::<_, WorkerStatusSnapshot>(
-        r#"
-        SELECT
-            pool_id,
-            actions_per_sec,
-            throughput_per_min,
-            total_completed,
-            active_workers,
-            total_in_flight,
-            dispatch_queue_size,
-            median_dequeue_ms,
-            median_handling_ms,
-            last_action_at,
-            updated_at,
-            active_instance_count
-        FROM worker_status
-        ORDER BY updated_at DESC
-        LIMIT 1
-        "#,
-    )
-    .fetch_optional(pool)
-    .await
-    .wrap_err("fetch latest worker status")?;
+fn node_sample_report(
+    sample: waymark_essential_metrics_core::NodeSample<waymark_ids::NodeId>,
+) -> NodeSampleReport {
+    NodeSampleReport {
+        node_id: sample.node_id,
+        sampled_at: sample.sampled_at,
+        worker_pool_size: sample.worker_pool_size,
+        max_in_flight_actions: sample.max_in_flight_actions,
+        in_flight_actions: sample.in_flight_actions,
+        queued_action_dispatches: sample.queued_action_dispatches,
+        driven_vm_runtimes: sample.driven_vm_runtimes,
+        actions_completed_total: sample.actions_completed_total,
+        last_action_completed_at: sample.last_action_completed_at,
+        action_dequeue_seconds_p50: sample.action_dequeue_seconds.quantile(
+            &waymark_essential_metrics_core::ACTION_DEQUEUE_SECONDS_BOUNDS,
+            0.5,
+        ),
+        action_handling_seconds_p50: sample.action_handling_seconds.quantile(
+            &waymark_essential_metrics_core::ACTION_HANDLING_SECONDS_BOUNDS,
+            0.5,
+        ),
+        action_dequeue_seconds_sum: sample.action_dequeue_seconds.sum,
+        action_handling_seconds_sum: sample.action_handling_seconds.sum,
+        essential_metrics_dropped_total: sample.essential_metrics_dropped_total,
+    }
+}
 
-    Ok(row)
+/// The newest sample across all nodes; `None` while no node has ever
+/// sampled — including before the worker's first boot has provisioned
+/// the observability schema at all.
+pub async fn fetch_latest_node_sample(
+    store: &waymark_observability_store_postgres::Store,
+) -> Result<Option<NodeSampleReport>, color_eyre::eyre::Report> {
+    use waymark_essential_metrics_query_backend::Latest as _;
+
+    let samples = match store.latest().await {
+        Ok(samples) => samples,
+        // The worker's own bringup provisions the observability schema;
+        // before its first boot the table simply does not exist yet.
+        Err(error) if is_undefined_table(&error) => return Ok(None),
+        Err(error) => return Err(error).wrap_err("fetch latest node samples"),
+    };
+
+    let latest = samples
+        .into_iter()
+        .max_by_key(|sample| sample.sampled_at)
+        .map(node_sample_report);
+    Ok(latest)
+}
+
+fn is_undefined_table(error: &sqlx::Error) -> bool {
+    let sqlx::Error::Database(db_error) = error else {
+        return false;
+    };
+    db_error.code().as_deref() == Some("42P01")
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
