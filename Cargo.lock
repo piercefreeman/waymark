@@ -4882,6 +4882,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-sqlx-postgres-schema-pool"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "tokio",
+ "waymark-support-integration",
+ "waymark-support-test",
+]
+
+[[package]]
 name = "waymark-start-workers"
 version = "0.1.0"
 dependencies = [
