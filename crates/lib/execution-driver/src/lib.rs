@@ -191,6 +191,11 @@ async fn drive_one<
         }
     };
 
+    let _driven = waymark_metrics_util::counted_scope(
+        metrics::counter!("waymark_execution_driver_instances_revived_total"),
+        metrics::counter!("waymark_execution_driver_instances_evicted_total"),
+    );
+
     tracing::debug!("VM running");
 
     let mut fenced = false;

@@ -4242,10 +4242,12 @@ dependencies = [
 name = "waymark-execution-driver"
 version = "0.1.0"
 dependencies = [
+ "metrics",
  "nonempty-collections",
  "tokio",
  "tokio-util",
  "tracing",
+ "waymark-metrics-util",
  "waymark-state-manager",
  "waymark-state-manager-core",
  "waymark-state-vm-runtimes",
@@ -4430,6 +4432,7 @@ name = "waymark-metrics-util"
 version = "0.1.0"
 dependencies = [
  "metrics",
+ "metrics-util",
 ]
 
 [[package]]
@@ -5637,6 +5640,8 @@ dependencies = [
 name = "waymark-worker-process-pool"
 version = "0.1.0"
 dependencies = [
+ "metrics",
+ "metrics-util",
  "nonempty-collections",
  "thiserror",
  "tokio",
