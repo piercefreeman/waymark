@@ -1,0 +1,12 @@
+[package]
+name = "waymark-counter-rate"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[features]
+chrono = ["dep:chrono"]
+
+[dependencies]
+chrono = { workspace = true, optional = true }
+thiserror = { workspace = true }
