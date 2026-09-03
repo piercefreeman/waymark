@@ -1,6 +1,6 @@
-//! Bringup for the essential-metrics family: the pipeline from the
+//! Bringup for the essential-metrics subsystem: the pipeline from the
 //! sampler through the lossy batcher into a store sink, plus the
-//! retention sweep — over any backend implementing the family's
+//! retention sweep — over any backend implementing the essential-metrics
 //! backend traits.
 
 #![warn(missing_docs)]
@@ -25,7 +25,8 @@ pub struct Handles {
 
 /// Start the essential-metrics pipeline over `backend`: sampler → lossy
 /// batcher → store sink, plus the retention sweep, all ending on
-/// `shutdown_token`.
+/// `shutdown_token` — and the essential-metrics API router over the
+/// same backend.
 ///
 /// `handle` is the sampling half of the recorder pair; the recording
 /// half must already be installed in the process-global fanout, so the
@@ -33,18 +34,24 @@ pub struct Handles {
 /// live recorders.
 pub fn start<Backend>(
     config: EssentialMetricsConfig,
-    node_id: Backend::NodeId,
+    node_id: <Backend as waymark_essential_metrics_sink_backend::HasNodeId>::NodeId,
     handle: waymark_essential_metrics_sampler::recorder::Handle,
     backend: Arc<Backend>,
     shutdown_token: tokio_util::sync::CancellationToken,
-) -> Handles
+) -> (Handles, aide::axum::ApiRouter)
 where
     Backend: waymark_essential_metrics_sink_backend::AppendSamples,
     Backend: waymark_essential_metrics_retention_backend::ApplyRetention,
+    Backend: waymark_essential_metrics_query_backend::Latest,
+    Backend: waymark_essential_metrics_query_backend::Series,
+    Backend: waymark_essential_metrics_query_backend::HasNodeId<NodeId = waymark_ids::NodeId>,
     Backend: Send + Sync + 'static,
     <Backend as waymark_essential_metrics_sink_backend::AppendSamples>::Error: std::fmt::Display,
-    Backend::NodeId: Clone + Send + Sync + 'static,
+    <Backend as waymark_essential_metrics_sink_backend::HasNodeId>::NodeId:
+        Clone + Send + Sync + 'static,
 {
+    let api_router = waymark_api_essential_metrics_http::router(Arc::clone(&backend));
+
     let (batcher, batcher_task) = waymark_lossy_batcher::lossy_batcher(
         waymark_essential_metrics_sampler::bindings::BATCHER_NAME,
         config.lossy_batcher_policy,
@@ -69,9 +76,11 @@ where
         shutdown_token.cancelled_owned(),
     );
 
-    Handles {
+    let handles = Handles {
         batcher: tokio::spawn(batcher_task),
         sampler: tokio::spawn(sampler_task),
         retention: tokio::spawn(retention_task),
-    }
+    };
+
+    (handles, api_router)
 }
