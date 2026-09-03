@@ -52,30 +52,7 @@ impl FromStr for FromNanos<NonZeroDuration> {
     }
 }
 
-pub struct FromMillisMin<T, const MIN: u64>(pub T);
-
-impl<T, const MIN: u64> FromStr for FromMillisMin<T, MIN>
-where
-    FromMillis<T>: FromStr<Err = core::num::ParseIntError>,
-{
-    type Err = core::num::ParseIntError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let ms: u64 = s.parse()?;
-        let ms = ms.max(MIN);
-
-        let FromMillis(val) = ms.to_string().parse()?;
-        Ok(Self(val))
-    }
-}
-
 impl<T> From<T> for FromMillis<T> {
-    fn from(value: T) -> Self {
-        Self(value)
-    }
-}
-
-impl<T, const MIN: u64> From<T> for FromMillisMin<T, MIN> {
     fn from(value: T) -> Self {
         Self(value)
     }
