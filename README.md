@@ -176,7 +176,6 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 | `WAYMARK_WORKER_GRPC_ADDR` | gRPC bind addr used by the Python worker bridge server | `127.0.0.1:24118` |
 | `WAYMARK_LOCK_TTL_MS` | Workload pinning TTL | `15000` |
 | `WAYMARK_LOCK_HEARTBEAT_MS` | Workload pinning heartbeat interval | `5000` |
-| `WAYMARK_RUNNER_PROFILE_INTERVAL_MS` | Worker status/profile publish interval | `5000` (clamped to min `1`) |
 
 If you need to customize Python startup/bootstrap behavior (for example custom boot commands), see `Bootstrap / Python SDK overrides` below.
 
