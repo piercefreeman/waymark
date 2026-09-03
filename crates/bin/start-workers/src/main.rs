@@ -97,8 +97,13 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     waymark_backend_postgres_migrations::run(&pool).await?;
     let backend = PostgresBackend::new(pool);
 
+    // The API routes get documented as they are built, from here on; aide
+    // reports what it can not document only through this hook, on this
+    // thread.
+    waymark_http_api::report_generation_errors();
+
     // Start the observability pipelines.
-    let observability_handles = waymark_observability_bringup::start(
+    let (observability_handles, observability_api_router) = waymark_observability_bringup::start(
         config.observability.clone(),
         node_id,
         essential_metrics_sampling_handle,
@@ -129,13 +134,8 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
 
     let process_pool = Arc::new(process_pool);
 
-    // The API routes get documented as they are built, from here on; aide
-    // reports what it can not document only through this hook, on this
-    // thread.
-    waymark_http_api::report_generation_errors();
-
     // Compose everything the HTTP server serves.
-    let http_api_routes = aide::axum::ApiRouter::new();
+    let http_api_routes = aide::axum::ApiRouter::new().merge(observability_api_router);
     let http_routes = axum::Router::new()
         .merge(waymark_http_healthz::router())
         // Mount the `/api` as an isolated service to avoid applying potential fallback
