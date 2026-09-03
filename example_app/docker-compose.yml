@@ -32,7 +32,6 @@ services:
       WAYMARK_CONCURRENT_PER_WORKER: 500
       WAYMARK_MAX_CONCURRENT_INSTANCES: 5000
       RUST_LOG: info,waymark=debug
-      WAYMARK_RUNNER_PROFILE_INTERVAL_MS: "5000"
 
   webapp:
     build: *app-build
