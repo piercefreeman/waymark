@@ -4316,6 +4316,14 @@ name = "waymark-convert-core"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-counter-rate"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "thiserror",
+]
+
+[[package]]
 name = "waymark-essential-metrics-bringup"
 version = "0.1.0"
 dependencies = [
