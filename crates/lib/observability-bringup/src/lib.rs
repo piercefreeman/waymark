@@ -31,7 +31,8 @@ pub enum StartError {
 
 /// Bring up the observability store — the schema-scoped pool and its
 /// migrations — and every family's pipeline over it, all ending on
-/// `shutdown_token`.
+/// `shutdown_token`; returns the observability API router merged from
+/// the families' routers alongside the task handles.
 ///
 /// `handle` is the sampling half of the essential-metrics recorder pair;
 /// the recording half must already be installed in the process-global
@@ -41,7 +42,7 @@ pub async fn start(
     node_id: waymark_ids::NodeId,
     handle: waymark_essential_metrics_sampler::recorder::Handle,
     shutdown_token: tokio_util::sync::CancellationToken,
-) -> Result<Handles, StartError> {
+) -> Result<(Handles, aide::axum::ApiRouter), StartError> {
     let Db::Postgres(postgres_config) = &config.db;
 
     let pool = waymark_observability_store_postgres_bringup::schema_pool(postgres_config, SCHEMA)
@@ -55,13 +56,16 @@ pub async fn start(
 
     let store = Arc::new(waymark_observability_store_postgres::Store { pool });
 
-    let essential_metrics = waymark_essential_metrics_bringup::start(
-        config.essential_metrics,
-        node_id,
-        handle,
-        store,
-        shutdown_token,
-    );
+    let (essential_metrics, essential_metrics_api_router) =
+        waymark_essential_metrics_bringup::start(
+            config.essential_metrics,
+            node_id,
+            handle,
+            store,
+            shutdown_token,
+        );
 
-    Ok(Handles { essential_metrics })
+    let api_router = aide::axum::ApiRouter::new().merge(essential_metrics_api_router);
+
+    Ok((Handles { essential_metrics }, api_router))
 }

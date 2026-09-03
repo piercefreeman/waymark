@@ -4348,13 +4348,17 @@ dependencies = [
 name = "waymark-essential-metrics-bringup"
 version = "0.1.0"
 dependencies = [
+ "aide",
  "tokio",
  "tokio-util",
+ "waymark-api-essential-metrics-http",
  "waymark-essential-metrics-compat",
  "waymark-essential-metrics-config",
+ "waymark-essential-metrics-query-backend",
  "waymark-essential-metrics-retention-backend",
  "waymark-essential-metrics-sampler",
  "waymark-essential-metrics-sink-backend",
+ "waymark-ids",
  "waymark-lossy-batcher",
  "waymark-retention-sweeper",
 ]
@@ -4749,6 +4753,7 @@ dependencies = [
 name = "waymark-observability-bringup"
 version = "0.1.0"
 dependencies = [
+ "aide",
  "sqlx",
  "thiserror",
  "tokio-util",
