@@ -13,6 +13,7 @@ waymark-observability-store-postgres = { workspace = true }
 waymark-observability-store-postgres-bringup = { workspace = true }
 waymark-observability-store-postgres-migrations = { workspace = true }
 
+aide = { workspace = true }
 sqlx = { workspace = true, features = ["migrate"] }
 thiserror = { workspace = true }
 tokio-util = { workspace = true }
