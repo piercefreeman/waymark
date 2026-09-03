@@ -7,11 +7,16 @@ edition = "2024"
 [dependencies]
 waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
+waymark-counter-rate = { workspace = true, features = ["chrono"] }
+waymark-essential-metrics-core = { workspace = true }
+waymark-essential-metrics-query-backend = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-ir-parser = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
+waymark-observability-store-postgres = { workspace = true }
 waymark-secret-string = { workspace = true }
+waymark-sqlx-postgres-schema-pool = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
 waymark-vm-ast-old-proto = { workspace = true }
 waymark-vm-codec-rmp = { workspace = true }

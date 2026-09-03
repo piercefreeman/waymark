@@ -45,12 +45,11 @@ pub struct HealthSample {
     pub workflows_completed: i64,
     pub queued_this_tick: usize,
     pub actions_per_sec: Option<f64>,
-    pub throughput_per_min: Option<f64>,
-    pub total_completed: Option<i64>,
-    pub active_workers: Option<i32>,
-    pub total_in_flight: Option<i64>,
-    pub active_instance_count: Option<i32>,
-    pub worker_status_age_secs: Option<i64>,
+    pub actions_completed_total: Option<u64>,
+    pub worker_pool_size: Option<u64>,
+    pub in_flight_actions: Option<u64>,
+    pub driven_vm_runtimes: Option<u64>,
+    pub node_sample_age_secs: Option<i64>,
     pub last_action_age_secs: Option<i64>,
     pub zero_streak: usize,
 }
@@ -59,6 +58,7 @@ pub async fn run_soak_loop(
     args: &crate::cli::SoakArgs,
     services: &SoakServices,
     pool: &PgPool,
+    store: &waymark_observability_store_postgres::Store,
     workflow: &RegisteredWorkflow,
     worker: &mut Option<crate::setup_workers::WorkerProcess>,
 ) -> Result<(TerminationReason, VecDeque<HealthSample>), color_eyre::eyre::Report> {
@@ -69,7 +69,8 @@ pub async fn run_soak_loop(
     let mut samples: VecDeque<HealthSample> = VecDeque::new();
     let mut zero_streak = 0usize;
     let start = Instant::now();
-    let mut previous_total_completed: Option<i64> = None;
+    let mut action_completion_rate = waymark_counter_rate::CounterRate::new();
+    let mut action_completion_window: Option<waymark_counter_rate::Window<u64>> = None;
     let tick_duration = NonZeroDuration::from_nonzero_secs(args.tick_seconds);
 
     let queue_rate = rate::Rate::per_minute(args.queue_rate_per_minute);
@@ -99,7 +100,7 @@ pub async fn run_soak_loop(
         }
 
         let workload_snapshot = data::fetch_workload_snapshot(pool).await?;
-        let worker_status = data::fetch_latest_worker_status(pool).await?;
+        let node_sample = data::fetch_latest_node_sample(store).await?;
 
         let mut requested = queue_rate.for_delta(elapsed);
 
@@ -119,20 +120,38 @@ pub async fn run_soak_loop(
         };
 
         let now = Utc::now();
-        let status_age_secs = worker_status
+        let sample_age_secs = node_sample
             .as_ref()
-            .map(|status| (now - status.updated_at).num_seconds());
-        let last_action_age_secs = worker_status.as_ref().and_then(|status| {
-            status
-                .last_action_at
+            .map(|sample| (now - sample.sampled_at).num_seconds());
+        let last_action_age_secs = node_sample.as_ref().and_then(|sample| {
+            sample
+                .last_action_completed_at
                 .map(|last_action| (now - last_action).num_seconds())
         });
+
+        // The store keeps no rates; the derivation from the cumulative
+        // completions counter is the reader's. The last derived window
+        // carries across the ticks that re-read the same sample.
+        if let Some(sample) = node_sample.as_ref() {
+            let observation = action_completion_rate
+                .observe(sample.sampled_at, sample.actions_completed_total)
+                .wrap_err("observe the completions counter")?;
+
+            if let waymark_counter_rate::Observation::Advanced(window) = observation {
+                action_completion_window = Some(window);
+            }
+        }
+        let actions_per_sec = action_completion_window
+            .as_ref()
+            .map(|window| window.per_second);
+        let actions_completed_delta = action_completion_window.as_ref().map(|window| window.delta);
 
         let stalled = should_count_stall(
             args,
             &workload_snapshot,
-            worker_status.as_ref(),
-            status_age_secs,
+            node_sample.as_ref(),
+            actions_per_sec,
+            sample_age_secs,
             last_action_age_secs,
         );
 
@@ -150,15 +169,14 @@ pub async fn run_soak_loop(
             pinned_expired: workload_snapshot.pinned_expired,
             workflows_completed: workload_snapshot.workflows_completed,
             queued_this_tick,
-            actions_per_sec: worker_status.as_ref().map(|value| value.actions_per_sec),
-            throughput_per_min: worker_status.as_ref().map(|value| value.throughput_per_min),
-            total_completed: worker_status.as_ref().map(|value| value.total_completed),
-            active_workers: worker_status.as_ref().map(|value| value.active_workers),
-            total_in_flight: worker_status.as_ref().map(|value| value.total_in_flight),
-            active_instance_count: worker_status
+            actions_per_sec,
+            actions_completed_total: node_sample
                 .as_ref()
-                .map(|value| value.active_instance_count),
-            worker_status_age_secs: status_age_secs,
+                .map(|value| value.actions_completed_total),
+            worker_pool_size: node_sample.as_ref().map(|value| value.worker_pool_size),
+            in_flight_actions: node_sample.as_ref().map(|value| value.in_flight_actions),
+            driven_vm_runtimes: node_sample.as_ref().map(|value| value.driven_vm_runtimes),
+            node_sample_age_secs: sample_age_secs,
             last_action_age_secs,
             zero_streak,
         };
@@ -167,12 +185,8 @@ pub async fn run_soak_loop(
             let _ = samples.pop_front();
         }
 
-        match worker_status.as_ref() {
-            Some(status) => {
-                let completed_delta = previous_total_completed
-                    .map(|previous| status.total_completed.saturating_sub(previous))
-                    .unwrap_or(0);
-                previous_total_completed = Some(status.total_completed);
+        match node_sample.as_ref() {
+            Some(sample) => {
                 info!(
                     elapsed_secs = start.elapsed().as_secs_f64(),
                     runnable_total = workload_snapshot.total,
@@ -181,12 +195,12 @@ pub async fn run_soak_loop(
                     pinned_expired = workload_snapshot.pinned_expired,
                     workflows_completed = workload_snapshot.workflows_completed,
                     queued_this_tick,
-                    actions_per_sec = status.actions_per_sec,
-                    total_completed = status.total_completed,
-                    completed_delta,
-                    in_flight = status.total_in_flight,
-                    active_instances = status.active_instance_count,
-                    status_age_secs = status_age_secs.unwrap_or(-1),
+                    actions_per_sec = actions_per_sec.unwrap_or(-1.0),
+                    actions_completed_total = sample.actions_completed_total,
+                    actions_completed_delta = actions_completed_delta.unwrap_or(0),
+                    in_flight_actions = sample.in_flight_actions,
+                    driven_vm_runtimes = sample.driven_vm_runtimes,
+                    sample_age_secs = sample_age_secs.unwrap_or(-1),
                     last_action_age_secs = last_action_age_secs.unwrap_or(-1),
                     zero_streak,
                     "soak tick"
@@ -195,7 +209,7 @@ pub async fn run_soak_loop(
             None => {
                 warn!(
                     ready_queue = workload_snapshot.ready,
-                    queued_this_tick, zero_streak, "soak tick without worker_status row"
+                    queued_this_tick, zero_streak, "soak tick without a node sample"
                 );
             }
         }
@@ -222,29 +236,30 @@ pub async fn run_soak_loop(
 fn should_count_stall(
     args: &crate::cli::SoakArgs,
     workload_snapshot: &data::WorkloadSnapshot,
-    worker_status: Option<&data::WorkerStatusSnapshot>,
-    status_age_secs: Option<i64>,
+    node_sample: Option<&data::NodeSampleReport>,
+    actions_per_sec: Option<f64>,
+    sample_age_secs: Option<i64>,
     last_action_age_secs: Option<i64>,
 ) -> bool {
     if workload_snapshot.ready < args.issue_min_ready_queue {
         return false;
     }
 
-    let Some(status) = worker_status else {
+    let Some(sample) = node_sample else {
         return true;
     };
 
-    let status_age = status_age_secs.unwrap_or(i64::MAX);
-    if status_age > args.issue_status_stale_secs {
+    let sample_age = sample_age_secs.unwrap_or(i64::MAX);
+    if sample_age > args.issue_status_stale_secs {
         return true;
     }
 
-    if status.actions_per_sec > args.issue_actions_per_sec_threshold {
+    if actions_per_sec.unwrap_or(0.0) > args.issue_actions_per_sec_threshold {
         return false;
     }
 
     let last_action_age = last_action_age_secs.unwrap_or(i64::MAX);
-    status.total_in_flight == 0 || last_action_age > args.issue_last_action_stale_secs
+    sample.in_flight_actions == 0 || last_action_age > args.issue_last_action_stale_secs
 }
 
 async fn register_instances(
