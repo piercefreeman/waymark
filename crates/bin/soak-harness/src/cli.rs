@@ -51,9 +51,6 @@ pub struct SoakArgs {
     #[arg(long, default_value_t = 500)]
     pub persist_interval_ms: u64,
 
-    #[arg(long, default_value_t = 5000)]
-    pub profile_interval_ms: u64,
-
     #[arg(long, default_value_t = 5)]
     pub startup_log_interval_secs: u64,
 

@@ -55,10 +55,6 @@ pub async fn start_workers(
         "WAYMARK_PERSIST_INTERVAL_MS",
         args.persist_interval_ms.to_string(),
     );
-    cmd.env(
-        "WAYMARK_RUNNER_PROFILE_INTERVAL_MS",
-        args.profile_interval_ms.to_string(),
-    );
 
     cmd.stdout(Stdio::from(log_file));
     cmd.stderr(Stdio::from(log_file_err));
