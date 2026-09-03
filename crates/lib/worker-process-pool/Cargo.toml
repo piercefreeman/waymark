@@ -7,11 +7,9 @@ publish.workspace = true
 [dependencies]
 waymark-managed-process = { workspace = true }
 waymark-worker-message-protocol = { workspace = true }
-waymark-worker-metrics = { workspace = true }
 waymark-worker-process = { workspace = true }
 waymark-worker-process-spec = { workspace = true }
 waymark-worker-reservation = { workspace = true }
-waymark-worker-status-core = { workspace = true }
 
 metrics = { workspace = true }
 nonempty-collections = { workspace = true }
