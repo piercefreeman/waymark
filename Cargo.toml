@@ -54,6 +54,7 @@ waymark-metrics-bringup = { path = "crates/lib/metrics-bringup" }
 waymark-metrics-util = { path = "crates/lib/metrics-util" }
 waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
 waymark-observability = { path = "crates/lib/observability" }
+waymark-observability-bringup = { path = "crates/lib/observability-bringup" }
 waymark-observability-config = { path = "crates/lib/observability-config" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }
