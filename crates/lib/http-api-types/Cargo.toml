@@ -9,7 +9,9 @@ waymark-cursor-core = { workspace = true }
 waymark-ids = { workspace = true, features = ["serde"] }
 waymark-nonzero-duration = { workspace = true }
 waymark-query-limit = { workspace = true }
+waymark-timestamp = { workspace = true, features = ["serde"] }
 
+chrono = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
