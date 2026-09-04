@@ -1,0 +1,10 @@
+[package]
+name = "waymark-observability-events-sink-backend"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-observability-events-core = { workspace = true }
+
+nonempty-collections = { workspace = true }
