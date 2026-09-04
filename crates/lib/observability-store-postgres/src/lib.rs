@@ -5,7 +5,11 @@
 
 mod common;
 mod essential_metrics;
+mod observability_events;
 pub mod reset;
+
+pub use self::essential_metrics::*;
+pub use self::observability_events::*;
 
 /// The Postgres store over the observability schema-scoped pool.
 #[derive(Debug)]
