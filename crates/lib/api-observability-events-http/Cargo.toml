@@ -1,0 +1,30 @@
+[package]
+name = "waymark-api-observability-events-http"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-cursor-core = { workspace = true }
+waymark-ids = { workspace = true }
+waymark-observability-events-core = { workspace = true }
+waymark-observability-events-query-backend = { workspace = true }
+
+aide = { workspace = true, features = ["axum-json", "axum-query"] }
+axum = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+schemars = { workspace = true, features = ["chrono04"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+waymark-node-sequence = { workspace = true }
+
+http-body-util = { workspace = true }
+nonempty-collections = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = { workspace = true, features = ["util"] }
+
+[lib]
+doctest = false
