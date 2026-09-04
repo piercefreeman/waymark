@@ -1,10 +1,15 @@
 PY_PROTO_OUT := python/src/waymark/proto
 
-.PHONY: all build-proto clean lint lint-verify lint-extended lint-extended-verify python-lint python-lint-verify rust-lint rust-lint-verify rust-lint-extended rust-lint-extended-verify coverage python-coverage rust-coverage benchmark benchmark-console benchmark-console-run benchmark-trace
+.PHONY: all build-proto build-proto-python clean lint lint-verify lint-extended lint-extended-verify python-lint python-lint-verify rust-lint rust-lint-verify rust-lint-extended rust-lint-extended-verify coverage python-coverage rust-coverage benchmark benchmark-console benchmark-console-run benchmark-trace
 
 all: build-proto
 
-build-proto:
+build-proto: build-proto-python
+	@# Rust proto codegen happens at build time (crates/lib/proto/build.rs);
+	@# rust-lint rebuilds it and checks the Rust side against the proto changes.
+	$(MAKE) rust-lint
+
+build-proto-python:
 	@mkdir -p $(PY_PROTO_OUT)
 	@touch python/src/waymark/proto/__init__.py
 	cd python && uv run python -m grpc_tools.protoc \
@@ -17,7 +22,7 @@ build-proto:
 		--mypy_grpc_out=../$(PY_PROTO_OUT) \
 		../proto/messages.proto ../proto/ast.proto
 	cd python && uv run python ../scripts/fix_proto_imports.py
-	$(MAKE) lint
+	$(MAKE) python-lint
 
 clean:
 	rm -rf target
@@ -28,11 +33,11 @@ lint: python-lint rust-lint
 lint-verify: python-lint-verify rust-lint-verify
 
 python-lint:
-	cd python && uv run ruff format .
 	cd python && uv run ruff check . --fix
+	cd python && uv run ruff format .
 	cd python && uv run ty check . --exclude src/waymark/proto/messages_pb2_grpc.py --extra-search-path src
-	cd scripts && uv run ruff format .
 	cd scripts && uv run ruff check . --fix
+	cd scripts && uv run ruff format .
 	cd scripts && uv run ty check .
 
 python-lint-verify:

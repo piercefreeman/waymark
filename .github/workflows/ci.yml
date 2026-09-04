@@ -25,6 +25,15 @@ jobs:
       - name: Python lint
         run: make python-lint-verify
 
+      - name: Rebuild python proto codegen
+        run: make build-proto-python
+
+      - name: Verify the worktree is clean
+        run: |
+          git --no-pager status
+          git --no-pager diff
+          test -z "$(git status --porcelain)"
+
   python-tests:
     runs-on: ubuntu-latest
     needs: python-lint
