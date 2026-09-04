@@ -15,8 +15,11 @@ pub struct ObservabilityConfig {
     /// The observability database.
     pub db: Db,
 
-    /// The essential-metrics family.
+    /// The essential-metrics subsystem's config.
     pub essential_metrics: waymark_essential_metrics_config::EssentialMetricsConfig,
+
+    /// The observability-events subsystem's config.
+    pub observability_events: waymark_observability_events_config::ObservabilityEventsConfig,
 }
 
 /// An observability database, dispatched by URL scheme.
@@ -45,9 +48,13 @@ pub enum FromEnvError {
     #[error(transparent)]
     Postgres(#[from] waymark_observability_store_postgres_config::FromEnvError),
 
-    /// The essential-metrics family's config could not be read.
+    /// The essential-metrics subsystem's config could not be read.
     #[error(transparent)]
     EssentialMetrics(#[from] waymark_essential_metrics_config::FromEnvError),
+
+    /// The observability-events subsystem's config could not be read.
+    #[error(transparent)]
+    ObservabilityEvents(waymark_observability_events_config::FromEnvError),
 }
 
 impl ObservabilityConfig {
@@ -61,9 +68,13 @@ impl ObservabilityConfig {
         let db = Db::from_url(url)?;
         let essential_metrics =
             waymark_essential_metrics_config::EssentialMetricsConfig::from_env()?;
+        let observability_events =
+            waymark_observability_events_config::ObservabilityEventsConfig::from_env()
+                .map_err(FromEnvError::ObservabilityEvents)?;
         Ok(Self {
             db,
             essential_metrics,
+            observability_events,
         })
     }
 }
