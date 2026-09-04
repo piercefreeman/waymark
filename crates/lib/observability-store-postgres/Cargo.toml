@@ -5,15 +5,23 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+waymark-cursor-core = { workspace = true }
 waymark-essential-metrics-core = { workspace = true }
 waymark-essential-metrics-query-backend = { workspace = true }
 waymark-essential-metrics-retention-backend = { workspace = true }
 waymark-essential-metrics-sink-backend = { workspace = true }
 waymark-ids = { workspace = true }
+waymark-node-sequence = { workspace = true }
+waymark-observability-events-core = { workspace = true }
+waymark-observability-events-payload = { workspace = true }
+waymark-observability-events-query-backend = { workspace = true }
+waymark-observability-events-retention-backend = { workspace = true }
+waymark-observability-events-sink-backend = { workspace = true }
 
 chrono = { workspace = true }
 nonempty-collections = { workspace = true }
-sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "uuid", "chrono"] }
+serde = { workspace = true }
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "uuid", "chrono", "json"] }
 thiserror = { workspace = true }
 
 [dev-dependencies]
