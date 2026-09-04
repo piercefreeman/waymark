@@ -1,0 +1,11 @@
+[package]
+name = "waymark-observability-events-payload"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-observability-events-core = { workspace = true }
+
+serde = { workspace = true, features = ["derive"] }
+strum = { workspace = true }
