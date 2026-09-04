@@ -4830,6 +4830,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-observability-events-bringup"
+version = "0.1.0"
+dependencies = [
+ "aide",
+ "serde",
+ "tokio",
+ "tokio-util",
+ "waymark-api-observability-events-http",
+ "waymark-ids",
+ "waymark-lossy-batcher",
+ "waymark-observability-events-compat",
+ "waymark-observability-events-config",
+ "waymark-observability-events-core",
+ "waymark-observability-events-emitter",
+ "waymark-observability-events-query-backend",
+ "waymark-observability-events-retention-backend",
+ "waymark-observability-events-sink-backend",
+ "waymark-retention-sweeper",
+]
+
+[[package]]
 name = "waymark-observability-events-compat"
 version = "0.1.0"
 dependencies = [

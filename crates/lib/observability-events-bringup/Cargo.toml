@@ -1,0 +1,23 @@
+[package]
+name = "waymark-observability-events-bringup"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-api-observability-events-http = { workspace = true }
+waymark-ids = { workspace = true }
+waymark-lossy-batcher = { workspace = true }
+waymark-observability-events-compat = { workspace = true }
+waymark-observability-events-config = { workspace = true }
+waymark-observability-events-core = { workspace = true }
+waymark-observability-events-emitter = { workspace = true }
+waymark-observability-events-query-backend = { workspace = true }
+waymark-observability-events-retention-backend = { workspace = true }
+waymark-observability-events-sink-backend = { workspace = true }
+waymark-retention-sweeper = { workspace = true }
+
+aide = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
+tokio-util = { workspace = true }
