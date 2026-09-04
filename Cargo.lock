@@ -4738,6 +4738,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-node-sequence"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-nonzero-duration"
 version = "0.1.0"
 
