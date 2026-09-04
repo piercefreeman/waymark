@@ -17,6 +17,7 @@ mod cursor;
 mod limit;
 mod nonzero_seconds;
 mod page;
+mod timestamp;
 mod type_name;
 mod uuid_id;
 
@@ -24,6 +25,7 @@ pub use self::cursor::*;
 pub use self::limit::*;
 pub use self::nonzero_seconds::*;
 pub use self::page::*;
+pub use self::timestamp::*;
 pub use self::type_name::*;
 pub use self::uuid_id::*;
 
