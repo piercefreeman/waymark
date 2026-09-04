@@ -1,0 +1,12 @@
+[package]
+name = "waymark-observability-events-query-backend"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-cursor-core = { workspace = true }
+waymark-observability-events-core = { workspace = true }
+
+chrono = { workspace = true }
+nonempty-collections = { workspace = true }
