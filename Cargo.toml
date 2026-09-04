@@ -59,6 +59,7 @@ waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
 waymark-observability = { path = "crates/lib/observability" }
 waymark-observability-bringup = { path = "crates/lib/observability-bringup" }
 waymark-observability-config = { path = "crates/lib/observability-config" }
+waymark-observability-events-core = { path = "crates/lib/observability-events-core" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }
 waymark-observability-store-postgres = { path = "crates/lib/observability-store-postgres" }
@@ -221,6 +222,7 @@ sha2 = "0.10"
 slotmap = "1"
 sqlx = { version = "0.8", default-features = false }
 static_assertions = "1"
+strum = { version = "0.28", features = ["derive"] }
 syn = "2"
 thiserror = "2"
 tokio = "1"
