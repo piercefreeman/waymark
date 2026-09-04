@@ -4786,11 +4786,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-observability-events-compat"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "waymark-lossy-batcher",
+ "waymark-observability-events-sink-backend",
+]
+
+[[package]]
 name = "waymark-observability-events-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "waymark-node-sequence",
+]
+
+[[package]]
+name = "waymark-observability-events-emitter"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "nonempty-collections",
+ "tokio",
+ "waymark-lossy-batcher",
+ "waymark-node-sequence",
+ "waymark-nonzero-duration",
+ "waymark-observability-events-core",
 ]
 
 [[package]]
