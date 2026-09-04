@@ -4782,6 +4782,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-observability-events-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "waymark-node-sequence",
+]
+
+[[package]]
 name = "waymark-observability-macros"
 version = "0.1.0"
 dependencies = [
