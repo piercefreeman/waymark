@@ -4790,6 +4790,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-observability-events-payload"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "waymark-observability-events-core",
+]
+
+[[package]]
 name = "waymark-observability-macros"
 version = "0.1.0"
 dependencies = [
