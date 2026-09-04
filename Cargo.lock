@@ -4803,6 +4803,7 @@ dependencies = [
  "envfury",
  "thiserror",
  "waymark-essential-metrics-config",
+ "waymark-observability-events-config",
  "waymark-observability-store-postgres-config",
  "waymark-secret-string",
 ]
@@ -4814,6 +4815,16 @@ dependencies = [
  "nonempty-collections",
  "waymark-lossy-batcher",
  "waymark-observability-events-sink-backend",
+]
+
+[[package]]
+name = "waymark-observability-events-config"
+version = "0.1.0"
+dependencies = [
+ "envfury",
+ "thiserror",
+ "waymark-lossy-batcher",
+ "waymark-nonzero-duration",
 ]
 
 [[package]]
