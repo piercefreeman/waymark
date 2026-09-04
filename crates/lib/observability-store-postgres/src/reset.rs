@@ -6,31 +6,21 @@
 
 /// Truncate every live table, resetting identity sequences.
 ///
-/// Tolerates an unprovisioned store — the observability bringup owns
-/// provisioning, so before its first run a missing table simply counts
-/// as already empty.
+/// The store must be provisioned: the caller runs the migrations first.
+/// A missing table is an error, never "already empty" — one statement
+/// truncates all the tables or none of them, so tolerating a missing one
+/// would report a reset that cleared nothing.
 ///
 /// Keep the table list in sync with the migrations in
 /// `waymark-observability-store-postgres-migrations`.
 pub async fn truncate_all(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
-    let result = sqlx::query(
+    sqlx::query(
         r#"
-        TRUNCATE essential_metrics_node_samples
+        TRUNCATE essential_metrics_node_samples, observability_events
         RESTART IDENTITY CASCADE
         "#,
     )
     .execute(pool)
-    .await;
-    match result {
-        Ok(_) => Ok(()),
-        Err(error) if is_undefined_table(&error) => Ok(()),
-        Err(error) => Err(error),
-    }
-}
-
-fn is_undefined_table(error: &sqlx::Error) -> bool {
-    let sqlx::Error::Database(db_error) = error else {
-        return false;
-    };
-    db_error.code().as_deref() == Some("42P01")
+    .await?;
+    Ok(())
 }
