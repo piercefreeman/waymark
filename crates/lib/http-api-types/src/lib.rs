@@ -5,7 +5,7 @@
 //! A transport keeps its own domain types (an event, an instance) and
 //! reaches here for the shapes around them: the page, and the proxies
 //! that put a domain value on the wire — a cursor, a page size, an id, a
-//! duration — without the domain crate knowing the wire.
+//! duration, a timestamp — without the domain crate knowing the wire.
 //!
 //! The doc comments on the wire types and their fields are the schema
 //! descriptions in the OpenAPI document, so they speak to the API's
@@ -17,6 +17,7 @@ mod cursor;
 mod limit;
 mod nonzero_seconds;
 mod page;
+mod timestamp;
 mod type_name;
 mod uuid_id;
 
@@ -24,6 +25,7 @@ pub use self::cursor::*;
 pub use self::limit::*;
 pub use self::nonzero_seconds::*;
 pub use self::page::*;
+pub use self::timestamp::*;
 pub use self::type_name::*;
 pub use self::uuid_id::*;
 
