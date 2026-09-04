@@ -4366,6 +4366,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-cursor-core"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-essential-metrics-bringup"
 version = "0.1.0"
 dependencies = [
