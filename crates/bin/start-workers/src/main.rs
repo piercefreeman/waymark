@@ -102,13 +102,14 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     waymark_http_api::report_generation_errors();
 
     // Start the observability pipelines.
-    let (observability_handles, observability_api_router) = waymark_observability_bringup::start(
-        config.observability.clone(),
-        node_id,
-        essential_metrics_sampling_handle,
-        shutdown_token.child_token(),
-    )
-    .await?;
+    let (observability_handles, observability_api_router, _observability_events_emitter) =
+        waymark_observability_bringup::start(
+            config.observability.clone(),
+            node_id,
+            essential_metrics_sampling_handle,
+            shutdown_token.child_token(),
+        )
+        .await?;
 
     // Start the worker pool (bridge + python workers).
     let mut worker_config = waymark_worker_python::Config::new();
@@ -272,6 +273,16 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     let _ = tokio::time::timeout(
         Duration::from_secs(2),
         observability_handles.essential_metrics.retention,
+    )
+    .await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        observability_handles.observability_events.batcher,
+    )
+    .await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(2),
+        observability_handles.observability_events.retention,
     )
     .await;
 
