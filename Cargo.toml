@@ -61,6 +61,7 @@ waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
 waymark-observability = { path = "crates/lib/observability" }
 waymark-observability-bringup = { path = "crates/lib/observability-bringup" }
 waymark-observability-config = { path = "crates/lib/observability-config" }
+waymark-observability-events-bringup = { path = "crates/lib/observability-events-bringup" }
 waymark-observability-events-compat = { path = "crates/lib/observability-events-compat" }
 waymark-observability-events-config = { path = "crates/lib/observability-events-config" }
 waymark-observability-events-core = { path = "crates/lib/observability-events-core" }

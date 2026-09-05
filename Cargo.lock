@@ -4791,6 +4791,7 @@ dependencies = [
  "waymark-essential-metrics-sampler",
  "waymark-ids",
  "waymark-observability-config",
+ "waymark-observability-events-bringup",
  "waymark-observability-store-postgres",
  "waymark-observability-store-postgres-bringup",
  "waymark-observability-store-postgres-migrations",
