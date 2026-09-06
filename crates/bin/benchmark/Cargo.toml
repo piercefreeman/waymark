@@ -6,7 +6,6 @@ edition = "2024"
 
 [dependencies]
 waymark-backend-postgres = { workspace = true }
-waymark-convert-core = { workspace = true }
 waymark-execution-bringup = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
@@ -23,7 +22,7 @@ waymark-vm-ast-old-proto = { workspace = true }
 waymark-vm-codec-rmp = { workspace = true }
 waymark-vm-compiler-for-ast-old-core = { workspace = true }
 waymark-vm-runtime-builder = { workspace = true }
-waymark-vm-value-convert-json = { workspace = true }
+waymark-vm-value-python = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-worker-inline = { workspace = true }
 waymark-worker-inline-compat = { workspace = true }
