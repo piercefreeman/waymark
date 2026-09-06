@@ -125,11 +125,6 @@ waymark-vm-value = { path = "crates/lib/vm-value" }
 waymark-vm-value-convert-core = { path = "crates/lib/vm-value-convert-core" }
 waymark-vm-value-python = { path = "crates/lib/vm-value-python" }
 waymark-vm-value-python-convert-proto = { path = "crates/lib/vm-value-python-convert-proto" }
-waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
-waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
-waymark-webapp-config = { path = "crates/lib/webapp-config" }
-waymark-webapp-core = { path = "crates/lib/webapp-core" }
-waymark-webapp-routes = { path = "crates/lib/webapp-routes" }
 waymark-worker-core = { path = "crates/lib/worker-core" }
 waymark-worker-inline = { path = "crates/lib/worker-inline" }
 waymark-worker-inline-compat = { path = "crates/lib/worker-inline-compat" }
@@ -164,7 +159,6 @@ waymark-workload-pinning-manager = { path = "crates/lib/workload-pinning-manager
 
 async-stream = "0.3"
 async-walkdir = "2"
-axum = "0.8"
 chrono = { version = "0.4", default-features = false }
 clap = "4.5"
 color-eyre = "0.6"
@@ -178,7 +172,6 @@ envfury = "0.2"
 function_name = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
-http-body-util = "0.1"
 index_type = "0.4"
 indexmap = "2"
 insta = "1"
@@ -204,7 +197,6 @@ slotmap = "1"
 sqlx = { version = "0.8", default-features = false }
 static_assertions = "1"
 syn = "2"
-tera = "1"
 thiserror = "2"
 tokio = "1"
 tokio-metrics = "0.4"
@@ -214,7 +206,6 @@ tonic = { version = "0.14", default-features = false }
 tonic-health = "0.14"
 tonic-prost = "0.14"
 tonic-prost-build = "0.14"
-tower = "0.5"
 tracing = "0.1"
 tracing-chrome = "0.7"
 tracing-futures = "0.2"
