@@ -5589,12 +5589,10 @@ dependencies = [
  "waymark-vm-bytecode",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-interpreter",
- "waymark-vm-interpreter-coreset",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
- "waymark-vm-runtime-value",
  "waymark-vm-runtime-view-capture",
 ]
 
@@ -5637,7 +5635,6 @@ dependencies = [
  "waymark-vm-exception-type-ids",
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter",
- "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-utils",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
