@@ -4150,7 +4150,6 @@ dependencies = [
  "waymark-timed-future",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
- "waymark-worker-status-backend",
  "waymark-workflow-completion-backend",
  "waymark-workflow-service-scheduler-backend",
  "waymark-workflow-service-vm-executables-backend",
@@ -4820,13 +4819,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-pool-status"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "waymark-prometheus-exporter-bringup"
 version = "0.1.0"
 dependencies = [
@@ -5086,7 +5078,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
- "uuid",
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
  "waymark-config",
@@ -5103,7 +5094,6 @@ dependencies = [
  "waymark-worker-python",
  "waymark-worker-remote-bringup",
  "waymark-worker-remote-pool",
- "waymark-worker-status-reporter",
 ]
 
 [[package]]
@@ -6003,9 +5993,6 @@ dependencies = [
 [[package]]
 name = "waymark-worker-metrics"
 version = "0.1.0"
-dependencies = [
- "chrono",
-]
 
 [[package]]
 name = "waymark-worker-process"
@@ -6032,11 +6019,9 @@ dependencies = [
  "tracing",
  "waymark-managed-process",
  "waymark-worker-message-protocol",
- "waymark-worker-metrics",
  "waymark-worker-process",
  "waymark-worker-process-spec",
  "waymark-worker-reservation",
- "waymark-worker-status-core",
 ]
 
 [[package]]
@@ -6118,7 +6103,6 @@ dependencies = [
  "waymark-worker-message-protocol",
  "waymark-worker-process-pool",
  "waymark-worker-process-spec",
- "waymark-worker-status-core",
 ]
 
 [[package]]
@@ -6128,38 +6112,6 @@ dependencies = [
  "slotmap",
  "thiserror",
  "tokio",
-]
-
-[[package]]
-name = "waymark-worker-status-backend"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "uuid",
- "waymark-backends-core",
-]
-
-[[package]]
-name = "waymark-worker-status-core"
-version = "0.1.0"
-dependencies = [
- "chrono",
-]
-
-[[package]]
-name = "waymark-worker-status-reporter"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "metrics",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
- "waymark-nonzero-duration",
- "waymark-pool-status",
- "waymark-worker-status-backend",
- "waymark-worker-status-core",
 ]
 
 [[package]]

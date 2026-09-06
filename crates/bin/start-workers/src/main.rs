@@ -32,14 +32,12 @@
 //! - WAYMARK_EXECUTABLE_RETENTION_MS / WAYMARK_EXECUTABLE_SWEEP_INTERVAL_MS: Cached executable eviction
 //! - WAYMARK_HTTP_ENABLED: Serve the HTTP interface (default: false)
 //! - WAYMARK_HTTP_ADDR: HTTP server bind address (default: 0.0.0.0:24119)
-//! - WAYMARK_RUNNER_PROFILE_INTERVAL_MS: Status reporting interval (default: 5000)
 
-use std::sync::{Arc, atomic::AtomicUsize};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::signal;
 use tracing::{error, info, warn};
-use uuid::Uuid;
 
 use waymark_backend_postgres::PostgresBackend;
 use waymark_config::WorkerConfig;
@@ -84,7 +82,6 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         "vm_sweep_interval_seconds" => config.vm_sweep_interval.as_secs_f64().to_string(),
         "executable_retention_seconds" => config.executable_retention.as_secs_f64().to_string(),
         "executable_sweep_interval_seconds" => config.executable_sweep_interval.as_secs_f64().to_string(),
-        "profile_interval_seconds" => config.profile_interval.as_secs_f64().to_string(),
     )
     .set(1);
 
@@ -151,19 +148,6 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         info!("http server disabled (set WAYMARK_HTTP_ENABLED=true to enable)");
         None
     };
-
-    let active_instance_gauge = Arc::new(AtomicUsize::new(0));
-
-    // Start status reporting.
-    let pool_id = Uuid::new_v4();
-    let status_reporter_handle = tokio::spawn(waymark_worker_status_reporter::run(
-        pool_id,
-        backend.clone(),
-        process_pool.clone(),
-        active_instance_gauge.clone(),
-        config.profile_interval,
-        shutdown_token.clone().cancelled_owned(),
-    ));
 
     let shutdown_handle = tokio::spawn({
         let shutdown_token = shutdown_token.clone();
@@ -269,7 +253,6 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     )
     .await;
     let _ = tokio::time::timeout(Duration::from_secs(5), bridge_task).await;
-    let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
     let _ = tokio::time::timeout(
         Duration::from_secs(5),
         observability_handles.essential_metrics.sampler,
