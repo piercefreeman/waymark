@@ -10,10 +10,13 @@ fn kwargs_to_workflow_arguments(
 ) -> proto::WorkflowArguments {
     let mut arguments = Vec::with_capacity(kwargs.len());
     for (key, value) in kwargs {
-        let arg_value = waymark_message_conversions::json_to_workflow_argument_value(value);
+        let arg_value =
+            waymark_proto_python_value_conversions::json_to_workflow_argument_value(value);
         arguments.push(proto::WorkflowArgument {
             key: key.clone(),
-            value: Some(arg_value),
+            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
+                &arg_value,
+            ),
         });
     }
     proto::WorkflowArguments { arguments }
