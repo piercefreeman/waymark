@@ -20,6 +20,7 @@ waymark-action-runtime-metadata-compat = { path = "crates/lib/action-runtime-met
 waymark-action-runtime-worker-pool = { path = "crates/lib/action-runtime-worker-pool" }
 waymark-action-runtime-worker-stream = { path = "crates/lib/action-runtime-worker-stream" }
 waymark-api-essential-metrics-http = { path = "crates/lib/api-essential-metrics-http" }
+waymark-api-observability-events-http = { path = "crates/lib/api-observability-events-http" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
 waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migrations" }
 waymark-backends-core = { path = "crates/lib/backends-core" }
@@ -60,7 +61,11 @@ waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
 waymark-observability = { path = "crates/lib/observability" }
 waymark-observability-bringup = { path = "crates/lib/observability-bringup" }
 waymark-observability-config = { path = "crates/lib/observability-config" }
+waymark-observability-events-bringup = { path = "crates/lib/observability-events-bringup" }
+waymark-observability-events-compat = { path = "crates/lib/observability-events-compat" }
+waymark-observability-events-config = { path = "crates/lib/observability-events-config" }
 waymark-observability-events-core = { path = "crates/lib/observability-events-core" }
+waymark-observability-events-emitter = { path = "crates/lib/observability-events-emitter" }
 waymark-observability-events-payload = { path = "crates/lib/observability-events-payload" }
 waymark-observability-events-query-backend = { path = "crates/lib/observability-events-query-backend" }
 waymark-observability-events-retention-backend = { path = "crates/lib/observability-events-retention-backend" }

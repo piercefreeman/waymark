@@ -4791,6 +4791,7 @@ dependencies = [
  "waymark-essential-metrics-sampler",
  "waymark-ids",
  "waymark-observability-config",
+ "waymark-observability-events-bringup",
  "waymark-observability-store-postgres",
  "waymark-observability-store-postgres-bringup",
  "waymark-observability-store-postgres-migrations",
@@ -4803,8 +4804,30 @@ dependencies = [
  "envfury",
  "thiserror",
  "waymark-essential-metrics-config",
+ "waymark-observability-events-config",
  "waymark-observability-store-postgres-config",
  "waymark-secret-string",
+]
+
+[[package]]
+name = "waymark-observability-events-bringup"
+version = "0.1.0"
+dependencies = [
+ "aide",
+ "serde",
+ "tokio",
+ "tokio-util",
+ "waymark-api-observability-events-http",
+ "waymark-ids",
+ "waymark-lossy-batcher",
+ "waymark-observability-events-compat",
+ "waymark-observability-events-config",
+ "waymark-observability-events-core",
+ "waymark-observability-events-emitter",
+ "waymark-observability-events-query-backend",
+ "waymark-observability-events-retention-backend",
+ "waymark-observability-events-sink-backend",
+ "waymark-retention-sweeper",
 ]
 
 [[package]]
@@ -4814,6 +4837,16 @@ dependencies = [
  "nonempty-collections",
  "waymark-lossy-batcher",
  "waymark-observability-events-sink-backend",
+]
+
+[[package]]
+name = "waymark-observability-events-config"
+version = "0.1.0"
+dependencies = [
+ "envfury",
+ "thiserror",
+ "waymark-lossy-batcher",
+ "waymark-nonzero-duration",
 ]
 
 [[package]]

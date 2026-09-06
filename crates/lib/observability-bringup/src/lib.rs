@@ -16,7 +16,14 @@ const SCHEMA: &str = "observability";
 pub struct Handles {
     /// The essential-metrics subsystem's tasks.
     pub essential_metrics: waymark_essential_metrics_bringup::Handles,
+
+    /// The observability-events subsystem's tasks.
+    pub observability_events: waymark_observability_events_bringup::Handles,
 }
+
+/// The node's event emitter, over the store's payload.
+pub type Emitter =
+    waymark_observability_events_bringup::EmitterFor<waymark_observability_store_postgres::Store>;
 
 /// Error returned by [`start`].
 #[derive(Debug, thiserror::Error)]
@@ -34,7 +41,8 @@ pub enum StartError {
 /// migrations — and every observability subsystem's pipeline over it,
 /// all ending on `shutdown_token`; returns the observability API router
 /// merged from the observability subsystems' routers alongside the task
-/// handles.
+/// handles, and the node's
+/// event emitter for producers to share.
 ///
 /// `handle` is the sampling half of the essential-metrics recorder pair;
 /// the recording half must already be installed in the process-global
@@ -44,7 +52,7 @@ pub async fn start(
     node_id: waymark_ids::NodeId,
     handle: waymark_essential_metrics_sampler::recorder::Handle,
     shutdown_token: tokio_util::sync::CancellationToken,
-) -> Result<(Handles, aide::axum::ApiRouter), StartError> {
+) -> Result<(Handles, aide::axum::ApiRouter, Emitter), StartError> {
     let Db::Postgres(postgres_config) = &config.db;
 
     let pool = waymark_observability_store_postgres_bringup::schema_pool(postgres_config, SCHEMA)
@@ -63,11 +71,26 @@ pub async fn start(
             config.essential_metrics,
             node_id,
             handle,
+            Arc::clone(&store),
+            shutdown_token.clone(),
+        );
+
+    let (observability_events, observability_events_api_router, emitter) =
+        waymark_observability_events_bringup::start(
+            config.observability_events,
+            node_id,
             store,
             shutdown_token,
         );
 
-    let api_router = aide::axum::ApiRouter::new().merge(essential_metrics_api_router);
+    let api_router = aide::axum::ApiRouter::new()
+        .merge(essential_metrics_api_router)
+        .merge(observability_events_api_router);
 
-    Ok((Handles { essential_metrics }, api_router))
+    let handles = Handles {
+        essential_metrics,
+        observability_events,
+    };
+
+    Ok((handles, api_router, emitter))
 }
