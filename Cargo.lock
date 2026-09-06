@@ -4307,6 +4307,7 @@ dependencies = [
  "thiserror",
  "waymark-http-config",
  "waymark-nonzero-duration",
+ "waymark-observability-config",
  "waymark-secret-string",
 ]
 
@@ -4322,6 +4323,16 @@ dependencies = [
  "waymark-essential-metrics-core",
  "waymark-essential-metrics-sink-backend",
  "waymark-lossy-batcher",
+]
+
+[[package]]
+name = "waymark-essential-metrics-config"
+version = "0.1.0"
+dependencies = [
+ "envfury",
+ "thiserror",
+ "waymark-lossy-batcher",
+ "waymark-nonzero-duration",
 ]
 
 [[package]]
@@ -4678,6 +4689,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-observability-config"
+version = "0.1.0"
+dependencies = [
+ "envfury",
+ "thiserror",
+ "waymark-essential-metrics-config",
+ "waymark-observability-store-postgres-config",
+ "waymark-secret-string",
+]
+
+[[package]]
 name = "waymark-observability-macros"
 version = "0.1.0"
 dependencies = [
@@ -4714,6 +4736,28 @@ dependencies = [
  "waymark-sqlx-postgres-schema-pool",
  "waymark-support-integration",
  "waymark-support-test",
+]
+
+[[package]]
+name = "waymark-observability-store-postgres-bringup"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "waymark-observability-store-postgres-config",
+ "waymark-sqlx-postgres-schema-pool",
+ "waymark-support-integration",
+ "waymark-support-test",
+]
+
+[[package]]
+name = "waymark-observability-store-postgres-config"
+version = "0.1.0"
+dependencies = [
+ "envfury",
+ "thiserror",
+ "waymark-secret-string",
 ]
 
 [[package]]
