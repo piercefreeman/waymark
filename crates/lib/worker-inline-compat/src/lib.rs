@@ -35,7 +35,7 @@ fn decode_kwargs(
         )?;
         decoded.insert(
             argument.key,
-            waymark_vm_value_convert_proto::Converter::convert(&value),
+            waymark_vm_value_python_convert_proto::Converter::convert(&value),
         );
     }
     Ok(decoded)
@@ -46,7 +46,7 @@ fn encode_result(outcome: Result<ReadyValue, WorkerPoolError>) -> Vec<u8> {
     let encoded = outcome.and_then(|value| {
         // A body that hands back a value holding a pending promise names
         // a promise no one here can settle, so the call failed.
-        waymark_vm_value_convert_proto::Converter::try_convert(&value)
+        waymark_vm_value_python_convert_proto::Converter::try_convert(&value)
             .map_err(|err| WorkerPoolError::new("ActionError", err.to_string()))
     });
 

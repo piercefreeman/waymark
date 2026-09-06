@@ -28,7 +28,7 @@ impl TryConvert<&waymark_proto::messages::WorkflowArguments, waymark_vm_value_py
                 })?;
             entries.insert(
                 argument.key.clone(),
-                waymark_vm_value_convert_proto::Converter::convert(&decoded),
+                waymark_vm_value_python_convert_proto::Converter::convert(&decoded),
             );
         }
 
@@ -90,11 +90,11 @@ impl
 
         let outcome = match outcome.ok_or(MissingOutcomeError)? {
             Outcome::Value(value) => waymark_action_runtime_core::ActionCallOutcome::Value(
-                waymark_vm_value_convert_proto::Converter::convert(&value),
+                waymark_vm_value_python_convert_proto::Converter::convert(&value),
             ),
             Outcome::Exception(exception) => {
                 waymark_action_runtime_core::ActionCallOutcome::Exception(
-                    waymark_vm_value_convert_proto::Converter::convert(&exception),
+                    waymark_vm_value_python_convert_proto::Converter::convert(&exception),
                 )
             }
         };
@@ -123,7 +123,7 @@ mod tests {
     }
 
     fn encoded(value: waymark_vm_value_python::ReadyValue) -> waymark_proto::python_value::Value {
-        waymark_vm_value_convert_proto::Converter::try_convert(&value)
+        waymark_vm_value_python_convert_proto::Converter::try_convert(&value)
             .expect("no pending promise in the value")
     }
 
