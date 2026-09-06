@@ -4696,6 +4696,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-observability-store-postgres"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "nonempty-collections",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "waymark-essential-metrics-core",
+ "waymark-essential-metrics-query-backend",
+ "waymark-essential-metrics-retention-backend",
+ "waymark-essential-metrics-sink-backend",
+ "waymark-ids",
+ "waymark-nonzero-duration",
+ "waymark-observability-store-postgres-migrations",
+ "waymark-sqlx-postgres-schema-pool",
+ "waymark-support-integration",
+ "waymark-support-test",
+]
+
+[[package]]
+name = "waymark-observability-store-postgres-migrations"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+]
+
+[[package]]
 name = "waymark-pool-status"
 version = "0.1.0"
 dependencies = [

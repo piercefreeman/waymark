@@ -1,0 +1,26 @@
+[package]
+name = "waymark-observability-store-postgres"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-essential-metrics-core = { workspace = true }
+waymark-essential-metrics-query-backend = { workspace = true }
+waymark-essential-metrics-retention-backend = { workspace = true }
+waymark-essential-metrics-sink-backend = { workspace = true }
+waymark-ids = { workspace = true }
+
+chrono = { workspace = true }
+nonempty-collections = { workspace = true }
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "uuid", "chrono"] }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+waymark-observability-store-postgres-migrations = { workspace = true }
+waymark-sqlx-postgres-schema-pool = { workspace = true }
+waymark-nonzero-duration = { workspace = true }
+waymark-support-integration = { workspace = true }
+waymark-support-test = { workspace = true }
+
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
