@@ -98,7 +98,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     let backend = PostgresBackend::new(pool);
 
     // Start the observability pipelines.
-    let observability_handles = waymark_observability_bringup::start(
+    let (observability_handles, observability_api_router) = waymark_observability_bringup::start(
         config.observability.clone(),
         node_id,
         essential_metrics_sampling_handle,
@@ -130,7 +130,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     let process_pool = Arc::new(process_pool);
 
     // Compose everything the HTTP server serves.
-    let http_api_routes = aide::axum::ApiRouter::new();
+    let http_api_routes = aide::axum::ApiRouter::new().merge(observability_api_router);
     let http_routes = axum::Router::new()
         .merge(waymark_http_healthz::router())
         .merge(waymark_http_api::router("/api", http_api_routes));
