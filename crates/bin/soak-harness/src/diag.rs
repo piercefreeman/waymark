@@ -18,7 +18,7 @@ struct DiagnosticBundle {
     workflow_name: String,
     workflow_version_id: WorkflowVersionId,
     workload_snapshot: data::WorkloadSnapshot,
-    worker_status: Option<data::WorkerStatusSnapshot>,
+    node_sample: Option<data::NodeSampleReport>,
     pinning_owners: QueryCapture<data::PinningOwnerRow>,
     expired_pinnings: QueryCapture<data::ExpiredPinningRow>,
     action_call_request_lock_owners: QueryCapture<data::ActionCallRequestLockOwnerRow>,
@@ -48,9 +48,14 @@ fn capture_query<T: Serialize>(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the diagnostics capture aggregates every source the harness has"
+)]
 pub async fn capture_diagnostics(
     args: &crate::cli::SoakArgs,
     pool: &PgPool,
+    store: &waymark_observability_store_postgres::Store,
     workflow: &crate::setup_workflows::RegisteredWorkflow,
     reason: &crate::flow::TerminationReason,
     samples: &VecDeque<HealthSample>,
@@ -58,7 +63,7 @@ pub async fn capture_diagnostics(
     run_dir: &Path,
 ) -> Result<PathBuf, color_eyre::eyre::Report> {
     let workload_snapshot = data::fetch_workload_snapshot(pool).await?;
-    let worker_status = data::fetch_latest_worker_status(pool).await?;
+    let node_sample = data::fetch_latest_node_sample(store).await?;
 
     let pinning_owners = capture_query(data::fetch_pinning_owners(pool, args.pg_stat_limit).await);
     let expired_pinnings =
@@ -94,7 +99,7 @@ pub async fn capture_diagnostics(
         workflow_name: workflow.workflow_name.clone(),
         workflow_version_id: workflow.workflow_version_id,
         workload_snapshot,
-        worker_status,
+        node_sample,
         pinning_owners,
         expired_pinnings,
         action_call_request_lock_owners,

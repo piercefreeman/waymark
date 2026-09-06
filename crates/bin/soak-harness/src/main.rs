@@ -28,6 +28,10 @@ use waymark_backend_postgres::PostgresBackend;
 
 const DB_READY_TIMEOUT: Duration = Duration::from_secs(90);
 
+/// The schema the worker's observability bringup provisions its store
+/// in. Hardcoded for now — mirrors `waymark-observability-bringup`.
+const OBSERVABILITY_SCHEMA: &str = "observability";
+
 #[tokio::main]
 async fn main() -> Result<(), color_eyre::eyre::Report> {
     waymark_fn_main_common::init()?;
@@ -57,12 +61,23 @@ async fn main() -> Result<(), color_eyre::eyre::Report> {
         .await
         .wrap_err("run migrations before soak")?;
 
+    let observability_pool =
+        waymark_sqlx_postgres_schema_pool::connect(args.dsn.expose_secret(), OBSERVABILITY_SCHEMA)
+            .await
+            .wrap_err("connect the observability schema pool")?;
+    let observability_store = waymark_observability_store_postgres::Store {
+        pool: observability_pool,
+    };
+
     let backend = PostgresBackend::new(pool.clone());
     if !args.keep_existing_data {
-        info!("clearing durable-VM and worker-status data before soak run");
+        info!("clearing durable-VM and observability data before soak run");
         waymark_backend_postgres::reset::truncate_all(&pool)
             .await
             .wrap_err("clear durable tables")?;
+        waymark_observability_store_postgres::reset::truncate_all(&observability_store.pool)
+            .await
+            .wrap_err("clear observability tables")?;
     }
     let services = setup_workflows::soak_services(&backend);
 
@@ -73,8 +88,8 @@ async fn main() -> Result<(), color_eyre::eyre::Report> {
     };
 
     if let Some(worker_process) = worker.as_mut()
-        && let Err(err) = setup_workers::wait_for_worker_status(
-            &pool,
+        && let Err(err) = setup_workers::wait_for_node_sample(
+            &observability_store,
             Duration::from_secs(60),
             Duration::from_secs(args.startup_log_interval_secs.max(1)),
             worker_process,
@@ -116,7 +131,15 @@ async fn main() -> Result<(), color_eyre::eyre::Report> {
         "soak throughput target"
     );
 
-    let run_result = flow::run_soak_loop(&args, &services, &pool, &workflow, &mut worker).await;
+    let run_result = flow::run_soak_loop(
+        &args,
+        &services,
+        &pool,
+        &observability_store,
+        &workflow,
+        &mut worker,
+    )
+    .await;
     let (reason, samples) = match run_result {
         Ok(result) => result,
         Err(err) => {
@@ -131,6 +154,7 @@ async fn main() -> Result<(), color_eyre::eyre::Report> {
     let diagnostics_path = diag::capture_diagnostics(
         &args,
         &pool,
+        &observability_store,
         &workflow,
         &reason,
         &samples,
