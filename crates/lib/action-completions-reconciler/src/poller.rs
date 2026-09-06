@@ -6,7 +6,7 @@
 //! the registry owns demand registration, item buffering, delivery, and
 //! the waiter lifecycle — see its docs for the architecture and the
 //! cancellation-safety story.  This module owns the backend query, the
-//! outcome decoding, and the mapping of delivered completions into
+//! execution-result decoding, and the mapping of delivered completions into
 //! promise settlements, each carrying an [`Ack`] minted from the row's
 //! own key: acknowledging (after the settlement has been applied and the
 //! VM state persisted) pushes the key onto the ack channel the registry
@@ -22,7 +22,8 @@ use nonempty_collections::{IntoNonEmptyIterator as _, NESlice, NEVec, NonEmptyIt
 use waymark_action_completions_reconciler_backend::{
     CompletionKey, CompletionRecord, PollCompletions,
 };
-use waymark_action_runtime_core::ActionCallOutcome;
+use waymark_action_runtime_core::{ActionCallLossError, ActionCallOutcome};
+use waymark_convert_core::Convert as _;
 use waymark_promise_settlement_demand_registry::registry;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime_promise_core::PromiseStateId;
@@ -35,10 +36,10 @@ pub enum Error<PollError, DecodeError> {
     #[error("polling completions: {0}")]
     Poll(#[source] PollError),
 
-    /// A stored outcome could not be decoded — the blob we wrote cannot
-    /// be read back, which is a bug.
-    #[error("unable to decode a stored action-call outcome")]
-    OutcomeDecode(#[source] DecodeError),
+    /// A stored execution result could not be decoded — the blob we
+    /// wrote cannot be read back, which is a bug.
+    #[error("unable to decode a stored action-call execution result")]
+    ExecutionResultDecode(#[source] DecodeError),
 }
 
 /// Error returned when polling a [`SettlementsHandle`] for action
@@ -80,7 +81,7 @@ impl<VmId, SleepAck> From<Ack<VmId>> for waymark_extcall_reconciler_core::Ack<Ac
 /// promise it settles.
 struct BufferedCompletion {
     promise_state_id: PromiseStateId,
-    outcome: ActionCallOutcome<ReadyValue>,
+    execution_result: Result<ActionCallOutcome<ReadyValue>, ActionCallLossError>,
 }
 
 impl registry::HasPromiseStateId for BufferedCompletion {
@@ -176,7 +177,7 @@ where
     /// The durable completions backend to poll.
     pub backend: Arc<Backend>,
 
-    /// The codec used to decode stored action-call outcomes.
+    /// The codec used to decode stored action-call execution results.
     pub codec: Codec,
 
     /// The token of the shared state to poll for and deliver to.
@@ -228,18 +229,18 @@ where
                 vm_id,
                 promise_state_id,
                 effect_number: _,
-                outcome,
+                execution_result,
             } = record;
-            let outcome: ActionCallOutcome<ReadyValue> = codec
-                .with_deserializer(&outcome, |deserializer| {
+            let execution_result = codec
+                .with_deserializer(&execution_result, |deserializer| {
                     serde::Deserialize::deserialize(deserializer)
                 })
-                .map_err(Error::OutcomeDecode)?;
+                .map_err(Error::ExecutionResultDecode)?;
             driver.deliver(
                 &vm_id,
                 BufferedCompletion {
                     promise_state_id,
-                    outcome,
+                    execution_result,
                 },
             );
         }
@@ -319,14 +320,19 @@ where
             .map(|completion| {
                 let BufferedCompletion {
                     promise_state_id,
-                    outcome,
+                    execution_result,
                 } = completion;
 
-                let resolution = match outcome {
-                    ActionCallOutcome::Value(value) => PromiseResolution::Resolved(value),
-                    ActionCallOutcome::Exception(exception) => {
+                let resolution = match execution_result {
+                    Ok(ActionCallOutcome::Value(value)) => PromiseResolution::Resolved(value),
+                    Ok(ActionCallOutcome::Exception(exception)) => {
                         PromiseResolution::Rejected(exception)
                     }
+                    // The execution produced no outcome; the promise
+                    // settles raised with the loss's exception rendering.
+                    Err(loss) => PromiseResolution::Rejected(
+                        waymark_action_runtime_convert::Converter::convert(loss),
+                    ),
                 };
 
                 PromiseSettlement {
