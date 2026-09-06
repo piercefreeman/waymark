@@ -1,0 +1,18 @@
+[package]
+name = "waymark-observability-events-emitter"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-lossy-batcher = { workspace = true }
+waymark-node-sequence = { workspace = true }
+waymark-observability-events-core = { workspace = true }
+
+chrono = { workspace = true, default-features = false, features = ["clock"] }
+
+[dev-dependencies]
+waymark-nonzero-duration = { workspace = true }
+
+nonempty-collections = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }

@@ -1,0 +1,11 @@
+[package]
+name = "waymark-observability-events-compat"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-lossy-batcher = { workspace = true }
+waymark-observability-events-sink-backend = { workspace = true }
+
+nonempty-collections = { workspace = true }

@@ -61,6 +61,7 @@ waymark-observability = { path = "crates/lib/observability" }
 waymark-observability-bringup = { path = "crates/lib/observability-bringup" }
 waymark-observability-config = { path = "crates/lib/observability-config" }
 waymark-observability-events-core = { path = "crates/lib/observability-events-core" }
+waymark-observability-events-sink-backend = { path = "crates/lib/observability-events-sink-backend" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }
 waymark-observability-store-postgres = { path = "crates/lib/observability-store-postgres" }
