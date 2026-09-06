@@ -4802,6 +4802,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-observability-events-query-backend"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "nonempty-collections",
+ "waymark-cursor-core",
+ "waymark-observability-events-core",
+]
+
+[[package]]
+name = "waymark-observability-events-retention-backend"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+]
+
+[[package]]
+name = "waymark-observability-events-sink-backend"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "waymark-observability-events-core",
+]
+
+[[package]]
 name = "waymark-observability-macros"
 version = "0.1.0"
 dependencies = [
