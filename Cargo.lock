@@ -4315,6 +4315,61 @@ name = "waymark-convert-core"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-essential-metrics-compat"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "waymark-essential-metrics-core",
+ "waymark-essential-metrics-sink-backend",
+ "waymark-lossy-batcher",
+]
+
+[[package]]
+name = "waymark-essential-metrics-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+]
+
+[[package]]
+name = "waymark-essential-metrics-query-backend"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "waymark-essential-metrics-core",
+ "waymark-nonzero-duration",
+]
+
+[[package]]
+name = "waymark-essential-metrics-retention-backend"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+]
+
+[[package]]
+name = "waymark-essential-metrics-sampler"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "metrics",
+ "metrics-util",
+ "nonempty-collections",
+ "tokio",
+ "waymark-essential-metrics-core",
+ "waymark-lossy-batcher",
+ "waymark-nonzero-duration",
+]
+
+[[package]]
+name = "waymark-essential-metrics-sink-backend"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "waymark-essential-metrics-core",
+]
+
+[[package]]
 name = "waymark-execution-bringup"
 version = "0.1.0"
 dependencies = [
