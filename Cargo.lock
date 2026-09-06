@@ -5831,6 +5831,7 @@ version = "0.1.0"
 dependencies = [
  "indexmap",
  "prost",
+ "thiserror",
  "typed_floats",
  "waymark-convert-core",
  "waymark-proto",
@@ -6174,8 +6175,8 @@ name = "waymark-workflow-initialization-convert-proto"
 version = "0.1.0"
 dependencies = [
  "index_type",
+ "prost",
  "thiserror",
- "waymark-action-runtime-convert",
  "waymark-convert-core",
  "waymark-proto",
  "waymark-vm-compiler-metadata",

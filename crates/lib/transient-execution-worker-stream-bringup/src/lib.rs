@@ -39,10 +39,11 @@ pub enum SetupRuntimeError {
         >,
     ),
 
-    /// Converting the initial context into entry-function arguments failed.
-    #[error("convert initial context: {0}")]
-    ConvertInitialContext(
-        #[source] waymark_workflow_initialization_convert_proto::InitialContextError,
+    /// Converting the workflow arguments into entry-function arguments
+    /// failed.
+    #[error("convert workflow arguments: {0}")]
+    ConvertWorkflowArguments(
+        #[source] waymark_workflow_initialization_convert_proto::WorkflowArgumentsError,
     ),
 
     /// The entry function was not found in the executable.
@@ -58,11 +59,10 @@ pub enum SetupRuntimeError {
 ///
 /// The entry function (function 0, the first function in source order)
 /// receives its arguments from
-/// [`proto::WorkflowRegistration::initial_context`] when present.  Each
+/// [`proto::WorkflowRegistration::arguments`] when present.  Each
 /// keyword argument is mapped to a positional argument by matching the
 /// entry function's input names; absent inputs are filled with
-/// [`waymark_system_vm::ReadyValue::None`].  Providing no `initial_context`
-/// at all while the entry function expects inputs is an error.
+/// [`waymark_system_vm::ReadyValue::None`].
 pub fn setup_runtime(
     registration: &waymark_proto::messages::WorkflowRegistration,
 ) -> Result<waymark_system_vm::Runtime, SetupRuntimeError> {
@@ -78,12 +78,11 @@ pub fn setup_runtime(
     .map_err(SetupRuntimeError::Compile)?;
     let executable = std::sync::Arc::new(executable);
 
-    let call_spec =
-        waymark_workflow_initialization_convert_proto::InitialContextConverter::try_convert((
-            registration.initial_context.as_ref(),
-            &metadata,
-        ))
-        .map_err(SetupRuntimeError::ConvertInitialContext)?;
+    let call_spec = waymark_workflow_initialization_convert_proto::Converter::try_convert((
+        &registration.arguments[..],
+        &metadata,
+    ))
+    .map_err(SetupRuntimeError::ConvertWorkflowArguments)?;
 
     let interpreter = waymark_system_vm::Interpreter::default();
     let runtime =
