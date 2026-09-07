@@ -5356,6 +5356,7 @@ dependencies = [
  "waymark-vm-codec-core",
  "waymark-vm-driver",
  "waymark-vm-driver-core",
+ "waymark-vm-driver-hooks-noop",
  "waymark-vm-driver-thread",
  "waymark-vm-executable",
  "waymark-vm-interpreter",
@@ -5468,6 +5469,7 @@ dependencies = [
  "waymark-vm-compiler-for-ast-old",
  "waymark-vm-driver",
  "waymark-vm-driver-core",
+ "waymark-vm-driver-hooks-noop",
  "waymark-vm-driver-thread",
  "waymark-vm-runtime",
  "waymark-vm-runtime-builder",
@@ -5751,6 +5753,8 @@ dependencies = [
  "waymark-vm-codec-core",
  "waymark-vm-codec-rmp",
  "waymark-vm-driver-core",
+ "waymark-vm-driver-hooks",
+ "waymark-vm-driver-hooks-noop",
  "waymark-vm-executable",
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
@@ -5784,6 +5788,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-driver-hooks-noop"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "waymark-vm-driver-core",
+ "waymark-vm-driver-hooks",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
 name = "waymark-vm-driver-thread"
 version = "0.1.0"
 dependencies = [
@@ -5796,6 +5811,8 @@ dependencies = [
  "waymark-vm-codec-rmp",
  "waymark-vm-driver",
  "waymark-vm-driver-core",
+ "waymark-vm-driver-hooks",
+ "waymark-vm-driver-hooks-noop",
  "waymark-vm-executable",
  "waymark-vm-interpreter",
  "waymark-vm-runtime",

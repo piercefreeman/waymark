@@ -41,6 +41,7 @@ async fn forwards_emitted_effects() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     }));
 
     assert_eq!(
@@ -77,6 +78,7 @@ async fn resumes_promises_and_forwards_resolved_effect() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     }));
 
     settlements_tx
@@ -119,6 +121,7 @@ async fn effect_handling_error_when_receiver_dropped() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     })
     .await;
 
@@ -144,6 +147,7 @@ async fn getting_settlements_error_when_sender_dropped() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     })
     .await;
 
@@ -165,6 +169,7 @@ async fn returns_step_errors() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     })
     .await;
 
@@ -218,6 +223,7 @@ async fn duplicate_resolutions_are_ignored() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     })
     .await;
 
@@ -268,6 +274,7 @@ async fn duplicate_rejection_after_resolution_is_ignored() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     })
     .await;
 
@@ -316,6 +323,7 @@ async fn unknown_promise_ids_are_ignored() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     })
     .await;
 
@@ -341,6 +349,7 @@ async fn promise_rejection_forwards_exception() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     }));
 
     settlements_tx

@@ -131,6 +131,8 @@ waymark-vm-compiler-for-ast-old-test-support = { path = "crates/lib/vm-compiler-
 waymark-vm-compiler-metadata = { path = "crates/lib/vm-compiler-metadata" }
 waymark-vm-driver = { path = "crates/lib/vm-driver" }
 waymark-vm-driver-core = { path = "crates/lib/vm-driver-core" }
+waymark-vm-driver-hooks = { path = "crates/lib/vm-driver-hooks" }
+waymark-vm-driver-hooks-noop = { path = "crates/lib/vm-driver-hooks-noop" }
 waymark-vm-driver-thread = { path = "crates/lib/vm-driver-thread" }
 waymark-vm-exception-handler = { path = "crates/lib/vm-exception-handler" }
 waymark-vm-exception-type-ids = { path = "crates/lib/vm-exception-type-ids" }
