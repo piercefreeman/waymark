@@ -31,5 +31,7 @@ waymark-observability-store-postgres-migrations = { workspace = true }
 waymark-sqlx-postgres-schema-pool = { workspace = true }
 waymark-support-integration = { workspace = true }
 waymark-support-test = { workspace = true }
+waymark-vm-runtime-effect = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
 
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
