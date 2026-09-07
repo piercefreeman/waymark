@@ -18,6 +18,8 @@ waymark-extcall-reconciler = { workspace = true }
 waymark-fullset-effect-handler = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
+waymark-observability-events-vm-driver-hooks = { workspace = true }
+waymark-observability-events-vm-driver-hooks-fullset = { workspace = true }
 waymark-sleep-compat-python = { workspace = true }
 waymark-sleep-reconciler = { workspace = true }
 waymark-sleep-reconciler-backend = { workspace = true }
@@ -29,7 +31,6 @@ waymark-state-vm-runtimes-backend = { workspace = true }
 waymark-state-vm-runtimes-core = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
 waymark-vm-codec-rmp = { workspace = true }
-waymark-vm-driver-hooks-noop = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-value-python = { workspace = true }
 waymark-vm-value-python-convert-proto = { workspace = true }
