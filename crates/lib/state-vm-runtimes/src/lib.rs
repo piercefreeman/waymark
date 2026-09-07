@@ -56,6 +56,7 @@ pub struct SpawningFactory<
     ExecutableProvider,
     InterpreterProvider,
     EffectorProvider,
+    HooksProvider,
     Value,
 > where
     Backend: waymark_state_vm_runtimes_backend::HasVmId,
@@ -65,18 +66,28 @@ pub struct SpawningFactory<
     executable_provider: ExecutableProvider,
     interpreter_provider: InterpreterProvider,
     effector_provider: EffectorProvider,
+    hooks_provider: HooksProvider,
     /// Shared batcher that coalesces snapshot writes across all VMs.
     snapshot_batcher: snapshot_batcher::SnapshotBatcherHandle<Backend::VmId>,
     _phantom_data: PhantomData<Value>,
 }
 
-impl<Backend, Codec, ExecutableProvider, InterpreterProvider, EffectorProvider, Value>
+impl<
+    Backend,
+    Codec,
+    ExecutableProvider,
+    InterpreterProvider,
+    EffectorProvider,
+    HooksProvider,
+    Value,
+>
     SpawningFactory<
         Backend,
         Codec,
         ExecutableProvider,
         InterpreterProvider,
         EffectorProvider,
+        HooksProvider,
         Value,
     >
 where
@@ -89,6 +100,7 @@ where
         executable_provider: ExecutableProvider,
         interpreter_provider: InterpreterProvider,
         effector_provider: EffectorProvider,
+        hooks_provider: HooksProvider,
         snapshot_batcher: snapshot_batcher::SnapshotBatcherHandle<Backend::VmId>,
     ) -> Self {
         Self {
@@ -97,20 +109,29 @@ where
             executable_provider,
             interpreter_provider,
             effector_provider,
+            hooks_provider,
             snapshot_batcher,
             _phantom_data: PhantomData,
         }
     }
 }
 
-impl<Backend, Codec, ExecutableProvider, InterpreterProvider, EffectorProvider, Value>
-    waymark_state_manager_core::Factory
+impl<
+    Backend,
+    Codec,
+    ExecutableProvider,
+    InterpreterProvider,
+    EffectorProvider,
+    HooksProvider,
+    Value,
+> waymark_state_manager_core::Factory
     for SpawningFactory<
         Backend,
         Codec,
         ExecutableProvider,
         InterpreterProvider,
         EffectorProvider,
+        HooksProvider,
         Value,
     >
 where
@@ -192,6 +213,23 @@ where
         Send + 'static,
     <EffectorProvider::Effector as waymark_vm_driver_core::PromiseSettler>::Error:
         Send + 'static,
+    HooksProvider: waymark_state_vm_runtimes_core::HooksProvider<VmId = Backend::VmId>,
+    HooksProvider: Send + Sync + 'static,
+    HooksProvider::Hooks: waymark_vm_driver_hooks::VmStarted,
+    HooksProvider::Hooks: waymark_vm_driver_hooks::EffectEmitted<
+            Effect = <InterpreterProvider::Interpreter as waymark_vm_interpreter::Interpreter>::Effect,
+        >,
+    HooksProvider::Hooks: waymark_vm_driver_hooks::PromiseSettled<Value = Value::ReadyValue>,
+    HooksProvider::Hooks: waymark_vm_driver_hooks::SnapshotPersisted,
+    HooksProvider::Hooks: waymark_vm_driver_hooks::VmStopped<
+            Error = waymark_vm_driver::ErrorFor<
+                InterpreterProvider::Interpreter,
+                Arc<Codec>,
+                SnapshotAdapter<Backend::VmId>,
+                EffectorProvider::Effector,
+            >,
+        >,
+    HooksProvider::Hooks: Send + Sync + 'static,
 {
     type Key = Backend::VmId;
     type Value = Arc<
@@ -250,6 +288,7 @@ where
             runtime,
             self.effector_provider.provide_effector(key),
             snapshotter,
+            self.hooks_provider.provide_hooks(key),
             vec![Box::new(executable_handle)],
         )
         .instrument(tracing::info_span!("drive_runtime", ?key))
