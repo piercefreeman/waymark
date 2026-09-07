@@ -4513,6 +4513,7 @@ dependencies = [
  "waymark-state-vm-runtimes-core",
  "waymark-system-vm",
  "waymark-vm-codec-rmp",
+ "waymark-vm-driver-hooks-tracing",
  "waymark-vm-interpreter-fullset",
  "waymark-vm-value-python",
  "waymark-vm-value-python-convert-proto",
@@ -5846,6 +5847,19 @@ name = "waymark-vm-driver-hooks-noop"
 version = "0.1.0"
 dependencies = [
  "derive-where",
+ "waymark-vm-driver-core",
+ "waymark-vm-driver-hooks",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
+name = "waymark-vm-driver-hooks-tracing"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
+ "waymark-vm-driver",
  "waymark-vm-driver-core",
  "waymark-vm-driver-hooks",
  "waymark-vm-runtime-effect",
