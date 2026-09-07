@@ -171,6 +171,7 @@ where
         persister,
         codec,
         cancel: cancel.clone(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     });
 
     let completion = tokio::spawn({
