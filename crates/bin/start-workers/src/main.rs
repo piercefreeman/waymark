@@ -98,7 +98,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     let backend = PostgresBackend::new(pool);
 
     // Start the observability pipelines.
-    let (observability_handles, observability_api_router, _observability_events_emitter) =
+    let (observability_handles, observability_api_router, observability_events_emitter) =
         waymark_observability_bringup::start(
             config.observability.clone(),
             node_id,
@@ -195,6 +195,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         bringup_config,
         Arc::new(backend.clone()),
         remote_pool,
+        Some(Arc::new(observability_events_emitter)),
         shutdown_token.child_token(),
         force_shutdown_token.child_token(),
     )
