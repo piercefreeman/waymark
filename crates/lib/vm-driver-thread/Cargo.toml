@@ -9,6 +9,7 @@ waymark-blocking-future = { workspace = true }
 waymark-vm-codec-core = { workspace = true }
 waymark-vm-driver = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
+waymark-vm-driver-hooks = { workspace = true }
 waymark-vm-executable = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
 waymark-vm-runtime = { workspace = true }
@@ -22,6 +23,7 @@ tracing = { workspace = true }
 [dev-dependencies]
 waymark-vm-codec-rmp = { workspace = true }
 waymark-vm-driver-core = { workspace = true, features = ["tokio"] }
+waymark-vm-driver-hooks-noop = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }
 
