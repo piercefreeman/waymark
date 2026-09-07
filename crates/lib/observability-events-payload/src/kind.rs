@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use waymark_observability_events_core::kind::Kind as _;
+use waymark_observability_events_core::kind::SubsetExt as _;
 
 /// Which event, across every source.
 ///
@@ -21,14 +22,17 @@ use waymark_observability_events_core::kind::Kind as _;
 /// [`FromTag`]: waymark_observability_events_core::kind::FromTag
 /// [`SubsetExt`]: waymark_observability_events_core::kind::SubsetExt
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {}
+pub enum Kind {
+    /// An event of the VM driver.
+    VmDriver(crate::vm_driver::Kind),
+}
 
 // The root of the family: its own subset, the whole of it.
 impl waymark_observability_events_core::kind::Subset for Kind {
     type RootKind = Kind;
 
     fn subset() -> impl Iterator<Item = Self> {
-        std::iter::empty()
+        crate::vm_driver::Kind::root_subset()
     }
 
     fn root_kind(&self) -> Kind {
@@ -42,7 +46,9 @@ impl waymark_observability_events_core::kind::Subset for Kind {
 
 impl waymark_observability_events_core::kind::Tagged for Kind {
     fn tag(&self) -> &'static str {
-        match *self {}
+        match self {
+            Kind::VmDriver(kind) => kind.tag(),
+        }
     }
 }
 
