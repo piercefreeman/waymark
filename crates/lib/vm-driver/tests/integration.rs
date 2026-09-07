@@ -1,4 +1,4 @@
-use waymark_vm_runtime_effect::EmittedEffect;
+use waymark_vm_runtime_effect::{EffectNumber, EmittedEffect};
 
 use tokio_util::sync::CancellationToken;
 use waymark_vm_codec_rmp::RmpCodec;
@@ -11,6 +11,48 @@ use waymark_vm_runtime_test::{
     StateId, TestEffect, TestExecutionError, TestInstruction, TestReadyValue, executable, function,
     runtime,
 };
+
+mockall::mock! {
+    /// Hooks over the test runtime's effects and values, generic over the
+    /// error the run stops with.
+    Hooks<Error: 'static> {}
+
+    impl<Error: 'static> waymark_vm_driver_hooks::effect_emitted::HasEffect for Hooks<Error> {
+        type Effect = TestEffect;
+    }
+
+    impl<Error: 'static> waymark_vm_driver_hooks::promise_settled::HasValue for Hooks<Error> {
+        type Value = TestReadyValue;
+    }
+
+    impl<Error: 'static> waymark_vm_driver_hooks::vm_stopped::HasError for Hooks<Error> {
+        type Error = Error;
+    }
+
+    impl<Error: 'static> waymark_vm_driver_hooks::VmStarted for Hooks<Error> {
+        fn vm_started(&self);
+    }
+
+    impl<Error: 'static> waymark_vm_driver_hooks::EffectEmitted for Hooks<Error> {
+        fn effect_emitted(&self, number: EffectNumber, effect: &TestEffect);
+    }
+
+    impl<Error: 'static> waymark_vm_driver_hooks::PromiseSettled for Hooks<Error> {
+        fn promise_settled(
+            &self,
+            promise_state_id: PromiseStateId,
+            resolution: &PromiseResolution<TestReadyValue>,
+        );
+    }
+
+    impl<Error: 'static> waymark_vm_driver_hooks::SnapshotPersisted for Hooks<Error> {
+        fn snapshot_persisted(&self, size_in_bytes: usize);
+    }
+
+    impl<Error: 'static> waymark_vm_driver_hooks::VmStopped for Hooks<Error> {
+        fn vm_stopped(&self, error: &Error);
+    }
+}
 
 type TestEffector = (
     tokio::sync::mpsc::Sender<EmittedEffect<TestEffect>>,
@@ -41,6 +83,7 @@ async fn forwards_emitted_effects() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     }));
 
     assert_eq!(
@@ -77,6 +120,7 @@ async fn resumes_promises_and_forwards_resolved_effect() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     }));
 
     settlements_tx
@@ -104,6 +148,130 @@ async fn resumes_promises_and_forwards_resolved_effect() {
 }
 
 #[tokio::test]
+async fn fires_the_hooks_in_run_order() {
+    let (effector, mut effects_rx, settlements_tx) = effector();
+
+    // The run's own order: started first; the settlement is observed
+    // before the effect it lets the frame emit; each persisted snapshot
+    // is reported after it is stored; stopped last, with the run's error.
+    let mut hooks = MockHooks::new();
+    let mut sequence = mockall::Sequence::new();
+    hooks
+        .expect_vm_started()
+        .times(1)
+        .in_sequence(&mut sequence)
+        .return_const(());
+    hooks
+        .expect_promise_settled()
+        .withf(|promise_state_id, _| *promise_state_id == PromiseStateId(0))
+        .times(1)
+        .in_sequence(&mut sequence)
+        .return_const(());
+    hooks
+        .expect_snapshot_persisted()
+        .times(1)
+        .in_sequence(&mut sequence)
+        .return_const(());
+    hooks
+        .expect_effect_emitted()
+        .withf(|number, _| *number == EffectNumber(0))
+        .times(1)
+        .in_sequence(&mut sequence)
+        .return_const(());
+    hooks
+        .expect_snapshot_persisted()
+        .times(1)
+        .in_sequence(&mut sequence)
+        .return_const(());
+    hooks
+        .expect_vm_stopped()
+        .withf(|error| matches!(error, Error::NoReadyFramesOrWaitingPromises))
+        .times(1)
+        .in_sequence(&mut sequence)
+        .return_const(());
+
+    let task = tokio::spawn(run(Params {
+        runtime: runtime(executable(vec![function(
+            1,
+            vec![
+                vec![TestInstruction::Suspend {
+                    dst: RegisterId(0),
+                    resume: StateId(1),
+                }],
+                vec![TestInstruction::EmitRegister(RegisterId(0))],
+            ],
+        )])),
+        effector,
+        persister: (),
+        codec: RmpCodec,
+        cancel: CancellationToken::new(),
+        hooks,
+    }));
+
+    settlements_tx
+        .send(PromiseSettlement {
+            promise_state_id: PromiseStateId(0),
+            resolution: PromiseResolution::Resolved(TestReadyValue::Int(41)),
+            ack: (),
+        })
+        .await
+        .expect("driver should accept the promise resolution");
+    effects_rx
+        .recv()
+        .await
+        .expect("the resumed frame emits its effect");
+    drop(settlements_tx);
+
+    assert!(matches!(
+        task.await.expect("driver task should join"),
+        Err(Error::NoReadyFramesOrWaitingPromises)
+    ));
+}
+
+#[tokio::test]
+async fn fires_vm_stopped_last_when_cancelled() {
+    let (effector, _effects_rx, _settlements_tx) = effector();
+    let mut hooks = MockHooks::new();
+    let mut sequence = mockall::Sequence::new();
+    hooks
+        .expect_vm_started()
+        .times(1)
+        .in_sequence(&mut sequence)
+        .return_const(());
+    hooks
+        .expect_vm_stopped()
+        .withf(|error| matches!(error, Error::Cancelled))
+        .times(1)
+        .in_sequence(&mut sequence)
+        .return_const(());
+    let cancel = CancellationToken::new();
+
+    let task = tokio::spawn(run(Params {
+        runtime: runtime(executable(vec![function(
+            1,
+            vec![vec![TestInstruction::Suspend {
+                dst: RegisterId(0),
+                resume: StateId(0),
+            }]],
+        )])),
+        effector,
+        persister: (),
+        codec: RmpCodec,
+        cancel: cancel.clone(),
+        hooks,
+    }));
+
+    // The run is parked on its promise; cancelling is the only way out.
+    tokio::task::yield_now().await;
+    cancel.cancel();
+
+    assert!(matches!(
+        task.await.expect("driver task should join"),
+        Err(Error::Cancelled)
+    ));
+}
+
+#[tokio::test]
 async fn effect_handling_error_when_receiver_dropped() {
     let (effects_tx, effects_rx) = tokio::sync::mpsc::channel::<EmittedEffect<TestEffect>>(1);
     let (_settlements_tx, settlements_rx) =
@@ -119,6 +287,7 @@ async fn effect_handling_error_when_receiver_dropped() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     })
     .await;
 
@@ -144,6 +313,7 @@ async fn getting_settlements_error_when_sender_dropped() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     })
     .await;
 
@@ -165,6 +335,7 @@ async fn returns_step_errors() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     })
     .await;
 
@@ -203,6 +374,38 @@ async fn duplicate_resolutions_are_ignored() {
         .unwrap();
     drop(settlements_tx);
 
+    // The hook sees each settlement as received, the dropped redelivery
+    // included.
+    let mut hooks = MockHooks::new();
+    hooks.expect_vm_started().return_const(());
+    hooks.expect_snapshot_persisted().return_const(());
+    hooks.expect_vm_stopped().return_const(());
+    let mut sequence = mockall::Sequence::new();
+    hooks
+        .expect_promise_settled()
+        .withf(|promise_state_id, resolution| {
+            *promise_state_id == PromiseStateId(0)
+                && matches!(
+                    resolution,
+                    PromiseResolution::Resolved(TestReadyValue::Int(10))
+                )
+        })
+        .times(1)
+        .in_sequence(&mut sequence)
+        .return_const(());
+    hooks
+        .expect_promise_settled()
+        .withf(|promise_state_id, resolution| {
+            *promise_state_id == PromiseStateId(0)
+                && matches!(
+                    resolution,
+                    PromiseResolution::Resolved(TestReadyValue::Int(11))
+                )
+        })
+        .times(1)
+        .in_sequence(&mut sequence)
+        .return_const(());
+
     let result = run(Params {
         runtime: runtime(executable(vec![function(
             1,
@@ -218,6 +421,7 @@ async fn duplicate_resolutions_are_ignored() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks,
     })
     .await;
 
@@ -268,6 +472,7 @@ async fn duplicate_rejection_after_resolution_is_ignored() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     })
     .await;
 
@@ -316,6 +521,7 @@ async fn unknown_promise_ids_are_ignored() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     })
     .await;
 
@@ -341,6 +547,7 @@ async fn promise_rejection_forwards_exception() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     }));
 
     settlements_tx

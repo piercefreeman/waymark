@@ -5363,6 +5363,7 @@ dependencies = [
  "waymark-vm-codec-core",
  "waymark-vm-driver",
  "waymark-vm-driver-core",
+ "waymark-vm-driver-hooks-noop",
  "waymark-vm-driver-thread",
  "waymark-vm-executable",
  "waymark-vm-interpreter",
@@ -5486,6 +5487,7 @@ dependencies = [
  "waymark-vm-compiler-for-ast-old",
  "waymark-vm-driver",
  "waymark-vm-driver-core",
+ "waymark-vm-driver-hooks-noop",
  "waymark-vm-driver-thread",
  "waymark-vm-runtime",
  "waymark-vm-runtime-builder",
@@ -5761,6 +5763,7 @@ dependencies = [
 name = "waymark-vm-driver"
 version = "0.1.0"
 dependencies = [
+ "mockall",
  "nonempty-collections",
  "serde",
  "tokio",
@@ -5769,6 +5772,8 @@ dependencies = [
  "waymark-vm-codec-core",
  "waymark-vm-codec-rmp",
  "waymark-vm-driver-core",
+ "waymark-vm-driver-hooks",
+ "waymark-vm-driver-hooks-noop",
  "waymark-vm-executable",
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
@@ -5826,6 +5831,8 @@ dependencies = [
  "waymark-vm-codec-rmp",
  "waymark-vm-driver",
  "waymark-vm-driver-core",
+ "waymark-vm-driver-hooks",
+ "waymark-vm-driver-hooks-noop",
  "waymark-vm-executable",
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
