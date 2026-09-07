@@ -3729,6 +3729,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "typle"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad39ef9a1dca242cfd2ff54175b03fbccc389423bc66a360c651a8ed00afe69c"
+dependencies = [
+ "either",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+ "zip_clone",
+]
+
+[[package]]
 name = "unarray"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5760,6 +5773,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-driver-hooks"
+version = "0.1.0"
+dependencies = [
+ "typle",
+ "waymark-vm-driver-core",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
 name = "waymark-vm-driver-thread"
 version = "0.1.0"
 dependencies = [
@@ -6978,6 +7001,12 @@ dependencies = [
  "quote",
  "syn 2.0.117",
 ]
+
+[[package]]
+name = "zip_clone"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a3369cd8e772810a22f0f20bee39772ade077ee8aabc6d914911e53c181e458"
 
 [[package]]
 name = "zmij"
