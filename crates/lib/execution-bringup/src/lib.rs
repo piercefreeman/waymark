@@ -579,15 +579,18 @@ where
 
     let hooks_provider = waymark_state_vm_runtimes_core::FnHooksProvider::new(
         move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
-            observability_events_emitter.as_ref().map(|emitter| {
-                waymark_observability_events_vm_driver_hooks::Hooks::<
-                    waymark_observability_events_vm_driver_hooks_fullset::FullSetEffectSummarizer<
-                        waymark_vm_value_python::ReadyValue,
-                    >,
-                    _,
-                    _,
-                >::new(*vm_id, Arc::clone(emitter))
-            })
+            (
+                waymark_vm_driver_hooks_tracing::Tracing::new(),
+                observability_events_emitter.as_ref().map(|emitter| {
+                    waymark_observability_events_vm_driver_hooks::Hooks::<
+                        waymark_observability_events_vm_driver_hooks_fullset::FullSetEffectSummarizer<
+                            waymark_vm_value_python::ReadyValue,
+                        >,
+                        _,
+                        _,
+                    >::new(*vm_id, Arc::clone(emitter))
+                }),
+            )
         },
     );
 
