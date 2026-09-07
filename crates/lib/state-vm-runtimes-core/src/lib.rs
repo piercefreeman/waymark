@@ -1,7 +1,8 @@
 //! Core traits for the state-vm-runtimes subsystem.
 //!
-//! Provides the [`EffectorProvider`] and [`InterpreterProvider`] traits —
-//! abstractions for creating per-VM effectors and interpreters.
+//! Provides the [`EffectorProvider`], [`InterpreterProvider`] and
+//! [`HooksProvider`] traits — abstractions for creating per-VM effectors,
+//! interpreters and driver hooks.
 
 #![warn(missing_docs)]
 
@@ -21,6 +22,22 @@ pub trait EffectorProvider {
 
     /// Provide an effector for the given VM.
     fn provide_effector(&self, vm_id: &Self::VmId) -> Self::Effector;
+}
+
+/// Provides the driver hooks for a given VM.
+///
+/// The driver knows no identity; the hooks observing a run are bound to
+/// the VM they observe here, when the VM is revived, exactly as the
+/// effector is.
+pub trait HooksProvider {
+    /// The VM identifier type.
+    type VmId;
+
+    /// The hooks type produced by this provider.
+    type Hooks;
+
+    /// Provide the hooks for the given VM.
+    fn provide_hooks(&self, vm_id: &Self::VmId) -> Self::Hooks;
 }
 
 /// Provides an interpreter for a given VM.
@@ -93,6 +110,34 @@ where
     type Effector = Effector;
 
     fn provide_effector(&self, vm_id: &Self::VmId) -> Self::Effector {
+        (self.f)(vm_id)
+    }
+}
+
+/// A [`HooksProvider`] that wraps a closure.
+pub struct FnHooksProvider<F, VmId> {
+    f: F,
+    phantom_data: std::marker::PhantomData<fn(&VmId)>,
+}
+
+impl<F, VmId> FnHooksProvider<F, VmId> {
+    /// Create a new [`FnHooksProvider`] from a given `f`.
+    pub fn new(f: F) -> Self {
+        Self {
+            f,
+            phantom_data: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<F, VmId, Hooks> HooksProvider for FnHooksProvider<F, VmId>
+where
+    F: Fn(&VmId) -> Hooks,
+{
+    type VmId = VmId;
+    type Hooks = Hooks;
+
+    fn provide_hooks(&self, vm_id: &Self::VmId) -> Self::Hooks {
         (self.f)(vm_id)
     }
 }
