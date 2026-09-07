@@ -41,8 +41,8 @@ pub type HandleFor<Interpreter, Codec, Persister, Effector> = Handle<
 /// starve other async tasks running on the pool.
 ///
 /// Current tracing span is carried over to the driver thread.
-pub fn spawn<Executable, Interpreter, Value, Effector, Persister, Codec>(
-    params: driver::Params<Executable, Interpreter, Value, Effector, Persister, Codec>,
+pub fn spawn<Executable, Interpreter, Value, Effector, Persister, Codec, Hooks>(
+    params: driver::Params<Executable, Interpreter, Value, Effector, Persister, Codec, Hooks>,
 ) -> HandleFor<Interpreter, Codec, Persister, Effector>
 where
     // Executable
@@ -86,6 +86,14 @@ where
     // Codec
     Codec: waymark_vm_codec_core::SerializerProvider<Ok = ()> + Send + 'static,
     <Codec as waymark_vm_codec_core::SerializerProvider>::Error: Send,
+    // Hooks
+    Hooks: waymark_vm_driver_hooks::VmStarted + Send + Sync + 'static,
+    Hooks: waymark_vm_driver_hooks::EffectEmitted<Effect = Interpreter::Effect>,
+    Hooks: waymark_vm_driver_hooks::PromiseSettled<Value = Value::ReadyValue>,
+    Hooks: waymark_vm_driver_hooks::SnapshotPersisted,
+    Hooks: waymark_vm_driver_hooks::VmStopped<
+            Error = driver::ErrorFor<Interpreter, Codec, Persister, Effector>,
+        >,
 {
     let task = waymark_blocking_future::spawn_thread(driver::run(params).in_current_span());
 

@@ -41,6 +41,7 @@ async fn driver_error_propagated_to_handle() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     });
 
     // The driver emits the effect, we receive it.
@@ -83,6 +84,7 @@ async fn resolves_promise_and_forwards_effect() {
         persister: (),
         codec: RmpCodec,
         cancel: CancellationToken::new(),
+        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
     });
 
     settlements_tx
