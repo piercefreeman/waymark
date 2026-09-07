@@ -4957,6 +4957,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-observability-events-vm-driver-hooks-core"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-observability-macros"
 version = "0.1.0"
 dependencies = [
