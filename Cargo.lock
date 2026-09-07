@@ -4917,7 +4917,11 @@ version = "0.1.0"
 dependencies = [
  "schemars",
  "serde",
+ "serde_json",
+ "waymark-ids",
  "waymark-observability-events-core",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
 ]
 
 [[package]]
@@ -4992,6 +4996,8 @@ dependencies = [
  "waymark-sqlx-postgres-schema-pool",
  "waymark-support-integration",
  "waymark-support-test",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
 ]
 
 [[package]]
