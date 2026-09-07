@@ -9,14 +9,23 @@ use crate::Kind;
 /// it back on query. Tagged internally: the source is the `source` field
 /// and the source's own fields sit beside it, so a reader addresses them
 /// directly (`payload ->> 'vm_id'`).
+///
+/// A source whose events belong to a VM carries the VM's id as a
+/// top-level `vm_id`, in uuid text form: readers address it there and
+/// read it as a uuid.
 #[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(tag = "source", rename_all = "snake_case")]
-pub enum Payload {}
+pub enum Payload {
+    /// An event of the VM driver.
+    VmDriver(crate::vm_driver::Payload),
+}
 
 impl waymark_observability_events_core::Kinded for Payload {
     type Kind = Kind;
 
     fn kind(&self) -> Kind {
-        match *self {}
+        match self {
+            Payload::VmDriver(payload) => Kind::VmDriver(payload.kind()),
+        }
     }
 }
