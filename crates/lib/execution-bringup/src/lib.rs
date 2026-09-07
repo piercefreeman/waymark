@@ -574,12 +574,19 @@ where
     );
     let snapshot_batcher_handle = tokio::spawn(snapshot_batcher_loop);
 
+    let hooks_provider = waymark_state_vm_runtimes_core::FnHooksProvider::new(
+        |_: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
+            waymark_vm_driver_hooks_noop::Noop::new()
+        },
+    );
+
     let vm_runtimes_factory = waymark_state_vm_runtimes::SpawningFactory::new(
         Arc::clone(&backend),
         Arc::clone(&codec),
         executable_state,
         interpreter_provider,
         effector_provider,
+        hooks_provider,
         snapshot_batcher,
     );
 

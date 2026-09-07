@@ -13,7 +13,7 @@ waymark-state-vm-runtimes-core = { workspace = true }
 waymark-vm-codec-core = { workspace = true }
 waymark-vm-driver = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
-waymark-vm-driver-hooks-noop = { workspace = true }
+waymark-vm-driver-hooks = { workspace = true }
 waymark-vm-driver-thread = { workspace = true }
 waymark-vm-executable = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
