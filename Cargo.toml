@@ -72,6 +72,7 @@ waymark-observability-events-payload = { path = "crates/lib/observability-events
 waymark-observability-events-query-backend = { path = "crates/lib/observability-events-query-backend" }
 waymark-observability-events-retention-backend = { path = "crates/lib/observability-events-retention-backend" }
 waymark-observability-events-sink-backend = { path = "crates/lib/observability-events-sink-backend" }
+waymark-observability-events-vm-driver-hooks = { path = "crates/lib/observability-events-vm-driver-hooks" }
 waymark-observability-events-vm-driver-hooks-core = { path = "crates/lib/observability-events-vm-driver-hooks-core" }
 waymark-observability-events-vm-driver-hooks-fullset = { path = "crates/lib/observability-events-vm-driver-hooks-fullset" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
