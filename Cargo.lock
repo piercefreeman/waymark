@@ -4515,6 +4515,7 @@ dependencies = [
  "waymark-state-vm-runtimes-core",
  "waymark-system-vm",
  "waymark-vm-codec-rmp",
+ "waymark-vm-driver-hooks-tracing",
  "waymark-vm-interpreter-fullset",
  "waymark-vm-value-python",
  "waymark-vm-value-python-convert-proto",
