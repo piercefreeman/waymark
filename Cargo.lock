@@ -4951,6 +4951,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-observability-events-vm-driver-hooks"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "serde_json",
+ "tokio",
+ "waymark-action-core",
+ "waymark-ids",
+ "waymark-lossy-batcher",
+ "waymark-nonzero-duration",
+ "waymark-observability-events-core",
+ "waymark-observability-events-emitter",
+ "waymark-observability-events-payload",
+ "waymark-observability-events-vm-driver-hooks-core",
+ "waymark-observability-events-vm-driver-hooks-fullset",
+ "waymark-vm-driver",
+ "waymark-vm-driver-core",
+ "waymark-vm-driver-hooks",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-extcallset",
+ "waymark-vm-interpreter-fullset",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
 name = "waymark-observability-events-vm-driver-hooks-core"
 version = "0.1.0"
 
