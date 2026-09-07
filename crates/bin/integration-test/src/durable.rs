@@ -60,6 +60,7 @@ pub async fn run_durable_mode(
         durable_execution_config(),
         Arc::new(stack.backend.clone()),
         Arc::clone(&worker_pool),
+        None,
         shutdown_token.child_token(),
         force_shutdown_token.child_token(),
     )
