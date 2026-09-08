@@ -15,6 +15,17 @@ pub struct ObservabilityEventsConfig {
 
     /// How often the retention sweep runs.
     pub retention_sweep_interval: NonZeroDuration,
+
+    /// What the VM driver hooks record beyond what they always record.
+    pub vm_driver_hooks_policy: VmDriverHooksPolicy,
+}
+
+/// The config's own word on what the VM driver hooks record; the bringup
+/// turns it into the hooks' policy.
+#[derive(Debug, Clone, Copy)]
+pub struct VmDriverHooksPolicy {
+    /// Record a `snapshot_persisted` event per persisted snapshot.
+    pub record_snapshot_persisted: bool,
 }
 
 /// Error returned when reading an [`ObservabilityEventsConfig`] from the
@@ -24,6 +35,10 @@ pub enum FromEnvError {
     /// An integer-backed variable could not be read.
     #[error(transparent)]
     IntOrDefault(envfury::Error<envfury::OrParseError<std::num::ParseIntError>>),
+
+    /// A boolean variable could not be read.
+    #[error(transparent)]
+    BoolOrDefault(envfury::Error<envfury::OrParseError<std::str::ParseBoolError>>),
 
     /// The lossy batcher policy asks for more concurrent flushes than its
     /// buffers can hold.
@@ -59,6 +74,12 @@ impl ObservabilityEventsConfig {
         )
         .map_err(FromEnvError::IntOrDefault)?;
 
+        let record_snapshot_persisted: bool = envfury::or_parse(
+            "WAYMARK_OBSERVABILITY_EVENTS_RECORD_SNAPSHOT_PERSISTED",
+            "false",
+        )
+        .map_err(FromEnvError::BoolOrDefault)?;
+
         let lossy_batcher_policy = waymark_lossy_batcher::Policy {
             buffers,
             max_batch,
@@ -74,6 +95,9 @@ impl ObservabilityEventsConfig {
             retention_sweep_interval: NonZeroDuration::from_nonzero_millis(
                 retention_sweep_interval_millis,
             ),
+            vm_driver_hooks_policy: VmDriverHooksPolicy {
+                record_snapshot_persisted,
+            },
         })
     }
 }
