@@ -29,7 +29,7 @@ from waymark.proto import ast_pb2 as ir
 from waymark.proto import messages_pb2 as pb2
 
 from . import bridge
-from .actions import deserialize_result_payload
+from .actions import deserialize_workflow_outcome
 from .ir_builder import build_workflow_ir
 from .logger import configure as configure_logger
 from .serialization import build_arguments_from_kwargs
@@ -277,9 +277,7 @@ def _deserialize_workflow_result(
     workflow_cls: type[Workflow],
     result_bytes: bytes,
 ) -> Any:
-    arguments = pb2.WorkflowArguments()
-    arguments.ParseFromString(result_bytes)
-    result = deserialize_result_payload(arguments)
+    result = deserialize_workflow_outcome(result_bytes)
     if result.error:
         raise RuntimeError(f"workflow failed: {result.error}")
 

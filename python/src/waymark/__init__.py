@@ -4,9 +4,10 @@ from . import bridge  # noqa: F401
 from . import workflow_runtime as _workflow_runtime  # noqa: F401
 from .actions import (
     ActionResultPayload,
+    WorkflowOutcomePayload,
     action,
     deserialize_action_result,
-    deserialize_result_payload,
+    deserialize_workflow_outcome,
     serialize_raised_exception,
     serialize_returned_value,
 )
@@ -48,7 +49,8 @@ __all__ = [
     "serialize_returned_value",
     "serialize_raised_exception",
     "deserialize_action_result",
-    "deserialize_result_payload",
+    "deserialize_workflow_outcome",
+    "WorkflowOutcomePayload",
     "Depend",
     "Depends",
     "provide_dependencies",
