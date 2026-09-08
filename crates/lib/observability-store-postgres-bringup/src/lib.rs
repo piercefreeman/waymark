@@ -25,7 +25,8 @@ pub enum SchemaPoolError {
 
 /// Connect a pool for one observability consumer, scoped to `schema`:
 /// the schema is created if missing, and every connection defaults its
-/// `search_path` to it, so the consumer's queries stay unqualified.
+/// `search_path` to it, so the consumer's queries stay unqualified, and
+/// carries the config's statement timeout.
 ///
 /// `schema` is an internal constant, not operator input; it must be a
 /// plain identifier (it is only quote-wrapped, not escaped).
@@ -38,6 +39,7 @@ pub async fn schema_pool(
         .expose_secret()
         .parse::<sqlx::postgres::PgConnectOptions>()
         .map_err(SchemaPoolError::Url)?;
+    let options = options.options([("statement_timeout", config.statement_timeout.as_millis())]);
 
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(config.max_connections.get())
@@ -62,8 +64,8 @@ pub enum ReadSchemaPoolError {
 
 /// Connect a pool for one observability consumer that only reads, scoped
 /// to `schema`, which has to exist already: every connection defaults its
-/// `search_path` to it, and nothing is created — the URL may name a
-/// replica, where nothing can be.
+/// `search_path` to it and carries the config's statement timeout, and
+/// nothing is created — the URL may name a replica, where nothing can be.
 ///
 /// `schema` is an internal constant, not operator input; it must be a
 /// plain identifier (it is only quote-wrapped, not escaped).
@@ -76,6 +78,7 @@ pub async fn read_schema_pool(
         .expose_secret()
         .parse::<sqlx::postgres::PgConnectOptions>()
         .map_err(ReadSchemaPoolError::Url)?;
+    let options = options.options([("statement_timeout", config.statement_timeout.as_millis())]);
 
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(config.max_connections.get())
