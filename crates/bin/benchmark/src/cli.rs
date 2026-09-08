@@ -22,6 +22,13 @@ pub struct BenchmarkArgs {
     pub dsn: SecretString,
     #[arg(long, default_value_t = false)]
     pub observe: bool,
+    /// Bring the observability subsystem up for the run — the events
+    /// pipeline and the essential-metrics sampler — as a worker node does.
+    #[arg(long, default_value_t = false)]
+    pub observability: bool,
+    /// The observability database; defaults to `--dsn`.
+    #[arg(long, requires = "observability")]
+    pub observability_dsn: Option<SecretString>,
     #[arg(long, num_args = 0..=1, default_missing_value = "-")]
     pub json: Option<String>,
     #[arg(long, num_args = 0..=1, default_missing_value = "target/benchmark-trace.json")]

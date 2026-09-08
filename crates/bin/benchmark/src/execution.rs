@@ -30,9 +30,10 @@ fn batch_delay(name: &'static str) -> Result<NonZeroDuration, color_eyre::eyre::
 
 pub fn durable_execution_config(
     max_pinned: NonZeroUsize,
+    node_id: waymark_ids::NodeId,
 ) -> Result<waymark_execution_bringup::Config<uuid::Uuid>, color_eyre::eyre::Report> {
     Ok(waymark_execution_bringup::Config {
-        node_id: uuid::Uuid::new_v4(),
+        node_id: node_id.into(),
         action_effect_reconciler_lock_ttl: Duration::from_secs(15).try_into().unwrap(),
         action_effect_reconciler_lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
         max_pinned,
