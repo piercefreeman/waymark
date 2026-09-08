@@ -29,7 +29,7 @@ use waymark_proto::python_value as proto_value;
 use waymark_vm_runtime_exception::Exception;
 use waymark_vm_value_python::{ReadyValue, Value};
 
-pub use waymark_vm_value_convert_core::PendingPromiseError;
+use waymark_vm_value_convert_core::PendingPromiseError;
 
 /// Stateless converter with all proto-to-VM value conversion impls.
 pub struct Converter;
