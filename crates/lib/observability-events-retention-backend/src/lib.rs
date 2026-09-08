@@ -7,7 +7,7 @@ pub trait ApplyRetention {
     /// Error type for the sweep.
     type Error: std::fmt::Debug;
 
-    /// Delete every event stamped before `cutoff`; returns how many rows
+    /// Delete every event stamped before `cutoff`; returns how many events
     /// were deleted.
     fn apply_retention(
         &self,

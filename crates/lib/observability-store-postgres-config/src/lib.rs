@@ -75,8 +75,8 @@ impl PostgresConfig {
         let read_max_connections =
             envfury::or_parse("WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS", "4")
                 .map_err(FromEnvError::ReadMaxConnections)?;
-        // 10 minutes: a retention sweep or a migration on a large table
-        // is slow before it is stuck.
+        // 10 minutes: a migration on a large table is slow before it is
+        // stuck; a retention sweep is chunked and never needs that long.
         let write_statement_timeout_millis: NonZeroU64 = envfury::or_parse(
             "WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS",
             "600000",
