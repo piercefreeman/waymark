@@ -20,11 +20,11 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-serde_json = { workspace = true }
 waymark-action-core = { workspace = true }
 waymark-action-runtime-metadata-compat = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-proto-python-value-conversions = { workspace = true }
+waymark-vm-value-convert-proto = { workspace = true }
 
 tokio = { workspace = true, features = ["macros", "rt"] }
 

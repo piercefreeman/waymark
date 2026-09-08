@@ -4,23 +4,37 @@ use crate::{ActionResultError, Converter, MissingOutcomeError};
 
 /// Convert proto workflow arguments back into a VM ready value.
 ///
-/// The [`proto::WorkflowArguments`] message is converted to a JSON object
-/// via [`waymark_proto_message_conversions::workflow_arguments_to_json`] and then
-/// into a [`waymark_vm_value_python::ReadyValue::Dict`].
+/// The framing-level argument names become the keys of a
+/// [`waymark_vm_value_python::ReadyValue::Dict`], each carrying the value
+/// its opaque bytes decode to.  The names keep the order the framing
+/// gave them.
 ///
 /// Fallible since the framing-level arguments carry their values as
 /// opaque encoded values that decode here.
 impl TryConvert<&waymark_proto::messages::WorkflowArguments, waymark_vm_value_python::ReadyValue>
     for Converter
 {
-    type Error = waymark_proto_message_conversions::DecodeArgumentError;
+    type Error = crate::DecodeArgumentError;
 
     fn try_convert(
         value: &waymark_proto::messages::WorkflowArguments,
     ) -> Result<waymark_vm_value_python::ReadyValue, Self::Error> {
-        let json = waymark_proto_message_conversions::workflow_arguments_to_json(value)?;
-        let value = waymark_vm_value_convert_json::Converter::convert(json);
-        Ok(value)
+        let mut entries = indexmap::IndexMap::with_capacity(value.arguments.len());
+        for argument in &value.arguments {
+            let decoded = waymark_proto_python_value_conversions::decode_workflow_argument_value(
+                &argument.value,
+            )
+            .map_err(|source| crate::DecodeArgumentError {
+                key: argument.key.clone(),
+                source,
+            })?;
+            entries.insert(
+                argument.key.clone(),
+                waymark_vm_value_convert_proto::Converter::convert(&decoded),
+            );
+        }
+
+        Ok(waymark_vm_value_python::ReadyValue::Dict(entries))
     }
 }
 
@@ -29,9 +43,7 @@ impl TryConvert<&waymark_proto::messages::WorkflowArguments, waymark_vm_value_py
 ///
 /// This is the reverse of the
 /// [`TryConvert<&ReadyValue, WorkflowArgumentValue>`] impl on this
-/// converter.  The proto value is converted to JSON via
-/// [`waymark_proto_python_value_conversions::workflow_argument_value_to_json`] and
-/// then into a [`waymark_vm_value_python::ReadyValue`].
+/// converter.
 impl
     TryConvert<
         &waymark_proto::python_value::WorkflowArgumentValue,
@@ -43,8 +55,7 @@ impl
     fn try_convert(
         value: &waymark_proto::python_value::WorkflowArgumentValue,
     ) -> Result<waymark_vm_value_python::ReadyValue, Self::Error> {
-        let json = waymark_proto_python_value_conversions::workflow_argument_value_to_json(value);
-        waymark_vm_value_convert_json::Converter::try_convert(json)
+        waymark_vm_value_convert_proto::Converter::try_convert(value)
     }
 }
 
@@ -128,14 +139,7 @@ impl
         waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
         Self::Error,
     > {
-        Ok(waymark_vm_runtime_exception::Exception {
-            type_id: exception.type_id.clone(),
-            details: exception
-                .details
-                .as_deref()
-                .map(Self::convert)
-                .unwrap_or(waymark_vm_value_python::ReadyValue::None),
-        })
+        waymark_vm_value_convert_proto::Converter::try_convert(exception)
     }
 }
 
@@ -160,13 +164,17 @@ mod tests {
         Converter::try_convert(result).expect("the encoded value decodes")
     }
 
+    fn encoded(
+        value: waymark_vm_value_python::ReadyValue,
+    ) -> waymark_proto::python_value::WorkflowArgumentValue {
+        Converter::try_convert(&value).expect("no pending promise in the value")
+    }
+
     #[test]
     fn returned_value_becomes_the_settled_value() {
-        let returned = waymark_proto_python_value_conversions::returned_value(
-            waymark_proto_python_value_conversions::json_to_workflow_argument_value(
-                &serde_json::json!(42),
-            ),
-        );
+        let returned = waymark_proto_python_value_conversions::returned_value(encoded(
+            waymark_vm_value_python::ReadyValue::Int(42),
+        ));
 
         let waymark_action_runtime_core::ActionCallOutcome::Value(value) =
             outcome(&action_result(returned))
@@ -221,11 +229,16 @@ mod tests {
         let raised = waymark_proto_python_value_conversions::raised_exception(
             waymark_proto::python_value::WorkflowExceptionValue {
                 type_id: "RetryCounterError".to_owned(),
-                details: Some(Box::new(
-                    waymark_proto_python_value_conversions::json_to_workflow_argument_value(
-                        &serde_json::json!({ "message": "attempt 1 has not reached success" }),
-                    ),
-                )),
+                details: Some(Box::new(encoded(
+                    waymark_vm_value_python::ReadyValue::Dict(indexmap::IndexMap::from([(
+                        "message".to_owned(),
+                        waymark_vm_value_python::Value::Ready(
+                            waymark_vm_value_python::ReadyValue::String(
+                                "attempt 1 has not reached success".to_owned(),
+                            ),
+                        ),
+                    )])),
+                ))),
             },
         );
 

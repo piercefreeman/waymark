@@ -147,9 +147,10 @@ mod tests {
 
     fn completion(metadata: Vec<u8>) -> waymark_proto::messages::ActionResult {
         let returned = waymark_proto_python_value_conversions::returned_value(
-            waymark_proto_python_value_conversions::json_to_workflow_argument_value(
-                &serde_json::Value::Null,
-            ),
+            waymark_vm_value_convert_proto::Converter::try_convert(
+                &waymark_vm_value_python::ReadyValue::None,
+            )
+            .expect("a None holds no pending promise"),
         );
 
         waymark_proto::messages::ActionResult {
