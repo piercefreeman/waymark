@@ -5062,6 +5062,8 @@ dependencies = [
  "waymark-observability-events-query-backend",
  "waymark-observability-events-retention-backend",
  "waymark-observability-events-sink-backend",
+ "waymark-observability-state-core",
+ "waymark-observability-state-query-backend",
  "waymark-observability-store-postgres-migrations",
  "waymark-query-limit",
  "waymark-sqlx-postgres-schema-pool",
