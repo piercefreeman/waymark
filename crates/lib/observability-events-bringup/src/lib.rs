@@ -1,10 +1,8 @@
 //! Bringup for the observability-events subsystem: the pipeline from the
 //! emitter through the lossy batcher into a store sink, plus the
-//! retention sweep — over a backend implementing the observability-events
-//! sink and retention traits — and the observability-events API router
-//! over a backend implementing the query traits. The two may be the same
-//! store, or two stores over different pools, so the reads can never
-//! take the pipeline's connections.
+//! retention sweep — over any backend implementing the
+//! observability-events backend traits — and the observability-events
+//! API router over the same backend.
 
 #![warn(missing_docs)]
 

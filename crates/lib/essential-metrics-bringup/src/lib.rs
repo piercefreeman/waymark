@@ -1,10 +1,7 @@
 //! Bringup for the essential-metrics subsystem: the pipeline from the
 //! sampler through the lossy batcher into a store sink, plus the
-//! retention sweep — over a backend implementing the essential-metrics
-//! sink and retention traits — and the essential-metrics API router over
-//! a backend implementing the query traits. The two may be the same
-//! store, or two stores over different pools, so the reads can never
-//! take the pipeline's connections.
+//! retention sweep — over any backend implementing the essential-metrics
+//! backend traits.
 
 #![warn(missing_docs)]
 
