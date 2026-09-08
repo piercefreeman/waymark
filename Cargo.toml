@@ -77,6 +77,7 @@ waymark-observability-events-vm-driver-hooks-core = { path = "crates/lib/observa
 waymark-observability-events-vm-driver-hooks-fullset = { path = "crates/lib/observability-events-vm-driver-hooks-fullset" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }
+waymark-observability-state-core = { path = "crates/lib/observability-state-core" }
 waymark-observability-store-postgres = { path = "crates/lib/observability-store-postgres" }
 waymark-observability-store-postgres-bringup = { path = "crates/lib/observability-store-postgres-bringup" }
 waymark-observability-store-postgres-config = { path = "crates/lib/observability-store-postgres-config" }
