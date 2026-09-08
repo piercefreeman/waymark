@@ -15,6 +15,7 @@ waymark-observability-events-emitter = { workspace = true }
 waymark-observability-events-query-backend = { workspace = true }
 waymark-observability-events-retention-backend = { workspace = true }
 waymark-observability-events-sink-backend = { workspace = true }
+waymark-observability-events-vm-driver-hooks = { workspace = true }
 waymark-retention-sweeper = { workspace = true }
 
 aide = { workspace = true }
