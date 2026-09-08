@@ -5,7 +5,6 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use color_eyre::eyre::{WrapErr as _, bail};
-use sqlx::PgPool;
 use tokio::process::{Child, Command};
 use tracing::{info, warn};
 
@@ -177,8 +176,8 @@ pub async fn shutdown_worker_if_running(worker: &mut Option<WorkerProcess>) {
     }
 }
 
-pub async fn wait_for_worker_status(
-    pool: &PgPool,
+pub async fn wait_for_node_sample(
+    store: &waymark_observability_store_postgres::Store,
     timeout: Duration,
     startup_log_interval: Duration,
     worker: &mut WorkerProcess,
@@ -199,13 +198,15 @@ pub async fn wait_for_worker_status(
             } else {
                 tail.join("\n")
             };
-            bail!("worker process exited before first heartbeat: {status}\nlog tail:\n{tail_text}");
+            bail!(
+                "worker process exited before its first node sample: {status}\nlog tail:\n{tail_text}"
+            );
         }
 
-        if data::fetch_latest_worker_status(pool).await?.is_some() {
+        if data::fetch_latest_node_sample(store).await?.is_some() {
             info!(
                 startup_wait_secs = started.elapsed().as_secs_f64(),
-                "worker status heartbeat detected"
+                "first node sample detected"
             );
             return Ok(());
         }
@@ -213,7 +214,7 @@ pub async fn wait_for_worker_status(
         if last_log_at.elapsed() >= startup_log_interval {
             info!(
                 startup_wait_secs = started.elapsed().as_secs_f64(),
-                "waiting for first worker_status heartbeat"
+                "waiting for the first node sample"
             );
             last_log_at = Instant::now();
         }
@@ -221,5 +222,5 @@ pub async fn wait_for_worker_status(
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    bail!("timed out waiting for worker_status rows; worker may not have started successfully")
+    bail!("timed out waiting for node samples; worker may not have started successfully")
 }
