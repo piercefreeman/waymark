@@ -1,32 +1,23 @@
 //! A converter that provides conversion for the action runtime.
+//!
+//! [`Converter`] is generic over a wrapped value converter: the envelope
+//! logic — correlation-metadata encoding and loss lowering — is written
+//! once here, and everything value-specific is delegated through
+//! [`TryConvert`](waymark_convert_core::TryConvert) bounds on the
+//! `ValueConverter` parameter.  Wiring pins the flavor's own conversion
+//! crate as the parameter; nothing in this crate names a flavor.
 
 #![warn(missing_docs)]
 
-mod from_proto;
 mod loss;
+mod resolution;
 mod to_dispatch;
 
 /// A converter that provides conversion for the action runtime.
-pub struct Converter;
-
-/// The result named no outcome, so the worker never said how the call
-/// completed — neither a returned value nor a raised exception, which is
-/// a worker that violated the protocol rather than a call that produced
-/// nothing.
-#[derive(Debug, thiserror::Error)]
-#[error("the action result names no outcome")]
-pub struct MissingOutcomeError;
-
-/// Error reading the result an [`ActionResult`] carries.
 ///
-/// [`ActionResult`]: waymark_proto::messages::ActionResult
-#[derive(Debug, thiserror::Error)]
-pub enum ActionResultError {
-    /// The encoded result could not be decoded.
-    #[error("decoding the action result")]
-    Decode(#[source] prost::DecodeError),
-
-    /// The decoded result did not say how the call completed.
-    #[error("reading the action result's outcome")]
-    Outcome(#[source] MissingOutcomeError),
+/// Generic over the `ValueConverter` performing the value-level work;
+/// use the parameterized type where envelope conversions are needed and
+/// the bare value converter where value-level ones are.
+pub struct Converter<ValueConverter> {
+    _value_converter: core::marker::PhantomData<ValueConverter>,
 }

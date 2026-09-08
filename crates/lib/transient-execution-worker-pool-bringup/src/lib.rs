@@ -15,10 +15,14 @@ pub type ExecutionFor<Pool> = waymark_transient_execution_bringup::Execution<
         waymark_action_runtime_worker_pool::WorkerPoolActionRequester<
             Pool,
             waymark_action_runtime_metadata::ActionCallCorrelation,
+            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
         >,
         waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider<
             Pool,
             waymark_action_runtime_metadata::ActionCallCorrelation,
+            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >,
     >,
 >;
@@ -52,12 +56,19 @@ where
     <Pool as waymark_worker_core::QueueActionDispatch>::Error: core::fmt::Debug + Send + 'static,
     <Pool as waymark_worker_core::PollActionResults>::Error: core::fmt::Debug + Send + 'static,
 {
-    let action_call_requester =
-        waymark_action_runtime_worker_pool::WorkerPoolActionRequester::new(worker_pool.clone());
+    let action_call_requester = waymark_action_runtime_worker_pool::WorkerPoolActionRequester::<
+        _,
+        _,
+        waymark_vm_value_python::ReadyValue,
+        waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
+    >::new(worker_pool.clone());
     let action_call_completions_provider =
-        waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::new(
-            worker_pool,
-        );
+        waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::<
+            _,
+            _,
+            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
+        >::new(worker_pool);
 
     waymark_transient_execution_bringup::execute_with(
         runtime,

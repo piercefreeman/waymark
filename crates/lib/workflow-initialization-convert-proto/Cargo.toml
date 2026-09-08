@@ -6,18 +6,17 @@ edition = "2024"
 
 [dependencies]
 waymark-convert-core = { workspace = true }
-waymark-proto = { workspace = true }
 waymark-vm-compiler-metadata = { workspace = true }
 waymark-vm-runtime = { workspace = true }
+
+index_type = { workspace = true }
+
+[dev-dependencies]
+waymark-proto = { workspace = true }
 waymark-vm-value-python = { workspace = true }
 waymark-vm-value-python-convert-proto = { workspace = true }
 
-index_type = { workspace = true }
 prost = { workspace = true }
-thiserror = { workspace = true }
 
 [lib]
 doctest = false
-
-[dev-dependencies]
-waymark-vm-value-python-convert-proto = { workspace = true }

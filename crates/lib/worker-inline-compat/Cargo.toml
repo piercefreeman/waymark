@@ -5,11 +5,7 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
-waymark-action-runtime-convert = { workspace = true }
 waymark-action-runtime-core = { workspace = true }
 waymark-convert-core = { workspace = true }
-waymark-proto = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
-waymark-vm-value-python = { workspace = true }
-waymark-vm-value-python-convert-proto = { workspace = true }
 waymark-worker-inline = { workspace = true }

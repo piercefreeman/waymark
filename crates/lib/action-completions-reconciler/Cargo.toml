@@ -16,7 +16,6 @@ waymark-vm-codec-core = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
-waymark-vm-value-python = { workspace = true, features = ["serde"] }
 
 nonempty-collections = { workspace = true }
 serde = { workspace = true }
@@ -27,6 +26,8 @@ tracing = { workspace = true }
 [dev-dependencies]
 waymark-ids = { workspace = true }
 waymark-vm-codec-rmp = { workspace = true }
+waymark-vm-value-python = { workspace = true, features = ["serde"] }
+waymark-vm-value-python-convert-proto = { workspace = true }
 
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
