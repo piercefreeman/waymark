@@ -22,6 +22,7 @@ waymark-action-runtime-worker-stream = { path = "crates/lib/action-runtime-worke
 waymark-api-essential-metrics-http = { path = "crates/lib/api-essential-metrics-http" }
 waymark-api-observability-events-http = { path = "crates/lib/api-observability-events-http" }
 waymark-api-observability-events-http-types = { path = "crates/lib/api-observability-events-http-types" }
+waymark-api-observability-state-http = { path = "crates/lib/api-observability-state-http" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
 waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migrations" }
 waymark-backends-core = { path = "crates/lib/backends-core" }
