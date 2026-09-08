@@ -167,7 +167,9 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 | `WAYMARK_HTTP_ENABLED` | Enable the HTTP interface | `false` |
 | `WAYMARK_HTTP_ADDR` | HTTP server bind address | `0.0.0.0:24119` |
 | `WAYMARK_OBSERVABILITY_DATABASE_URL` | DSN for the observability store, backend picked by URL scheme; it gets its own schemas and pools even when sharing the main database | `WAYMARK_DATABASE_URL` |
-| `WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS` | Connection cap per observability pool (Postgres store); when sharing the main database these are additive to the main pool's connections | `4` |
+| `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` | DSN the observability API reads through — the same database, or a read replica of it; must name the same backend as the observability DSN | `WAYMARK_OBSERVABILITY_DATABASE_URL` |
+| `WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS` | Connection cap for the observability write pool (Postgres store); when sharing the main database these are additive to the main pool's connections | `4` |
+| `WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS` | Connection cap for the observability read pool (Postgres store), the one the API's reads can exhaust without touching the write pool | `4` |
 
 #### Advanced tuning
 
