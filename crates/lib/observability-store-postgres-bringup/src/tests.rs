@@ -1,6 +1,6 @@
 use std::num::NonZeroU32;
 
-use waymark_observability_store_postgres_config::PostgresConfig;
+use waymark_observability_store_postgres_config::PoolConfig;
 
 use super::*;
 
@@ -14,7 +14,7 @@ async fn schema_pool_creates_the_schema_and_scopes_the_search_path() {
         .await
         .expect("drop leftover test schema");
 
-    let config = PostgresConfig {
+    let config = PoolConfig {
         url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
         max_connections: NonZeroU32::new(2).expect("non-zero"),
     };
@@ -42,6 +42,52 @@ async fn schema_pool_creates_the_schema_and_scopes_the_search_path() {
     assert_eq!(probe_schema, TEST_SCHEMA);
 
     sqlx::query(&format!(r#"DROP SCHEMA "{TEST_SCHEMA}" CASCADE"#))
+        .execute(&bootstrap)
+        .await
+        .expect("drop test schema");
+}
+
+#[tokio::test]
+async fn read_schema_pool_requires_the_schema_and_creates_nothing() {
+    let bootstrap = waymark_support_test::postgres_setup().await;
+    let schema = "observability_postgres_bringup_test_read";
+    sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#))
+        .execute(&bootstrap)
+        .await
+        .expect("drop leftover test schema");
+    let config = PoolConfig {
+        url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
+        max_connections: NonZeroU32::new(2).expect("non-zero"),
+    };
+
+    let error = read_schema_pool(&config, schema)
+        .await
+        .expect_err("nothing provisioned the schema");
+    assert!(
+        matches!(
+            error,
+            ReadSchemaPoolError::Connect(
+                waymark_sqlx_postgres_schema_pool::ExistingSchemaError::Missing { .. }
+            )
+        ),
+        "{error}"
+    );
+
+    // The write side provisions; the read side then finds it.
+    let write_pool = schema_pool(&config, schema)
+        .await
+        .expect("the write pool creates the schema");
+    let read_pool = read_schema_pool(&config, schema)
+        .await
+        .expect("the read pool finds the schema");
+    let (current_schema,): (String,) = sqlx::query_as("SELECT current_schema()")
+        .fetch_one(&read_pool)
+        .await
+        .expect("read current schema");
+    assert_eq!(current_schema, schema);
+
+    drop(write_pool);
+    sqlx::query(&format!(r#"DROP SCHEMA "{schema}" CASCADE"#))
         .execute(&bootstrap)
         .await
         .expect("drop test schema");

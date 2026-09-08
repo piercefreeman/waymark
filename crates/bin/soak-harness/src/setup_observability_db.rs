@@ -23,7 +23,7 @@ pub async fn connect(
 
     let pool = crate::common::wait_for_database("the observability database", timeout, || async {
         match waymark_observability_store_postgres_bringup::schema_pool(
-            &postgres_config,
+            &postgres_config.write,
             OBSERVABILITY_SCHEMA,
         )
         .await
