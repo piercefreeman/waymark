@@ -34,7 +34,8 @@ pub type EmitterFor<Backend> = waymark_observability_events_emitter::Emitter<
 /// Start the observability-events pipeline over `write_backend`: the
 /// lossy batcher into the store sink, plus the retention sweep, all
 /// ending on `shutdown_token` — and the observability-events API router
-/// over `read_backend`, and the node's emitter for producers to share.
+/// over `read_backend`, and the node's emitter for producers to share,
+/// with what the VM driver hooks record through it.
 ///
 /// The emitter is the node's one event stream: constructed here, once,
 /// and shared behind an `Arc` by whoever produces events.
@@ -44,7 +45,12 @@ pub fn start<WriteBackend, ReadBackend>(
     write_backend: Arc<WriteBackend>,
     read_backend: Arc<ReadBackend>,
     shutdown_token: tokio_util::sync::CancellationToken,
-) -> (Handles, aide::axum::ApiRouter, EmitterFor<WriteBackend>)
+) -> (
+    Handles,
+    aide::axum::ApiRouter,
+    EmitterFor<WriteBackend>,
+    waymark_observability_events_vm_driver_hooks::Policy,
+)
 where
     WriteBackend: waymark_observability_events_sink_backend::AppendEvents,
     WriteBackend:
@@ -99,5 +105,9 @@ where
         retention: tokio::spawn(retention_task),
     };
 
-    (handles, api_router, emitter)
+    let vm_driver_hooks_policy = waymark_observability_events_vm_driver_hooks::Policy {
+        snapshot_persisted: config.vm_driver_hooks_policy.record_snapshot_persisted,
+    };
+
+    (handles, api_router, emitter, vm_driver_hooks_policy)
 }
