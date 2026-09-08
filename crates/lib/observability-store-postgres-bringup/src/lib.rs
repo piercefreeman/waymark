@@ -8,7 +8,7 @@
 
 #![warn(missing_docs)]
 
-use waymark_observability_store_postgres_config::PostgresConfig;
+use waymark_observability_store_postgres_config::PoolConfig;
 use waymark_sqlx_postgres_schema_pool::PgPoolOptionsExt as _;
 
 /// Error returned by [`schema_pool`].
@@ -30,7 +30,7 @@ pub enum SchemaPoolError {
 /// `schema` is an internal constant, not operator input; it must be a
 /// plain identifier (it is only quote-wrapped, not escaped).
 pub async fn schema_pool(
-    config: &PostgresConfig,
+    config: &PoolConfig,
     schema: &str,
 ) -> Result<sqlx::PgPool, SchemaPoolError> {
     let options = config
@@ -41,9 +41,47 @@ pub async fn schema_pool(
 
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(config.max_connections.get())
-        .connect_with_schema(options, schema)
+        .connect_creating_schema(options, schema)
         .await
         .map_err(SchemaPoolError::Connect)?;
+
+    Ok(pool)
+}
+
+/// Error returned by [`read_schema_pool`].
+#[derive(Debug, thiserror::Error)]
+pub enum ReadSchemaPoolError {
+    /// The URL did not parse as Postgres connect options.
+    #[error("invalid observability database URL: {0}")]
+    Url(#[source] sqlx::Error),
+
+    /// The pool could not connect, or the schema is not there.
+    #[error("connecting the observability read pool: {0}")]
+    Connect(#[source] waymark_sqlx_postgres_schema_pool::ExistingSchemaError),
+}
+
+/// Connect a pool for one observability consumer that only reads, scoped
+/// to `schema`, which has to exist already: every connection defaults its
+/// `search_path` to it, and nothing is created — the URL may name a
+/// replica, where nothing can be.
+///
+/// `schema` is an internal constant, not operator input; it must be a
+/// plain identifier (it is only quote-wrapped, not escaped).
+pub async fn read_schema_pool(
+    config: &PoolConfig,
+    schema: &str,
+) -> Result<sqlx::PgPool, ReadSchemaPoolError> {
+    let options = config
+        .url
+        .expose_secret()
+        .parse::<sqlx::postgres::PgConnectOptions>()
+        .map_err(ReadSchemaPoolError::Url)?;
+
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(config.max_connections.get())
+        .connect_requiring_schema(options, schema)
+        .await
+        .map_err(ReadSchemaPoolError::Connect)?;
 
     Ok(pool)
 }
