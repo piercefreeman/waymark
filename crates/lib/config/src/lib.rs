@@ -150,7 +150,7 @@ impl WorkerConfig {
         let http = waymark_http_config::HttpConfig::from_env()?;
 
         let observability =
-            waymark_observability_config::ObservabilityConfig::from_env_url_with_default(
+            waymark_observability_config::ObservabilityConfig::from_env_urls_with_default(
                 &database_url,
             )?;
 
