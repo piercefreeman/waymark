@@ -1,6 +1,6 @@
 use std::num::NonZeroU32;
 
-use waymark_observability_store_postgres_config::PostgresConfig;
+use waymark_observability_store_postgres_config::PoolConfig;
 
 use super::*;
 
@@ -14,7 +14,7 @@ async fn schema_pool_creates_the_schema_and_scopes_the_search_path() {
         .await
         .expect("drop leftover test schema");
 
-    let config = PostgresConfig {
+    let config = PoolConfig {
         url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
         max_connections: NonZeroU32::new(2).expect("non-zero"),
     };

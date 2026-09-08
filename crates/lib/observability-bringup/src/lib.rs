@@ -28,26 +28,24 @@ pub type Emitter =
 /// Error returned by [`start`].
 #[derive(Debug, thiserror::Error)]
 pub enum StartError {
-    /// The observability pool could not be brought up.
-    #[error("bringing up the observability pool: {0}")]
-    SchemaPool(#[source] waymark_observability_store_postgres_bringup::SchemaPoolError),
+    /// The observability write pool could not be brought up.
+    #[error("bringing up the observability write pool: {0}")]
+    WriteSchemaPool(#[source] waymark_observability_store_postgres_bringup::SchemaPoolError),
+
+    /// The observability read pool could not be brought up.
+    #[error("bringing up the observability read pool: {0}")]
+    ReadSchemaPool(#[source] waymark_observability_store_postgres_bringup::SchemaPoolError),
 
     /// The store migrations failed.
     #[error("migrating the observability store: {0}")]
     Migrate(#[source] sqlx::migrate::MigrateError),
 }
 
-/// Bring up the observability store — the schema-scoped pool and its
-/// migrations — as two stores, one the pipelines write through and one
-/// the API reads through, and every observability subsystem's pipeline
-/// over the first, all ending on `shutdown_token`; returns the
-/// observability API router over the second — the observability
-/// subsystems' routers and the observability-state router, the state
-/// being read straight off the store — alongside the task handles, and
-/// the node's event emitter for producers to share.
-///
-/// The two stores share one pool for now; a read that runs away still
-/// takes the pipelines' connections with it.
+/// Bring up the observability store — a write pool with the migrations,
+/// a read pool — and every observability subsystem's pipeline over the
+/// write side, all ending on `shutdown_token`; returns the observability
+/// API router over the read side alongside the task handles, and the
+/// node's event emitter for producers to share.
 ///
 /// `handle` is the sampling half of the essential-metrics recorder pair;
 /// the recording half must already be installed in the process-global
@@ -60,16 +58,25 @@ pub async fn start(
 ) -> Result<(Handles, aide::axum::ApiRouter, Emitter), StartError> {
     let Db::Postgres(postgres_config) = &config.db;
 
-    let pool = waymark_observability_store_postgres_bringup::schema_pool(postgres_config, SCHEMA)
-        .await
-        .map_err(StartError::SchemaPool)?;
+    // The write pool first, and the migrations through it: the read
+    // pool may point at a replica, which only ever sees the schema once
+    // the primary has it.
+    let write_pool =
+        waymark_observability_store_postgres_bringup::schema_pool(&postgres_config.write, SCHEMA)
+            .await
+            .map_err(StartError::WriteSchemaPool)?;
 
-    waymark_observability_store_postgres_migrations::run(&pool)
+    waymark_observability_store_postgres_migrations::run(&write_pool)
         .await
         .map_err(StartError::Migrate)?;
 
-    let write_store = Arc::new(waymark_observability_store_postgres::Store { pool: pool.clone() });
-    let read_store = Arc::new(waymark_observability_store_postgres::Store { pool });
+    let read_pool =
+        waymark_observability_store_postgres_bringup::schema_pool(&postgres_config.read, SCHEMA)
+            .await
+            .map_err(StartError::ReadSchemaPool)?;
+
+    let write_store = Arc::new(waymark_observability_store_postgres::Store { pool: write_pool });
+    let read_store = Arc::new(waymark_observability_store_postgres::Store { pool: read_pool });
 
     let (essential_metrics, essential_metrics_api_router) =
         waymark_essential_metrics_bringup::start(
