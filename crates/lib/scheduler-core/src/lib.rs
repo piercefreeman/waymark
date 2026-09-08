@@ -1,4 +1,4 @@
-//! Scheduler domain vocabulary and next-run math.
+//! Scheduler domain types and next-run math.
 //!
 //! These are the app-internal types: the persisted schedule definition
 //! blob is this crate's [`ScheduleDefinition`] through the snapshot-plane
