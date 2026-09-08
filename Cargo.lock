@@ -5018,6 +5018,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-observability-state-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "waymark-ids",
+ "waymark-node-sequence",
+ "waymark-observability-events-payload",
+]
+
+[[package]]
 name = "waymark-observability-store-postgres"
 version = "0.1.0"
 dependencies = [
