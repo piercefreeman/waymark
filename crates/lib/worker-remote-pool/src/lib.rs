@@ -52,7 +52,7 @@ where
         Err(err) => {
             pool.release_slot(worker_idx);
             proto::ActionResult {
-                payload: waymark_proto_python_value_conversions::encode_action_result_value(
+                payload: waymark_proto_python_value_conversions::encode_action_outcome(
                     &waymark_proto_python_value_conversions::raised_exception(
                         waymark_proto_python_value_conversions::exception_value(
                             "RemoteWorkerPoolError".to_owned(),

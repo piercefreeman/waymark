@@ -21,16 +21,16 @@ NULL_VALUE = struct_pb2.NULL_VALUE  # type: ignore[attr-defined]
 PRIMITIVE_TYPES = (str, int, float, bool, type(None))
 
 
-def dumps(value: Any) -> pb2v.WorkflowArgumentValue:
-    """Serialize a Python value into a WorkflowArgumentValue message."""
+def dumps(value: Any) -> pb2v.Value:
+    """Serialize a Python value into a Value message."""
 
     return _to_argument_value(value)
 
 
-def dumps_exception(exc: BaseException) -> pb2v.WorkflowExceptionValue:
+def dumps_exception(exc: BaseException) -> pb2v.ExceptionValue:
     """Serialize an exception into the exception value it denotes."""
 
-    return pb2v.WorkflowExceptionValue(
+    return pb2v.ExceptionValue(
         type_id=exc.__class__.__name__,
         details=_exception_details(exc),
     )
@@ -39,14 +39,14 @@ def dumps_exception(exc: BaseException) -> pb2v.WorkflowExceptionValue:
 def loads(data: Any) -> Any:
     """Deserialize a workflow argument payload into a Python object."""
 
-    if isinstance(data, pb2v.WorkflowArgumentValue):
+    if isinstance(data, pb2v.Value):
         argument = data
     elif isinstance(data, bytes):
         # A framing-level argument value: an encoded
-        # WorkflowArgumentValue.
-        argument = pb2v.WorkflowArgumentValue.FromString(data)
+        # Value.
+        argument = pb2v.Value.FromString(data)
     elif isinstance(data, dict):
-        argument = pb2v.WorkflowArgumentValue()
+        argument = pb2v.Value()
         json_format.ParseDict(data, argument)
     else:
         raise TypeError("argument value payload must be bytes, a dict or ArgumentValue message")
@@ -71,8 +71,8 @@ def arguments_to_kwargs(arguments: pb2.WorkflowArguments | None) -> dict[str, An
     return result
 
 
-def _to_argument_value(value: Any) -> pb2v.WorkflowArgumentValue:
-    argument = pb2v.WorkflowArgumentValue()
+def _to_argument_value(value: Any) -> pb2v.Value:
+    argument = pb2v.Value()
     if isinstance(value, PRIMITIVE_TYPES):
         argument.primitive.CopyFrom(_serialize_primitive(value))
         return argument
@@ -168,7 +168,7 @@ def _to_argument_value(value: Any) -> pb2v.WorkflowArgumentValue:
     raise TypeError(f"unsupported value type {type(value)!r}")
 
 
-def _exception_details(value: BaseException) -> pb2v.WorkflowArgumentValue:
+def _exception_details(value: BaseException) -> pb2v.Value:
     """Build the details value carried alongside an exception's type id.
 
     The particulars are this language's own choice, so they ride as an
@@ -201,7 +201,7 @@ def _exception_details(value: BaseException) -> pb2v.WorkflowArgumentValue:
     )
 
 
-def _from_argument_value(argument: pb2v.WorkflowArgumentValue) -> Any:
+def _from_argument_value(argument: pb2v.Value) -> Any:
     kind = argument.WhichOneof("kind")  # type: ignore[attr-defined]
     if kind == "primitive":
         return _primitive_to_python(argument.primitive)
@@ -247,8 +247,8 @@ def _serialize_exception_values(exc: BaseException) -> dict[str, Any]:
     return values
 
 
-def _serialize_primitive(value: Any) -> pb2v.PrimitiveWorkflowArgument:
-    primitive = pb2v.PrimitiveWorkflowArgument()
+def _serialize_primitive(value: Any) -> pb2v.PrimitiveValue:
+    primitive = pb2v.PrimitiveValue()
     if value is None:
         primitive.null_value = NULL_VALUE
     elif isinstance(value, bool):
@@ -264,7 +264,7 @@ def _serialize_primitive(value: Any) -> pb2v.PrimitiveWorkflowArgument:
     return primitive
 
 
-def _primitive_to_python(primitive: pb2v.PrimitiveWorkflowArgument) -> Any:
+def _primitive_to_python(primitive: pb2v.PrimitiveValue) -> Any:
     kind = primitive.WhichOneof("kind")  # type: ignore[attr-defined]
     if kind == "string_value":
         return primitive.string_value

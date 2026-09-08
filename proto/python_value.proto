@@ -13,18 +13,18 @@ import "google/protobuf/struct.proto";
 // value never crosses a language boundary in this form, so only the Python
 // flavor's own codecs read or write these messages.
 
-message WorkflowArgumentValue {
+message Value {
   oneof kind {
-    PrimitiveWorkflowArgument primitive = 1;
-    BaseModelWorkflowArgument basemodel = 2;
-    WorkflowExceptionValue exception = 3;
-    WorkflowListArgument list_value = 4;
-    WorkflowTupleArgument tuple_value = 5;
-    WorkflowDictArgument dict_value = 6;
+    PrimitiveValue primitive = 1;
+    BaseModelValue basemodel = 2;
+    ExceptionValue exception = 3;
+    ListValue list_value = 4;
+    TupleValue tuple_value = 5;
+    DictValue dict_value = 6;
   }
 }
 
-message PrimitiveWorkflowArgument {
+message PrimitiveValue {
   oneof kind {
     string string_value = 1;
     double double_value = 2;
@@ -35,10 +35,10 @@ message PrimitiveWorkflowArgument {
 }
 
 // Pydantic BaseModel or similar structured types
-message BaseModelWorkflowArgument {
+message BaseModelValue {
   string module = 1;
   string name = 2;
-  WorkflowDictArgument data = 3;
+  DictValue data = 3;
 }
 
 // How an action call completed, in this language's terms: the value the
@@ -52,12 +52,12 @@ message BaseModelWorkflowArgument {
 // Both arms carry values; what separates them is the state the VM
 // settles the awaiting promise in. An exception in the `value` arm is an
 // ordinary returned value — returning an exception is not raising it.
-message ActionResultValue {
+message ActionOutcome {
   // Required: a result naming no outcome is a worker that never said how
   // the call completed, not a call that produced nothing.
   oneof outcome {
-    WorkflowArgumentValue value = 1;
-    WorkflowExceptionValue exception = 2;
+    Value value = 1;
+    ExceptionValue exception = 2;
   }
 }
 
@@ -69,29 +69,29 @@ message ActionResultValue {
 // exception's own values, the class hierarchy for `except` matching).
 // Nothing about those particulars is wire-level structure: they are just
 // what this language chose to put in the details.
-message WorkflowExceptionValue {
+message ExceptionValue {
   string type_id = 1;
-  WorkflowArgumentValue details = 2;
+  Value details = 2;
 
   reserved 3, 4, 5, 6;
   reserved "message", "traceback", "values", "type_hierarchy";
 }
 
-message WorkflowListArgument {
-  repeated WorkflowArgumentValue items = 1;
+message ListValue {
+  repeated Value items = 1;
 }
 
-message WorkflowTupleArgument {
-  repeated WorkflowArgumentValue items = 1;
+message TupleValue {
+  repeated Value items = 1;
 }
 
 // A dictionary entry inside an encoded value — structural, unlike the
 // framing-level `waymark.messages.WorkflowArgument`.
-message WorkflowDictEntry {
+message DictEntry {
   string key = 1;
-  WorkflowArgumentValue value = 2;
+  Value value = 2;
 }
 
-message WorkflowDictArgument {
-  repeated WorkflowDictEntry entries = 1;
+message DictValue {
+  repeated DictEntry entries = 1;
 }
