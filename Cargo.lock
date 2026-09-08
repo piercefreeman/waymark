@@ -4691,6 +4691,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-retention-sweeper"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "tokio",
+ "tracing",
+ "waymark-nonzero-duration",
+]
+
+[[package]]
 name = "waymark-scheduler"
 version = "0.1.0"
 dependencies = [
