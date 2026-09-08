@@ -420,3 +420,157 @@ async fn vm_timeline_read_uses_its_index() {
         "the index must serve the order too, plan was:\n{plan}"
     );
 }
+
+/// A sweep deletes in chunks: with a chunk of three, all seven rows
+/// before the cutoff go, and the two rows past the cutoff stay.
+#[tokio::test]
+async fn retention_deletes_in_chunks() {
+    let store = test_store("observability_store_test_events_retention_chunks").await;
+    let node_id = waymark_ids::NodeId::new_uuid_v4();
+    let counter = waymark_node_sequence::NodeSequenceCounter::new();
+    let vm_id = waymark_ids::InstanceId::new_uuid_v4();
+    let events: Vec<_> = (0..9)
+        .map(|second| waymark_observability_events_core::Event {
+            node_id,
+            node_sequence: counter.next(),
+            at: chrono::DateTime::from_timestamp_secs(second).unwrap(),
+            payload: waymark_observability_events_payload::Payload::VmDriver(
+                waymark_observability_events_payload::vm_driver::Payload {
+                    vm_id,
+                    run_sequence: 0,
+                    observation:
+                        waymark_observability_events_payload::vm_driver::Observation::VmStarted,
+                },
+            ),
+        })
+        .collect();
+    waymark_observability_events_sink_backend::AppendEvents::append_events(
+        &store,
+        NESlice::try_from_slice(&events).expect("non-empty"),
+    )
+    .await
+    .expect("append events");
+
+    let deleted = crate::common::delete_before_in_chunks(
+        &store.pool,
+        "observability_events",
+        "at",
+        chrono::DateTime::from_timestamp_secs(7).unwrap(),
+        std::num::NonZeroU32::new(3).unwrap(),
+    )
+    .await
+    .expect("delete in chunks");
+    assert_eq!(deleted, 7);
+
+    let (remaining,): (i64,) = sqlx::query_as("SELECT count(*) FROM observability_events")
+        .fetch_one(&store.pool)
+        .await
+        .expect("count");
+    assert_eq!(remaining, 2);
+}
+
+/// Retention sweeps the instances with the events: a VM whose every event
+/// is before the cutoff loses its instance, a VM with an event past it
+/// keeps its own, and the count returned is the events'.
+#[tokio::test]
+async fn retention_sweeps_the_instances_the_events_no_longer_speak_for() {
+    let store = test_store("observability_store_test_events_retention_instances").await;
+    let node_id = waymark_ids::NodeId::new_uuid_v4();
+    let counter = waymark_node_sequence::NodeSequenceCounter::new();
+    let swept_vm_id = waymark_ids::InstanceId::new_uuid_v4();
+    let kept_vm_id = waymark_ids::InstanceId::new_uuid_v4();
+    let events: Vec<_> = [
+        (swept_vm_id, 1),
+        (swept_vm_id, 2),
+        (kept_vm_id, 3),
+        (kept_vm_id, 20),
+    ]
+    .into_iter()
+    .map(|(vm_id, second)| {
+        vm_driver_event(
+            node_id,
+            &counter,
+            second,
+            vm_id,
+            0,
+            waymark_observability_events_payload::vm_driver::Observation::VmStarted,
+        )
+    })
+    .collect();
+    waymark_observability_events_sink_backend::AppendEvents::append_events(
+        &store,
+        NESlice::try_from_slice(&events).expect("non-empty"),
+    )
+    .await
+    .expect("append events");
+
+    let deleted = waymark_observability_events_retention_backend::ApplyRetention::apply_retention(
+        &store,
+        chrono::DateTime::from_timestamp_secs(10).unwrap(),
+    )
+    .await
+    .expect("apply retention");
+    assert_eq!(deleted, 3);
+
+    let swept =
+        waymark_observability_state_query_backend::GetInstance::get_instance(&store, swept_vm_id)
+            .await
+            .expect("get the swept instance");
+    assert!(swept.is_none(), "the swept VM's instance goes");
+
+    let kept =
+        waymark_observability_state_query_backend::GetInstance::get_instance(&store, kept_vm_id)
+            .await
+            .expect("get the kept instance");
+    assert!(kept.is_some(), "the kept VM's instance stays");
+}
+
+/// Rows sharing one `at` across a chunk boundary all go: with a chunk of
+/// three, all seven rows at the same second before the cutoff go, and
+/// the two rows past the cutoff stay.
+#[tokio::test]
+async fn retention_chunks_split_rows_sharing_a_timestamp() {
+    let store = test_store("observability_store_test_events_retention_chunk_ties").await;
+    let node_id = waymark_ids::NodeId::new_uuid_v4();
+    let counter = waymark_node_sequence::NodeSequenceCounter::new();
+    let vm_id = waymark_ids::InstanceId::new_uuid_v4();
+    let events: Vec<_> = std::iter::repeat_n(1, 7)
+        .chain(std::iter::repeat_n(9, 2))
+        .map(|second| waymark_observability_events_core::Event {
+            node_id,
+            node_sequence: counter.next(),
+            at: chrono::DateTime::from_timestamp_secs(second).unwrap(),
+            payload: waymark_observability_events_payload::Payload::VmDriver(
+                waymark_observability_events_payload::vm_driver::Payload {
+                    vm_id,
+                    run_sequence: 0,
+                    observation:
+                        waymark_observability_events_payload::vm_driver::Observation::VmStarted,
+                },
+            ),
+        })
+        .collect();
+    waymark_observability_events_sink_backend::AppendEvents::append_events(
+        &store,
+        NESlice::try_from_slice(&events).expect("non-empty"),
+    )
+    .await
+    .expect("append events");
+
+    let deleted = crate::common::delete_before_in_chunks(
+        &store.pool,
+        "observability_events",
+        "at",
+        chrono::DateTime::from_timestamp_secs(5).unwrap(),
+        std::num::NonZeroU32::new(3).unwrap(),
+    )
+    .await
+    .expect("delete in chunks");
+    assert_eq!(deleted, 7);
+
+    let (remaining,): (i64,) = sqlx::query_as("SELECT count(*) FROM observability_events")
+        .fetch_one(&store.pool)
+        .await
+        .expect("count");
+    assert_eq!(remaining, 2);
+}
