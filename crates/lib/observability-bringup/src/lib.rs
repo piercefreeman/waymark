@@ -40,9 +40,9 @@ pub enum StartError {
 /// Bring up the observability store — the schema-scoped pool and its
 /// migrations — and every observability subsystem's pipeline over it,
 /// all ending on `shutdown_token`; returns the observability API router
-/// merged from the observability subsystems' routers alongside the task
-/// handles, and the node's
-/// event emitter for producers to share.
+/// — the observability subsystems' routers and the observability-state
+/// router, the state being read straight off the store — alongside the
+/// task handles, and the node's event emitter for producers to share.
 ///
 /// `handle` is the sampling half of the essential-metrics recorder pair;
 /// the recording half must already be installed in the process-global
@@ -78,13 +78,16 @@ pub async fn start(
         waymark_observability_events_bringup::start(
             config.observability_events,
             node_id,
-            store,
+            Arc::clone(&store),
             shutdown_token,
         );
 
+    let observability_state_api_router = waymark_api_observability_state_http::router(store);
+
     let api_router = aide::axum::ApiRouter::new()
         .merge(essential_metrics_api_router)
-        .merge(observability_events_api_router);
+        .merge(observability_events_api_router)
+        .merge(observability_state_api_router);
 
     let handles = Handles {
         essential_metrics,
