@@ -18,6 +18,7 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 
 [dev-dependencies]
+waymark-action-runtime-convert = { workspace = true }
 waymark-action-runtime-core = { workspace = true }
 waymark-action-runtime-metadata = { workspace = true }
 waymark-extcall-reconciler-action-compat = { workspace = true }

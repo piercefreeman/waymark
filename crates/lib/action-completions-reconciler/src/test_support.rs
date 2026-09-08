@@ -125,13 +125,15 @@ impl waymark_action_completions_reconciler_backend::AckCompletions for MockBacke
     }
 }
 
-fn encoded_outcome(value: &str) -> Vec<u8> {
-    let outcome = ActionCallOutcome::Value(ReadyValue::String(value.to_owned()));
+fn encoded_execution_result(value: &str) -> Vec<u8> {
+    let execution_result: Result<_, waymark_action_runtime_core::ActionCallLossError> = Ok(
+        ActionCallOutcome::Value(ReadyValue::String(value.to_owned())),
+    );
     let mut blob = Vec::new();
     waymark_vm_codec_core::SerializerProvider::with_serializer(&RmpCodec, &mut blob, |ser| {
-        serde::Serialize::serialize(&outcome, ser)
+        serde::Serialize::serialize(&execution_result, ser)
     })
-    .expect("encoding a test outcome succeeds");
+    .expect("encoding a test execution result succeeds");
     blob
 }
 
@@ -145,7 +147,7 @@ pub(crate) fn record(
         vm_id,
         promise_state_id: PromiseStateId(promise),
         effect_number: EffectNumber(effect),
-        outcome: encoded_outcome(value),
+        execution_result: encoded_execution_result(value),
     }
 }
 

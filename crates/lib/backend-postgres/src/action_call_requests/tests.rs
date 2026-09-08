@@ -350,7 +350,7 @@ async fn recording_a_completion_removes_the_request() {
         vm_id: vm,
         promise_state_id: PromiseStateId(1),
         effect_number: EffectNumber(10),
-        outcome: b"outcome-1".to_vec(),
+        execution_result: b"outcome-1".to_vec(),
     }];
     backend
         .record_completions(completions.as_nonempty_slice())
@@ -484,7 +484,7 @@ async fn complete_and_renew_across_a_staged_row(completion_order: [usize; 2]) {
                     vm_id: vm,
                     promise_state_id: PromiseStateId(promise),
                     effect_number: EffectNumber(promise + 9),
-                    outcome: b"done".to_vec(),
+                    execution_result: b"done".to_vec(),
                 })
                 .collect(),
         )

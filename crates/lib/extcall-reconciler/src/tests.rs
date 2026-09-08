@@ -54,13 +54,20 @@ enum FakeCompletionsProvider {
 
 impl ActionCallCompletionsProvider for FakeCompletionsProvider {
     type Value = waymark_vm_value_python::ReadyValue;
-    type Error = MockProviderError;
+    type ActionExecutionError = core::convert::Infallible;
+    type WaitError = MockProviderError;
     type Metadata = ActionCallCorrelation;
 
     async fn wait_for_completions(
         &mut self,
     ) -> Result<
-        NEVec<ActionCallCompletion<waymark_vm_value_python::ReadyValue, ActionCallCorrelation>>,
+        NEVec<
+            ActionCallCompletion<
+                ActionCallCorrelation,
+                waymark_vm_value_python::ReadyValue,
+                core::convert::Infallible,
+            >,
+        >,
         MockProviderError,
     > {
         match self {
@@ -81,7 +88,10 @@ async fn effect_handler_dispatches_action_call() {
     let provider = FakeCompletionsProvider::Pending;
 
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
-    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
+        _,
+        waymark_action_runtime_convert::Converter,
+    >::new(provider);
     let (sleep_handler, sleep_poller) =
         waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
     let (mut handler, _settler) =
@@ -116,7 +126,10 @@ async fn effect_handler_records_sleep() {
     let provider = FakeCompletionsProvider::Pending;
 
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
-    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
+        _,
+        waymark_action_runtime_convert::Converter,
+    >::new(provider);
     let (sleep_handler, sleep_poller) =
         waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
     let (mut handler, mut settler) =
@@ -153,7 +166,10 @@ async fn action_settler_error_propagates() {
     let provider = FakeCompletionsProvider::Failing;
 
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
-    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
+        _,
+        waymark_action_runtime_convert::Converter,
+    >::new(provider);
     let (sleep_handler, sleep_poller) =
         waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
     let (_handler, mut settler) =
@@ -179,7 +195,10 @@ async fn sleep_settler_error_propagates() {
     let provider = FakeCompletionsProvider::Pending;
 
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
-    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
+        _,
+        waymark_action_runtime_convert::Converter,
+    >::new(provider);
     let (sleep_handler, sleep_poller) =
         waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
     let (handler, mut settler) =
