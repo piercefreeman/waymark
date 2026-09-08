@@ -1,7 +1,8 @@
 //! Config for a Postgres observability store.
 
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_secret_string::SecretString;
 
 /// Configuration for a Postgres observability store.
@@ -32,6 +33,11 @@ pub struct PoolConfig {
     /// observability pool, so the main pool's own cap understates the
     /// total.
     pub max_connections: NonZeroU32,
+
+    /// How long one statement may run before the server ends it. A
+    /// statement the client gave up on keeps running otherwise, holding
+    /// its connection; this is the hard end to it.
+    pub statement_timeout: NonZeroDuration,
 }
 
 /// Error returned when reading a [`PostgresConfig`] from the environment.
@@ -44,6 +50,14 @@ pub enum FromEnvError {
     /// The read pool's max-connections cap could not be read.
     #[error("read max connections: {0}")]
     ReadMaxConnections(#[source] envfury::Error<envfury::OrParseError<std::num::ParseIntError>>),
+
+    /// The write pool's statement timeout could not be read.
+    #[error("write statement timeout: {0}")]
+    WriteStatementTimeout(#[source] envfury::Error<envfury::OrParseError<std::num::ParseIntError>>),
+
+    /// The read pool's statement timeout could not be read.
+    #[error("read statement timeout: {0}")]
+    ReadStatementTimeout(#[source] envfury::Error<envfury::OrParseError<std::num::ParseIntError>>),
 }
 
 impl PostgresConfig {
@@ -64,15 +78,38 @@ impl PostgresConfig {
         let read_max_connections =
             envfury::or_parse("WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS", "4")
                 .map_err(FromEnvError::ReadMaxConnections)?;
+        // 10 minutes: a retention sweep or a migration on a large table
+        // is slow before it is stuck.
+        let write_statement_timeout_millis: NonZeroU64 = envfury::or_parse(
+            "WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS",
+            "600000",
+        )
+        .map_err(FromEnvError::WriteStatementTimeout)?;
+        // 10 seconds: sized for paged, range-bound reads; a read the client
+        // gave up on holds its connection no longer than this.
+        let read_statement_timeout_millis: NonZeroU64 = envfury::or_parse(
+            "WAYMARK_OBSERVABILITY_POSTGRES_READ_STATEMENT_TIMEOUT_MS",
+            "10000",
+        )
+        .map_err(FromEnvError::ReadStatementTimeout)?;
         Ok(Self {
             write: PoolConfig {
                 url: write_url,
                 max_connections: write_max_connections,
+                statement_timeout: NonZeroDuration::from_nonzero_millis(
+                    write_statement_timeout_millis,
+                ),
             },
             read: PoolConfig {
                 url: read_url,
                 max_connections: read_max_connections,
+                statement_timeout: NonZeroDuration::from_nonzero_millis(
+                    read_statement_timeout_millis,
+                ),
             },
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

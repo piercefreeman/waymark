@@ -23,9 +23,10 @@ pub enum SchemaPoolError {
     Connect(#[source] sqlx::Error),
 }
 
-/// Connect a pool for the observability store, scoped to `schema`: the
-/// schema is created if missing, and every connection defaults its
-/// `search_path` to it, so the store's queries stay unqualified.
+/// Connect a pool for the observability store, scoped to `schema`, which
+/// is created if missing: every connection defaults its `search_path` to
+/// it and carries the config's statement timeout, so the store's queries
+/// stay unqualified.
 ///
 /// `schema` is an internal constant, not operator input; it must be a
 /// plain identifier (it is only quote-wrapped, not escaped).
@@ -33,11 +34,7 @@ pub async fn schema_pool(
     config: &PoolConfig,
     schema: &str,
 ) -> Result<sqlx::PgPool, SchemaPoolError> {
-    let options = config
-        .url
-        .expose_secret()
-        .parse::<sqlx::postgres::PgConnectOptions>()
-        .map_err(SchemaPoolError::Url)?;
+    let options = connect_options(config).map_err(SchemaPoolError::Url)?;
 
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(config.max_connections.get())
@@ -62,8 +59,9 @@ pub enum ReadSchemaPoolError {
 
 /// Connect a pool for the observability store's reads, scoped to
 /// `schema`, which has to exist already: every connection defaults its
-/// `search_path` to it, and nothing is created — the URL may point at a
-/// replica, where nothing can be.
+/// `search_path` to it and carries the config's statement timeout, and
+/// nothing is created — the URL may point at a replica, where nothing can
+/// be.
 ///
 /// `schema` is an internal constant, not operator input; it must be a
 /// plain identifier (it is only quote-wrapped, not escaped).
@@ -71,11 +69,7 @@ pub async fn read_schema_pool(
     config: &PoolConfig,
     schema: &str,
 ) -> Result<sqlx::PgPool, ReadSchemaPoolError> {
-    let options = config
-        .url
-        .expose_secret()
-        .parse::<sqlx::postgres::PgConnectOptions>()
-        .map_err(ReadSchemaPoolError::Url)?;
+    let options = connect_options(config).map_err(ReadSchemaPoolError::Url)?;
     // Every transaction on the read pool is read-only, so a write that
     // reaches this pool fails rather than landing.
     let options = options.options([("default_transaction_read_only", "on")]);
@@ -87,6 +81,19 @@ pub async fn read_schema_pool(
         .map_err(ReadSchemaPoolError::Connect)?;
 
     Ok(pool)
+}
+
+/// The connect options of `config`'s URL, every connection carrying the
+/// config's statement timeout.
+fn connect_options(config: &PoolConfig) -> Result<sqlx::postgres::PgConnectOptions, sqlx::Error> {
+    let options = config
+        .url
+        .expose_secret()
+        .parse::<sqlx::postgres::PgConnectOptions>()?;
+
+    let options = options.options([("statement_timeout", config.statement_timeout.as_millis())]);
+
+    Ok(options)
 }
 
 #[cfg(test)]
