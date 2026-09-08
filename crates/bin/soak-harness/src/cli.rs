@@ -57,8 +57,8 @@ pub struct SoakArgs {
     #[arg(long, default_value = "0.0.0.0:24119")]
     pub http_addr: String,
 
-    #[arg(long, default_value_t = 5)]
-    pub startup_log_interval_secs: u64,
+    #[arg(long, default_value_t = 5.try_into().unwrap())]
+    pub startup_log_interval_secs: NonZeroU64,
 
     #[arg(long, default_value_t = 20)]
     pub timeout_seconds: u32,

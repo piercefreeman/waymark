@@ -84,6 +84,7 @@ waymark-observability-store-postgres = { path = "crates/lib/observability-store-
 waymark-observability-store-postgres-bringup = { path = "crates/lib/observability-store-postgres-bringup" }
 waymark-observability-store-postgres-config = { path = "crates/lib/observability-store-postgres-config" }
 waymark-observability-store-postgres-migrations = { path = "crates/lib/observability-store-postgres-migrations" }
+waymark-os-shutdown-requests = { path = "crates/lib/os-shutdown-requests" }
 waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-bringup" }
 waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settlement-demand-registry" }
 waymark-proto = { path = "crates/lib/proto" }
