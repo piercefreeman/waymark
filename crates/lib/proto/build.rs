@@ -28,10 +28,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rerun-if-changed={}", full_path.display());
     }
 
-    let mut builder = tonic_prost_build::configure();
+    let mut builder = tonic_prost_build::configure()
+        .build_client(false)
+        .build_server(false);
 
     builder = if_feature_enabled(builder, "server", |b| b.build_server(true));
-    builder = if_feature_enabled(builder, "client", |b| b.build_server(true));
+    builder = if_feature_enabled(builder, "client", |b| b.build_client(true));
     builder = if_feature_enabled(builder, "serde", |b| {
         // Enable serde support for persisted runtime state.
         b.type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
