@@ -131,7 +131,7 @@ macro_rules! uuid_types {
     };
 }
 
-uuid_types![InstanceId, ExecutionId, WorkflowVersionId];
+uuid_types![InstanceId, ExecutionId, WorkflowVersionId, NodeId];
 
 // ---------------------------------------------------------------------------
 // Encode / Decode for UUID-based ids
