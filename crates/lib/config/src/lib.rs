@@ -3,7 +3,7 @@
 mod parse;
 
 use std::net::SocketAddr;
-use std::num::{NonZeroU64, NonZeroUsize};
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_secret_string::SecretString;
@@ -11,6 +11,7 @@ use waymark_secret_string::SecretString;
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
     pub database_url: SecretString,
+    pub database_max_connections: NonZeroU32,
     pub worker_grpc_addr: SocketAddr,
     pub worker_count: NonZeroUsize,
     pub concurrent_per_worker: NonZeroUsize,
@@ -75,6 +76,8 @@ impl WorkerConfig {
         use self::parse::*;
 
         let database_url = envfury::must("WAYMARK_DATABASE_URL")?;
+
+        let database_max_connections = envfury::or_parse("WAYMARK_DATABASE_MAX_CONNECTIONS", "10")?;
 
         let worker_grpc_addr = envfury::or_parse("WAYMARK_WORKER_GRPC_ADDR", "127.0.0.1:24118")?;
 
@@ -158,6 +161,7 @@ impl WorkerConfig {
 
         Ok(Self {
             database_url,
+            database_max_connections,
             worker_grpc_addr,
             worker_count,
             concurrent_per_worker,

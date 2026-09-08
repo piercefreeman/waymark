@@ -158,6 +158,7 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN for worker runtime state/backend | required |
+| `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the main database pool | `10` |
 | `WAYMARK_WORKER_COUNT` | Number of Python worker processes | host CPU count (`available_parallelism`) |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per Python worker | `10` |
 | `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently | `500` |
