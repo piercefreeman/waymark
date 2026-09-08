@@ -1,0 +1,12 @@
+[package]
+name = "waymark-observability-state-core"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-ids = { workspace = true }
+waymark-node-sequence = { workspace = true }
+waymark-observability-events-payload = { workspace = true }
+
+chrono = { workspace = true }
