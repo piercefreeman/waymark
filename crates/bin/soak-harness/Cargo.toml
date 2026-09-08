@@ -15,6 +15,7 @@ waymark-ids = { workspace = true }
 waymark-ir-parser = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-observability-store-postgres = { workspace = true }
+waymark-os-shutdown-requests = { workspace = true }
 waymark-secret-string = { workspace = true }
 waymark-sqlx-postgres-schema-pool = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
@@ -36,6 +37,8 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "signal"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process"] }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
