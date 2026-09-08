@@ -18,6 +18,7 @@ waymark-observability-config = { workspace = true }
 waymark-observability-store-postgres = { workspace = true }
 waymark-observability-store-postgres-bringup = { workspace = true }
 waymark-observability-store-postgres-migrations = { workspace = true }
+waymark-os-shutdown-requests = { workspace = true }
 waymark-secret-string = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
 waymark-vm-ast-old-proto = { workspace = true }
@@ -39,6 +40,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "signal"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process"] }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }

@@ -144,7 +144,13 @@ fn find_executable(bin: &str) -> Option<PathBuf> {
     None
 }
 
-pub async fn shutdown_worker(worker: &mut WorkerProcess) -> Result<(), color_eyre::eyre::Report> {
+/// Kills the worker process and waits for it to stop. The kill is
+/// always sent; only the wait observes `abort_token`, so an abort
+/// still leaves no child behind.
+pub async fn shutdown_worker(
+    worker: &mut WorkerProcess,
+    abort_token: &tokio_util::sync::CancellationToken,
+) -> Result<(), color_eyre::eyre::Report> {
     if worker
         .child
         .try_wait()
@@ -160,18 +166,29 @@ pub async fn shutdown_worker(worker: &mut WorkerProcess) -> Result<(), color_eyr
         .start_kill()
         .wrap_err("send kill signal to worker process")?;
 
-    let status = tokio::time::timeout(Duration::from_secs(10), worker.child.wait())
-        .await
-        .wrap_err("timed out waiting for worker process shutdown")?
-        .wrap_err("wait for worker process")?;
+    let wait = tokio::time::timeout(Duration::from_secs(10), worker.child.wait());
+    let status = crate::common::run_unless_cancelled(
+        abort_token,
+        "waiting for the worker process to stop",
+        async {
+            let status = wait
+                .await
+                .wrap_err("timed out waiting for worker process shutdown")?;
+            status.wrap_err("wait for worker process")
+        },
+    )
+    .await?;
 
     info!(status = %status, "worker process stopped");
     Ok(())
 }
 
-pub async fn shutdown_worker_if_running(worker: &mut Option<WorkerProcess>) {
+pub async fn shutdown_worker_if_running(
+    worker: &mut Option<WorkerProcess>,
+    abort_token: &tokio_util::sync::CancellationToken,
+) {
     if let Some(worker_process) = worker.as_mut()
-        && let Err(err) = shutdown_worker(worker_process).await
+        && let Err(err) = shutdown_worker(worker_process, abort_token).await
     {
         warn!(error = %err, "failed to stop worker process during error cleanup");
     }

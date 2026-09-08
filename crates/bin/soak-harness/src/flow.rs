@@ -61,6 +61,7 @@ pub async fn run_soak_loop(
     store: &waymark_observability_store_postgres::Store,
     workflow: &RegisteredWorkflow,
     worker: &mut Option<crate::setup_workers::WorkerProcess>,
+    cancellation_token: tokio_util::sync::CancellationToken,
 ) -> Result<(TerminationReason, VecDeque<HealthSample>), color_eyre::eyre::Report> {
     let seed = args.seed.unwrap_or_else(rand::random);
     info!(seed, "soak workload random seed");
@@ -80,11 +81,15 @@ pub async fn run_soak_loop(
     let _ = ticker.tick().await;
 
     loop {
+        // Biased: a cancellation that landed during the tick body wins
+        // over a tick that became ready in the meantime.
         let elapsed = tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+            biased;
+
+            _ = cancellation_token.cancelled() => {
                 return Ok((TerminationReason::Interrupted, samples));
             }
-            instant = ticker.tick() =>tick_delta.tick(instant),
+            instant = ticker.tick() => tick_delta.tick(instant),
         };
 
         if let Some(worker_process) = worker.as_mut()
