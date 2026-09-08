@@ -91,3 +91,48 @@ async fn existing_schema_needs_no_create_privilege() {
             .expect(statement);
     }
 }
+
+#[tokio::test]
+async fn connecting_to_an_existing_schema_scopes_and_creates_nothing() {
+    let bootstrap = waymark_support_test::postgres_setup().await;
+    let schema = "schema_pool_test_existing";
+    sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#))
+        .execute(&bootstrap)
+        .await
+        .expect("drop leftover test schema");
+    let options = waymark_support_integration::LOCAL_POSTGRES_DSN
+        .expose_secret()
+        .parse::<sqlx::postgres::PgConnectOptions>()
+        .expect("dsn");
+
+    // Missing: refused, and still missing afterwards.
+    let error = sqlx::postgres::PgPoolOptions::new()
+        .connect_requiring_schema(options.clone(), schema)
+        .await
+        .expect_err("the schema does not exist yet");
+    assert!(
+        matches!(error, ExistingSchemaError::Missing { .. }),
+        "{error}"
+    );
+    assert!(!schema_exists(&bootstrap, schema).await.expect("catalog"));
+
+    // Present: connected, and scoped to it.
+    sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#))
+        .execute(&bootstrap)
+        .await
+        .expect("create the schema");
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_requiring_schema(options, schema)
+        .await
+        .expect("the schema exists now");
+    let (current_schema,): (String,) = sqlx::query_as("SELECT current_schema()")
+        .fetch_one(&pool)
+        .await
+        .expect("read current schema");
+    assert_eq!(current_schema, schema);
+
+    sqlx::query(&format!(r#"DROP SCHEMA "{schema}" CASCADE"#))
+        .execute(&bootstrap)
+        .await
+        .expect("drop test schema");
+}
