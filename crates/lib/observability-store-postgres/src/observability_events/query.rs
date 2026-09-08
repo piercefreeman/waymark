@@ -2,9 +2,9 @@
 //! page by.
 
 use nonempty_collections::NEVec;
-use waymark_observability_events_query_backend::{list_events, tail};
+use waymark_observability_events_query_backend::{list_events, tail, vm_timeline};
 
-use super::common::{EVENT_COLUMNS, decode_event};
+use super::common::{EVENT_COLUMNS, VM_ID_EXPRESSION, VM_ID_PRESENT, decode_event};
 use crate::Store;
 use crate::common::to_bigint_saturating;
 
@@ -26,6 +26,20 @@ pub struct ListCursor {
 /// position column.
 #[derive(Debug)]
 pub struct TailCursor {
+    /// The row's `node_sequence`, as stored.
+    node_sequence: i64,
+}
+
+/// A position in a VM's timeline — the row last returned, by the columns
+/// the order is over.
+#[derive(Debug)]
+pub struct VmTimelineCursor {
+    /// The row's `at`.
+    at: chrono::DateTime<chrono::Utc>,
+
+    /// The row's `node_id`.
+    node_id: waymark_ids::NodeId,
+
     /// The row's `node_sequence`, as stored.
     node_sequence: i64,
 }
@@ -53,6 +67,43 @@ impl waymark_cursor_core::EncodeCursor for ListCursor {
 }
 
 impl waymark_cursor_core::DecodeCursor for ListCursor {
+    type Error = ParseCursorError;
+
+    fn decode(text: &str) -> Result<Self, ParseCursorError> {
+        let not_a_cursor = || ParseCursorError {
+            text: text.to_owned(),
+        };
+
+        let mut parts = text.splitn(3, '/');
+        let at = parts.next().ok_or_else(not_a_cursor)?;
+        let node_id = parts.next().ok_or_else(not_a_cursor)?;
+        let node_sequence = parts.next().ok_or_else(not_a_cursor)?;
+
+        let at: i64 = at.parse().map_err(|_| not_a_cursor())?;
+        let at = chrono::DateTime::from_timestamp_micros(at).ok_or_else(not_a_cursor)?;
+        let node_id = node_id.parse().map_err(|_| not_a_cursor())?;
+        let node_sequence = node_sequence.parse().map_err(|_| not_a_cursor())?;
+
+        Ok(Self {
+            at,
+            node_id,
+            node_sequence,
+        })
+    }
+}
+
+impl waymark_cursor_core::EncodeCursor for VmTimelineCursor {
+    fn encode(&self) -> String {
+        format!(
+            "{}/{}/{}",
+            self.at.timestamp_micros(),
+            self.node_id,
+            self.node_sequence
+        )
+    }
+}
+
+impl waymark_cursor_core::DecodeCursor for VmTimelineCursor {
     type Error = ParseCursorError;
 
     fn decode(text: &str) -> Result<Self, ParseCursorError> {
@@ -110,6 +161,10 @@ impl waymark_observability_events_query_backend::HasNodeId for Store {
 
 impl waymark_observability_events_query_backend::HasPayload for Store {
     type Payload = waymark_observability_events_payload::Payload;
+}
+
+impl waymark_observability_events_query_backend::HasVmId for Store {
+    type VmId = waymark_ids::InstanceId;
 }
 
 impl waymark_observability_events_query_backend::ListEvents for Store {
@@ -205,6 +260,60 @@ impl waymark_observability_events_query_backend::Tail for Store {
         };
         let next = TailCursor {
             node_sequence: to_bigint_saturating(events.last().node_sequence.get()),
+        };
+
+        Ok(Some(waymark_observability_events_query_backend::Page {
+            events,
+            next,
+        }))
+    }
+}
+
+impl waymark_observability_events_query_backend::VmTimeline for Store {
+    type Cursor = VmTimelineCursor;
+
+    type Error = sqlx::Error;
+
+    async fn vm_timeline(
+        &self,
+        params: vm_timeline::Params<waymark_ids::InstanceId, VmTimelineCursor>,
+    ) -> Result<
+        Option<waymark_observability_events_query_backend::PageFor<Self, VmTimelineCursor>>,
+        sqlx::Error,
+    > {
+        let mut query = sqlx::QueryBuilder::new(format!(
+            r#"
+            SELECT {EVENT_COLUMNS}
+            FROM observability_events
+            WHERE {VM_ID_PRESENT} AND {VM_ID_EXPRESSION} = "#,
+        ));
+        query.push_bind(params.vm_id);
+        // Keyset: strictly past the position in timeline order.
+        if let Some(after) = params.after {
+            query.push(" AND (at, node_id, node_sequence) > (");
+            query.push_bind(after.at);
+            query.push(", ");
+            query.push_bind(after.node_id);
+            query.push(", ");
+            query.push_bind(after.node_sequence);
+            query.push(")");
+        }
+        query.push(" ORDER BY at, node_id, node_sequence LIMIT ");
+        query.push_bind(to_limit(params.limit));
+
+        let rows = query.build().fetch_all(&self.pool).await?;
+        let events = rows
+            .iter()
+            .map(decode_event)
+            .collect::<Result<Vec<_>, _>>()?;
+        let Some(events) = NEVec::try_from_vec(events) else {
+            return Ok(None);
+        };
+        let last = events.last();
+        let next = VmTimelineCursor {
+            at: last.at,
+            node_id: last.node_id,
+            node_sequence: to_bigint_saturating(last.node_sequence.get()),
         };
 
         Ok(Some(waymark_observability_events_query_backend::Page {
