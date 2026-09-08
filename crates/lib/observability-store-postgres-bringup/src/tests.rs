@@ -17,6 +17,8 @@ async fn schema_pool_creates_the_schema_and_scopes_the_search_path() {
     let config = PoolConfig {
         url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
         max_connections: NonZeroU32::new(2).expect("non-zero"),
+        statement_timeout: waymark_nonzero_duration::NonZeroDuration::from_millis(2_500)
+            .expect("non-zero"),
     };
     let pool = schema_pool(&config, TEST_SCHEMA)
         .await
@@ -27,6 +29,14 @@ async fn schema_pool_creates_the_schema_and_scopes_the_search_path() {
         .await
         .expect("read current schema");
     assert_eq!(current_schema, TEST_SCHEMA);
+
+    // Every connection carries the statement timeout.
+    let (statement_timeout,): (String,) =
+        sqlx::query_as("SELECT current_setting('statement_timeout')")
+            .fetch_one(&pool)
+            .await
+            .expect("read statement_timeout");
+    assert_eq!(statement_timeout, "2500ms");
 
     // An unqualified statement lands in the scoped schema.
     sqlx::query("CREATE TABLE probe (id int)")
