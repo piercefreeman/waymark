@@ -9,8 +9,10 @@
 mod common;
 pub mod list_events;
 pub mod tail;
+pub mod vm_timeline;
 
 pub use self::common::*;
 
 pub use self::list_events::ListEvents;
 pub use self::tail::Tail;
+pub use self::vm_timeline::VmTimeline;
