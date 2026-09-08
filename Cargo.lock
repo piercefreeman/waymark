@@ -4860,6 +4860,7 @@ dependencies = [
  "sqlx",
  "thiserror",
  "tokio-util",
+ "waymark-api-observability-state-http",
  "waymark-essential-metrics-bringup",
  "waymark-essential-metrics-sampler",
  "waymark-ids",
