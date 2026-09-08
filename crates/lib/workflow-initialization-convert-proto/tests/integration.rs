@@ -1,21 +1,24 @@
 //! Happy-path coverage for the initial-context converter.
 
-use waymark_convert_core::Convert;
+use waymark_convert_core::TryConvert;
 use waymark_workflow_initialization_convert_proto::InitialContextConverter;
 
 fn int_arg(key: &str, value: i64) -> waymark_proto::messages::WorkflowArgument {
-    use waymark_proto::messages::{
-        PrimitiveWorkflowArgument, WorkflowArgument, WorkflowArgumentValue,
+    use waymark_proto::messages::WorkflowArgument;
+    use waymark_proto::python_value::{
+        PrimitiveWorkflowArgument, WorkflowArgumentValue,
         primitive_workflow_argument::Kind as PrimitiveKind, workflow_argument_value::Kind,
+    };
+
+    let value = WorkflowArgumentValue {
+        kind: Some(Kind::Primitive(PrimitiveWorkflowArgument {
+            kind: Some(PrimitiveKind::IntValue(value)),
+        })),
     };
 
     WorkflowArgument {
         key: key.to_string(),
-        value: Some(WorkflowArgumentValue {
-            kind: Some(Kind::Primitive(PrimitiveWorkflowArgument {
-                kind: Some(PrimitiveKind::IntValue(value)),
-            })),
-        }),
+        value: waymark_proto_python_value_conversions::encode_workflow_argument_value(&value),
     }
 }
 
@@ -30,7 +33,8 @@ fn positional_args_follow_input_name_order() {
     };
     let input_names = vec!["y".to_string(), "x".to_string()];
 
-    let positional = InitialContextConverter::convert((&arguments, input_names.as_slice()));
+    let positional = InitialContextConverter::try_convert((&arguments, input_names.as_slice()))
+        .expect("argument values decode");
 
     assert_eq!(positional, vec![ready_int(2), ready_int(1)]);
 }
@@ -42,7 +46,8 @@ fn missing_keys_default_to_none() {
     };
     let input_names = vec!["present".to_string(), "absent".to_string()];
 
-    let positional = InitialContextConverter::convert((&arguments, input_names.as_slice()));
+    let positional = InitialContextConverter::try_convert((&arguments, input_names.as_slice()))
+        .expect("argument values decode");
 
     assert_eq!(
         positional,

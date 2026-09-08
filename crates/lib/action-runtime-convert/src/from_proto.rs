@@ -1,22 +1,26 @@
-use waymark_convert_core::TryConvert;
+use waymark_convert_core::{Convert as _, TryConvert};
 
 use crate::Converter;
 
 /// Convert proto workflow arguments back into a VM ready value.
 ///
 /// The [`proto::WorkflowArguments`] message is converted to a JSON object
-/// via [`waymark_message_conversions::workflow_arguments_to_json`] and then
+/// via [`waymark_proto_message_conversions::workflow_arguments_to_json`] and then
 /// into a [`waymark_vm_value_python::ReadyValue::Dict`].
+///
+/// Fallible since the framing-level arguments carry their values as
+/// opaque encoded documents that decode here.
 impl TryConvert<&waymark_proto::messages::WorkflowArguments, waymark_vm_value_python::ReadyValue>
     for Converter
 {
-    type Error = core::convert::Infallible;
+    type Error = waymark_proto_message_conversions::DecodeArgumentError;
 
     fn try_convert(
         value: &waymark_proto::messages::WorkflowArguments,
     ) -> Result<waymark_vm_value_python::ReadyValue, Self::Error> {
-        let json = waymark_message_conversions::workflow_arguments_to_json(value);
-        waymark_vm_value_convert_json::Converter::try_convert(json)
+        let json = waymark_proto_message_conversions::workflow_arguments_to_json(value)?;
+        let value = waymark_vm_value_convert_json::Converter::convert(json);
+        Ok(value)
     }
 }
 
@@ -26,29 +30,33 @@ impl TryConvert<&waymark_proto::messages::WorkflowArguments, waymark_vm_value_py
 /// This is the reverse of the
 /// [`TryConvert<&ReadyValue, WorkflowArgumentValue>`] impl on this
 /// converter.  The proto value is converted to JSON via
-/// [`waymark_message_conversions::workflow_argument_value_to_json`] and
+/// [`waymark_proto_python_value_conversions::workflow_argument_value_to_json`] and
 /// then into a [`waymark_vm_value_python::ReadyValue`].
 impl
-    TryConvert<&waymark_proto::messages::WorkflowArgumentValue, waymark_vm_value_python::ReadyValue>
-    for Converter
+    TryConvert<
+        &waymark_proto::python_value::WorkflowArgumentValue,
+        waymark_vm_value_python::ReadyValue,
+    > for Converter
 {
     type Error = core::convert::Infallible;
 
     fn try_convert(
-        value: &waymark_proto::messages::WorkflowArgumentValue,
+        value: &waymark_proto::python_value::WorkflowArgumentValue,
     ) -> Result<waymark_vm_value_python::ReadyValue, Self::Error> {
-        let json = waymark_message_conversions::workflow_argument_value_to_json(value);
+        let json = waymark_proto_python_value_conversions::workflow_argument_value_to_json(value);
         waymark_vm_value_convert_json::Converter::try_convert(json)
     }
 }
 
+/// Fallible since the framing-level arguments carry their values as
+/// opaque encoded documents that decode here.
 impl
     TryConvert<
         &waymark_proto::messages::ActionResult,
         waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue>,
     > for Converter
 {
-    type Error = core::convert::Infallible;
+    type Error = waymark_proto_message_conversions::DecodeArgumentError;
 
     fn try_convert(
         result: &waymark_proto::messages::ActionResult,
@@ -57,15 +65,26 @@ impl
         Self::Error,
     > {
         if result.success {
-            let result_value = result.payload.as_ref().and_then(|payload| {
-                payload
-                    .arguments
-                    .iter()
-                    .find(|arg| arg.key == "result")
-                    .and_then(|arg| arg.value.as_ref())
-            });
+            let result_arg = result
+                .payload
+                .as_ref()
+                .and_then(|payload| payload.arguments.iter().find(|arg| arg.key == "result"));
 
-            let value = result_value.map(Self::try_convert).transpose()?;
+            let result_value = result_arg
+                .map(|arg| {
+                    waymark_proto_python_value_conversions::decode_workflow_argument_value(
+                        &arg.value,
+                    )
+                    .map_err(|source| {
+                        waymark_proto_message_conversions::DecodeArgumentError {
+                            key: arg.key.clone(),
+                            source,
+                        }
+                    })
+                })
+                .transpose()?;
+
+            let value = result_value.as_ref().map(Self::convert);
             let value = value.unwrap_or(waymark_vm_value_python::ReadyValue::None);
             return Ok(waymark_action_runtime_core::ActionCallOutcome::Value(value));
         }

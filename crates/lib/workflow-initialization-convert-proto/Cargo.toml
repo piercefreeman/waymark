@@ -17,3 +17,6 @@ thiserror = { workspace = true }
 
 [lib]
 doctest = false
+
+[dev-dependencies]
+waymark-proto-python-value-conversions = { workspace = true }

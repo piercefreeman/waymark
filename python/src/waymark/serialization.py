@@ -13,6 +13,7 @@ from google.protobuf import json_format, struct_pb2
 from pydantic import BaseModel
 
 from waymark.proto import messages_pb2 as pb2
+from waymark.proto import python_value_pb2 as pb2v
 from waymark.type_coercion import instantiate_typed_model
 
 NULL_VALUE = struct_pb2.NULL_VALUE  # type: ignore[attr-defined]
@@ -20,7 +21,7 @@ NULL_VALUE = struct_pb2.NULL_VALUE  # type: ignore[attr-defined]
 PRIMITIVE_TYPES = (str, int, float, bool, type(None))
 
 
-def dumps(value: Any) -> pb2.WorkflowArgumentValue:
+def dumps(value: Any) -> pb2v.WorkflowArgumentValue:
     """Serialize a Python value into a WorkflowArgumentValue message."""
 
     return _to_argument_value(value)
@@ -29,13 +30,17 @@ def dumps(value: Any) -> pb2.WorkflowArgumentValue:
 def loads(data: Any) -> Any:
     """Deserialize a workflow argument payload into a Python object."""
 
-    if isinstance(data, pb2.WorkflowArgumentValue):
+    if isinstance(data, pb2v.WorkflowArgumentValue):
         argument = data
+    elif isinstance(data, bytes):
+        # A framing-level argument value: an encoded WorkflowArgumentValue
+        # document.
+        argument = pb2v.WorkflowArgumentValue.FromString(data)
     elif isinstance(data, dict):
-        argument = pb2.WorkflowArgumentValue()
+        argument = pb2v.WorkflowArgumentValue()
         json_format.ParseDict(data, argument)
     else:
-        raise TypeError("argument value payload must be a dict or ArgumentValue message")
+        raise TypeError("argument value payload must be bytes, a dict or ArgumentValue message")
     return _from_argument_value(argument)
 
 
@@ -44,7 +49,7 @@ def build_arguments_from_kwargs(kwargs: dict[str, Any]) -> pb2.WorkflowArguments
     for key, value in kwargs.items():
         entry = arguments.arguments.add()
         entry.key = key
-        entry.value.CopyFrom(dumps(value))
+        entry.value = dumps(value).SerializeToString()
     return arguments
 
 
@@ -57,8 +62,8 @@ def arguments_to_kwargs(arguments: pb2.WorkflowArguments | None) -> dict[str, An
     return result
 
 
-def _to_argument_value(value: Any) -> pb2.WorkflowArgumentValue:
-    argument = pb2.WorkflowArgumentValue()
+def _to_argument_value(value: Any) -> pb2v.WorkflowArgumentValue:
+    argument = pb2v.WorkflowArgumentValue()
     if isinstance(value, PRIMITIVE_TYPES):
         argument.primitive.CopyFrom(_serialize_primitive(value))
         return argument
@@ -171,7 +176,7 @@ def _to_argument_value(value: Any) -> pb2.WorkflowArgumentValue:
     raise TypeError(f"unsupported value type {type(value)!r}")
 
 
-def _from_argument_value(argument: pb2.WorkflowArgumentValue) -> Any:
+def _from_argument_value(argument: pb2v.WorkflowArgumentValue) -> Any:
     kind = argument.WhichOneof("kind")  # type: ignore[attr-defined]
     if kind == "primitive":
         return _primitive_to_python(argument.primitive)
@@ -222,8 +227,8 @@ def _serialize_exception_values(exc: BaseException) -> dict[str, Any]:
     return values
 
 
-def _serialize_primitive(value: Any) -> pb2.PrimitiveWorkflowArgument:
-    primitive = pb2.PrimitiveWorkflowArgument()
+def _serialize_primitive(value: Any) -> pb2v.PrimitiveWorkflowArgument:
+    primitive = pb2v.PrimitiveWorkflowArgument()
     if value is None:
         primitive.null_value = NULL_VALUE
     elif isinstance(value, bool):
@@ -239,7 +244,7 @@ def _serialize_primitive(value: Any) -> pb2.PrimitiveWorkflowArgument:
     return primitive
 
 
-def _primitive_to_python(primitive: pb2.PrimitiveWorkflowArgument) -> Any:
+def _primitive_to_python(primitive: pb2v.PrimitiveWorkflowArgument) -> Any:
     kind = primitive.WhichOneof("kind")  # type: ignore[attr-defined]
     if kind == "string_value":
         return primitive.string_value

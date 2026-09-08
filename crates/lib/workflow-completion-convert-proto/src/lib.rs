@@ -65,10 +65,14 @@ fn exception_workflow_arguments(
 ) -> waymark_proto::messages::WorkflowArguments {
     use waymark_proto::messages::{WorkflowArgument, WorkflowArguments};
 
+    let error_value =
+        waymark_proto_python_value_conversions::json_to_workflow_argument_value(&error_json);
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "error".to_string(),
-            value: Some(waymark_message_conversions::json_to_workflow_argument_value(&error_json)),
+            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
+                &error_value,
+            ),
         }],
     }
 }
@@ -78,10 +82,14 @@ fn completion_workflow_arguments(
 ) -> waymark_proto::messages::WorkflowArguments {
     use waymark_proto::messages::{WorkflowArgument, WorkflowArguments};
 
+    let result_value =
+        waymark_proto_python_value_conversions::json_to_workflow_argument_value(&json);
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "result".to_string(),
-            value: Some(waymark_message_conversions::json_to_workflow_argument_value(&json)),
+            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
+                &result_value,
+            ),
         }],
     }
 }

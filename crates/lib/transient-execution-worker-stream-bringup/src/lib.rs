@@ -42,7 +42,7 @@ pub enum SetupRuntimeError {
     /// Converting the initial context into entry-function arguments failed.
     #[error("convert initial context: {0}")]
     ConvertInitialContext(
-        #[source] waymark_workflow_initialization_convert_proto::MissingInitialContextError,
+        #[source] waymark_workflow_initialization_convert_proto::InitialContextError,
     ),
 
     /// The entry function was not found in the executable.
