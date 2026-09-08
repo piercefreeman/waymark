@@ -8,10 +8,16 @@ pub trait HasNodeId {
     type NodeId;
 }
 
+/// The VM identity type a backend's events name.
+pub trait HasVmId {
+    /// The VM identity type.
+    type VmId;
+}
+
 /// The payload type of a backend's events.
 ///
 /// The backend's own: a store lays the payload out — it indexes its
-/// access paths and derives state from its kinds — so it names the
+/// access paths and derives state from its kinds — so it declares the
 /// payload it serves rather than accepting any.
 pub trait HasPayload {
     /// The payload type.
