@@ -91,24 +91,19 @@ impl TryConvert<&Value, proto_value::Value> for Converter {
     }
 }
 
-impl TryConvert<&Exception<Value>, proto_value::ExceptionValue> for Converter {
-    type Error = PendingPromiseError;
+/// Write an exception, whatever its details are a value of.
+///
+/// The details ride as an ordinary value, so this holds for both the
+/// promise-aware [`Value`] an exception carries inside a value tree and
+/// the [`ReadyValue`] a settled outcome carries.
+impl<'d, Details> TryConvert<&'d Exception<Details>, proto_value::ExceptionValue> for Converter
+where
+    Converter: TryConvert<&'d Details, proto_value::Value>,
+{
+    type Error = <Converter as TryConvert<&'d Details, proto_value::Value>>::Error;
 
     fn try_convert(
-        exception: &Exception<Value>,
-    ) -> Result<proto_value::ExceptionValue, Self::Error> {
-        Ok(proto_value::ExceptionValue {
-            type_id: exception.type_id.clone(),
-            details: Some(Box::new(Self::try_convert(&exception.details)?)),
-        })
-    }
-}
-
-impl TryConvert<&Exception<ReadyValue>, proto_value::ExceptionValue> for Converter {
-    type Error = PendingPromiseError;
-
-    fn try_convert(
-        exception: &Exception<ReadyValue>,
+        exception: &'d Exception<Details>,
     ) -> Result<proto_value::ExceptionValue, Self::Error> {
         Ok(proto_value::ExceptionValue {
             type_id: exception.type_id.clone(),
@@ -200,36 +195,27 @@ impl TryConvert<&proto_value::DictValue, ReadyValue> for Converter {
     }
 }
 
-impl TryConvert<&proto_value::ExceptionValue, Exception<ReadyValue>> for Converter {
+/// Read an exception into whatever its details are a value of.
+///
+/// An exception naming no details carries the value the flavor has for
+/// nothing at all.
+impl<'d, Details> TryConvert<&'d proto_value::ExceptionValue, Exception<Details>> for Converter
+where
+    Converter: TryConvert<&'d proto_value::Value, Details, Error = Infallible>,
+    Details: From<ReadyValue>,
+{
     type Error = Infallible;
 
     fn try_convert(
-        exception: &proto_value::ExceptionValue,
-    ) -> Result<Exception<ReadyValue>, Self::Error> {
+        exception: &'d proto_value::ExceptionValue,
+    ) -> Result<Exception<Details>, Self::Error> {
         Ok(Exception {
             type_id: exception.type_id.clone(),
             details: exception
                 .details
                 .as_deref()
                 .map(Self::convert)
-                .unwrap_or(ReadyValue::None),
-        })
-    }
-}
-
-impl TryConvert<&proto_value::ExceptionValue, Exception<Value>> for Converter {
-    type Error = Infallible;
-
-    fn try_convert(
-        exception: &proto_value::ExceptionValue,
-    ) -> Result<Exception<Value>, Self::Error> {
-        Ok(Exception {
-            type_id: exception.type_id.clone(),
-            details: exception
-                .details
-                .as_deref()
-                .map(Self::convert)
-                .unwrap_or(Value::Ready(ReadyValue::None)),
+                .unwrap_or_else(|| ReadyValue::None.into()),
         })
     }
 }
