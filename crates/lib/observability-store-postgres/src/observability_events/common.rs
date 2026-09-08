@@ -12,6 +12,13 @@ pub(crate) type Event = waymark_observability_events_core::Event<
 /// the payload's kind pulled out beside it.
 pub(crate) const EVENT_COLUMNS: &str = "node_id, node_sequence, at, kind, payload";
 
+/// The VM an event names, as the store indexes it: every query wanting
+/// the VM timeline index spells exactly this expression …
+pub(crate) const VM_ID_EXPRESSION: &str = "((payload->>'vm_id')::uuid)";
+
+/// … together with exactly this predicate, which is the index's own.
+pub(crate) const VM_ID_PRESENT: &str = "payload ? 'vm_id'";
+
 /// A stored `node_sequence` outside the domain of positions: the column
 /// is a `bigint`, positions are unsigned, and a negative value is
 /// corruption — never clamped, always surfaced.
