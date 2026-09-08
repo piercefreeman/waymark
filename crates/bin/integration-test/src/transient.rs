@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use color_eyre::eyre::{WrapErr as _, bail, eyre};
-use waymark_worker_core::BaseWorkerPool as _;
+use waymark_worker_core::LaunchWorkerPool as _;
 
 use crate::ground_truth::PreparedCase;
 use crate::outcome::{CaseOutcome, check_case_outcome, outcome_from_vm};
