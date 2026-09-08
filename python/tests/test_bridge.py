@@ -126,19 +126,17 @@ class TestRunInstance:
         )
         mock_stub.RegisterWorkflow.return_value = response
 
-        # Create a registration with initial context
-        initial_context = pb2.WorkflowArguments()
-        arg = initial_context.arguments.add()
+        # Create a registration with workflow arguments
+        workflow_arguments = pb2v.WorkflowArguments()
+        arg = workflow_arguments.arguments.add()
         arg.key = "name"
-        arg_value = pb2v.Value()
-        arg_value.primitive.string_value = "hello"
-        arg.value = arg_value.SerializeToString()
+        arg.value.primitive.string_value = "hello"
 
         registration = pb2.WorkflowRegistration(
             workflow_name="contextworkflow",
             ir=b"ir-data",
             ir_hash="hash123",
-            initial_context=initial_context,
+            arguments=workflow_arguments.SerializeToString(),
         )
         payload = registration.SerializeToString()
 
@@ -150,7 +148,8 @@ class TestRunInstance:
         # Verify initial context was included
         call_args = mock_stub.RegisterWorkflow.call_args
         request = call_args[0][0]
-        assert request.registration.HasField("initial_context")
+        decoded_arguments = pb2v.WorkflowArguments.FromString(request.registration.arguments)
+        assert decoded_arguments.arguments[0].key == "name"
 
     def test_run_instance_grpc_error(
         self, monkeypatch: pytest.MonkeyPatch, mock_stub: AsyncMock
@@ -258,12 +257,10 @@ class TestRunInstancesBatch:
         )
         mock_stub.RegisterWorkflowBatch.return_value = response
 
-        initial_context = pb2.WorkflowArguments()
-        arg = initial_context.arguments.add()
+        workflow_arguments = pb2v.WorkflowArguments()
+        arg = workflow_arguments.arguments.add()
         arg.key = "name"
-        arg_value = pb2v.Value()
-        arg_value.primitive.string_value = "hello"
-        arg.value = arg_value.SerializeToString()
+        arg.value.primitive.string_value = "hello"
 
         registration = pb2.WorkflowRegistration(
             workflow_name="batchworkflow",
@@ -276,7 +273,7 @@ class TestRunInstancesBatch:
             run_instances_batch(
                 payload,
                 count=2,
-                inputs=initial_context,
+                arguments=workflow_arguments.SerializeToString(),
                 batch_size=100,
                 include_instance_ids=True,
             )
@@ -293,7 +290,8 @@ class TestRunInstancesBatch:
         assert request.count == 2
         assert request.batch_size == 100
         assert request.include_instance_ids is True
-        assert request.inputs.arguments[0].key == "name"
+        decoded_arguments = pb2v.WorkflowArguments.FromString(request.arguments)
+        assert decoded_arguments.arguments[0].key == "name"
 
     def test_run_instances_batch_validation_error(
         self, monkeypatch: pytest.MonkeyPatch, mock_stub: AsyncMock

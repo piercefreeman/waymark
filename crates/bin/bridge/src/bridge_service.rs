@@ -49,12 +49,11 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             .await
             .map_err(|err| Status::internal(err.to_string()))?;
 
-        let call_spec =
-            waymark_workflow_initialization_convert_proto::InitialContextConverter::try_convert((
-                registration.initial_context.as_ref(),
-                &entry_input_names[..],
-            ))
-            .map_err(|err| Status::internal(format!("build entry call spec: {err}")))?;
+        let call_spec = waymark_workflow_initialization_convert_proto::Converter::try_convert((
+            &registration.arguments[..],
+            &entry_input_names[..],
+        ))
+        .map_err(|err| Status::internal(format!("build entry call spec: {err}")))?;
 
         let vm_id = InstanceId::new_uuid_v4();
         store
@@ -86,38 +85,37 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             .await
             .map_err(|err| Status::internal(err.to_string()))?;
 
-        // Resolve the per-instance entry call specs. A non-empty `inputs_list`
-        // provides one initial context per instance and overrides
-        // `count`/`inputs`; otherwise `count` instances each share `inputs`,
-        // falling back to the registration's `initial_context` when `inputs`
-        // is unset.
+        // Resolve the per-instance entry call specs. A non-empty `arguments_list`
+        // provides one arguments payload per instance and overrides
+        // `count`/`arguments`; otherwise `count` instances each share
+        // `arguments`, falling back to the registration's own when unset.
         #[allow(clippy::result_large_err, reason = "tonic forces this")]
-        let build_call_spec = |initial_context: Option<&proto::WorkflowArguments>| {
-            waymark_workflow_initialization_convert_proto::InitialContextConverter::try_convert((
-                initial_context,
+        let build_call_spec = |arguments: &[u8]| {
+            waymark_workflow_initialization_convert_proto::Converter::try_convert((
+                arguments,
                 &entry_input_names[..],
             ))
             .map_err(|err| Status::internal(format!("build entry call spec: {err}")))
         };
 
         let call_specs: NEVec<waymark_system_vm::CallSpec> =
-            match NEVec::try_from_vec(request.inputs_list) {
+            match NEVec::try_from_vec(request.arguments_list) {
                 #[allow(clippy::result_large_err, reason = "tonic forces this")]
-                Some(inputs_list) => inputs_list
+                Some(arguments_list) => arguments_list
                     .into_nonempty_iter()
-                    .map(|inputs| build_call_spec(Some(&inputs)))
+                    .map(|arguments| build_call_spec(&arguments))
                     .collect::<Result<_, _>>()?,
                 None => {
                     let Some(target_count) = NonZeroUsize::new(request.count as usize) else {
                         return Err(Status::invalid_argument(
-                            "count must be >= 1 when inputs_list is empty",
+                            "count must be >= 1 when arguments_list is empty",
                         ));
                     };
 
                     let base = request
-                        .inputs
-                        .as_ref()
-                        .or(registration.initial_context.as_ref());
+                        .arguments
+                        .as_deref()
+                        .unwrap_or(&registration.arguments);
                     NEVec::from_elem(build_call_spec(base)?, target_count)
                 }
             };

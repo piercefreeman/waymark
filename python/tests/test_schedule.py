@@ -23,7 +23,7 @@ from waymark.schedule import (
     resume_schedule,
     schedule_workflow,
 )
-from waymark.serialization import arguments_to_kwargs
+from waymark.serialization import workflow_arguments_to_kwargs
 from waymark.workflow import Workflow, workflow
 
 
@@ -139,12 +139,12 @@ class TestScheduleWorkflow:
                 DemoScheduleWorkflowWithInputs,
                 schedule_name="with-inputs",
                 schedule="0 * * * *",
-                inputs={"batch_size": 1000},
+                arguments={"batch_size": 1000},
             )
         )
 
         request = mock_stub.RegisterSchedule.call_args[0][0]
-        kwargs = arguments_to_kwargs(request.registration.initial_context)
+        kwargs = workflow_arguments_to_kwargs(request.registration.arguments)
         assert kwargs == {"batch_size": 1000}
 
     def test_jitter_and_allow_duplicate(self, mock_stub: AsyncMock) -> None:

@@ -77,12 +77,9 @@ def main() -> int:
 
     # Imported here rather than at module scope: the waymark packages are
     # only importable once the paths above are in place.
-    from waymark.proto import messages_pb2
-    from waymark.serialization import arguments_to_kwargs
+    from waymark.serialization import workflow_arguments_to_kwargs
 
-    arguments = messages_pb2.WorkflowArguments()
-    arguments.ParseFromString(bytes.fromhex(args.kwargs_hex_encoded))
-    kwargs = arguments_to_kwargs(arguments)
+    kwargs = workflow_arguments_to_kwargs(bytes.fromhex(args.kwargs_hex_encoded))
 
     module = importlib.import_module(args.module)
     workflow_cls = module.__dict__.get(args.workflow_class)

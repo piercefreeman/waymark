@@ -46,20 +46,20 @@ def _build_action_dispatch(
         module_name=module_name,
     )
 
-    # Build kwargs
+    # Build the encoded arguments payload
+    message = pb2v.ActionArguments()
     for key, value in kwargs.items():
-        arg = dispatch.kwargs.arguments.add()
+        arg = message.arguments.add()
         arg.key = key
-        arg_value = pb2v.Value()
-        if isinstance(value, int):
-            arg_value.primitive.int_value = value
+        if isinstance(value, bool):
+            arg.value.primitive.bool_value = value
+        elif isinstance(value, int):
+            arg.value.primitive.int_value = value
         elif isinstance(value, str):
-            arg_value.primitive.string_value = value
+            arg.value.primitive.string_value = value
         elif isinstance(value, float):
-            arg_value.primitive.double_value = value
-        elif isinstance(value, bool):
-            arg_value.primitive.bool_value = value
-        arg.value = arg_value.SerializeToString()
+            arg.value.primitive.double_value = value
+    dispatch.arguments = message.SerializeToString()
 
     return dispatch
 
@@ -223,13 +223,13 @@ def _build_action_dispatch_with_dict(
                 entry.key = k
                 add_value_to_proto(entry.value, v)
 
-    # Build kwargs
+    # Build the encoded arguments payload
+    message = pb2v.ActionArguments()
     for key, value in kwargs.items():
-        arg = dispatch.kwargs.arguments.add()
+        arg = message.arguments.add()
         arg.key = key
-        arg_value = pb2v.Value()
-        add_value_to_proto(arg_value, value)
-        arg.value = arg_value.SerializeToString()
+        add_value_to_proto(arg.value, value)
+    dispatch.arguments = message.SerializeToString()
 
     return dispatch
 
