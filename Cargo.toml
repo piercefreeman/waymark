@@ -63,7 +63,6 @@ waymark-observability-store-postgres = { path = "crates/lib/observability-store-
 waymark-observability-store-postgres-bringup = { path = "crates/lib/observability-store-postgres-bringup" }
 waymark-observability-store-postgres-config = { path = "crates/lib/observability-store-postgres-config" }
 waymark-observability-store-postgres-migrations = { path = "crates/lib/observability-store-postgres-migrations" }
-waymark-pool-status = { path = "crates/lib/pool-status" }
 waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-bringup" }
 waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settlement-demand-registry" }
 waymark-proto = { path = "crates/lib/proto" }
@@ -162,9 +161,6 @@ waymark-worker-remote-bridge-service = { path = "crates/lib/worker-remote-bridge
 waymark-worker-remote-bringup = { path = "crates/lib/worker-remote-bringup" }
 waymark-worker-remote-pool = { path = "crates/lib/worker-remote-pool" }
 waymark-worker-reservation = { path = "crates/lib/worker-reservation" }
-waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }
-waymark-worker-status-core = { path = "crates/lib/worker-status-core" }
-waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
 waymark-workflow-completion = { path = "crates/lib/workflow-completion" }
 waymark-workflow-completion-backend = { path = "crates/lib/workflow-completion-backend" }
 waymark-workflow-completion-core = { path = "crates/lib/workflow-completion-core" }

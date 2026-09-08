@@ -6,7 +6,6 @@ use std::{
 };
 
 use waymark_worker_process_pool::Pool;
-use waymark_worker_status_core::WorkerPoolStats;
 
 type Registry = waymark_worker_reservation::Registry<waymark_worker_message_protocol::Channels>;
 
@@ -154,35 +153,13 @@ async fn release_slot_saturates_at_zero() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn record_completion_updates_public_metrics_and_stats() {
+async fn record_completion_releases_the_slot() {
     let pool = Arc::new(make_pool(2, 2, None).await);
 
     assert!(pool.try_acquire_slot_for_worker(1));
-    pool.record_latency(Duration::from_millis(15), Duration::from_millis(25));
     pool.record_completion(1, Arc::clone(&pool));
 
     assert_eq!(pool.in_flight_for_worker(1), 0);
-
-    let snapshots = pool.throughput_snapshots();
-    assert_eq!(snapshots.len(), 2);
-
-    let worker_snapshot = snapshots
-        .iter()
-        .find(|snapshot| snapshot.worker_id == 1)
-        .expect("worker 1 snapshot");
-    assert_eq!(worker_snapshot.total_completed, 1);
-    assert!(worker_snapshot.throughput_per_min > 0.0);
-    assert!(worker_snapshot.last_action_at.is_some());
-
-    let stats = pool.stats_snapshot();
-    assert_eq!(stats.active_workers, 2);
-    assert!(stats.throughput_per_min > 0.0);
-    assert_eq!(stats.total_completed, 1);
-    assert!(stats.last_action_at.is_some());
-    assert_eq!(stats.dispatch_queue_size, 0);
-    assert_eq!(stats.total_in_flight, 0);
-    assert_eq!(stats.median_dequeue_ms, Some(15));
-    assert_eq!(stats.median_handling_ms, Some(25));
 
     pool.shutdown_arc().await.expect("shutdown pool");
 }

@@ -21,7 +21,6 @@ waymark-tokio-metrics-bringup = { workspace = true }
 waymark-worker-python = { workspace = true }
 waymark-worker-remote-bringup = { workspace = true }
 waymark-worker-remote-pool = { workspace = true }
-waymark-worker-status-reporter = { workspace = true }
 
 aide = { workspace = true }
 axum = { workspace = true }
@@ -31,4 +30,3 @@ sqlx = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
-uuid = { workspace = true }
