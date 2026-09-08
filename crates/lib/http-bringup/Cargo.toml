@@ -1,0 +1,16 @@
+[package]
+name = "waymark-http-bringup"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[lib]
+test = false
+doctest = false

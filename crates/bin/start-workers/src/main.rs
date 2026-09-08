@@ -30,6 +30,8 @@
 //! - WAYMARK_SCHEDULER_BATCH_MAX: Max due schedules spawned per poll (default: 64)
 //! - WAYMARK_VM_RETENTION_MS / WAYMARK_VM_SWEEP_INTERVAL_MS: Cached VM eviction
 //! - WAYMARK_EXECUTABLE_RETENTION_MS / WAYMARK_EXECUTABLE_SWEEP_INTERVAL_MS: Cached executable eviction
+//! - WAYMARK_HTTP_ENABLED: Serve the HTTP interface (default: false)
+//! - WAYMARK_HTTP_ADDR: HTTP server bind address (default: 0.0.0.0:24119)
 //! - WAYMARK_RUNNER_PROFILE_INTERVAL_MS: Status reporting interval (default: 5000)
 
 use std::sync::{Arc, atomic::AtomicUsize};
@@ -112,6 +114,26 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     .await?;
 
     let process_pool = Arc::new(process_pool);
+
+    // Compose everything the HTTP server serves.
+    let http_api_routes = aide::axum::ApiRouter::new();
+    let http_routes = axum::Router::new()
+        .merge(waymark_http_healthz::router())
+        .merge(waymark_http_api::router("/api", http_api_routes));
+
+    // Start the HTTP server.
+    let maybe_http_handle = if config.http.enabled {
+        let handle = waymark_http_bringup::start(
+            config.http.addr,
+            http_routes,
+            shutdown_token.clone().cancelled_owned(),
+        )
+        .await?;
+        Some(handle)
+    } else {
+        info!("http server disabled (set WAYMARK_HTTP_ENABLED=true to enable)");
+        None
+    };
 
     let active_instance_gauge = Arc::new(AtomicUsize::new(0));
 
@@ -234,6 +256,11 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
 
     if let Err(err) = process_pool.shutdown_arc().await {
         warn!(error = %err, "worker pool shutdown failed");
+    }
+
+    if let Some(http_handle) = maybe_http_handle {
+        // Wait for graceful termination.
+        let _ = tokio::time::timeout(Duration::from_secs(5), http_handle).await;
     }
 
     info!("shutdown complete");
