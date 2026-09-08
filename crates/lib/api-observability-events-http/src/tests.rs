@@ -5,7 +5,9 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt as _;
 use tower::util::ServiceExt as _;
 
-use waymark_observability_events_query_backend::{HasNodeId, HasPayload, ListEvents, Tail};
+use waymark_observability_events_query_backend::{
+    HasNodeId, HasPayload, HasVmId, ListEvents, Tail, VmTimeline,
+};
 
 use super::*;
 
@@ -127,6 +129,10 @@ impl HasPayload for FixedBackend {
     type Payload = TestPayload;
 }
 
+impl HasVmId for FixedBackend {
+    type VmId = waymark_ids::InstanceId;
+}
+
 impl ListEvents for FixedBackend {
     type Cursor = TestCursor;
 
@@ -156,6 +162,29 @@ impl Tail for FixedBackend {
         &self,
         params: waymark_observability_events_query_backend::tail::Params<
             waymark_ids::NodeId,
+            TestCursor,
+        >,
+    ) -> Result<
+        Option<waymark_observability_events_query_backend::PageFor<Self, TestCursor>>,
+        &'static str,
+    > {
+        if self.fail {
+            return Err("backend down");
+        }
+        *self.seen_after.lock().unwrap() = params.after.map(|cursor| cursor.0);
+        Ok(self.page())
+    }
+}
+
+impl VmTimeline for FixedBackend {
+    type Cursor = TestCursor;
+
+    type Error = &'static str;
+
+    async fn vm_timeline(
+        &self,
+        params: waymark_observability_events_query_backend::vm_timeline::Params<
+            waymark_ids::InstanceId,
             TestCursor,
         >,
     ) -> Result<
@@ -309,6 +338,33 @@ async fn tail_bad_node_id_is_a_400() {
     let (status, _) = get(
         &backend,
         "/observability-events/nodes/not-a-uuid/tail?limit=10",
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn vm_timeline_serves_the_vm_events() {
+    let backend = backend(2, false);
+    let vm_id = waymark_ids::InstanceId::new_uuid_v4();
+    let (status, body) = get(
+        &backend,
+        &format!("/observability-events/vms/{vm_id}/timeline?limit=10&after=5"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["items"].as_array().expect("items").len(), 2);
+    assert_eq!(body["next"], "7");
+    assert_eq!(*backend.seen_after.lock().unwrap(), Some(5));
+}
+
+#[tokio::test]
+async fn vm_timeline_bad_vm_id_is_a_400() {
+    let backend = backend(1, false);
+    let (status, _) = get(
+        &backend,
+        "/observability-events/vms/not-a-uuid/timeline?limit=10",
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
