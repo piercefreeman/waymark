@@ -59,12 +59,6 @@ impl waymark_vm_runtime_value::RootValueAccess for TestValue {
 
 static_assertions::assert_impl_all!(TestValue: waymark_vm_interpreter_pureset::Value);
 
-impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestValue {
-    fn capture_call_argument(&self) -> Self {
-        self.clone()
-    }
-}
-
 impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestValue {
     fn capture_copy(&self) -> Self {
         self.clone()
