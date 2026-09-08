@@ -1,4 +1,3 @@
-use prost::Message as _;
 use waymark_proto::messages as proto;
 use waymark_worker_core::{WorkerPoolError, error_to_value};
 
@@ -38,12 +37,11 @@ fn normalize_error_value(error: serde_json::Value) -> serde_json::Value {
 }
 
 pub fn decode_action_result(
-    metrics: &waymark_worker_metrics::RoundTripMetrics,
+    metrics: &waymark_worker_metrics::RoundTripMetrics<proto::WorkflowArguments>,
 ) -> serde_json::Value {
-    let payload = proto::WorkflowArguments::decode(metrics.response_payload.as_slice())
-        .ok()
-        .and_then(|args| waymark_proto_message_conversions::workflow_arguments_to_json(&args).ok())
-        .unwrap_or(serde_json::Value::Null);
+    let payload =
+        waymark_proto_message_conversions::workflow_arguments_to_json(&metrics.response_payload)
+            .unwrap_or(serde_json::Value::Null);
 
     if metrics.success {
         if let serde_json::Value::Object(mut map) = payload {

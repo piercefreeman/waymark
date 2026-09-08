@@ -261,7 +261,7 @@ impl Sender {
     pub async fn send_action(
         &self,
         dispatch: ActionDispatchPayload,
-    ) -> Result<RoundTripMetrics, SendActionError> {
+    ) -> Result<RoundTripMetrics<proto::WorkflowArguments>, SendActionError> {
         let delivery_id = self
             .next_delivery
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -359,11 +359,7 @@ impl Sender {
             ack_latency,
             round_trip,
             worker_duration,
-            response_payload: response
-                .payload
-                .as_ref()
-                .map(|payload| payload.encode_to_vec())
-                .unwrap_or_default(),
+            response_payload: response.payload.clone().unwrap_or_default(),
             success: response.success,
             dispatch_token: response
                 .dispatch_token
