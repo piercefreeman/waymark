@@ -47,6 +47,22 @@ pub enum FrameKind {
     },
 }
 
+impl<FunctionId, StateId, Value> waymark_vm_interpreter_composite_core::DetectStateSwitch
+    for Frame<FunctionId, StateId, Value>
+where
+    StateId: Copy + PartialEq,
+{
+    type StateToken = StateId;
+
+    fn capture_state_token(&self) -> Self::StateToken {
+        self.state
+    }
+
+    fn state_switched(&self, token: &Self::StateToken) -> bool {
+        self.state != *token
+    }
+}
+
 impl<FunctionId, StateId, Value> Frame<FunctionId, StateId, Value> {
     /// Raise a runtime exception on this frame.
     ///

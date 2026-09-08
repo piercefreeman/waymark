@@ -14,7 +14,11 @@ use crate::support::{
 };
 
 fn action_call_promise_state_id(
-    effect: Effect<TestReadyValue, TestActionRef, TestReadyValue>,
+    effect: Effect<
+        waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
+        waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
+        core::convert::Infallible,
+    >,
 ) -> waymark_vm_runtime_promise_core::PromiseStateId {
     match effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
@@ -26,7 +30,11 @@ fn action_call_promise_state_id(
 }
 
 fn completed_value(
-    effect: Effect<TestReadyValue, TestActionRef, TestReadyValue>,
+    effect: Effect<
+        waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
+        waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
+        core::convert::Infallible,
+    >,
 ) -> TestReadyValue {
     match effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => value,
