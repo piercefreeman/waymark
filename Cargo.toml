@@ -46,7 +46,6 @@ waymark-pool-status = { path = "crates/lib/pool-status" }
 waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-bringup" }
 waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settlement-demand-registry" }
 waymark-proto = { path = "crates/lib/proto" }
-waymark-proto-python-value-conversions = { path = "crates/lib/proto-python-value-conversions" }
 waymark-python-workflow-ir-reader = { path = "crates/lib/python-workflow-ir-reader" }
 waymark-scheduler = { path = "crates/lib/scheduler" }
 waymark-scheduler-backend = { path = "crates/lib/scheduler-backend" }

@@ -12,6 +12,7 @@ waymark-vm-value-convert-core = { workspace = true }
 waymark-vm-value-python = { workspace = true }
 
 indexmap = { workspace = true }
+prost = { workspace = true }
 typed_floats = { workspace = true }
 
 [dev-dependencies]

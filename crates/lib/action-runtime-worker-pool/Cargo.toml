@@ -26,8 +26,6 @@ tracing = { workspace = true }
 waymark-action-core = { workspace = true }
 waymark-action-runtime-metadata-compat = { workspace = true }
 waymark-ids = { workspace = true }
-waymark-proto-python-value-conversions = { workspace = true }
-waymark-vm-value-python-convert-proto = { workspace = true }
 
 tokio = { workspace = true, features = ["macros", "rt"] }
 

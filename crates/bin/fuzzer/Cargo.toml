@@ -11,14 +11,15 @@ waymark-system-vm = { workspace = true }
 waymark-transient-execution-bringup = { workspace = true }
 waymark-transient-execution-worker-pool-bringup = { workspace = true }
 waymark-vm-ast-old-proto = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-value-python = { workspace = true }
-waymark-worker-core = { workspace = true }
 waymark-worker-inline = { workspace = true }
 waymark-worker-inline-compat = { workspace = true }
 waymark-workflow-completion-core = { workspace = true }
 
 clap = { workspace = true, features = ["derive", "env"] }
 color-eyre = { workspace = true }
+indexmap = { workspace = true }
 proptest = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
