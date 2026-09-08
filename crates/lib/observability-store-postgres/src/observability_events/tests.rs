@@ -369,3 +369,52 @@ async fn vm_timeline_read_uses_its_index() {
         "the timeline read must use its index, plan was:\n{plan}"
     );
 }
+
+/// A sweep deletes in chunks: seven rows before the cutoff and a chunk
+/// of three take three statements, and the two rows past the cutoff
+/// stay.
+#[tokio::test]
+async fn retention_deletes_in_chunks() {
+    let store = test_store("observability_store_test_events_retention_chunks").await;
+    let node_id = waymark_ids::NodeId::new_uuid_v4();
+    let counter = waymark_node_sequence::NodeSequenceCounter::new();
+    let vm_id = waymark_ids::InstanceId::new_uuid_v4();
+    let events: Vec<_> = (0..9)
+        .map(|second| waymark_observability_events_core::Event {
+            node_id,
+            node_sequence: counter.next(),
+            at: chrono::DateTime::from_timestamp_secs(second).unwrap(),
+            payload: waymark_observability_events_payload::Payload::VmDriver(
+                waymark_observability_events_payload::vm_driver::Payload {
+                    vm_id,
+                    run_sequence: 0,
+                    observation:
+                        waymark_observability_events_payload::vm_driver::Observation::VmStarted,
+                },
+            ),
+        })
+        .collect();
+    waymark_observability_events_sink_backend::AppendEvents::append_events(
+        &store,
+        NESlice::try_from_slice(&events).expect("non-empty"),
+    )
+    .await
+    .expect("append events");
+
+    let deleted = crate::common::delete_before_in_chunks(
+        &store.pool,
+        "observability_events",
+        "at",
+        chrono::DateTime::from_timestamp_secs(7).unwrap(),
+        3,
+    )
+    .await
+    .expect("delete in chunks");
+    assert_eq!(deleted, 7);
+
+    let (remaining,): (i64,) = sqlx::query_as("SELECT count(*) FROM observability_events")
+        .fetch_one(&store.pool)
+        .await
+        .expect("count");
+    assert_eq!(remaining, 2);
+}
