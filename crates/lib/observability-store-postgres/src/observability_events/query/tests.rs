@@ -17,6 +17,15 @@ fn cursors_round_trip_through_their_wire_form() {
     let back = TailCursor::decode(&tail.encode()).expect("a written cursor reads back");
     assert_eq!(back.encode(), "9");
 
+    let timeline = VmTimelineCursor {
+        at: chrono::DateTime::from_timestamp_micros(1_700_000_000_654_321).unwrap(),
+        node_id: waymark_ids::NodeId::new_uuid_v4(),
+        node_sequence: 5,
+    };
+    let text = timeline.encode();
+    let back = VmTimelineCursor::decode(&text).expect("a written cursor reads back");
+    assert_eq!(back.encode(), text);
+
     let error = ListCursor::decode("1/2").expect_err("two parts are not a list cursor");
     assert_eq!(error.text, "1/2");
     let error = TailCursor::decode("x").expect_err("text is not a tail cursor");
