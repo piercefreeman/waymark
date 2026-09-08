@@ -42,9 +42,6 @@ def _build_action_dispatch(
 ) -> pb2.ActionDispatch:
     """Build an ActionDispatch proto message."""
     dispatch = pb2.ActionDispatch(
-        action_id="test-action-id",
-        instance_id="test-instance-id",
-        sequence=1,
         action_name=action_name,
         module_name=module_name,
     )
@@ -200,9 +197,6 @@ def _build_action_dispatch_with_dict(
     This version handles nested dict values for testing model coercion.
     """
     dispatch = pb2.ActionDispatch(
-        action_id="test-action-id",
-        instance_id="test-instance-id",
-        sequence=1,
         action_name=action_name,
         module_name=module_name,
     )

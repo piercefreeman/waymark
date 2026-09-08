@@ -31,36 +31,38 @@ message Envelope {
 
 // Server -> Worker: instruction to execute an action
 message ActionDispatch {
-  string action_id = 1;              // Unique action identifier
-  string instance_id = 2;            // Workflow instance this action belongs to
-  uint32 sequence = 3;               // Sequence number within instance
-
   // Action execution details
   string action_name = 4;            // Name of the action function to call
   string module_name = 5;            // Python module containing the action
   WorkflowArguments kwargs = 6;      // Keyword arguments for the action
 
-  // Execution policies
-  optional uint32 timeout_seconds = 7;
-  optional uint32 max_retries = 8;
-  optional uint32 attempt_number = 9;
-  optional string dispatch_token = 10;  // UUID for result correlation
-
-  // Opaque server correlation metadata; workers echo it untouched
+  // Opaque server correlation metadata; workers echo it untouched.
+  // This is the ONLY correlation: wire ids and per-attempt tokens were
+  // retired once the action runtime began correlating on metadata alone.
   bytes metadata = 11;
+
+  reserved 1, 2, 3, 7, 8, 9, 10;
+  reserved "action_id", "instance_id", "sequence", "timeout_seconds",
+      "max_retries", "attempt_number", "dispatch_token";
 }
 
 // Worker -> Server: result of action execution
 message ActionResult {
-  string action_id = 1;
-  bool success = 2;
-  WorkflowArguments payload = 3;     // Result or error details
+  // The action's result, encoded in the value encoding this channel
+  // speaks.
+  //
+  // Whether the action returned or raised is the encoded value's own
+  // business: languages differ on whether raising is even a notion, so
+  // the framing carries the completion without interpreting it.
+  bytes payload = 10;
+
   uint64 worker_start_ns = 4;        // Perf counter at execution start
   uint64 worker_end_ns = 5;          // Perf counter at execution end
-  optional string dispatch_token = 6;
-  optional string error_type = 7;    // Exception type if success=false
-  optional string error_message = 8; // Exception message if success=false
   bytes metadata = 9;                // Opaque server correlation metadata echoed from the dispatch
+
+  reserved 1, 2, 3, 6, 7, 8;
+  reserved "action_id", "success", "dispatch_token", "error_type",
+      "error_message";
 }
 
 // Worker -> Server: acknowledgment of message receipt
@@ -77,7 +79,7 @@ message WorkerHello {
 // Value Framing
 // =============================================================================
 // Named arguments at the transport framing level.  The names stay
-// proto-visible; each value is an opaque encoded document whose format is
+// proto-visible; each value is opaque encoded bytes whose format is
 // the producing language's own business (currently a serialized
 // `waymark.python_value.WorkflowArgumentValue`, see python_value.proto).
 

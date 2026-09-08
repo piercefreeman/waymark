@@ -8,7 +8,6 @@ use std::{
 };
 
 use prost::Message as _;
-use uuid::Uuid;
 use waymark_proto::messages as proto;
 use waymark_worker_metrics::RoundTripMetrics;
 
@@ -205,43 +204,6 @@ async fn r#loop(
     Ok(())
 }
 
-/// Payload for dispatching an action to a worker.
-#[derive(Debug, Clone)]
-pub struct ActionDispatchPayload {
-    /// Unique action identifier
-    pub action_id: String,
-
-    /// Workflow instance this action belongs to
-    pub instance_id: String,
-
-    /// Sequence number within the instance
-    pub sequence: u32,
-
-    /// Name of the action function to call
-    pub action_name: String,
-
-    /// Python module containing the action
-    pub module_name: String,
-
-    /// Keyword arguments for the action
-    pub kwargs: proto::WorkflowArguments,
-
-    /// Timeout in seconds (0 = no timeout)
-    pub timeout_seconds: u32,
-
-    /// Maximum retry attempts
-    pub max_retries: u32,
-
-    /// Current attempt number
-    pub attempt_number: u32,
-
-    /// Dispatch token for correlation
-    pub dispatch_token: Uuid,
-
-    /// Opaque server correlation metadata; echoed back on the result.
-    pub metadata: Vec<u8>,
-}
-
 impl Sender {
     /// Send an action to the worker and wait for the result.
     ///
@@ -260,17 +222,14 @@ impl Sender {
     /// - The worker protocol state already closed before dispatch registration
     pub async fn send_action(
         &self,
-        dispatch: ActionDispatchPayload,
-    ) -> Result<RoundTripMetrics<proto::WorkflowArguments>, SendActionError> {
+        dispatch: proto::ActionDispatch,
+    ) -> Result<RoundTripMetrics<Vec<u8>>, SendActionError> {
         let delivery_id = self
             .next_delivery
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let send_instant = std::time::Instant::now();
 
         tracing::trace!(
-            action_id = %dispatch.action_id,
-            instance_id = %dispatch.instance_id,
-            sequence = dispatch.sequence,
             module = %dispatch.module_name,
             function = %dispatch.action_name,
             delivery_id,
@@ -291,26 +250,12 @@ impl Sender {
             shared.pending_responses.insert(delivery_id, response_tx);
         }
 
-        // Build and send the dispatch envelope
-        let command = proto::ActionDispatch {
-            action_id: dispatch.action_id.clone(),
-            instance_id: dispatch.instance_id.clone(),
-            sequence: dispatch.sequence,
-            action_name: dispatch.action_name.clone(),
-            module_name: dispatch.module_name.clone(),
-            kwargs: Some(dispatch.kwargs.clone()),
-            timeout_seconds: Some(dispatch.timeout_seconds),
-            max_retries: Some(dispatch.max_retries),
-            attempt_number: Some(dispatch.attempt_number),
-            dispatch_token: Some(dispatch.dispatch_token.to_string()),
-            metadata: dispatch.metadata.clone(),
-        };
-
+        // Send the dispatch envelope
         let envelope = proto::Envelope {
             delivery_id,
             partition_id: 0,
             kind: proto::MessageKind::ActionDispatch as i32,
-            payload: command.encode_to_vec(),
+            payload: dispatch.encode_to_vec(),
         };
 
         if self.send_envelope(envelope).await.is_err() {
@@ -343,30 +288,19 @@ impl Sender {
         );
 
         tracing::trace!(
-            action_id = %dispatch.action_id,
+            delivery_id,
             ack_latency_us = ack_latency.as_micros(),
             round_trip_ms = round_trip.as_millis(),
             worker_duration_ms = worker_duration.as_millis(),
-            success = response.success,
             "action completed"
         );
 
         Ok(RoundTripMetrics {
-            action_id: dispatch.action_id,
-            instance_id: dispatch.instance_id,
             delivery_id,
-            sequence: dispatch.sequence,
             ack_latency,
             round_trip,
             worker_duration,
-            response_payload: response.payload.clone().unwrap_or_default(),
-            success: response.success,
-            dispatch_token: response
-                .dispatch_token
-                .as_ref()
-                .and_then(|token| Uuid::parse_str(token).ok()),
-            error_type: response.error_type,
-            error_message: response.error_message,
+            response_payload: response.payload,
         })
     }
 
@@ -383,22 +317,11 @@ impl Sender {
 mod tests {
     use super::*;
 
-    fn fixed_dispatch_token() -> Uuid {
-        Uuid::parse_str("11111111-2222-4333-8444-555555555555").expect("valid fixed UUID for tests")
-    }
-
-    fn sample_dispatch(dispatch_token: Uuid) -> ActionDispatchPayload {
-        ActionDispatchPayload {
-            action_id: "action-1".to_string(),
-            instance_id: "instance-1".to_string(),
-            sequence: 42,
+    fn sample_dispatch() -> proto::ActionDispatch {
+        proto::ActionDispatch {
             action_name: "do_work".to_string(),
             module_name: "workers.demo".to_string(),
-            kwargs: proto::WorkflowArguments::default(),
-            timeout_seconds: 30,
-            max_retries: 3,
-            attempt_number: 1,
-            dispatch_token,
+            kwargs: Some(proto::WorkflowArguments::default()),
             metadata: Vec::new(),
         }
     }
@@ -414,8 +337,7 @@ mod tests {
         });
         let protocol_loop_handle = tokio::spawn(protocol_loop);
 
-        let dispatch_token = fixed_dispatch_token();
-        let expected_dispatch = sample_dispatch(dispatch_token);
+        let expected_dispatch = sample_dispatch();
 
         let worker_handle = tokio::spawn(async move {
             let envelope = to_worker_rx
@@ -430,9 +352,8 @@ mod tests {
 
             let command = proto::ActionDispatch::decode(envelope.payload.as_slice())
                 .expect("decode action dispatch payload");
-            assert_eq!(command.action_id, "action-1");
-            assert_eq!(command.instance_id, "instance-1");
-            assert_eq!(command.sequence, 42);
+            assert_eq!(command.action_name, "do_work");
+            assert_eq!(command.module_name, "workers.demo");
 
             let ack = proto::Ack {
                 acked_delivery_id: envelope.delivery_id,
@@ -448,10 +369,8 @@ mod tests {
                 .expect("send ack envelope");
 
             let result = proto::ActionResult {
-                success: true,
                 worker_start_ns: 1_000,
                 worker_end_ns: 4_000,
-                dispatch_token: Some(dispatch_token.to_string()),
                 ..Default::default()
             };
             from_worker_tx
@@ -470,12 +389,7 @@ mod tests {
             .await
             .expect("send_action should succeed");
 
-        assert_eq!(metrics.action_id, "action-1");
-        assert_eq!(metrics.instance_id, "instance-1");
-        assert_eq!(metrics.sequence, 42);
-        assert!(metrics.success);
         assert_eq!(metrics.worker_duration.as_nanos(), 3_000);
-        assert_eq!(metrics.dispatch_token, Some(dispatch_token));
 
         worker_handle.await.expect("worker task should finish");
         drop(sender);
@@ -497,7 +411,7 @@ mod tests {
         let protocol_loop_handle = tokio::spawn(protocol_loop);
 
         let err = sender
-            .send_action(sample_dispatch(fixed_dispatch_token()))
+            .send_action(sample_dispatch())
             .await
             .expect_err("send_action should fail when worker channel is closed");
 
@@ -543,7 +457,7 @@ mod tests {
 
         let err = tokio::time::timeout(
             std::time::Duration::from_secs(1),
-            sender.send_action(sample_dispatch(fixed_dispatch_token())),
+            sender.send_action(sample_dispatch()),
         )
         .await
         .expect("send_action should not wait for dispatch timeout")
@@ -576,7 +490,7 @@ mod tests {
 
         let err = tokio::time::timeout(
             std::time::Duration::from_secs(1),
-            sender.send_action(sample_dispatch(fixed_dispatch_token())),
+            sender.send_action(sample_dispatch()),
         )
         .await
         .expect("send_action should not wait after worker channel closes")

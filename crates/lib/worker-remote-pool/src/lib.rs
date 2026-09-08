@@ -1,5 +1,3 @@
-mod request;
-
 use std::{
     sync::{
         Arc, Mutex as StdMutex,
@@ -13,22 +11,17 @@ use nonempty_collections::NEVec;
 use tokio::sync::{Mutex, mpsc};
 
 use waymark_proto::messages as proto;
-use waymark_worker_core::{ActionRequest, WorkerPoolError};
+use waymark_worker_core::WorkerPoolError;
 
 async fn execute_remote_request<Spec>(
     pool: &Arc<waymark_worker_process_pool::Pool<Spec>>,
-    request: ActionRequest,
+    dispatch: proto::ActionDispatch,
 ) -> proto::ActionResult
 where
     Spec: waymark_worker_process_spec::Spec,
     Spec: Send + Sync + 'static,
 {
-    let metadata = request.metadata.clone();
-
-    let dispatch = match request::to_dispatch_payload(request) {
-        Ok(dispatch) => dispatch,
-        Err(short_circuit) => return *short_circuit,
-    };
+    let metadata = dispatch.metadata.clone();
 
     let before = std::time::Instant::now();
     let worker_idx = loop {
@@ -51,11 +44,7 @@ where
             pool.record_latency(metrics.ack_latency, metrics.worker_duration);
             pool.record_completion(worker_idx, Arc::clone(pool));
             proto::ActionResult {
-                success: metrics.success,
-                payload: Some(metrics.response_payload),
-                dispatch_token: metrics.dispatch_token.map(|token| token.to_string()),
-                error_type: metrics.error_type,
-                error_message: metrics.error_message,
+                payload: metrics.response_payload,
                 metadata,
                 ..Default::default()
             }
@@ -63,9 +52,14 @@ where
         Err(err) => {
             pool.release_slot(worker_idx);
             proto::ActionResult {
-                success: false,
-                error_type: Some("RemoteWorkerPoolError".to_owned()),
-                error_message: Some(err.to_string()),
+                payload: waymark_proto_python_value_conversions::encode_action_result_value(
+                    &waymark_proto_python_value_conversions::raised_exception(
+                        waymark_proto_python_value_conversions::exception_value(
+                            "RemoteWorkerPoolError".to_owned(),
+                            err.to_string(),
+                        ),
+                    ),
+                ),
                 metadata,
                 ..Default::default()
             }
@@ -85,8 +79,8 @@ where
 // later).
 pub struct RemoteWorkerPool<Spec> {
     pool: Arc<waymark_worker_process_pool::Pool<Spec>>,
-    request_tx: mpsc::Sender<ActionRequest>,
-    request_rx: StdMutex<Option<mpsc::Receiver<ActionRequest>>>,
+    request_tx: mpsc::Sender<proto::ActionDispatch>,
+    request_rx: StdMutex<Option<mpsc::Receiver<proto::ActionDispatch>>>,
     completion_tx: mpsc::Sender<proto::ActionResult>,
     completion_rx: Mutex<mpsc::Receiver<proto::ActionResult>>,
     launched: AtomicBool,
@@ -187,8 +181,8 @@ where
         Ok(())
     }
 
-    fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError> {
-        self.request_tx.try_send(request).map_err(|err| {
+    fn queue(&self, dispatch: proto::ActionDispatch) -> Result<(), WorkerPoolError> {
+        self.request_tx.try_send(dispatch).map_err(|err| {
             WorkerPoolError::new(
                 "RemoteWorkerPoolError",
                 format!("failed to enqueue action request: {err}"),
