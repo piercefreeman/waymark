@@ -13,7 +13,12 @@ use waymark_vm_driver_hooks::{
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use super::Hooks;
+use super::{Hooks, Policy};
+
+/// Record everything, the snapshots included.
+const EVERYTHING: Policy = Policy {
+    snapshot_persisted: true,
+};
 
 /// The hooks over a full-instruction-set run with `u8` values whose
 /// collaborators cannot fail.
@@ -119,7 +124,7 @@ async fn every_hook_becomes_one_summarized_event_in_run_order() {
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let (emitter, task, shutdown_tx) = recording_emitter(&seen);
     let vm_id = waymark_ids::InstanceId::new_uuid_v4();
-    let hooks = TestHooks::new(vm_id, emitter);
+    let hooks = TestHooks::new(vm_id, emitter, EVERYTHING);
 
     hooks.vm_started();
     hooks.effect_emitted(EffectNumber(0), &action_call());
@@ -226,7 +231,7 @@ async fn a_failed_run_renders_the_collaborator_error_once() {
         waymark_observability_events_vm_driver_hooks_fullset::FullSetEffectSummarizer<u8>,
         u8,
         waymark_vm_driver::Error<(), (), &'static str, (), ()>,
-    >::new(waymark_ids::InstanceId::new_uuid_v4(), emitter);
+    >::new(waymark_ids::InstanceId::new_uuid_v4(), emitter, EVERYTHING);
 
     hooks.vm_stopped(&waymark_vm_driver::Error::SnapshotPersistence("disk full"));
 
@@ -246,8 +251,8 @@ async fn two_vms_share_the_node_stream_with_their_own_run_positions() {
     let (emitter, task, shutdown_tx) = recording_emitter(&seen);
     let first_vm = waymark_ids::InstanceId::new_uuid_v4();
     let second_vm = waymark_ids::InstanceId::new_uuid_v4();
-    let first = TestHooks::new(first_vm, Arc::clone(&emitter));
-    let second = TestHooks::new(second_vm, emitter);
+    let first = TestHooks::new(first_vm, Arc::clone(&emitter), EVERYTHING);
+    let second = TestHooks::new(second_vm, emitter, EVERYTHING);
 
     first.vm_started();
     second.vm_started();
@@ -279,5 +284,44 @@ async fn two_vms_share_the_node_stream_with_their_own_run_positions() {
             (4, false, 2),
             (5, true, 2),
         ]
+    );
+}
+
+/// With snapshots not recorded, a persisted snapshot is no event and
+/// takes no position: the run's positions stay contiguous around it.
+#[tokio::test]
+async fn unrecorded_snapshots_leave_no_event_and_no_gap() {
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (emitter, task, shutdown_tx) = recording_emitter(&seen);
+    let vm_id = waymark_ids::InstanceId::new_uuid_v4();
+    let hooks = TestHooks::new(
+        vm_id,
+        emitter,
+        Policy {
+            snapshot_persisted: false,
+        },
+    );
+
+    hooks.vm_started();
+    hooks.snapshot_persisted(4096);
+    hooks.vm_stopped(&waymark_vm_driver::Error::Cancelled);
+
+    let seen = flushed(seen, task, shutdown_tx).await;
+    let observations: Vec<_> = seen
+        .iter()
+        .map(|event| {
+            let payload = vm_driver(event);
+            (
+                payload["run_sequence"].as_u64().expect("a position"),
+                payload["observation"]["kind"]
+                    .as_str()
+                    .expect("a kind")
+                    .to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        observations,
+        [(0, "vm_started".to_owned()), (1, "vm_stopped".to_owned())]
     );
 }

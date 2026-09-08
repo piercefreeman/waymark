@@ -172,6 +172,7 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 | `WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS` | How long one statement on the observability write pool may run before the server ends it; the sinks' flushes, retention sweeps and migrations run there | `600000` |
 | `WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS` | Connection cap for the observability read pool (Postgres store), the one the API's reads can exhaust without touching the write pool; when sharing the main database these too are additive to the main pool's connections | `4` |
 | `WAYMARK_OBSERVABILITY_POSTGRES_READ_STATEMENT_TIMEOUT_MS` | How long one statement on the observability read pool may run before the server ends it | `10000` |
+| `WAYMARK_OBSERVABILITY_EVENTS_RECORD_SNAPSHOT_PERSISTED` | Record a `snapshot_persisted` observability event per persisted VM snapshot; about one event in two of a run | `false` |
 
 #### Advanced tuning
 
