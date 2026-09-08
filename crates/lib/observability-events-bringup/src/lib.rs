@@ -55,7 +55,11 @@ where
     Backend: waymark_observability_events_query_backend::Tail,
     <Backend as waymark_observability_events_query_backend::Tail>::Cursor:
         waymark_http_api_types::CursorCodec,
+    Backend: waymark_observability_events_query_backend::VmTimeline,
+    <Backend as waymark_observability_events_query_backend::VmTimeline>::Cursor:
+        waymark_http_api_types::CursorCodec,
     Backend: waymark_observability_events_query_backend::HasNodeId<NodeId = waymark_ids::NodeId>,
+    Backend: waymark_observability_events_query_backend::HasVmId<VmId = waymark_ids::InstanceId>,
     Backend: waymark_observability_events_query_backend::HasPayload<
             Payload = <Backend as waymark_observability_events_sink_backend::HasPayload>::Payload,
         >,

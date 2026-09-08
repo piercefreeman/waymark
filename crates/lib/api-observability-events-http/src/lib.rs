@@ -8,10 +8,12 @@ use std::sync::Arc;
 mod common;
 mod list_events;
 mod tail;
+mod vm_timeline;
 
 pub use self::common::*;
 pub use self::list_events::*;
 pub use self::tail::*;
+pub use self::vm_timeline::*;
 
 /// A payload the routes can serve: it has a kind, a wire form and a
 /// schema.
@@ -35,14 +37,19 @@ where
     Backend: waymark_observability_events_query_backend::Tail,
     <Backend as waymark_observability_events_query_backend::Tail>::Cursor:
         waymark_http_api_types::CursorCodec,
+    Backend: waymark_observability_events_query_backend::VmTimeline,
+    <Backend as waymark_observability_events_query_backend::VmTimeline>::Cursor:
+        waymark_http_api_types::CursorCodec,
     Backend: waymark_observability_events_query_backend::HasNodeId<NodeId = waymark_ids::NodeId>,
+    Backend: waymark_observability_events_query_backend::HasVmId<VmId = waymark_ids::InstanceId>,
     Backend: waymark_observability_events_query_backend::HasPayload,
     Backend::Payload: crate::PayloadBounds,
     Backend: Send + Sync + 'static,
 {
     let routes = aide::axum::ApiRouter::new()
         .merge(list_events::router())
-        .merge(tail::router());
+        .merge(tail::router())
+        .merge(vm_timeline::router());
 
     aide::axum::ApiRouter::new()
         .nest("/observability-events", routes)
