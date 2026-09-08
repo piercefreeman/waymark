@@ -1,13 +1,13 @@
 //! Const value for [`waymark_vm_ast_old`].
 //!
 //! Provides lowering from the [`waymark_vm_ast_old::Literal`] and
-//! binding to [`waymark_vm_value::Value`].
+//! binding to [`waymark_vm_value_python::Value`].
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 use typed_floats::NonNaNFinite;
 
-/// A subset of [`waymark_vm_value::Value`] that can be lowered from
+/// A subset of [`waymark_vm_value_python::Value`] that can be lowered from
 /// the [`waymark_vm_ast_old::Literal`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -28,7 +28,7 @@ pub enum ConstValue {
     None,
 }
 
-impl From<&ConstValue> for waymark_vm_value::ReadyValue {
+impl From<&ConstValue> for waymark_vm_value_python::ReadyValue {
     fn from(value: &ConstValue) -> Self {
         match value {
             ConstValue::Int(value) => Self::Int(*value),

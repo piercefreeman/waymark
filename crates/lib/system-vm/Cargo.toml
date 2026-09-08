@@ -12,7 +12,7 @@ serde = [
   "waymark-vm-compiler-for-ast-old-const-value/serde",
   "waymark-vm-instructions-fullset/serde",
   "waymark-vm-runtime-core/serde",
-  "waymark-vm-value/serde",
+  "waymark-vm-value-python/serde",
 ]
 
 [dependencies]
@@ -30,7 +30,7 @@ waymark-vm-instructions-pureset = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
-waymark-vm-value = { workspace = true }
+waymark-vm-value-python = { workspace = true }
 
 [dev-dependencies]
 static_assertions = { workspace = true }

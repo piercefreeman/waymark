@@ -6,7 +6,7 @@ publish.workspace = true
 
 [dependencies]
 waymark-vm-ast-old = { workspace = true }
-waymark-vm-value = { workspace = true }
+waymark-vm-value-python = { workspace = true }
 
 serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
@@ -16,5 +16,5 @@ typed_floats = { workspace = true }
 serde = [
   "dep:serde",
   "serde/derive",
-  "waymark-vm-value/serde",
+  "waymark-vm-value-python/serde",
 ]

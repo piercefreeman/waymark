@@ -5,7 +5,7 @@
 //! The Python side sends workflow arguments as a
 //! [`proto::WorkflowArguments`] map.  This converter pairs that map with
 //! the entry function's ordered input names (from the AST) and produces a
-//! `Vec<`[`waymark_vm_value::Value`]`>` ready for
+//! `Vec<`[`waymark_vm_value_python::Value`]`>` ready for
 //! [`waymark_vm_runtime::Runtime::with_custom_entrypoint`].
 
 #![warn(missing_docs)]
@@ -29,7 +29,7 @@ pub struct MissingInitialContextError {
 /// The conversion is infallible — callers should use
 /// [`Convert::convert`](waymark_convert_core::Convert::convert).
 /// Missing keys default to
-/// [`waymark_vm_value::Value::Ready(ReadyValue::None)`].
+/// [`waymark_vm_value_python::Value::Ready(ReadyValue::None)`].
 pub struct InitialContextConverter;
 
 impl
@@ -38,7 +38,7 @@ impl
             Option<&waymark_proto::messages::WorkflowArguments>,
             &[String],
         ),
-        Vec<waymark_vm_value::Value>,
+        Vec<waymark_vm_value_python::Value>,
     > for InitialContextConverter
 {
     type Error = MissingInitialContextError;
@@ -48,7 +48,7 @@ impl
             Option<&waymark_proto::messages::WorkflowArguments>,
             &[String],
         ),
-    ) -> Result<Vec<waymark_vm_value::Value>, Self::Error> {
+    ) -> Result<Vec<waymark_vm_value_python::Value>, Self::Error> {
         let Some(ctx) = initial_context else {
             if input_names.is_empty() {
                 return Ok(Vec::new());
@@ -64,21 +64,21 @@ impl
 impl
     TryConvert<
         (&waymark_proto::messages::WorkflowArguments, &[String]),
-        Vec<waymark_vm_value::Value>,
+        Vec<waymark_vm_value_python::Value>,
     > for InitialContextConverter
 {
     type Error = core::convert::Infallible;
 
     fn try_convert(
         (initial_context, input_names): (&waymark_proto::messages::WorkflowArguments, &[String]),
-    ) -> Result<Vec<waymark_vm_value::Value>, Self::Error> {
+    ) -> Result<Vec<waymark_vm_value_python::Value>, Self::Error> {
         let args_dict = waymark_action_runtime_convert::Converter::convert(initial_context);
-        let waymark_vm_value::ReadyValue::Dict(args_map) = args_dict else {
+        let waymark_vm_value_python::ReadyValue::Dict(args_map) = args_dict else {
             // Should never happen — Converter always produces a Dict for
             // WorkflowArguments.
             return Ok(vec![
-                waymark_vm_value::Value::Ready(
-                    waymark_vm_value::ReadyValue::None
+                waymark_vm_value_python::Value::Ready(
+                    waymark_vm_value_python::ReadyValue::None
                 );
                 input_names.len()
             ]);
@@ -90,8 +90,8 @@ impl
                 args_map
                     .get(name)
                     .cloned()
-                    .unwrap_or(waymark_vm_value::Value::Ready(
-                        waymark_vm_value::ReadyValue::None,
+                    .unwrap_or(waymark_vm_value_python::Value::Ready(
+                        waymark_vm_value_python::ReadyValue::None,
                     ))
             })
             .collect();
@@ -107,7 +107,7 @@ impl<FunctionId>
             &[String],
             FunctionId,
         ),
-        waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value::Value>,
+        waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value_python::Value>,
     > for InitialContextConverter
 {
     type Error = MissingInitialContextError;
@@ -118,7 +118,7 @@ impl<FunctionId>
             &[String],
             FunctionId,
         ),
-    ) -> Result<waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value::Value>, Self::Error>
+    ) -> Result<waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value_python::Value>, Self::Error>
     {
         let args = Self::try_convert((initial_context, input_names))?;
         Ok(waymark_vm_runtime::CallSpec { func, args })
@@ -131,7 +131,7 @@ impl<FunctionId>
             Option<&waymark_proto::messages::WorkflowArguments>,
             &[String],
         ),
-        waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value::Value>,
+        waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value_python::Value>,
     > for InitialContextConverter
 where
     FunctionId: Default,
@@ -143,7 +143,7 @@ where
             Option<&waymark_proto::messages::WorkflowArguments>,
             &[String],
         ),
-    ) -> Result<waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value::Value>, Self::Error>
+    ) -> Result<waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value_python::Value>, Self::Error>
     {
         Self::try_convert((initial_context, input_names, FunctionId::default()))
     }
@@ -156,7 +156,7 @@ impl<FunctionId>
             &waymark_vm_compiler_metadata::Metadata<FunctionId>,
             FunctionId,
         ),
-        waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value::Value>,
+        waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value_python::Value>,
     > for InitialContextConverter
 where
     FunctionId: index_type::IndexType,
@@ -169,7 +169,7 @@ where
             &waymark_vm_compiler_metadata::Metadata<FunctionId>,
             FunctionId,
         ),
-    ) -> Result<waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value::Value>, Self::Error>
+    ) -> Result<waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value_python::Value>, Self::Error>
     {
         let entry_input_names = metadata.input_names(func).unwrap_or_default();
         Self::try_convert((initial_context, entry_input_names, func))
@@ -182,7 +182,7 @@ impl<FunctionId>
             Option<&waymark_proto::messages::WorkflowArguments>,
             &waymark_vm_compiler_metadata::Metadata<FunctionId>,
         ),
-        waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value::Value>,
+        waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value_python::Value>,
     > for InitialContextConverter
 where
     FunctionId: Default + index_type::IndexType,
@@ -194,7 +194,7 @@ where
             Option<&waymark_proto::messages::WorkflowArguments>,
             &waymark_vm_compiler_metadata::Metadata<FunctionId>,
         ),
-    ) -> Result<waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value::Value>, Self::Error>
+    ) -> Result<waymark_vm_runtime::CallSpec<FunctionId, waymark_vm_value_python::Value>, Self::Error>
     {
         Self::try_convert((initial_context, metadata, FunctionId::default()))
     }

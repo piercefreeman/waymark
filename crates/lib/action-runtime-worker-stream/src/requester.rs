@@ -32,7 +32,7 @@ where
 {
     type Error = mpsc::error::SendError<Result<proto::WorkflowStreamResponse, tonic::Status>>;
 
-    type Argument = waymark_vm_value::ReadyValue;
+    type Argument = waymark_vm_value_python::ReadyValue;
 
     type Metadata = Metadata;
 
@@ -47,7 +47,7 @@ where
 
 #[allow(clippy::result_large_err)]
 fn build_dispatch<Metadata: Encode>(
-    request: ActionCallRequest<waymark_vm_value::ReadyValue, Metadata>,
+    request: ActionCallRequest<waymark_vm_value_python::ReadyValue, Metadata>,
 ) -> Result<proto::WorkflowStreamResponse, tonic::Status> {
     let ActionCallRequest {
         action_ref,

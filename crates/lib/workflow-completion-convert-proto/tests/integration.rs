@@ -10,7 +10,7 @@ fn completion_produces_single_result_argument() {
         primitive_workflow_argument::Kind as PrimitiveKind, workflow_argument_value::Kind,
     };
 
-    let outcome = Outcome::Completion(waymark_vm_value::ReadyValue::Int(42));
+    let outcome = Outcome::Completion(waymark_vm_value_python::ReadyValue::Int(42));
     let args = Converter::try_convert(outcome).expect("conversion is infallible for ready ints");
 
     assert_eq!(args.arguments.len(), 1);
@@ -36,17 +36,17 @@ fn completion_dict_passes_through_verbatim() {
 
     // A dict completion is user data, even when its keys collide with the
     // argument names of the completion plane (`result`).
-    let outcome = Outcome::Completion(waymark_vm_value::ReadyValue::Dict(
+    let outcome = Outcome::Completion(waymark_vm_value_python::ReadyValue::Dict(
         [
             (
                 "result".to_string(),
-                waymark_vm_value::Value::Ready(waymark_vm_value::ReadyValue::String(
+                waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::String(
                     "inner".to_string(),
                 )),
             ),
             (
                 "other".to_string(),
-                waymark_vm_value::Value::Ready(waymark_vm_value::ReadyValue::String(
+                waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::String(
                     "kept".to_string(),
                 )),
             ),
@@ -97,7 +97,7 @@ fn exception_outcome_produces_single_error_argument() {
 
     let exception = waymark_vm_runtime_exception::Exception {
         type_id: "ValueError".to_string(),
-        details: waymark_vm_value::ReadyValue::String("boom".to_string()),
+        details: waymark_vm_value_python::ReadyValue::String("boom".to_string()),
     };
     let args = Converter::try_convert(Outcome::Exception(exception))
         .expect("conversion is infallible for ready exceptions");
