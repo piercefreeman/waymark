@@ -19,6 +19,7 @@ waymark-action-runtime-metadata-codec = { path = "crates/lib/action-runtime-meta
 waymark-action-runtime-metadata-compat = { path = "crates/lib/action-runtime-metadata-compat" }
 waymark-action-runtime-worker-pool = { path = "crates/lib/action-runtime-worker-pool" }
 waymark-action-runtime-worker-stream = { path = "crates/lib/action-runtime-worker-stream" }
+waymark-api-essential-metrics-http = { path = "crates/lib/api-essential-metrics-http" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
 waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migrations" }
 waymark-backends-core = { path = "crates/lib/backends-core" }
