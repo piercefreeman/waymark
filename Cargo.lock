@@ -4617,8 +4617,10 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+ "waymark-cursor-core",
  "waymark-ids",
  "waymark-nonzero-duration",
+ "waymark-query-limit",
 ]
 
 [[package]]
