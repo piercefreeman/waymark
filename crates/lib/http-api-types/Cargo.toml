@@ -1,0 +1,19 @@
+[package]
+name = "waymark-http-api-types"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-ids = { workspace = true }
+waymark-nonzero-duration = { workspace = true }
+
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+uuid = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lib]
+doctest = false
