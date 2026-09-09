@@ -44,6 +44,7 @@ waymark-extcall-reconciler-core = { path = "crates/lib/extcall-reconciler-core" 
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-fullset-effect-handler = { path = "crates/lib/fullset-effect-handler" }
 waymark-http-api = { path = "crates/lib/http-api" }
+waymark-http-api-types = { path = "crates/lib/http-api-types" }
 waymark-http-bringup = { path = "crates/lib/http-bringup" }
 waymark-http-config = { path = "crates/lib/http-config" }
 waymark-http-healthz = { path = "crates/lib/http-healthz" }
