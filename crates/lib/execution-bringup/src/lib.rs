@@ -142,6 +142,16 @@ pub struct Handles {
     pub action_effect_reconciler_lock_batcher: tokio::task::JoinHandle<()>,
 }
 
+/// The observability events of the VM driver runs: where they go, and
+/// which of the optional ones are recorded.
+pub struct ObservabilityEvents {
+    /// The node's emitter, shared with every other producer on the node.
+    pub emitter: Arc<waymark_observability_events_vm_driver_hooks::Emitter>,
+
+    /// What the VM driver hooks record.
+    pub vm_driver_hooks_policy: waymark_observability_events_vm_driver_hooks::Policy,
+}
+
 /// Start the execution subsystem.
 ///
 /// Launches the worker pool, assembles the VM runtime state (spawning
@@ -154,6 +164,9 @@ pub struct Handles {
 /// Returns an error if the worker pool fails to launch; nothing is spawned
 /// in that case.
 ///
+/// `observability_events` is where every VM driver run's events go and
+/// which of the optional ones are recorded; `None` records none.
+///
 /// `shutdown_token` requests a graceful stop — new workloads are refused while
 /// the maintenance loop keeps running until all active workloads drain.
 /// `force_shutdown_token` breaks out of that drain immediately, so shutdown
@@ -162,9 +175,7 @@ pub async fn start<Backend, WorkerPool>(
     config: Config<Backend::NodeId>,
     backend: Arc<Backend>,
     worker_pool: WorkerPool,
-    observability_events_emitter: Option<
-        Arc<waymark_observability_events_vm_driver_hooks::Emitter>,
-    >,
+    observability_events: Option<ObservabilityEvents>,
     shutdown_token: CancellationToken,
     force_shutdown_token: CancellationToken,
 ) -> Result<Handles, WorkerPoolError>
@@ -581,14 +592,18 @@ where
         move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
             (
                 waymark_vm_driver_hooks_tracing::Tracing::new(),
-                observability_events_emitter.as_ref().map(|emitter| {
+                observability_events.as_ref().map(|observability_events| {
                     waymark_observability_events_vm_driver_hooks::Hooks::<
                         waymark_observability_events_vm_driver_hooks_fullset::FullSetEffectSummarizer<
                             waymark_vm_value_python::ReadyValue,
                         >,
                         _,
                         _,
-                    >::new(*vm_id, Arc::clone(emitter))
+                    >::new(
+                        *vm_id,
+                        Arc::clone(&observability_events.emitter),
+                        observability_events.vm_driver_hooks_policy,
+                    )
                 }),
             )
         },

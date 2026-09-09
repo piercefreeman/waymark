@@ -86,6 +86,9 @@ async fn run_benchmark(
         Arc::new(backend.clone()),
         InlineWorkerPool::new(actions::action_registry()),
         None,
+        waymark_observability_events_vm_driver_hooks::Policy {
+            snapshot_persisted: false,
+        },
         subsystem_token.clone(),
         force_shutdown_token.child_token(),
     )
