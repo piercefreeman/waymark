@@ -4142,12 +4142,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-api-observability-events-http"
+version = "0.1.0"
+dependencies = [
+ "aide",
+ "axum",
+ "chrono",
+ "http-body-util",
+ "nonempty-collections",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tracing",
+ "waymark-api-observability-events-http-types",
+ "waymark-cursor-core",
+ "waymark-http-api-types",
+ "waymark-ids",
+ "waymark-node-sequence",
+ "waymark-observability-events-core",
+ "waymark-observability-events-query-backend",
+]
+
+[[package]]
 name = "waymark-api-observability-events-http-types"
 version = "0.1.0"
 dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "waymark-http-api-types",
  "waymark-observability-events-core",
 ]
 
