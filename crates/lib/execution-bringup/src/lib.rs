@@ -162,6 +162,9 @@ pub async fn start<Backend, WorkerPool>(
     config: Config<Backend::NodeId>,
     backend: Arc<Backend>,
     worker_pool: WorkerPool,
+    observability_events_emitter: Option<
+        Arc<waymark_observability_events_vm_driver_hooks::Emitter>,
+    >,
     shutdown_token: CancellationToken,
     force_shutdown_token: CancellationToken,
 ) -> Result<Handles, WorkerPoolError>
@@ -575,8 +578,16 @@ where
     let snapshot_batcher_handle = tokio::spawn(snapshot_batcher_loop);
 
     let hooks_provider = waymark_state_vm_runtimes_core::FnHooksProvider::new(
-        |_: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
-            waymark_vm_driver_hooks_noop::Noop::new()
+        move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
+            observability_events_emitter.as_ref().map(|emitter| {
+                waymark_observability_events_vm_driver_hooks::Hooks::<
+                    waymark_observability_events_vm_driver_hooks_fullset::FullSetEffectSummarizer<
+                        waymark_vm_value_python::ReadyValue,
+                    >,
+                    _,
+                    _,
+                >::new(*vm_id, Arc::clone(emitter))
+            })
         },
     );
 

@@ -1,0 +1,20 @@
+[package]
+name = "waymark-observability-events-vm-driver-hooks-fullset"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-action-core = { workspace = true }
+waymark-observability-events-payload = { workspace = true }
+waymark-observability-events-vm-driver-hooks-core = { workspace = true }
+waymark-vm-interpreter-coreset = { workspace = true }
+waymark-vm-interpreter-extcallset = { workspace = true }
+waymark-vm-interpreter-fullset = { workspace = true }
+
+[dev-dependencies]
+waymark-nonzero-duration = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
+
+serde_json = { workspace = true }

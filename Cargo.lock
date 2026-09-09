@@ -4500,6 +4500,8 @@ dependencies = [
  "waymark-fullset-effect-handler",
  "waymark-ids",
  "waymark-nonzero-duration",
+ "waymark-observability-events-vm-driver-hooks",
+ "waymark-observability-events-vm-driver-hooks-fullset",
  "waymark-sleep-compat-python",
  "waymark-sleep-reconciler",
  "waymark-sleep-reconciler-backend",
@@ -4511,7 +4513,6 @@ dependencies = [
  "waymark-state-vm-runtimes-core",
  "waymark-system-vm",
  "waymark-vm-codec-rmp",
- "waymark-vm-driver-hooks-noop",
  "waymark-vm-interpreter-fullset",
  "waymark-vm-value-python",
  "waymark-vm-value-python-convert-proto",
@@ -4917,7 +4918,11 @@ version = "0.1.0"
 dependencies = [
  "schemars",
  "serde",
+ "serde_json",
+ "waymark-ids",
  "waymark-observability-events-core",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
 ]
 
 [[package]]
@@ -4944,6 +4949,53 @@ version = "0.1.0"
 dependencies = [
  "nonempty-collections",
  "waymark-observability-events-core",
+]
+
+[[package]]
+name = "waymark-observability-events-vm-driver-hooks"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "serde_json",
+ "tokio",
+ "waymark-action-core",
+ "waymark-ids",
+ "waymark-lossy-batcher",
+ "waymark-nonzero-duration",
+ "waymark-observability-events-core",
+ "waymark-observability-events-emitter",
+ "waymark-observability-events-payload",
+ "waymark-observability-events-vm-driver-hooks-core",
+ "waymark-observability-events-vm-driver-hooks-fullset",
+ "waymark-vm-driver",
+ "waymark-vm-driver-core",
+ "waymark-vm-driver-hooks",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-extcallset",
+ "waymark-vm-interpreter-fullset",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
+name = "waymark-observability-events-vm-driver-hooks-core"
+version = "0.1.0"
+
+[[package]]
+name = "waymark-observability-events-vm-driver-hooks-fullset"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "waymark-action-core",
+ "waymark-nonzero-duration",
+ "waymark-observability-events-payload",
+ "waymark-observability-events-vm-driver-hooks-core",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-extcallset",
+ "waymark-vm-interpreter-fullset",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
 ]
 
 [[package]]
@@ -4992,6 +5044,8 @@ dependencies = [
  "waymark-sqlx-postgres-schema-pool",
  "waymark-support-integration",
  "waymark-support-test",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
 ]
 
 [[package]]
