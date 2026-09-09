@@ -4577,6 +4577,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-http-api-types"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "uuid",
+ "waymark-ids",
+ "waymark-nonzero-duration",
+]
+
+[[package]]
 name = "waymark-http-bringup"
 version = "0.1.0"
 dependencies = [
