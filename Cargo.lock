@@ -4142,6 +4142,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-api-observability-events-http-types"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+ "waymark-observability-events-core",
+]
+
+[[package]]
 name = "waymark-backend-postgres"
 version = "0.1.0"
 dependencies = [
