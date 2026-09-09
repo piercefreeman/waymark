@@ -1,0 +1,18 @@
+[package]
+name = "waymark-api-observability-events-http-types"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-http-api-types = { workspace = true }
+waymark-observability-events-core = { workspace = true }
+
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lib]
+doctest = false
