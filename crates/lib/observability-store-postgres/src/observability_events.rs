@@ -4,9 +4,11 @@ mod common;
 mod query;
 mod retention;
 mod sink;
+mod state;
 
 pub use self::common::*;
 pub use self::query::*;
+pub use self::state::*;
 
 #[cfg(test)]
 mod tests;
