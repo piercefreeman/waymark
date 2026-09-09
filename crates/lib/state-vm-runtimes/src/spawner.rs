@@ -114,11 +114,12 @@ pub type ErrorFor<Interpreter, Codec, Persister, Effector> = waymark_vm_driver_t
 
 /// Spawn a new VM runtime on a dedicated OS thread.
 #[tracing::instrument(skip_all)]
-pub(crate) async fn spawn<Codec, Executable, Interpreter, Value, Effector, Persister>(
+pub(crate) async fn spawn<Codec, Executable, Interpreter, Value, Effector, Persister, Hooks>(
     codec: Arc<Codec>,
     runtime: waymark_vm_runtime::Runtime<Executable, Interpreter, Value>,
     effector: Effector,
     persister: Persister,
+    hooks: Hooks,
     keepalive_handles: Vec<Box<dyn Send + Sync>>,
 ) -> Spawned<ErrorFor<Interpreter, Codec, Persister, Effector>>
 where
@@ -162,6 +163,13 @@ where
     Persister::Error: Send,
     <Effector as waymark_vm_driver_core::EffectHandler>::Error: Send,
     <Effector as waymark_vm_driver_core::PromiseSettler>::Error: Send,
+    Hooks: waymark_vm_driver_hooks::VmStarted + Send + Sync + 'static,
+    Hooks: waymark_vm_driver_hooks::EffectEmitted<Effect = Interpreter::Effect>,
+    Hooks: waymark_vm_driver_hooks::PromiseSettled<Value = Value::ReadyValue>,
+    Hooks: waymark_vm_driver_hooks::SnapshotPersisted,
+    Hooks: waymark_vm_driver_hooks::VmStopped<
+            Error = waymark_vm_driver::ErrorFor<Interpreter, Arc<Codec>, Persister, Effector>,
+        >,
 {
     let cancel = CancellationToken::new();
     let (error_tx, error_rx) = tokio::sync::oneshot::channel();
@@ -171,6 +179,7 @@ where
         persister,
         codec,
         cancel: cancel.clone(),
+        hooks,
     });
 
     let completion = tokio::spawn({
