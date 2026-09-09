@@ -8,7 +8,7 @@
 
 #![warn(missing_docs)]
 
-use waymark_observability_store_postgres_config::PostgresConfig;
+use waymark_observability_store_postgres_config::PoolConfig;
 use waymark_sqlx_postgres_schema_pool::PgPoolOptionsExt as _;
 
 /// Error returned by [`schema_pool`].
@@ -30,7 +30,7 @@ pub enum SchemaPoolError {
 /// `schema` is an internal constant, not operator input; it must be a
 /// plain identifier (it is only quote-wrapped, not escaped).
 pub async fn schema_pool(
-    config: &PostgresConfig,
+    config: &PoolConfig,
     schema: &str,
 ) -> Result<sqlx::PgPool, SchemaPoolError> {
     let options = config
