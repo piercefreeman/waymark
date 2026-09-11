@@ -18,6 +18,7 @@ waymark-metrics-bringup = { workspace = true }
 waymark-observability-bringup = { workspace = true }
 waymark-os-shutdown-requests = { workspace = true }
 waymark-scheduler-bringup = { workspace = true }
+waymark-task-supervisor = { workspace = true }
 waymark-tokio-metrics-bringup = { workspace = true }
 waymark-worker-python = { workspace = true }
 waymark-worker-remote-bringup = { workspace = true }
@@ -28,6 +29,7 @@ axum = { workspace = true }
 envfury = { workspace = true }
 metrics = { workspace = true }
 sqlx = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
