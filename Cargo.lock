@@ -5568,6 +5568,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-task-supervisor"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "insta",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "waymark-timed-future"
 version = "0.1.0"
 dependencies = [
