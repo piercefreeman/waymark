@@ -34,12 +34,20 @@
 //! - WAYMARK_HTTP_ADDR: HTTP server bind address (default: 0.0.0.0:24119)
 
 use std::sync::Arc;
-use std::time::Duration;
 
-use tracing::{info, warn};
+use tracing::{error, info};
 
 use waymark_backend_postgres::PostgresBackend;
 use waymark_config::WorkerConfig;
+
+/// The supervisor of this process's tasks: their errors differ per
+/// subsystem, so they are supervised erased.
+type Supervisor = waymark_task_supervisor::Supervisor<waymark_task_supervisor::BoxedError>;
+
+/// The process exit when a task ended before the shutdown was requested.
+#[derive(Debug, thiserror::Error)]
+#[error("shutdown was failure-driven: a task ended before it was requested")]
+struct FailureDrivenShutdown;
 
 #[tokio::main]
 async fn main() -> Result<(), waymark_fn_main_common::Error> {
@@ -89,213 +97,288 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     )
     .set(1);
 
-    // Wire shutdown coordination.
+    // Wire shutdown coordination. The graceful token is the only one ever
+    // cancelled: by the signal listener on a signal, or by the supervisor
+    // when a task ends early. The force token is handed to the execution
+    // subsystem and deliberately never cancelled: this process is graceful
+    // only, and a drain that never finishes is ended by the orchestrator's
+    // kill, not by anything in here.
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
 
-    // Initialize the database and backend.
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(config.database_max_connections.get())
-        .connect(config.database_url.expose_secret())
-        .await?;
-    waymark_backend_postgres_migrations::run(&pool).await?;
-    let backend = PostgresBackend::new(pool);
+    let mut supervisor: Supervisor = waymark_task_supervisor::start(shutdown_token.clone());
 
-    // Start the observability pipelines.
-    let (
-        observability_handles,
-        observability_api_router,
-        observability_events_emitter,
-        vm_driver_hooks_policy,
-    ) = waymark_observability_bringup::start(
-        config.observability.clone(),
-        node_id,
-        essential_metrics_sampling_handle,
-        shutdown_token.child_token(),
-    )
-    .await?;
+    // Bring everything up under the supervisor, handing each subsystem's
+    // tasks over as soon as they exist. A failure part-way leaves the tasks
+    // already up supervised; they are shut down and drained like on any
+    // other failure, and the boot error is what main returns.
+    let started: Result<(), waymark_fn_main_common::Error> = async {
+        // The shutdown signal listener: on a request it requests the
+        // shutdown, so its end is always after the request.
+        supervisor.spawn(
+            "shutdown signal listener",
+            shutdown_signal_listener(ctrl_c, termination, shutdown_token.clone()),
+        );
 
-    // Start the worker pool (bridge + python workers).
-    let mut worker_config = waymark_worker_python::Config::new();
-    if !config.user_modules.is_empty() {
-        worker_config = worker_config.with_user_modules(config.user_modules.clone());
-    }
+        // Initialize the database and backend.
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(config.database_max_connections.get())
+            .connect(config.database_url.expose_secret())
+            .await?;
+        waymark_backend_postgres_migrations::run(&pool).await?;
+        let backend = PostgresBackend::new(pool);
 
-    let worker_process_spec_builder = |bridge_server_addr| waymark_worker_python::Spec {
-        bridge_server_addr,
-        config: worker_config,
-    };
-
-    let (process_pool, bridge_task) = waymark_worker_remote_bringup::start(
-        shutdown_token.clone(),
-        Some(config.worker_grpc_addr),
-        worker_process_spec_builder,
-        config.worker_count,
-        config.max_action_lifecycle,
-        config.concurrent_per_worker,
-    )
-    .await?;
-
-    let process_pool = Arc::new(process_pool);
-
-    // Compose everything the HTTP server serves.
-    let http_api_routes = aide::axum::ApiRouter::new().merge(observability_api_router);
-    let http_routes = axum::Router::new()
-        .merge(waymark_http_healthz::router())
-        .merge(waymark_http_api::router("/api", http_api_routes));
-
-    // Start the HTTP server.
-    let maybe_http_handle = if config.http.enabled {
-        let handle = waymark_http_bringup::start(
-            config.http.addr,
-            http_routes,
-            shutdown_token.clone().cancelled_owned(),
+        // Start the observability pipelines.
+        let (
+            observability_handles,
+            observability_api_router,
+            observability_events_emitter,
+            vm_driver_hooks_policy,
+        ) = waymark_observability_bringup::start(
+            config.observability.clone(),
+            node_id,
+            essential_metrics_sampling_handle,
+            shutdown_token.child_token(),
         )
         .await?;
-        Some(handle)
+
+        supervisor.track(
+            "essential metrics sampler",
+            observability_handles.essential_metrics.sampler,
+        );
+        supervisor.track(
+            "essential metrics batcher",
+            observability_handles.essential_metrics.batcher,
+        );
+        supervisor.track(
+            "essential metrics retention",
+            observability_handles.essential_metrics.retention,
+        );
+        supervisor.track(
+            "observability events batcher",
+            observability_handles.observability_events.batcher,
+        );
+        supervisor.track(
+            "observability events retention",
+            observability_handles.observability_events.retention,
+        );
+
+        // Start the worker pool (bridge + python workers).
+        let mut worker_config = waymark_worker_python::Config::new();
+        if !config.user_modules.is_empty() {
+            worker_config = worker_config.with_user_modules(config.user_modules.clone());
+        }
+
+        let worker_process_spec_builder = |bridge_server_addr| waymark_worker_python::Spec {
+            bridge_server_addr,
+            config: worker_config,
+        };
+
+        let (process_pool, bridge_task) = waymark_worker_remote_bringup::start(
+            shutdown_token.clone(),
+            Some(config.worker_grpc_addr),
+            worker_process_spec_builder,
+            config.worker_count,
+            config.max_action_lifecycle,
+            config.concurrent_per_worker,
+        )
+        .await?;
+
+        supervisor.track("worker bridge server", bridge_task);
+
+        let process_pool = Arc::new(process_pool);
+
+        let remote_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
+            process_pool.clone(),
+        ));
+
+        // Compose everything the HTTP server serves.
+        let http_api_routes = aide::axum::ApiRouter::new().merge(observability_api_router);
+        let http_routes = axum::Router::new()
+            .merge(waymark_http_healthz::router())
+            .merge(waymark_http_api::router("/api", http_api_routes));
+
+        // Start the HTTP server.
+        if config.http.enabled {
+            let http_task = waymark_http_bringup::start(
+                config.http.addr,
+                http_routes,
+                shutdown_token.clone().cancelled_owned(),
+            )
+            .await?;
+
+            supervisor.track("http server", http_task);
+        } else {
+            info!("http server disabled (set WAYMARK_HTTP_ENABLED=true to enable)");
+        }
+
+        // Start the execution subsystem (workload pinning + execution driver).
+        let bringup_config = waymark_execution_bringup::Config {
+            node_id: node_id.into(),
+            action_effect_reconciler_lock_ttl: config.action_effect_reconciler_lock_ttl,
+            action_effect_reconciler_lock_heartbeat: config.action_effect_reconciler_lock_heartbeat,
+            max_pinned: config.max_concurrent_instances,
+            pinning_ttl: config.lock_ttl,
+            pinning_heartbeat: config.lock_heartbeat,
+            pinning_fencing_margin: config.pinning_fencing_margin,
+            workload_poll_interval: config.workload_poll_interval,
+            snapshot_batch_max: config.snapshot_batch_max,
+            snapshot_batch_delay: config.snapshot_batch_delay,
+            action_effect_reconciler_request_batch_max: config
+                .action_effect_reconciler_request_batch_max,
+            action_effect_reconciler_request_batch_delay: config
+                .action_effect_reconciler_request_batch_delay,
+            workflow_completion_batch_max: config.workflow_completion_batch_max,
+            workflow_completion_batch_delay: config.workflow_completion_batch_delay,
+            action_effect_reconciler_lock_batch_max: config.action_effect_reconciler_lock_batch_max,
+            action_effect_reconciler_lock_batch_delay: config
+                .action_effect_reconciler_lock_batch_delay,
+            sleep_poll_interval: config.sleep_poll_interval,
+            vm_retention: config.vm_retention,
+            vm_sweep_interval: config.vm_sweep_interval,
+            executable_retention: config.executable_retention,
+            executable_sweep_interval: config.executable_sweep_interval,
+        };
+
+        let execution_handles = waymark_execution_bringup::start(
+            bringup_config,
+            Arc::new(backend.clone()),
+            remote_pool,
+            Some(waymark_execution_bringup::ObservabilityEvents {
+                emitter: Arc::new(observability_events_emitter),
+                vm_driver_hooks_policy,
+            }),
+            shutdown_token.child_token(),
+            force_shutdown_token.child_token(),
+        )
+        .await?;
+
+        let waymark_execution_bringup::Handles {
+            pinning_manager,
+            execution_driver,
+            executable_sweeper,
+            vm_sweeper,
+            durable_action_completions_writer,
+            durable_action_completions_poller,
+            durable_action_completions_acker,
+            durable_sleeps_poller,
+            durable_sleeps_acker,
+            action_effect_reconciler_lock_renewal,
+            snapshot_batcher,
+            action_effect_reconciler_request_batcher,
+            workflow_completion_batcher,
+            action_effect_reconciler_lock_batcher,
+        } = execution_handles;
+
+        let execution_tasks = [
+            ("workload pinning manager", pinning_manager),
+            ("execution driver", execution_driver),
+            ("executable sweeper", executable_sweeper),
+            ("vm runtimes sweeper", vm_sweeper),
+            (
+                "durable action completions writer",
+                durable_action_completions_writer,
+            ),
+            (
+                "durable action completions poller",
+                durable_action_completions_poller,
+            ),
+            (
+                "durable action completions acker",
+                durable_action_completions_acker,
+            ),
+            ("durable sleeps poller", durable_sleeps_poller),
+            ("durable sleeps acker", durable_sleeps_acker),
+            (
+                "action effect reconciler lock renewal",
+                action_effect_reconciler_lock_renewal,
+            ),
+            ("snapshot batcher", snapshot_batcher),
+            (
+                "action effect reconciler request batcher",
+                action_effect_reconciler_request_batcher,
+            ),
+            ("workflow completion batcher", workflow_completion_batcher),
+            (
+                "action effect reconciler lock batcher",
+                action_effect_reconciler_lock_batcher,
+            ),
+        ];
+
+        // The worker pool is shut down after every execution task has
+        // ended: those hold the pool through the remote pool, and the pool
+        // shuts down only once it is the last holder. Each execution task
+        // holds one permit for as long as it runs; the shutdown task takes
+        // them all back. The workers' streams then end, which is what lets
+        // the bridge server's own graceful shutdown complete.
+        let execution_task_count = u32::try_from(execution_tasks.len())
+            .expect("the execution bringup hands out a handful of tasks");
+        let execution_task_permits = Arc::new(tokio::sync::Semaphore::new(execution_tasks.len()));
+
+        supervisor.spawn("worker pool shutdown", {
+            let shutdown_token = shutdown_token.clone();
+            let execution_task_permits = execution_task_permits.clone();
+            async move {
+                shutdown_token.cancelled().await;
+
+                let _all_execution_tasks_ended = execution_task_permits
+                    .acquire_many_owned(execution_task_count)
+                    .await?;
+
+                process_pool.shutdown_arc().await?;
+
+                Ok::<(), waymark_task_supervisor::BoxedError>(())
+            }
+        });
+
+        for (name, task) in execution_tasks {
+            let permit = execution_task_permits
+                .clone()
+                .try_acquire_owned()
+                .expect("one permit per execution task, none taken twice");
+
+            supervisor.spawn(name, async move {
+                let _held_while_running = permit;
+
+                task.await
+            });
+        }
+
+        // Start the scheduler subsystem (due-schedule polling + spawning).
+        let scheduler_task = waymark_scheduler_bringup::start(
+            waymark_scheduler_bringup::Config {
+                poll_interval: config.scheduler_poll_interval,
+                max_items: config.scheduler_batch_max,
+            },
+            Arc::new(backend.clone()),
+            shutdown_token.child_token(),
+        );
+
+        supervisor.track("scheduler", scheduler_task);
+
+        Ok(())
+    }
+    .await;
+
+    if let Err(error) = &started {
+        error!(error = %error, "startup failed; shutting down");
+        shutdown_token.cancel();
+    }
+
+    let report = supervisor.drain().await;
+
+    if report.any_before_shutdown() {
+        error!(%report, "shutdown complete");
     } else {
-        info!("http server disabled (set WAYMARK_HTTP_ENABLED=true to enable)");
-        None
-    };
-
-    let shutdown_handle = tokio::spawn(shutdown_signal_listener(
-        ctrl_c,
-        termination,
-        shutdown_token.clone(),
-    ));
-
-    // Start the execution subsystem (workload pinning + execution driver).
-    let bringup_config = waymark_execution_bringup::Config {
-        node_id: node_id.into(),
-        action_effect_reconciler_lock_ttl: config.action_effect_reconciler_lock_ttl,
-        action_effect_reconciler_lock_heartbeat: config.action_effect_reconciler_lock_heartbeat,
-        max_pinned: config.max_concurrent_instances,
-        pinning_ttl: config.lock_ttl,
-        pinning_heartbeat: config.lock_heartbeat,
-        pinning_fencing_margin: config.pinning_fencing_margin,
-        workload_poll_interval: config.workload_poll_interval,
-        snapshot_batch_max: config.snapshot_batch_max,
-        snapshot_batch_delay: config.snapshot_batch_delay,
-        action_effect_reconciler_request_batch_max: config
-            .action_effect_reconciler_request_batch_max,
-        action_effect_reconciler_request_batch_delay: config
-            .action_effect_reconciler_request_batch_delay,
-        workflow_completion_batch_max: config.workflow_completion_batch_max,
-        workflow_completion_batch_delay: config.workflow_completion_batch_delay,
-        action_effect_reconciler_lock_batch_max: config.action_effect_reconciler_lock_batch_max,
-        action_effect_reconciler_lock_batch_delay: config.action_effect_reconciler_lock_batch_delay,
-        sleep_poll_interval: config.sleep_poll_interval,
-        vm_retention: config.vm_retention,
-        vm_sweep_interval: config.vm_sweep_interval,
-        executable_retention: config.executable_retention,
-        executable_sweep_interval: config.executable_sweep_interval,
-    };
-    let remote_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
-        process_pool.clone(),
-    ));
-    let execution_handles = waymark_execution_bringup::start(
-        bringup_config,
-        Arc::new(backend.clone()),
-        remote_pool,
-        Some(waymark_execution_bringup::ObservabilityEvents {
-            emitter: Arc::new(observability_events_emitter),
-            vm_driver_hooks_policy,
-        }),
-        shutdown_token.child_token(),
-        force_shutdown_token.child_token(),
-    )
-    .await?;
-
-    // Start the scheduler subsystem (due-schedule polling + spawning).
-    let scheduler_handle = waymark_scheduler_bringup::start(
-        waymark_scheduler_bringup::Config {
-            poll_interval: config.scheduler_poll_interval,
-            max_items: config.scheduler_batch_max,
-        },
-        Arc::new(backend.clone()),
-        shutdown_token.child_token(),
-    );
-
-    let _ = shutdown_handle.await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), scheduler_handle).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), execution_handles.pinning_manager).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), execution_handles.execution_driver).await;
-    let _ =
-        tokio::time::timeout(Duration::from_secs(2), execution_handles.executable_sweeper).await;
-    let _ = tokio::time::timeout(Duration::from_secs(2), execution_handles.vm_sweeper).await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
-        execution_handles.durable_action_completions_writer,
-    )
-    .await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
-        execution_handles.durable_action_completions_poller,
-    )
-    .await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
-        execution_handles.durable_action_completions_acker,
-    )
-    .await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
-        execution_handles.action_effect_reconciler_lock_renewal,
-    )
-    .await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), execution_handles.snapshot_batcher).await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
-        execution_handles.action_effect_reconciler_request_batcher,
-    )
-    .await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
-        execution_handles.workflow_completion_batcher,
-    )
-    .await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
-        execution_handles.action_effect_reconciler_lock_batcher,
-    )
-    .await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), bridge_task).await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
-        observability_handles.essential_metrics.sampler,
-    )
-    .await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
-        observability_handles.essential_metrics.batcher,
-    )
-    .await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(2),
-        observability_handles.essential_metrics.retention,
-    )
-    .await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
-        observability_handles.observability_events.batcher,
-    )
-    .await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(2),
-        observability_handles.observability_events.retention,
-    )
-    .await;
-
-    if let Err(err) = process_pool.shutdown_arc().await {
-        warn!(error = %err, "worker pool shutdown failed");
+        info!(%report, "shutdown complete");
     }
 
-    if let Some(http_handle) = maybe_http_handle {
-        // Wait for graceful termination.
-        let _ = tokio::time::timeout(Duration::from_secs(5), http_handle).await;
+    started?;
+
+    if report.any_before_shutdown() {
+        return Err(FailureDrivenShutdown.into());
     }
 
-    info!("shutdown complete");
     Ok(())
 }
 
@@ -305,7 +388,7 @@ async fn shutdown_signal_listener(
     mut ctrl_c: waymark_os_shutdown_requests::ctrl_c::Receiver,
     mut termination: waymark_os_shutdown_requests::termination::Receiver,
     shutdown_token: tokio_util::sync::CancellationToken,
-) {
+) -> Result<(), std::convert::Infallible> {
     tokio::select! {
         () = ctrl_c.recv() => {
             info!("Ctrl+C received");
@@ -316,4 +399,6 @@ async fn shutdown_signal_listener(
     }
     info!("shutdown signal received");
     shutdown_token.cancel();
+
+    Ok(())
 }
