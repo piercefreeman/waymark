@@ -1,14 +1,11 @@
-use std::{
-    sync::{
-        Arc, Mutex as StdMutex,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+//! The remote worker pool: the worker-core traits over a worker process
+//! pool, with the worker process pool owned by the worker pool loop.
+
+use std::time::Duration;
 
 use nonempty_collections::NEVec;
 
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 
 use waymark_proto::messages as proto;
 use waymark_worker_core::{
@@ -16,13 +13,150 @@ use waymark_worker_core::{
     WorkerPoolGoneError,
 };
 
-async fn execute_remote_request<Spec>(
-    pool: &Arc<waymark_worker_process_pool::Pool<Spec>>,
-    dispatch: proto::ActionDispatch,
-) -> ActionExecutionReport
+const DEFAULT_QUEUE_CAPACITY: usize = 1024;
+
+/// The handle to the worker pool loop: the request queue in, the
+/// completion queue out.
+///
+/// Obtained from [`run`]. Dropping every worker pool handle closes the
+/// request queue, which is what lets the worker pool loop finish and shut
+/// the worker process pool down.
+#[derive(Debug)]
+pub struct Pool {
+    request_tx: mpsc::Sender<proto::ActionDispatch>,
+    completion_rx: tokio::sync::Mutex<mpsc::Receiver<ActionExecutionReport>>,
+}
+
+/// The worker pool loop over the worker process pool `pool`, with the
+/// default queue capacities; see [`run_with_capacity`].
+pub fn run<Spec>(
+    pool: waymark_worker_process_pool::Pool<Spec>,
+) -> (
+    Pool,
+    impl Future<Output = Result<(), waymark_managed_process::ShutdownError>> + Send + 'static,
+)
 where
     Spec: waymark_worker_process_spec::Spec,
     Spec: Send + Sync + 'static,
+{
+    run_with_capacity(pool, DEFAULT_QUEUE_CAPACITY, DEFAULT_QUEUE_CAPACITY)
+}
+
+/// The worker pool handle and the worker pool loop over the worker process
+/// pool `pool`, which the loop owns from here on.
+///
+/// The loop runs only once awaited or spawned by the caller. It ends once
+/// every [`Pool`] handle is dropped and every request it took
+/// has been served; it then shuts the worker process pool down and ends
+/// with the result.
+pub fn run_with_capacity<Spec>(
+    pool: waymark_worker_process_pool::Pool<Spec>,
+    request_capacity: usize,
+    completion_capacity: usize,
+) -> (
+    Pool,
+    impl Future<Output = Result<(), waymark_managed_process::ShutdownError>> + Send + 'static,
+)
+where
+    Spec: waymark_worker_process_spec::Spec,
+    Spec: Send + Sync + 'static,
+{
+    let (request_tx, request_rx) = mpsc::channel(request_capacity.max(1));
+    let (completion_tx, completion_rx) = mpsc::channel(completion_capacity.max(1));
+
+    let pool_loop = pool_loop(pool, request_rx, completion_tx);
+
+    let handle = Pool {
+        request_tx,
+        completion_rx: tokio::sync::Mutex::new(completion_rx),
+    };
+
+    (handle, pool_loop)
+}
+
+/// The worker pool loop: serves every request off the queue as a future
+/// borrowed from the worker process pool, runs the recycles those
+/// completions make due, and, with the queue closed and nothing in flight,
+/// shuts the worker process pool down.
+async fn pool_loop<Spec>(
+    pool: waymark_worker_process_pool::Pool<Spec>,
+    mut request_rx: mpsc::Receiver<proto::ActionDispatch>,
+    completion_tx: mpsc::Sender<ActionExecutionReport>,
+) -> Result<(), waymark_managed_process::ShutdownError>
+where
+    Spec: waymark_worker_process_spec::Spec,
+{
+    use futures_util::StreamExt as _;
+
+    let mut in_flight = futures_util::stream::FuturesUnordered::new();
+    let mut recycles = futures_util::stream::FuturesUnordered::new();
+    let mut intake_open = true;
+
+    loop {
+        tokio::select! {
+            received = request_rx.recv(), if intake_open => match received {
+                Some(dispatch) => {
+                    record_dispatch_queue_length(request_rx.len());
+                    in_flight.push(serve(&pool, dispatch, &completion_tx));
+                }
+                None => intake_open = false,
+            },
+            // An empty set yields `None` at once, so each is polled only
+            // while it holds something; with the intake closed as well,
+            // there is nothing left to wait for.
+            Some(recycle_due) = in_flight.next(), if !in_flight.is_empty() => {
+                if let Some(worker_idx) = recycle_due {
+                    recycles.push(recycle(&pool, worker_idx));
+                }
+            }
+            Some(()) = recycles.next(), if !recycles.is_empty() => {}
+            else => break,
+        }
+    }
+
+    drop(in_flight);
+    drop(recycles);
+
+    pool.shutdown().await
+}
+
+/// Serve one request and deliver its report to the completion queue;
+/// returns the worker index when the completion made a recycle due.
+async fn serve<Spec>(
+    pool: &waymark_worker_process_pool::Pool<Spec>,
+    dispatch: proto::ActionDispatch,
+    completion_tx: &mpsc::Sender<ActionExecutionReport>,
+) -> Option<usize>
+where
+    Spec: waymark_worker_process_spec::Spec,
+{
+    let before = std::time::Instant::now();
+
+    let (report, recycle_due) = execute_remote_request(pool, dispatch).await;
+
+    metrics::histogram!("waymark_worker_remote_execute_remote_request_seconds")
+        .record(before.elapsed());
+
+    let _ = completion_tx.send(report).await;
+
+    recycle_due
+}
+
+async fn recycle<Spec>(pool: &waymark_worker_process_pool::Pool<Spec>, worker_idx: usize)
+where
+    Spec: waymark_worker_process_spec::Spec,
+{
+    if let Err(err) = pool.recycle_worker(worker_idx).await {
+        tracing::error!(worker_idx, ?err, "failed to recycle worker");
+    }
+}
+
+async fn execute_remote_request<Spec>(
+    pool: &waymark_worker_process_pool::Pool<Spec>,
+    dispatch: proto::ActionDispatch,
+) -> (ActionExecutionReport, Option<usize>)
+where
+    Spec: waymark_worker_process_spec::Spec,
 {
     let metadata = dispatch.metadata.clone();
 
@@ -46,25 +180,15 @@ where
         Ok(metrics) => {
             ::metrics::histogram!("waymark_worker_remote_pool_action_handling_seconds")
                 .record(metrics.worker_duration);
-            if let Some(waymark_worker_process_pool::RecycleDue) =
-                pool.record_completion(worker_idx)
-            {
-                // Recycle in the background: the replacement is spawned and
-                // swapped in while this request's report goes out.
-                tokio::spawn({
-                    let pool = Arc::clone(pool);
-                    async move {
-                        if let Err(err) = pool.recycle_worker(worker_idx).await {
-                            tracing::error!(worker_idx, ?err, "failed to recycle worker");
-                        }
-                    }
-                });
-            }
-            ActionExecutionReport::Completed(proto::ActionResult {
+            let recycle_due = pool
+                .record_completion(worker_idx)
+                .map(|waymark_worker_process_pool::RecycleDue| worker_idx);
+            let report = ActionExecutionReport::Completed(proto::ActionResult {
                 payload: metrics.response_payload,
                 metadata,
                 ..Default::default()
-            })
+            });
+            (report, recycle_due)
         }
         Err(err) => {
             pool.release_slot(worker_idx);
@@ -85,136 +209,22 @@ where
                     ExecutionProgress::Unknown
                 }
             };
-            ActionExecutionReport::Lost(ActionExecutionLoss { metadata, progress })
+            (
+                ActionExecutionReport::Lost(ActionExecutionLoss { metadata, progress }),
+                None,
+            )
         }
-    }
-}
-
-// This type's only purpose is to provide transport layer to the underlying
-// pool, however that poll should be itself capable of providing the said
-// transport.
-// TODO: move this into to `waymark-worker-message-protocol`; not done yet
-// since it requires substantial changes to the code layout of the integration
-// surfaces, and we want to keep things in place for review purposes.
-// Another downside is the process pool wrapping requires an `Arc`, which may
-// prevent proper shutdown - but without a real need for it (we only need
-// to give out a tiny communication handle under an `Arc` - but that's also for
-// later).
-pub struct RemoteWorkerPool<Spec> {
-    pool: Arc<waymark_worker_process_pool::Pool<Spec>>,
-    request_tx: mpsc::Sender<proto::ActionDispatch>,
-    request_rx: StdMutex<Option<mpsc::Receiver<proto::ActionDispatch>>>,
-    completion_tx: mpsc::Sender<ActionExecutionReport>,
-    completion_rx: Mutex<mpsc::Receiver<ActionExecutionReport>>,
-    launched: AtomicBool,
-}
-
-impl<Spec> RemoteWorkerPool<Spec> {
-    const DEFAULT_QUEUE_CAPACITY: usize = 1024;
-
-    pub fn new(pool: impl Into<Arc<waymark_worker_process_pool::Pool<Spec>>>) -> Self {
-        Self::with_capacity(
-            pool,
-            Self::DEFAULT_QUEUE_CAPACITY,
-            Self::DEFAULT_QUEUE_CAPACITY,
-        )
-    }
-
-    pub fn with_capacity(
-        pool: impl Into<Arc<waymark_worker_process_pool::Pool<Spec>>>,
-        request_capacity: usize,
-        completion_capacity: usize,
-    ) -> Self {
-        let (request_tx, request_rx) = mpsc::channel(request_capacity.max(1));
-        let (completion_tx, completion_rx) = mpsc::channel(completion_capacity.max(1));
-        Self {
-            pool: pool.into(),
-            request_tx,
-            request_rx: StdMutex::new(Some(request_rx)),
-            completion_tx,
-            completion_rx: Mutex::new(completion_rx),
-            launched: AtomicBool::new(false),
-        }
-    }
-
-    pub async fn shutdown_arc(
-        self: Arc<Self>,
-    ) -> Result<(), waymark_managed_process::ShutdownError> {
-        let Some(inner) = Arc::into_inner(self) else {
-            tracing::warn!(
-                "remote worker pool still referenced during shutdown; skipping shutdown"
-            );
-            return Ok(());
-        };
-        inner.shutdown().await
-    }
-
-    pub async fn shutdown(self) -> Result<(), waymark_managed_process::ShutdownError> {
-        self.pool.shutdown_arc().await
     }
 }
 
 /// Publish the number of action requests waiting in the dispatch queue —
-/// the queue between `queue` and the launch loop that hands them to workers.
+/// the queue between `queue` and the worker pool loop that hands them to
+/// workers.
 fn record_dispatch_queue_length(queued: usize) {
     metrics::gauge!("waymark_worker_remote_pool_dispatch_queue_length").set(queued as f64);
 }
 
-impl<Spec> RemoteWorkerPool<Spec>
-where
-    Spec: waymark_worker_process_spec::Spec,
-    Spec: Send + Sync + 'static,
-{
-    /// Start the dispatch loop serving the queued requests; a later call
-    /// is a no-op.
-    pub fn launch(&self) {
-        if self.launched.swap(true, Ordering::SeqCst) {
-            return;
-        }
-
-        let request_rx = {
-            let mut guard = self.request_rx.lock().unwrap();
-            guard.take()
-        };
-
-        let Some(mut request_rx) = request_rx else {
-            return;
-        };
-
-        let pool = Arc::clone(&self.pool);
-        let completion_tx = self.completion_tx.clone();
-
-        // Start a background loop to handle the `ActionRequest`s coming
-        // through the `request_rx`: serve each of them independently
-        // (each in their own background task) via `execute_remote_request`
-        // and, finally, send the completion over to the pool for polling.
-        tokio::spawn(async move {
-            while let Some(request) = request_rx.recv().await {
-                record_dispatch_queue_length(request_rx.len());
-                tokio::spawn({
-                    let completion_tx = completion_tx.clone();
-                    let pool = Arc::clone(&pool);
-                    async move {
-                        let before = std::time::Instant::now();
-
-                        let completion = execute_remote_request(&pool, request).await;
-
-                        metrics::histogram!("waymark_worker_remote_execute_remote_request_seconds")
-                            .record(before.elapsed());
-
-                        let _ = completion_tx.send(completion).await;
-                    }
-                });
-            }
-        });
-    }
-}
-
-impl<Spec> waymark_worker_core::QueueActionDispatch for RemoteWorkerPool<Spec>
-where
-    Spec: waymark_worker_process_spec::Spec,
-    Spec: Send + Sync + 'static,
-{
+impl waymark_worker_core::QueueActionDispatch for Pool {
     type Error = WorkerPoolError;
 
     async fn queue(&self, dispatch: proto::ActionDispatch) -> Result<(), Self::Error> {
@@ -233,11 +243,7 @@ where
     }
 }
 
-impl<Spec> waymark_worker_core::PollActionResults for RemoteWorkerPool<Spec>
-where
-    Spec: waymark_worker_process_spec::Spec,
-    Spec: Send + Sync + 'static,
-{
+impl waymark_worker_core::PollActionResults for Pool {
     type Error = WorkerPoolGoneError;
 
     async fn poll_complete(&self) -> Result<NEVec<ActionExecutionReport>, Self::Error> {

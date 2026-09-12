@@ -4762,6 +4762,7 @@ dependencies = [
  "waymark-execution-bringup",
  "waymark-fn-main-common",
  "waymark-ids",
+ "waymark-managed-process",
  "waymark-proto",
  "waymark-secret-string",
  "waymark-support-integration",
@@ -6486,6 +6487,7 @@ dependencies = [
 name = "waymark-worker-remote-pool"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "metrics",
  "nonempty-collections",
  "tokio",

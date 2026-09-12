@@ -386,19 +386,6 @@ impl<Spec> Pool<Spec> {
         info!("worker pool shutdown complete");
         Ok(())
     }
-
-    /// Unwrap an [`Arc`] and gracefully shut down all workers in the pool.
-    ///
-    /// See [`Pool::shutdown`].
-    pub async fn shutdown_arc(
-        self: Arc<Self>,
-    ) -> Result<(), waymark_managed_process::ShutdownError> {
-        let Some(pool) = Arc::into_inner(self) else {
-            warn!("worker pool still referenced during shutdown; skipping shutdown");
-            return Ok(());
-        };
-        pool.shutdown().await
-    }
 }
 
 #[cfg(test)]

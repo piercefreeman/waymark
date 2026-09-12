@@ -24,17 +24,18 @@ pub async fn run(
     )
     .await?;
 
-    let worker_pool = std::sync::Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
-        process_pool,
-    ));
-    worker_pool.launch();
+    let (worker_pool, pool_loop) = waymark_worker_remote_pool::run(process_pool);
+    let pool_loop = tokio::spawn(pool_loop);
 
+    // The bringup wants a `Clone` worker pool, hence the `Arc`; the VM
+    // driver owns the only worker pool handle, so joining it is what lets
+    // the worker pool loop end.
     let waymark_transient_execution_bringup::Execution {
         workflow_outcome_rx,
         driver_handle,
     } = waymark_transient_execution_worker_pool_bringup::execute(
         runtime,
-        std::sync::Arc::clone(&worker_pool),
+        std::sync::Arc::new(worker_pool),
         false,
         tokio_util::sync::CancellationToken::new(),
     );
@@ -52,6 +53,12 @@ pub async fn run(
         )
     })?;
 
+    // With the VM driver joined, no worker pool handle is left: the
+    // worker pool loop shuts the workers down and ends, after which the bridge
+    // server's graceful shutdown has no streams left to wait for.
+    let pool_loop_exit = pool_loop.await?;
+    pool_loop_exit?;
+
     shutdown_token.cancel();
     let bridge_server_shutdown =
         tokio::time::timeout(std::time::Duration::from_secs(5), &mut bridge_server_task).await;
@@ -60,7 +67,6 @@ pub async fn run(
         bridge_server_task.abort();
         let _ = bridge_server_task.await;
     }
-    worker_pool.shutdown_arc().await?;
 
     Ok(workflow_outcome)
 }
