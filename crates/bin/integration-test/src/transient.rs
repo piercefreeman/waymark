@@ -26,7 +26,7 @@ pub async fn run_transient_mode(
         // its completion into whatever case polls the pool next. Bound every
         // completion's lifetime by its case: each case gets its own pool.
         let shutdown_token = tokio_util::sync::CancellationToken::new();
-        let (worker_pool, bridge_server_task) = setup_worker_pool(
+        let (worker_pool, bridge_server_task, pool_loop) = setup_worker_pool(
             shutdown_token.clone(),
             repo_root,
             std::slice::from_ref(prepared),
@@ -41,7 +41,7 @@ pub async fn run_transient_mode(
         })?;
 
         let actual = run_case_transient(prepared, Arc::clone(&worker_pool), timeout).await;
-        teardown_worker_pool(shutdown_token, bridge_server_task, worker_pool).await;
+        teardown_worker_pool(shutdown_token, bridge_server_task, pool_loop, worker_pool).await;
 
         if let Some(mismatch) = check_case_outcome(prepared, actual) {
             failures.push(mismatch);
