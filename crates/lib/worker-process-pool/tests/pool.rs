@@ -154,12 +154,13 @@ async fn release_slot_saturates_at_zero() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn record_completion_releases_the_slot() {
-    let pool = Arc::new(make_pool(2, 2, None).await);
+    let pool = make_pool(2, 2, None).await;
 
     assert!(pool.try_acquire_slot_for_worker(1));
-    pool.record_completion(1, Arc::clone(&pool));
+    let recycle_due = pool.record_completion(1);
 
+    assert!(recycle_due.is_none());
     assert_eq!(pool.in_flight_for_worker(1), 0);
 
-    pool.shutdown_arc().await.expect("shutdown pool");
+    pool.shutdown().await.expect("shutdown pool");
 }
