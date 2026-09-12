@@ -19,6 +19,7 @@
 
 #![warn(missing_docs)]
 
+mod managed_spawner;
 mod spawn;
 
 pub mod report;
