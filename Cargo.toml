@@ -57,6 +57,7 @@ waymark-ids = { path = "crates/lib/ids" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
 waymark-lossy-batcher = { path = "crates/lib/lossy-batcher" }
 waymark-managed-process = { path = "crates/lib/managed-process" }
+waymark-managed-spawner = { path = "crates/lib/managed-spawner" }
 waymark-metrics-bringup = { path = "crates/lib/metrics-bringup" }
 waymark-metrics-util = { path = "crates/lib/metrics-util" }
 waymark-node-sequence = { path = "crates/lib/node-sequence" }
