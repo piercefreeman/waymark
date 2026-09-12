@@ -4817,6 +4817,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-managed-spawner"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
 name = "waymark-metrics-bringup"
 version = "0.1.0"
 dependencies = [
