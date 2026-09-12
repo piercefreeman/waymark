@@ -46,7 +46,7 @@ pub async fn run_durable_mode(
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
-    let (worker_pool, bridge_server_task) = setup_worker_pool(
+    let (worker_pool, bridge_server_task, pool_loop) = setup_worker_pool(
         shutdown_token.clone(),
         repo_root,
         prepared_cases,
@@ -78,7 +78,7 @@ pub async fn run_durable_mode(
     shutdown_token.cancel();
     force_shutdown_token.cancel();
     shutdown_execution(execution_handles).await;
-    teardown_worker_pool(shutdown_token, bridge_server_task, worker_pool).await;
+    teardown_worker_pool(shutdown_token, bridge_server_task, pool_loop, worker_pool).await;
 
     Ok(failures)
 }
