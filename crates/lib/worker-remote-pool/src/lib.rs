@@ -9,8 +9,7 @@ use tokio::sync::mpsc;
 
 use waymark_proto::messages as proto;
 use waymark_worker_core::{
-    ActionExecutionLoss, ActionExecutionReport, ExecutionProgress, WorkerPoolError,
-    WorkerPoolGoneError,
+    ActionExecutionLoss, ActionExecutionReport, ExecutionProgress, WorkerPoolGoneError,
 };
 
 const DEFAULT_QUEUE_CAPACITY: usize = 1024;
@@ -224,16 +223,28 @@ fn record_dispatch_queue_length(queued: usize) {
     metrics::gauge!("waymark_worker_remote_pool_dispatch_queue_length").set(queued as f64);
 }
 
+/// Error from queueing an action dispatch on the worker pool handle.
+#[derive(Debug, thiserror::Error)]
+pub enum QueueError {
+    /// The request queue is at capacity.
+    #[error("the request queue is full")]
+    Full,
+
+    /// The worker pool loop is gone, so nothing takes requests any more.
+    #[error("the worker pool loop is gone")]
+    Closed,
+}
+
 impl waymark_worker_core::QueueActionDispatch for Pool {
-    type Error = WorkerPoolError;
+    type Error = QueueError;
 
     async fn queue(&self, dispatch: proto::ActionDispatch) -> Result<(), Self::Error> {
-        self.request_tx.try_send(dispatch).map_err(|err| {
-            WorkerPoolError::new(
-                "RemoteWorkerPoolError",
-                format!("failed to enqueue action request: {err}"),
-            )
-        })?;
+        self.request_tx
+            .try_send(dispatch)
+            .map_err(|err| match err {
+                mpsc::error::TrySendError::Full(_) => QueueError::Full,
+                mpsc::error::TrySendError::Closed(_) => QueueError::Closed,
+            })?;
         record_dispatch_queue_length(
             self.request_tx
                 .max_capacity()

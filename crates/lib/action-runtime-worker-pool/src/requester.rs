@@ -121,7 +121,7 @@ mod tests {
     // Only queueing: a requester never polls, so the pool it is given
     // need not know how to.
     impl waymark_worker_core::QueueActionDispatch for RecordingPool {
-        type Error = waymark_worker_core::WorkerPoolError;
+        type Error = std::convert::Infallible;
 
         async fn queue(
             &self,
