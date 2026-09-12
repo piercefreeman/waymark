@@ -5,22 +5,6 @@
 
 use nonempty_collections::NEVec;
 
-#[derive(Debug, thiserror::Error)]
-#[error("{message}")]
-pub struct WorkerPoolError {
-    pub kind: String,
-    pub message: String,
-}
-
-impl WorkerPoolError {
-    pub fn new(kind: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            kind: kind.into(),
-            message: message.into(),
-        }
-    }
-}
-
 /// The pool can no longer serve: it has shut down and will answer
 /// nothing further.
 ///

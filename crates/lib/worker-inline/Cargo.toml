@@ -10,6 +10,7 @@ waymark-proto = { workspace = true }
 waymark-worker-core = { workspace = true }
 
 nonempty-collections = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 
 [lib]

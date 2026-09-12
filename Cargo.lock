@@ -6356,6 +6356,7 @@ name = "waymark-worker-inline"
 version = "0.1.0"
 dependencies = [
  "nonempty-collections",
+ "thiserror",
  "tokio",
  "waymark-observability",
  "waymark-proto",
@@ -6490,6 +6491,7 @@ dependencies = [
  "futures-util",
  "metrics",
  "nonempty-collections",
+ "thiserror",
  "tokio",
  "tracing",
  "waymark-managed-process",

@@ -15,5 +15,6 @@ waymark-worker-process-spec = { workspace = true }
 futures-util = { workspace = true }
 metrics = { workspace = true }
 nonempty-collections = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "process", "sync"] }
 tracing = { workspace = true }

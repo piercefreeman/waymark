@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 
 use waymark_observability::obs;
 use waymark_proto::messages as proto;
-use waymark_worker_core::{ActionExecutionReport, WorkerPoolError, WorkerPoolGoneError};
+use waymark_worker_core::{ActionExecutionReport, WorkerPoolGoneError};
 
 type BoxFuture<'a, T> = std::pin::Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -61,8 +61,23 @@ impl InlineWorkerPool {
     }
 }
 
+/// Error from queueing an action dispatch on the inline worker pool.
+#[derive(Debug, thiserror::Error)]
+pub enum QueueError {
+    /// No handler is registered under the dispatched action name.
+    #[error("unknown action: {action_name}")]
+    UnknownAction {
+        /// The name the dispatch asked for.
+        action_name: String,
+    },
+
+    /// Handlers run as tokio tasks, so a runtime has to be current.
+    #[error("inline worker pool requires an active tokio runtime: {0}")]
+    NoRuntime(#[source] tokio::runtime::TryCurrentError),
+}
+
 impl waymark_worker_core::QueueActionDispatch for InlineWorkerPool {
-    type Error = WorkerPoolError;
+    type Error = QueueError;
 
     #[obs]
     async fn queue(&self, dispatch: proto::ActionDispatch) -> Result<(), Self::Error> {
@@ -70,23 +85,15 @@ impl waymark_worker_core::QueueActionDispatch for InlineWorkerPool {
             .actions
             .get(&dispatch.action_name)
             .cloned()
-            .ok_or_else(|| {
-                WorkerPoolError::new(
-                    "InlineWorkerPoolError",
-                    format!("unknown action: {}", dispatch.action_name),
-                )
+            .ok_or_else(|| QueueError::UnknownAction {
+                action_name: dispatch.action_name.clone(),
             })?;
 
         let sender = self.sender.clone();
         let metadata = dispatch.metadata;
         let arguments = dispatch.arguments;
 
-        tokio::runtime::Handle::try_current().map_err(|_| {
-            WorkerPoolError::new(
-                "InlineWorkerPoolError",
-                "inline worker pool requires an active event loop",
-            )
-        })?;
+        tokio::runtime::Handle::try_current().map_err(QueueError::NoRuntime)?;
 
         tokio::spawn(async move {
             let payload = handler(arguments).await;
