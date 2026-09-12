@@ -153,12 +153,11 @@ pub struct ObservabilityEvents {
 
 /// Start the execution subsystem.
 ///
-/// Launches the worker pool, assembles the VM runtime state (spawning
-/// factory, effectors, and the durable action-call request reconcile),
-/// and spawns every run loop: the workload-pinning manager, the execution
-/// driver, the state sweepers, the durable action-call completions
-/// pipeline, the durable sleeps pipeline, and the action-call request
-/// lock renewal heartbeat.
+/// Assembles the VM runtime state (spawning factory, effectors, and the
+/// durable action-call request reconcile), and spawns every run loop: the
+/// workload-pinning manager, the execution driver, the state sweepers, the
+/// durable action-call completions pipeline, the durable sleeps pipeline,
+/// and the action-call request lock renewal heartbeat.
 ///
 /// `observability_events` is where every VM driver run's events go and
 /// which of the optional ones are recorded; `None` records none.
