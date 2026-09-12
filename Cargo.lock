@@ -4820,6 +4820,17 @@ name = "waymark-managed-spawner"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-managed-spawner-supervised"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "waymark-managed-spawner",
+ "waymark-task-supervisor",
+]
+
+[[package]]
 name = "waymark-managed-spawner-tokio"
 version = "0.1.0"
 dependencies = [
