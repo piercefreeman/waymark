@@ -1,0 +1,15 @@
+[package]
+name = "waymark-managed-spawner-tokio"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-managed-spawner = { workspace = true }
+
+tokio = { workspace = true, features = ["rt", "tracing"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }
