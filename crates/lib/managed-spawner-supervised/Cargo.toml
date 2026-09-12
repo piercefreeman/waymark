@@ -1,0 +1,14 @@
+[package]
+name = "waymark-managed-spawner-supervised"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-managed-spawner = { workspace = true }
+waymark-task-supervisor = { workspace = true }
+
+[dev-dependencies]
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
+tokio-util = { workspace = true }
