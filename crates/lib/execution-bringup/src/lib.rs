@@ -153,7 +153,7 @@ pub struct ObservabilityEvents {
 
 /// Start the execution subsystem.
 ///
-/// Launches the worker pool, assembles the VM runtime state (spawning
+/// Assembles the VM runtime state (spawning
 /// factory, effectors, and the durable action-call request reconcile),
 /// and spawns every run loop: the workload-pinning manager, the execution
 /// driver, the state sweepers, the durable action-call completions
@@ -305,10 +305,9 @@ where
     // Durable action-call completions pipeline (not to be confused with
     // workflow completions) — action-call completions are recorded durably
     // as they arrive from the worker pool and removed only once their
-    // promise settlements have been durably applied.  Three background loops, each
-    // holding a drop guard on the subsystem shutdown token: these are the
-    // only path completions take to reach VMs, so any loop dying escalates
-    // to a subsystem-wide shutdown instead of stranding in-flight promises
+    // promise settlements have been durably applied.  Three background loops:
+    // these are the only path completions take to reach VMs, so any loop
+    // dying escalates to a shutdown instead of stranding in-flight promises
     // silently.
     let writer_params = waymark_action_completions_reconciler::writer::Params {
         provider: waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::<

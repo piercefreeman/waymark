@@ -12,7 +12,8 @@ waymark-worker-message-protocol = { workspace = true }
 waymark-worker-process-pool = { workspace = true }
 waymark-worker-process-spec = { workspace = true }
 
+futures-util = { workspace = true }
 metrics = { workspace = true }
 nonempty-collections = { workspace = true }
-tokio = { workspace = true, features = ["process"] }
+tokio = { workspace = true, features = ["macros", "process", "sync"] }
 tracing = { workspace = true }
