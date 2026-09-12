@@ -9,7 +9,7 @@ use std::{
 use nonempty_collections::NEVec;
 use tokio::sync::RwLock;
 
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 type Registry = waymark_worker_reservation::Registry<waymark_worker_message_protocol::Channels>;
 
@@ -20,6 +20,12 @@ pub struct WorkerState {
     pub sender: Arc<waymark_worker_message_protocol::Sender>,
     pub id: WorkerId,
 }
+
+/// Reported by [`Pool::record_completion`] when the worker's action count
+/// reached the lifecycle limit: the worker is due for
+/// [`Pool::recycle_worker`].
+#[derive(Debug)]
+pub struct RecycleDue;
 
 pub struct Pool<Spec> {
     /// The spec for the worker processes.
@@ -277,16 +283,13 @@ impl<Spec> Pool<Spec>
 where
     Spec: waymark_worker_process_spec::Spec,
 {
-    /// Record an action completion for a worker and trigger recycling if needed.
+    /// Record an action completion for a worker.
     ///
-    /// This decrements the in-flight count and increments the action count for
-    /// the worker at the given index. If `max_action_lifecycle` is set and the
-    /// count reaches or exceeds the threshold, a background task is spawned to
-    /// recycle the worker.
-    pub fn record_completion(&self, worker_idx: usize, pool: Arc<Self>)
-    where
-        Spec: Send + Sync + 'static,
-    {
+    /// Decrements the in-flight count and increments the action count for
+    /// the worker at the given index. When `max_action_lifecycle` is set and
+    /// the count reaches it, reports that a recycle is due: the caller runs
+    /// [`recycle_worker`](Self::recycle_worker) when it sees fit.
+    pub fn record_completion(&self, worker_idx: usize) -> Option<RecycleDue> {
         // Release the in-flight slot
         self.release_slot(worker_idx);
         metrics::counter!("waymark_worker_process_pool_actions_completed_total").increment(1);
@@ -297,27 +300,23 @@ where
             .set(unix_time.as_secs_f64());
 
         // Increment action count
-        if let Some(counter) = self.action_counts.get(worker_idx) {
-            let new_count = counter.fetch_add(1, Ordering::SeqCst) + 1;
+        let counter = self.action_counts.get(worker_idx)?;
+        let new_count = counter.fetch_add(1, Ordering::SeqCst) + 1;
 
-            // Check if recycling is needed
-            if let Some(max_lifecycle) = self.max_action_lifecycle
-                && new_count >= max_lifecycle.get()
-            {
-                info!(
-                    worker_idx,
-                    action_count = new_count,
-                    max_lifecycle,
-                    "worker reached action lifecycle limit, scheduling recycle"
-                );
-                // Spawn a background task to recycle this worker
-                tokio::spawn(async move {
-                    if let Err(err) = pool.recycle_worker(worker_idx).await {
-                        error!(worker_idx, ?err, "failed to recycle worker");
-                    }
-                });
-            }
+        // Check if recycling is needed
+        let max_lifecycle = self.max_action_lifecycle?;
+        if new_count < max_lifecycle.get() {
+            return None;
         }
+
+        info!(
+            worker_idx,
+            action_count = new_count,
+            max_lifecycle,
+            "worker reached action lifecycle limit, recycle due"
+        );
+
+        Some(RecycleDue)
     }
 
     /// Recycle a worker at the given index.
@@ -325,7 +324,7 @@ where
     /// Spawns a new worker and replaces the old one. The old worker
     /// will be shut down once all in-flight actions complete (when
     /// its Arc reference count drops to zero).
-    async fn recycle_worker(
+    pub async fn recycle_worker(
         &self,
         worker_idx: usize,
     ) -> Result<(), waymark_worker_process::SpawnError> {
@@ -459,11 +458,12 @@ mod tests {
         let snapshotter = recorder.snapshotter();
 
         metrics::with_local_recorder(&recorder, || {
-            let pool = Arc::new(make_pool(1, 1));
+            let pool = make_pool(1, 1);
 
             assert!(pool.try_acquire_slot_for_worker(0));
             assert!(!pool.try_acquire_slot_for_worker(0), "at capacity");
-            pool.record_completion(0, Arc::clone(&pool));
+            let recycle_due = pool.record_completion(0);
+            assert!(recycle_due.is_none(), "no lifecycle limit");
         });
 
         let snapshot = snapshotter.snapshot().into_vec();
@@ -497,10 +497,11 @@ mod tests {
 
     #[test]
     fn record_completion_increments_internal_action_count() {
-        let pool = Arc::new(make_pool(2, 2));
+        let pool = make_pool(2, 2);
 
         assert!(pool.try_acquire_slot_for_worker(1));
-        pool.record_completion(1, Arc::clone(&pool));
+        let recycle_due = pool.record_completion(1);
+        assert!(recycle_due.is_none(), "no lifecycle limit");
 
         let get_action_count = |worker_idx: usize| -> u64 {
             pool.action_counts

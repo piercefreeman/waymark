@@ -46,7 +46,20 @@ where
         Ok(metrics) => {
             ::metrics::histogram!("waymark_worker_remote_pool_action_handling_seconds")
                 .record(metrics.worker_duration);
-            pool.record_completion(worker_idx, Arc::clone(pool));
+            if let Some(waymark_worker_process_pool::RecycleDue) =
+                pool.record_completion(worker_idx)
+            {
+                // Recycle in the background: the replacement is spawned and
+                // swapped in while this request's report goes out.
+                tokio::spawn({
+                    let pool = Arc::clone(pool);
+                    async move {
+                        if let Err(err) = pool.recycle_worker(worker_idx).await {
+                            tracing::error!(worker_idx, ?err, "failed to recycle worker");
+                        }
+                    }
+                });
+            }
             ActionExecutionReport::Completed(proto::ActionResult {
                 payload: metrics.response_payload,
                 metadata,
