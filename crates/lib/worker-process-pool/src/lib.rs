@@ -376,8 +376,7 @@ where
 impl<Spec> Pool<Spec> {
     /// Gracefully shut down all workers in the pool.
     ///
-    /// Workers are shut down in order. Any workers still in use
-    /// (shared references exist) are skipped with a warning.
+    /// Workers are shut down in order.
     pub async fn shutdown(self) -> Result<(), waymark_managed_process::ShutdownError> {
         let workers = self.worker_processes.into_inner();
         info!(count = workers.len(), "shutting down worker pool");
@@ -388,19 +387,6 @@ impl<Spec> Pool<Spec> {
 
         info!("worker pool shutdown complete");
         Ok(())
-    }
-
-    /// Unwrap an [`Arc`] and gracefully shut down all workers in the pool.
-    ///
-    /// See [`Pool::shutdown`].
-    pub async fn shutdown_arc(
-        self: Arc<Self>,
-    ) -> Result<(), waymark_managed_process::ShutdownError> {
-        let Some(pool) = Arc::into_inner(self) else {
-            warn!("worker pool still referenced during shutdown; skipping shutdown");
-            return Ok(());
-        };
-        pool.shutdown().await
     }
 }
 
