@@ -1,8 +1,11 @@
 //! The API HTTP surface: composes the API routes so that they are properly
 //! documented with OpenAPI.
 
-/// The API router, served at `mount_path`: the given routes plus
-/// `openapi.json`.
+/// The API title, shared by the document and the docs page over it.
+const TITLE: &str = "Waymark API";
+
+/// The API router, served at `mount_path`: the given routes, plus
+/// `openapi.json` and the `docs` page over it.
 ///
 /// The document paths stay relative to `mount_path`, and the document names
 /// `mount_path` as its only server, so the two come from one place and can
@@ -14,15 +17,27 @@ pub fn router(mount_path: &str, routes: aide::axum::ApiRouter) -> axum::Router {
     // document is only complete once the API router is done.
     let router = routes.finish_api(&mut document);
 
-    // The document route describes nothing but itself, so it stays out of the
-    // document: a plain `route`, not an `api_route`.
-    let router = router.route(
-        "/openapi.json",
-        axum::routing::get(move || {
-            let document = document.clone();
-            async move { axum::Json(document) }
-        }),
-    );
+    // The document and docs routes describe nothing but themselves, so they
+    // stay out of the document: plain `route`s, not `api_route`s.
+    let router = router
+        .route(
+            "/openapi.json",
+            axum::routing::get(move || {
+                let document = document.clone();
+                async move { axum::Json(document) }
+            }),
+        )
+        .route(
+            "/docs",
+            // The spec url is relative to the docs page, so that it resolves
+            // against whatever mount point the page is served under, the same
+            // way every other path here does.
+            axum::routing::get(
+                aide::swagger::Swagger::new("openapi.json")
+                    .with_title(TITLE)
+                    .axum_handler(),
+            ),
+        );
 
     // The mount happens on the finished router, after the document is built,
     // so that the document paths stay relative to the mount point rather
@@ -40,7 +55,7 @@ pub fn router(mount_path: &str, routes: aide::axum::ApiRouter) -> axum::Router {
 fn openapi(mount_path: &str) -> aide::openapi::OpenApi {
     aide::openapi::OpenApi {
         info: aide::openapi::Info {
-            title: "Waymark API".to_owned(),
+            title: TITLE.to_owned(),
             version: "v1".to_owned(),
             ..Default::default()
         },
@@ -101,6 +116,32 @@ mod tests {
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(document["info"]["title"], "Waymark API");
+    }
+
+    #[tokio::test]
+    async fn serves_the_docs_page() {
+        let (status, body) = get(router("/api", routes()), "/api/docs").await;
+        let body = String::from_utf8(body).expect("utf-8 body");
+
+        assert_eq!(status, StatusCode::OK);
+
+        // The page has to point at the document route beside it, relatively,
+        // so that it resolves under whatever mount point the page is served at.
+        assert!(
+            body.contains("url: 'openapi.json'"),
+            "docs page does not point at the document beside it"
+        );
+    }
+
+    #[tokio::test]
+    async fn keeps_the_docs_page_out_of_the_document() {
+        let (_status, body) = get(router("/api", routes()), "/api/openapi.json").await;
+        let document: serde_json::Value = serde_json::from_slice(&body).expect("json body");
+
+        assert!(
+            document["paths"]["/docs"].is_null(),
+            "the docs page is documented: {document}"
+        );
     }
 
     #[tokio::test]
