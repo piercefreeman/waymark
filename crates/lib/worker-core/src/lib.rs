@@ -1,8 +1,7 @@
 //! Worker pool interface for executing actions.
 //!
-//! The pool's three capabilities are three traits, so a consumer names
-//! only what it uses: a requester queues, a completions provider polls,
-//! and a bringup launches.
+//! The pool's two capabilities are two traits, so a consumer names only
+//! what it uses: a requester queues, a completions provider polls.
 
 use nonempty_collections::NEVec;
 
@@ -29,15 +28,6 @@ impl WorkerPoolError {
 #[derive(Debug, thiserror::Error)]
 #[error("worker pool gone")]
 pub struct WorkerPoolGoneError;
-
-/// Start whatever background work a pool needs before it can serve.
-pub trait LaunchWorkerPool {
-    /// The error launching produces.
-    type Error;
-
-    /// Start any background tasks required by the pool.
-    fn launch(&self) -> impl Future<Output = Result<(), Self::Error>> + Send + '_;
-}
 
 /// Submit action dispatches for execution.
 pub trait QueueActionDispatch {
@@ -118,17 +108,6 @@ pub trait PollActionResults {
     ) -> impl Future<Output = Result<NEVec<ActionExecutionReport>, Self::Error>> + Send + '_;
 }
 
-impl<T> LaunchWorkerPool for std::sync::Arc<T>
-where
-    T: LaunchWorkerPool + Send + Sync,
-{
-    type Error = T::Error;
-
-    async fn launch(&self) -> Result<(), Self::Error> {
-        (**self).launch().await
-    }
-}
-
 impl<T> QueueActionDispatch for std::sync::Arc<T>
 where
     T: QueueActionDispatch + Send + Sync,
@@ -153,22 +132,6 @@ where
         &self,
     ) -> impl Future<Output = Result<NEVec<ActionExecutionReport>, Self::Error>> + Send + '_ {
         (**self).poll_complete()
-    }
-}
-
-#[cfg(feature = "either")]
-impl<Left, Right> LaunchWorkerPool for either::Either<Left, Right>
-where
-    Left: LaunchWorkerPool + Sync,
-    Right: LaunchWorkerPool + Sync,
-{
-    type Error = either::Either<Left::Error, Right::Error>;
-
-    async fn launch(&self) -> Result<(), Self::Error> {
-        match self {
-            either::Either::Left(left) => left.launch().await.map_err(either::Either::Left),
-            either::Either::Right(right) => right.launch().await.map_err(either::Either::Right),
-        }
     }
 }
 
