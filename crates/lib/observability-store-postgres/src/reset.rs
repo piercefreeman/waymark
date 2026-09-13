@@ -15,7 +15,7 @@
 pub async fn truncate_all(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
     let result = sqlx::query(
         r#"
-        TRUNCATE essential_metrics_node_samples
+        TRUNCATE essential_metrics_node_samples, observability_events
         RESTART IDENTITY CASCADE
         "#,
     )
