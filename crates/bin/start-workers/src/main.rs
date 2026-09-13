@@ -49,7 +49,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     waymark_fn_main_common::init()?;
 
     let metrics_addr: std::net::SocketAddr = envfury::or_parse("METRICS_ADDR", "0.0.0.0:9118")?;
-    waymark_prometheus_exporter_bringup::spawn_and_install_recorder(metrics_addr)?;
+    let essential_metrics_sampling_handle = waymark_metrics_bringup::start(metrics_addr)?;
 
     let _task_monitor = waymark_tokio_metrics_bringup::bringup(env!("CARGO_BIN_NAME"));
 
@@ -99,6 +99,15 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         .await?;
     waymark_backend_postgres_migrations::run(&pool).await?;
     let backend = PostgresBackend::new(pool);
+
+    // Start the observability pipelines.
+    let observability_handles = waymark_observability_bringup::start(
+        config.observability.clone(),
+        node_id,
+        essential_metrics_sampling_handle,
+        shutdown_token.child_token(),
+    )
+    .await?;
 
     // Start the worker pool (bridge + python workers).
     let mut worker_config = waymark_worker_python::Config::new();
@@ -261,6 +270,21 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     .await;
     let _ = tokio::time::timeout(Duration::from_secs(5), bridge_task).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        observability_handles.essential_metrics.sampler,
+    )
+    .await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(5),
+        observability_handles.essential_metrics.batcher,
+    )
+    .await;
+    let _ = tokio::time::timeout(
+        Duration::from_secs(2),
+        observability_handles.essential_metrics.retention,
+    )
+    .await;
 
     if let Err(err) = process_pool.shutdown_arc().await {
         warn!(error = %err, "worker pool shutdown failed");

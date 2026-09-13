@@ -4316,6 +4316,21 @@ name = "waymark-convert-core"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-essential-metrics-bringup"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tokio-util",
+ "waymark-essential-metrics-compat",
+ "waymark-essential-metrics-config",
+ "waymark-essential-metrics-retention-backend",
+ "waymark-essential-metrics-sampler",
+ "waymark-essential-metrics-sink-backend",
+ "waymark-lossy-batcher",
+ "waymark-retention-sweeper",
+]
+
+[[package]]
 name = "waymark-essential-metrics-compat"
 version = "0.1.0"
 dependencies = [
@@ -4669,6 +4684,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-metrics-bringup"
+version = "0.1.0"
+dependencies = [
+ "metrics",
+ "metrics-exporter-prometheus",
+ "metrics-util",
+ "thiserror",
+ "tokio",
+ "waymark-essential-metrics-sampler",
+ "waymark-prometheus-exporter-bringup",
+]
+
+[[package]]
 name = "waymark-metrics-util"
 version = "0.1.0"
 dependencies = [
@@ -4686,6 +4714,22 @@ version = "0.1.0"
 dependencies = [
  "tracing",
  "waymark-observability-macros",
+]
+
+[[package]]
+name = "waymark-observability-bringup"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "thiserror",
+ "tokio-util",
+ "waymark-essential-metrics-bringup",
+ "waymark-essential-metrics-sampler",
+ "waymark-ids",
+ "waymark-observability-config",
+ "waymark-observability-store-postgres",
+ "waymark-observability-store-postgres-bringup",
+ "waymark-observability-store-postgres-migrations",
 ]
 
 [[package]]
@@ -4778,9 +4822,8 @@ dependencies = [
 name = "waymark-prometheus-exporter-bringup"
 version = "0.1.0"
 dependencies = [
- "metrics",
  "metrics-exporter-prometheus",
- "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -5040,7 +5083,8 @@ dependencies = [
  "waymark-http-bringup",
  "waymark-http-healthz",
  "waymark-ids",
- "waymark-prometheus-exporter-bringup",
+ "waymark-metrics-bringup",
+ "waymark-observability-bringup",
  "waymark-scheduler-bringup",
  "waymark-tokio-metrics-bringup",
  "waymark-worker-python",
