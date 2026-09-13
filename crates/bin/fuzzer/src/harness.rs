@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use color_eyre::eyre::bail;
 use waymark_ir_parser::parse_program;
-use waymark_worker_inline::{InlineActionCallable, InlineWorkerPool};
+use waymark_worker_inline::InlineActionCallable;
 use waymark_worker_inline_compat::inline_action;
 
 use super::generator::GeneratedCase;
@@ -66,17 +66,24 @@ pub async fn run_case(
         })?;
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
-    let supervisor =
+    let mut supervisor =
         waymark_task_supervisor::start::<waymark_fn_main_common::Error>(shutdown_token.clone());
 
-    let worker_pool = InlineWorkerPool::new(action_registry());
+    let (worker_pool, pool_loop) = waymark_worker_inline::run(action_registry());
+    supervisor.spawn("inline worker pool loop", pool_loop);
+
+    // The harness keeps its own worker pool handle so the loop cannot
+    // stop before the shutdown request, whatever the driver does with
+    // its handles.
+    let worker_pool = std::sync::Arc::new(worker_pool);
+
     let cancel = tokio_util::sync::CancellationToken::new();
     let waymark_transient_execution_bringup::Execution {
         workflow_outcome_rx,
         driver_handle,
     } = waymark_transient_execution_worker_pool_bringup::execute(
         runtime,
-        worker_pool,
+        std::sync::Arc::clone(&worker_pool),
         false,
         cancel.clone(),
     );
@@ -87,6 +94,7 @@ pub async fn run_case(
             Err(_elapsed) => {
                 cancel.cancel();
                 shutdown_token.cancel();
+                drop(worker_pool);
                 let Err(driver_exit) = driver_handle.await;
                 tracing::debug!(?driver_exit, "vm driver exited after cancellation");
                 let report = supervisor.drain().await;
@@ -98,9 +106,10 @@ pub async fn run_case(
             }
         };
 
-    // The outcome is the end of the work, so the shutdown is requested
-    // here, before the VM driver is joined.
+    // The outcome is the end of the work: the shutdown is requested
+    // first, and only then is the harness's worker pool handle dropped.
     shutdown_token.cancel();
+    drop(worker_pool);
 
     // The driver terminates right after delivering the workflow outcome —
     // including on success — so join it unconditionally for its exit report.
