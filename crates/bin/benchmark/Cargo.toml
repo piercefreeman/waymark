@@ -24,6 +24,7 @@ waymark-secret-string = { workspace = true }
 waymark-smoke-sources = { workspace = true }
 waymark-support-integration = { workspace = true }
 waymark-system-vm = { workspace = true }
+waymark-task-supervisor = { workspace = true }
 waymark-vm-ast-old = { workspace = true }
 waymark-vm-ast-old-proto = { workspace = true }
 waymark-vm-codec-rmp = { workspace = true }
