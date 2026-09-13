@@ -23,6 +23,10 @@ use waymark_worker_inline::InlineWorkerPool;
 
 use crate::report::BenchmarkStats;
 
+/// The supervisor of the run's tasks: their errors differ per task, so
+/// they are supervised erased.
+type Supervisor = waymark_task_supervisor::Supervisor<waymark_task_supervisor::BoxedError>;
+
 /// How often to poll the recorded execution results while draining.
 const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -78,11 +82,13 @@ async fn run_benchmark(
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
+    let mut supervisor: Supervisor = waymark_task_supervisor::start(shutdown_token.clone());
 
     let observability = if with_observability {
         let node_id = waymark_ids::NodeId::new_uuid_v4();
         let observability =
-            observability::start(dsn, node_id, shutdown_token.child_token()).await?;
+            observability::start(&mut supervisor, dsn, node_id, shutdown_token.child_token())
+                .await?;
         Some(observability)
     } else {
         None
@@ -94,52 +100,66 @@ async fn run_benchmark(
         }
     });
 
-    // The subsystem's internal loops cancel this token when any of them
-    // fails (e.g. a lock fence breach) — watched below so the drain loop
-    // fails loudly instead of waiting forever on a dead subsystem.
-    let subsystem_token = shutdown_token.child_token();
     let start = Instant::now();
     let execution_handles = waymark_execution_bringup::start(
         execution::durable_execution_config(max_pinned)?,
         Arc::new(backend.clone()),
         InlineWorkerPool::new(actions::action_registry()),
         observability_events,
-        subsystem_token.clone(),
+        shutdown_token.child_token(),
         force_shutdown_token.child_token(),
     )
     .await;
+    execution::track(&mut supervisor, execution_handles);
 
+    // The supervisor cancels the shutdown token when any task ends before
+    // the shutdown was requested (e.g. on a lock fence breach) — watched
+    // below so the drain loop fails loudly instead of waiting forever on a
+    // dead subsystem. Whichever way the loop ends, the tasks are drained.
     let mut last_progress = (0i64, Instant::now());
-    loop {
-        let done: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM vm_execution_results")
-            .fetch_one(backend.pool())
-            .await
-            .wrap_err("count recorded execution results")?;
-        if done as usize >= total {
-            break;
+    let draining_result: Result<(), color_eyre::eyre::Report> = async {
+        loop {
+            let done: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM vm_execution_results")
+                .fetch_one(backend.pool())
+                .await
+                .wrap_err("count recorded execution results")?;
+            if done as usize >= total {
+                break;
+            }
+            if shutdown_token.is_cancelled() {
+                bail!(
+                    "execution subsystem shut down after draining only {done} of {total} instances"
+                );
+            }
+            if done > last_progress.0 {
+                last_progress = (done, Instant::now());
+            } else if last_progress.1.elapsed() > DRAIN_STALL_TIMEOUT {
+                bail!(
+                    "drain stalled: no new execution results for {}s at {done} of {total} instances",
+                    DRAIN_STALL_TIMEOUT.as_secs(),
+                );
+            }
+            tokio::time::sleep(DRAIN_POLL_INTERVAL).await;
         }
-        if subsystem_token.is_cancelled() {
-            bail!("execution subsystem shut down after draining only {done} of {total} instances");
-        }
-        if done > last_progress.0 {
-            last_progress = (done, Instant::now());
-        } else if last_progress.1.elapsed() > DRAIN_STALL_TIMEOUT {
-            bail!(
-                "drain stalled: no new execution results for {}s at {done} of {total} instances",
-                DRAIN_STALL_TIMEOUT.as_secs(),
-            );
-        }
-        tokio::time::sleep(DRAIN_POLL_INTERVAL).await;
+
+        Ok(())
     }
+    .await;
     let elapsed = start.elapsed();
 
     // Nothing is draining anymore — force the pinning manager out of its
-    // drain loop along with the graceful stop.
+    // drain loop along with the graceful stop, then wait for every task.
     shutdown_token.cancel();
     force_shutdown_token.cancel();
-    execution::shutdown_execution(execution_handles).await;
+    let report = supervisor.drain().await;
+
+    draining_result?;
+    if report.any_before_shutdown() {
+        bail!("a task ended before the shutdown was requested:\n{report}");
+    }
+
     if let Some(observability) = observability {
-        let events = observability::shutdown(observability).await?;
+        let events = observability::recorded_events(observability).await?;
         println!("Observability events recorded: {events}");
     }
 

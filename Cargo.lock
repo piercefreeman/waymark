@@ -4314,6 +4314,7 @@ dependencies = [
  "waymark-sqlx-postgres-schema-pool",
  "waymark-support-integration",
  "waymark-system-vm",
+ "waymark-task-supervisor",
  "waymark-vm-ast-old",
  "waymark-vm-ast-old-proto",
  "waymark-vm-codec-rmp",

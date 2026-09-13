@@ -1,4 +1,4 @@
-//! Execution-subsystem configuration and shutdown for the benchmark.
+//! Execution-subsystem configuration and supervision for the benchmark.
 
 use core::str::FromStr;
 use std::num::NonZeroUsize;
@@ -64,7 +64,8 @@ pub fn durable_execution_config(
     })
 }
 
-pub async fn shutdown_execution(handles: waymark_execution_bringup::Handles) {
+/// Supervise the execution subsystem's tasks.
+pub fn track(supervisor: &mut crate::Supervisor, handles: waymark_execution_bringup::Handles) {
     let waymark_execution_bringup::Handles {
         pinning_manager,
         execution_driver,
@@ -82,30 +83,36 @@ pub async fn shutdown_execution(handles: waymark_execution_bringup::Handles) {
         action_effect_reconciler_lock_batcher,
     } = handles;
 
-    let _ = tokio::time::timeout(Duration::from_secs(5), pinning_manager).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), execution_driver).await;
-    let _ = tokio::time::timeout(Duration::from_secs(2), executable_sweeper).await;
-    let _ = tokio::time::timeout(Duration::from_secs(2), vm_sweeper).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), durable_action_completions_writer).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), durable_action_completions_poller).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), durable_action_completions_acker).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), durable_sleeps_poller).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), durable_sleeps_acker).await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
+    supervisor.track("workload pinning manager", pinning_manager);
+    supervisor.track("execution driver", execution_driver);
+    supervisor.track("executable sweeper", executable_sweeper);
+    supervisor.track("vm runtimes sweeper", vm_sweeper);
+    supervisor.track(
+        "durable action completions writer",
+        durable_action_completions_writer,
+    );
+    supervisor.track(
+        "durable action completions poller",
+        durable_action_completions_poller,
+    );
+    supervisor.track(
+        "durable action completions acker",
+        durable_action_completions_acker,
+    );
+    supervisor.track("durable sleeps poller", durable_sleeps_poller);
+    supervisor.track("durable sleeps acker", durable_sleeps_acker);
+    supervisor.track(
+        "action effect reconciler lock renewal",
         action_effect_reconciler_lock_renewal,
-    )
-    .await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), snapshot_batcher).await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
+    );
+    supervisor.track("snapshot batcher", snapshot_batcher);
+    supervisor.track(
+        "action effect reconciler request batcher",
         action_effect_reconciler_request_batcher,
-    )
-    .await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), workflow_completion_batcher).await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
+    );
+    supervisor.track("workflow completion batcher", workflow_completion_batcher);
+    supervisor.track(
+        "action effect reconciler lock batcher",
         action_effect_reconciler_lock_batcher,
-    )
-    .await;
+    );
 }
