@@ -11,7 +11,7 @@ waymark-worker-core = { workspace = true }
 
 nonempty-collections = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }
 
 [lib]
 test = false
