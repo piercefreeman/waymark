@@ -55,7 +55,6 @@ pub async fn run_durable_mode(
     .await
     .wrap_err("start durable worker pool")?;
 
-    // The execution subsystem launches the worker pool itself.
     let execution_handles = waymark_execution_bringup::start(
         durable_execution_config(),
         Arc::new(stack.backend.clone()),
@@ -64,8 +63,7 @@ pub async fn run_durable_mode(
         shutdown_token.child_token(),
         force_shutdown_token.child_token(),
     )
-    .await
-    .wrap_err("start durable execution subsystem")?;
+    .await;
 
     let mut failures = Vec::new();
     for prepared in prepared_cases {
