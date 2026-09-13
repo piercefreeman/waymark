@@ -1,0 +1,15 @@
+[package]
+name = "waymark-os-shutdown-requests"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "signal"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "signal", "time"] }
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { workspace = true, features = ["signal"] }

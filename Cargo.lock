@@ -5139,6 +5139,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-os-shutdown-requests"
+version = "0.1.0"
+dependencies = [
+ "nix",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "waymark-prometheus-exporter-bringup"
 version = "0.1.0"
 dependencies = [
