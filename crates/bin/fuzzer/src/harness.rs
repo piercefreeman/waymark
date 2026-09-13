@@ -8,6 +8,10 @@ use waymark_ir_parser::parse_program;
 use waymark_worker_inline::{InlineActionCallable, InlineWorkerPool};
 use waymark_worker_inline_compat::inline_action;
 
+/// The supervisor of a case's tasks: their errors differ per task, so
+/// they are supervised erased.
+type Supervisor = waymark_task_supervisor::Supervisor<waymark_task_supervisor::BoxedError>;
+
 /// The inline adapter pinned to this binary's flavor converter.
 fn py_inline_action<F, Fut>(body: F) -> waymark_worker_inline::InlineActionCallable
 where
@@ -65,6 +69,9 @@ pub async fn run_case(
             )
         })?;
 
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
+    let mut supervisor: Supervisor = waymark_task_supervisor::start(shutdown_token.clone());
+
     let worker_pool = InlineWorkerPool::new(action_registry());
     let cancel = tokio_util::sync::CancellationToken::new();
     let waymark_transient_execution_bringup::Execution {
@@ -82,8 +89,11 @@ pub async fn run_case(
             Ok(received) => received,
             Err(_elapsed) => {
                 cancel.cancel();
+                shutdown_token.cancel();
                 let Err(driver_exit) = driver_handle.await;
                 tracing::debug!(?driver_exit, "vm driver exited after cancellation");
+                let report = supervisor.drain().await;
+                tracing::debug!(%report, "tasks drained");
                 bail!(
                     "case {case_index} timed out\n--- program ---\n{}",
                     case.source
@@ -91,10 +101,22 @@ pub async fn run_case(
             }
         };
 
+    // The outcome is the end of the work, so the shutdown is requested
+    // here, before the VM driver is joined.
+    shutdown_token.cancel();
+
     // The driver terminates right after delivering the workflow outcome —
     // including on success — so join it unconditionally for its exit report.
     let Err(driver_exit) = driver_handle.await;
     tracing::debug!(?driver_exit, "vm driver exited");
+
+    let report = supervisor.drain().await;
+    if report.any_before_shutdown() {
+        bail!(
+            "case {case_index}: a task ended before the shutdown was requested:\n{report}\n--- program ---\n{}",
+            case.source
+        );
+    }
 
     let workflow_outcome = workflow_outcome.map_err(|_recv_error| {
         color_eyre::eyre::eyre!(
