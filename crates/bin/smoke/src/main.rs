@@ -20,6 +20,10 @@ struct SmokeArgs {
     base: i64,
 }
 
+/// The supervisor of the run's tasks: their errors differ per task, so
+/// they are supervised erased.
+type Supervisor = waymark_task_supervisor::Supervisor<waymark_task_supervisor::BoxedError>;
+
 struct SmokeCase {
     name: String,
     program: waymark_vm_ast_old::Program,
@@ -100,15 +104,19 @@ async fn run_smoke(base: i64) -> i32 {
     )
     .await;
 
-    let (process_pool, mut bridge_server_task) = match result {
+    let (process_pool, bridge_server_task) = match result {
         Ok(val) => val,
         Err(err) => {
             println!("Failed to start python worker pool: {err}");
-            return 1;
+            return 2;
         }
     };
+
+    let mut supervisor: Supervisor = waymark_task_supervisor::start(shutdown_token.clone());
+    supervisor.track("worker bridge server", bridge_server_task);
+
     let (worker_pool, pool_loop) = waymark_worker_remote_pool::run(process_pool);
-    let pool_loop = tokio::spawn(pool_loop);
+    supervisor.spawn("worker pool loop", pool_loop);
     let worker_pool = Arc::new(worker_pool);
 
     let mut failures = 0;
@@ -172,27 +180,26 @@ async fn run_smoke(base: i64) -> i32 {
         }
     }
 
-    // Dropping the last handle lets the worker pool loop shut the workers
-    // down; the bridge server's graceful shutdown then has no streams left
-    // to wait for.
-    drop(worker_pool);
-    match tokio::time::timeout(std::time::Duration::from_secs(5), pool_loop).await {
-        Ok(Ok(Ok(()))) => {}
-        Ok(Ok(Err(err))) => println!("Failed to shut down worker pool: {err}"),
-        Ok(Err(err)) => println!("Worker pool loop panicked: {err}"),
-        Err(_elapsed) => println!("Worker pool did not shut down in time"),
-    }
-
+    // The work is done, so the shutdown is requested; then the last worker
+    // pool handle is dropped, which is what ends the worker pool loop, after
+    // which the bridge server's graceful shutdown has no streams left to
+    // wait for. The drain waits for every task, however long it takes.
     shutdown_token.cancel();
-    let bridge_server_shutdown =
-        tokio::time::timeout(std::time::Duration::from_secs(5), &mut bridge_server_task).await;
-    if bridge_server_shutdown.is_err() {
-        tracing::warn!("bridge server did not stop in time, aborting it");
-        bridge_server_task.abort();
-        let _ = bridge_server_task.await;
+    drop(worker_pool);
+    let report = supervisor.drain().await;
+
+    // The exit code is a bit per kind of wrong: bit 0 for failed cases,
+    // bit 1 for a task ending before the shutdown was requested.
+    let mut exit_code = 0;
+    if failures > 0 {
+        exit_code |= 1 << 0;
+    }
+    if report.any_before_shutdown() {
+        println!("A task ended before the shutdown was requested:\n{report}");
+        exit_code |= 1 << 1;
     }
 
-    if failures > 0 { 1 } else { 0 }
+    exit_code
 }
 
 /// The workspace root, resolved from this crate's manifest directory
