@@ -92,11 +92,10 @@ pub async fn run_soak_loop(
             instant = ticker.tick() => tick_delta.tick(instant),
         };
 
+        // An observed exit takes the worker's handle with it: there is
+        // nothing left to stop, and nothing is shut down later.
         if let Some(worker_process) = worker.as_mut()
-            && let Some(status) = worker_process
-                .child
-                .try_wait()
-                .wrap_err("poll worker process")?
+            && let Some(status) = worker_process.poll_exit().wrap_err("poll worker process")?
         {
             return Ok((
                 TerminationReason::WorkerExited(format!("worker process exited: {status}")),
@@ -362,7 +361,7 @@ async fn register_instances(
 
 #[derive(Debug, Clone)]
 struct WorkItem {
-    pub step_delays_ms: Vec<i64>,
+    pub step_delays_ms: Vec<u32>,
     pub step_should_fail: Vec<bool>,
     pub step_payload_bytes: Vec<i64>,
     pub step_include_payload: Vec<bool>,
@@ -392,30 +391,59 @@ fn sample_work_item(args: &crate::cli::SoakArgs, rng: &mut StdRng) -> WorkItem {
     }
 }
 
-fn sample_step_behavior(args: &crate::cli::SoakArgs, rng: &mut StdRng) -> (i64, bool) {
+/// The timeout class sleeps past `--timeout-seconds` by at least this much.
+const TIMEOUT_CLASS_MIN_EXTRA_MS: u32 = 1_500;
+
+/// The timeout class sleeps up to this many times `--timeout-seconds`.
+const TIMEOUT_CLASS_MAX_FACTOR: u32 = 3;
+
+/// The failure class sleeps within this range, then fails.
+const FAILURE_CLASS_DELAY_MS: std::ops::RangeInclusive<u32> = 50..=400;
+
+/// The slow class sleeps within this range.
+const SLOW_CLASS_DELAY_MS: std::ops::RangeInclusive<u32> = 1_000..=8_000;
+
+/// Every other action sleeps within this range.
+const NORMAL_CLASS_DELAY_MS: std::ops::RangeInclusive<u32> = 25..=400;
+
+/// The delays the timeout class draws from, for `--timeout-seconds`;
+/// saturating, so an absurd timeout still yields a range.
+fn timeout_class_delay_ms(timeout_seconds: u32) -> std::ops::RangeInclusive<u32> {
+    let base_ms = timeout_seconds.saturating_mul(1000);
+    let min_ms = base_ms.saturating_add(TIMEOUT_CLASS_MIN_EXTRA_MS);
+    min_ms..=base_ms.saturating_mul(TIMEOUT_CLASS_MAX_FACTOR).max(min_ms)
+}
+
+/// The longest a generated action sleeps, across the classes.
+pub fn slowest_action_ms(args: &crate::cli::SoakArgs) -> u32 {
+    *timeout_class_delay_ms(args.timeout_seconds)
+        .end()
+        .max(SLOW_CLASS_DELAY_MS.end())
+}
+
+fn sample_step_behavior(args: &crate::cli::SoakArgs, rng: &mut StdRng) -> (u32, bool) {
     let timeout_threshold = args.timeout_percent;
     let failure_threshold = timeout_threshold + args.failure_percent;
     let slow_threshold = failure_threshold + args.slow_percent;
 
     let class = rng.random_range(0.0..100.0);
-    let timeout_base_ms = i64::from(args.timeout_seconds) * 1000;
 
     if class < timeout_threshold {
-        let delay_ms = rng.random_range(
-            (timeout_base_ms + 1500)..=(timeout_base_ms * 3).max(timeout_base_ms + 1500),
+        return (
+            rng.random_range(timeout_class_delay_ms(args.timeout_seconds)),
+            false,
         );
-        return (delay_ms, false);
     }
 
     if class < failure_threshold {
-        return (rng.random_range(50..=400), true);
+        return (rng.random_range(FAILURE_CLASS_DELAY_MS), true);
     }
 
     if class < slow_threshold {
-        return (rng.random_range(1_000..=8_000), false);
+        return (rng.random_range(SLOW_CLASS_DELAY_MS), false);
     }
 
-    (rng.random_range(25..=400), false)
+    (rng.random_range(NORMAL_CLASS_DELAY_MS), false)
 }
 
 fn jitter_payload(base_payload: i64, rng: &mut StdRng) -> i64 {
@@ -450,7 +478,9 @@ fn build_instance_inputs(
         let idx = step + 1;
         inputs.insert(
             format!("delay_ms_{idx}"),
-            waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::Int(*delay_ms)),
+            waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::Int(i64::from(
+                *delay_ms,
+            ))),
         );
         inputs.insert(
             format!("should_fail_{idx}"),

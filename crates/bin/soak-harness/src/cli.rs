@@ -63,6 +63,11 @@ pub struct SoakArgs {
     #[arg(long, default_value_t = 5.try_into().unwrap())]
     pub startup_log_interval_secs: NonZeroU64,
 
+    /// How long the worker gets to stop gracefully before it is killed, in
+    /// milliseconds. Defaults to the slowest generated action plus 30 s.
+    #[arg(long)]
+    pub worker_stop_timeout_ms: Option<u64>,
+
     #[arg(long, default_value_t = 20)]
     pub timeout_seconds: u32,
 
@@ -133,7 +138,30 @@ pub struct SoakArgs {
     pub seed: Option<u64>,
 }
 
+impl SoakArgs {
+    /// How long the worker gets to stop gracefully before it is killed.
+    pub fn worker_stop_timeout(&self) -> std::time::Duration {
+        let ms = self.worker_stop_timeout_ms.unwrap_or_else(|| {
+            u64::from(crate::flow::slowest_action_ms(self)) + WORKER_STOP_TIMEOUT_MARGIN_MS
+        });
+
+        std::time::Duration::from_millis(ms)
+    }
+}
+
+/// Added to the slowest generated action for the default worker stop timeout.
+const WORKER_STOP_TIMEOUT_MARGIN_MS: u64 = 30_000;
+
 pub fn validate_args(args: &SoakArgs) -> Result<(), color_eyre::eyre::Report> {
+    if let Some(ms) = args.worker_stop_timeout_ms
+        && ms < u64::from(crate::flow::slowest_action_ms(args))
+    {
+        bail!(
+            "--worker-stop-timeout-ms {ms} is below the slowest generated action, \
+             {} ms; a clean run would end with the worker killed",
+            crate::flow::slowest_action_ms(args)
+        );
+    }
     if args.timeout_percent < 0.0 || args.failure_percent < 0.0 || args.slow_percent < 0.0 {
         bail!("workload percentages cannot be negative");
     }
