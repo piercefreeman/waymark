@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use color_eyre::eyre::{WrapErr as _, bail, eyre};
-use waymark_worker_core::LaunchWorkerPool as _;
 
 use crate::ground_truth::PreparedCase;
 use crate::outcome::{CaseOutcome, check_case_outcome, outcome_from_vm};
@@ -37,12 +36,6 @@ pub async fn run_transient_mode(
         .wrap_err_with(|| {
             format!(
                 "start transient worker pool for case '{}'",
-                prepared.case.id
-            )
-        })?;
-        worker_pool.launch().await.wrap_err_with(|| {
-            format!(
-                "launch transient worker pool for case '{}'",
                 prepared.case.id
             )
         })?;

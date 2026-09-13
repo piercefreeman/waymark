@@ -107,8 +107,7 @@ async fn run_benchmark(
         subsystem_token.clone(),
         force_shutdown_token.child_token(),
     )
-    .await
-    .wrap_err("start execution subsystem")?;
+    .await;
 
     let mut last_progress = (0i64, Instant::now());
     loop {
