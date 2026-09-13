@@ -12,7 +12,7 @@ use waymark_support_integration::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local
 
 use crate::ground_truth::PreparedCase;
 use crate::outcome::{CaseOutcome, check_case_outcome, outcome_from_vm};
-use crate::worker_pool::{setup_worker_pool, teardown_worker_pool};
+use crate::worker_pool::{Supervisor, drain_run, setup_worker_pool};
 
 /// The postgres-backed services the durable mode drives directly: workflow
 /// submission (compile + register) and outcome polling. Execution itself is
@@ -46,7 +46,9 @@ pub async fn run_durable_mode(
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
-    let (worker_pool, bridge_server_task, pool_loop) = setup_worker_pool(
+    let mut supervisor: Supervisor = waymark_task_supervisor::start(shutdown_token.clone());
+    let worker_pool = setup_worker_pool(
+        &mut supervisor,
         shutdown_token.clone(),
         repo_root,
         prepared_cases,
@@ -55,15 +57,19 @@ pub async fn run_durable_mode(
     .await
     .wrap_err("start durable worker pool")?;
 
+    // The execution subsystem's tasks hold the worker pool handles and end
+    // on the shutdown token, so the last handle drops after the request
+    // without the run keeping one.
     let execution_handles = waymark_execution_bringup::start(
         durable_execution_config(),
         Arc::new(stack.backend.clone()),
-        Arc::clone(&worker_pool),
+        worker_pool,
         None,
         shutdown_token.child_token(),
         force_shutdown_token.child_token(),
     )
     .await;
+    track_execution(&mut supervisor, execution_handles);
 
     let mut failures = Vec::new();
     for prepared in prepared_cases {
@@ -77,8 +83,9 @@ pub async fn run_durable_mode(
     // pinning manager out of its drain loop along with the graceful stop.
     shutdown_token.cancel();
     force_shutdown_token.cancel();
-    shutdown_execution(execution_handles).await;
-    teardown_worker_pool(shutdown_token, bridge_server_task, pool_loop, worker_pool).await;
+    drain_run(supervisor)
+        .await
+        .wrap_err("drain the durable run")?;
 
     Ok(failures)
 }
@@ -153,7 +160,8 @@ fn durable_execution_config() -> waymark_execution_bringup::Config<uuid::Uuid> {
     }
 }
 
-async fn shutdown_execution(handles: waymark_execution_bringup::Handles) {
+/// Supervise the execution subsystem's tasks.
+fn track_execution(supervisor: &mut Supervisor, handles: waymark_execution_bringup::Handles) {
     let waymark_execution_bringup::Handles {
         pinning_manager,
         execution_driver,
@@ -171,32 +179,38 @@ async fn shutdown_execution(handles: waymark_execution_bringup::Handles) {
         action_effect_reconciler_lock_batcher,
     } = handles;
 
-    let _ = tokio::time::timeout(Duration::from_secs(5), pinning_manager).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), execution_driver).await;
-    let _ = tokio::time::timeout(Duration::from_secs(2), executable_sweeper).await;
-    let _ = tokio::time::timeout(Duration::from_secs(2), vm_sweeper).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), durable_action_completions_writer).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), durable_action_completions_poller).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), durable_action_completions_acker).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), durable_sleeps_poller).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), durable_sleeps_acker).await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
+    supervisor.track("workload pinning manager", pinning_manager);
+    supervisor.track("execution driver", execution_driver);
+    supervisor.track("executable sweeper", executable_sweeper);
+    supervisor.track("vm runtimes sweeper", vm_sweeper);
+    supervisor.track(
+        "durable action completions writer",
+        durable_action_completions_writer,
+    );
+    supervisor.track(
+        "durable action completions poller",
+        durable_action_completions_poller,
+    );
+    supervisor.track(
+        "durable action completions acker",
+        durable_action_completions_acker,
+    );
+    supervisor.track("durable sleeps poller", durable_sleeps_poller);
+    supervisor.track("durable sleeps acker", durable_sleeps_acker);
+    supervisor.track(
+        "action effect reconciler lock renewal",
         action_effect_reconciler_lock_renewal,
-    )
-    .await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), snapshot_batcher).await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
+    );
+    supervisor.track("snapshot batcher", snapshot_batcher);
+    supervisor.track(
+        "action effect reconciler request batcher",
         action_effect_reconciler_request_batcher,
-    )
-    .await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), workflow_completion_batcher).await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(5),
+    );
+    supervisor.track("workflow completion batcher", workflow_completion_batcher);
+    supervisor.track(
+        "action effect reconciler lock batcher",
         action_effect_reconciler_lock_batcher,
-    )
-    .await;
+    );
 }
 
 async fn run_case_durable(
