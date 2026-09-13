@@ -5,6 +5,7 @@ mod actions;
 mod cases;
 mod cli;
 mod execution;
+mod observability;
 mod registration;
 mod report;
 
@@ -37,6 +38,7 @@ async fn run_benchmark(
     max_pinned: NonZeroUsize,
     pool_size: NonZeroU32,
     registration_batch_max: NonZeroUsize,
+    with_observability: bool,
 ) -> Result<BenchmarkStats, color_eyre::eyre::Report> {
     let cases = cases::build_cases(base)?;
     if dsn.expose_secret() == LOCAL_POSTGRES_DSN.expose_secret() {
@@ -76,6 +78,22 @@ async fn run_benchmark(
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
+
+    let observability = if with_observability {
+        let node_id = waymark_ids::NodeId::new_uuid_v4();
+        let observability =
+            observability::start(dsn, node_id, shutdown_token.child_token()).await?;
+        Some(observability)
+    } else {
+        None
+    };
+    let observability_events = observability.as_ref().map(|observability| {
+        waymark_execution_bringup::ObservabilityEvents {
+            emitter: Arc::clone(&observability.emitter),
+            vm_driver_hooks_policy: observability.vm_driver_hooks_policy,
+        }
+    });
+
     // The subsystem's internal loops cancel this token when any of them
     // fails (e.g. a lock fence breach) — watched below so the drain loop
     // fails loudly instead of waiting forever on a dead subsystem.
@@ -85,10 +103,7 @@ async fn run_benchmark(
         execution::durable_execution_config(max_pinned)?,
         Arc::new(backend.clone()),
         InlineWorkerPool::new(actions::action_registry()),
-        None,
-        waymark_observability_events_vm_driver_hooks::Policy {
-            snapshot_persisted: false,
-        },
+        observability_events,
         subsystem_token.clone(),
         force_shutdown_token.child_token(),
     )
@@ -124,6 +139,10 @@ async fn run_benchmark(
     shutdown_token.cancel();
     force_shutdown_token.cancel();
     execution::shutdown_execution(execution_handles).await;
+    if let Some(observability) = observability {
+        let events = observability::shutdown(observability).await?;
+        println!("Observability events recorded: {events}");
+    }
 
     Ok(BenchmarkStats {
         total,
@@ -159,6 +178,7 @@ fn main() -> Result<(), waymark_fn_main_common::Error> {
     println!("max_pinned = {max_pinned}");
     println!("db_pool_size = {pool_size}");
     println!("registration_batch_max = {registration_batch_max}");
+    println!("observability = {}", args.observability);
     let stats = runtime.block_on(run_benchmark(
         args.count,
         args.base,
@@ -166,6 +186,7 @@ fn main() -> Result<(), waymark_fn_main_common::Error> {
         max_pinned,
         pool_size,
         registration_batch_max,
+        args.observability,
     ))?;
     println!("Benchmark completed in {:.2?}", stats.elapsed);
     println!("{}", report::format_query_counts(&stats.query_counts));
