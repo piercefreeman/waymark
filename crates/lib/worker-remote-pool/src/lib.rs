@@ -160,27 +160,25 @@ fn record_dispatch_queue_length(queued: usize) {
     metrics::gauge!("waymark_worker_remote_pool_dispatch_queue_length").set(queued as f64);
 }
 
-impl<Spec> waymark_worker_core::LaunchWorkerPool for RemoteWorkerPool<Spec>
+impl<Spec> RemoteWorkerPool<Spec>
 where
     Spec: waymark_worker_process_spec::Spec,
     Spec: Send + Sync + 'static,
 {
-    type Error = WorkerPoolError;
-
-    async fn launch(&self) -> std::result::Result<(), Self::Error> {
+    /// Start the dispatch loop serving the queued requests; a later call
+    /// is a no-op.
+    pub fn launch(&self) {
         if self.launched.swap(true, Ordering::SeqCst) {
-            return Ok(());
+            return;
         }
 
         let request_rx = {
-            let mut guard = self.request_rx.lock().map_err(|_| {
-                WorkerPoolError::new("RemoteWorkerPoolError", "failed to lock request receiver")
-            })?;
+            let mut guard = self.request_rx.lock().unwrap();
             guard.take()
         };
 
         let Some(mut request_rx) = request_rx else {
-            return Ok(());
+            return;
         };
 
         let pool = Arc::clone(&self.pool);
@@ -209,8 +207,6 @@ where
                 });
             }
         });
-
-        Ok(())
     }
 }
 

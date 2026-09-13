@@ -191,6 +191,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         let remote_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
             process_pool.clone(),
         ));
+        remote_pool.launch();
 
         // Compose everything the HTTP server serves.
         let http_api_routes = aide::axum::ApiRouter::new().merge(observability_api_router);
@@ -251,7 +252,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             shutdown_token.child_token(),
             force_shutdown_token.child_token(),
         )
-        .await?;
+        .await;
 
         let waymark_execution_bringup::Handles {
             pinning_manager,

@@ -61,14 +61,6 @@ impl InlineWorkerPool {
     }
 }
 
-impl waymark_worker_core::LaunchWorkerPool for InlineWorkerPool {
-    type Error = WorkerPoolError;
-
-    async fn launch(&self) -> Result<(), Self::Error> {
-        Ok(())
-    }
-}
-
 impl waymark_worker_core::QueueActionDispatch for InlineWorkerPool {
     type Error = WorkerPoolError;
 
