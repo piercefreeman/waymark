@@ -19,7 +19,6 @@ use waymark_backend_postgres::PostgresBackend;
 use waymark_observability::obs;
 use waymark_secret_string::SecretStr;
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
-use waymark_worker_inline::InlineWorkerPool;
 
 use crate::report::BenchmarkStats;
 
@@ -100,11 +99,14 @@ async fn run_benchmark(
         }
     });
 
+    let (worker_pool, pool_loop) = waymark_worker_inline::run(actions::action_registry());
+    supervisor.spawn("inline worker pool loop", pool_loop);
+
     let start = Instant::now();
     let execution_handles = waymark_execution_bringup::start(
         execution::durable_execution_config(max_pinned)?,
         Arc::new(backend.clone()),
-        InlineWorkerPool::new(actions::action_registry()),
+        Arc::new(worker_pool),
         observability_events,
         shutdown_token.child_token(),
         force_shutdown_token.child_token(),

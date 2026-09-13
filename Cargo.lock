@@ -6378,6 +6378,7 @@ dependencies = [
  "nonempty-collections",
  "thiserror",
  "tokio",
+ "tracing",
  "waymark-observability",
  "waymark-proto",
  "waymark-worker-core",

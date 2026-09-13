@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use color_eyre::eyre::bail;
 use waymark_ir_parser::parse_program;
-use waymark_worker_inline::{InlineActionCallable, InlineWorkerPool};
+use waymark_worker_inline::InlineActionCallable;
 use waymark_worker_inline_compat::inline_action;
 
 /// The supervisor of a case's tasks: their errors differ per task, so
@@ -72,14 +72,16 @@ pub async fn run_case(
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let mut supervisor: Supervisor = waymark_task_supervisor::start(shutdown_token.clone());
 
-    let worker_pool = InlineWorkerPool::new(action_registry());
+    let (worker_pool, pool_loop) = waymark_worker_inline::run(action_registry());
+    supervisor.spawn("inline worker pool loop", pool_loop);
+
     let cancel = tokio_util::sync::CancellationToken::new();
     let waymark_transient_execution_bringup::Execution {
         workflow_outcome_rx,
         driver_handle,
     } = waymark_transient_execution_worker_pool_bringup::execute(
         runtime,
-        worker_pool,
+        std::sync::Arc::new(worker_pool),
         false,
         cancel.clone(),
     );
@@ -102,7 +104,8 @@ pub async fn run_case(
         };
 
     // The outcome is the end of the work, so the shutdown is requested
-    // here, before the VM driver is joined.
+    // here, before the VM driver is joined: joining it drops the only
+    // worker pool handle, which is what ends the worker pool loop.
     shutdown_token.cancel();
 
     // The driver terminates right after delivering the workflow outcome —
