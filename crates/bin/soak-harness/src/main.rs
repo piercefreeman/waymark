@@ -15,6 +15,7 @@ mod flow;
 mod setup_db;
 mod setup_workers;
 mod setup_workflows;
+mod shutdown;
 
 use std::collections::VecDeque;
 use std::fs::{self};
@@ -23,7 +24,7 @@ use std::time::Duration;
 use chrono::Utc;
 use clap::Parser;
 use color_eyre::eyre::{WrapErr as _, bail};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use waymark_backend_postgres::PostgresBackend;
 
 const DB_READY_TIMEOUT: Duration = Duration::from_secs(90);
@@ -52,19 +53,49 @@ async fn main() -> Result<(), color_eyre::eyre::Report> {
     info!(run_dir = %run_dir.display(), "starting soak harness");
     info!(?args, "soak harness config");
 
+    // The OS's shutdown requests are tracked from here on, for the whole
+    // run; what they do is `shutdown`'s.
+    shutdown::managed(|stop_token, abort_token| run(args, run_dir, stop_token, abort_token)).await?
+}
+
+/// The soak run proper, from booting the database to the diagnostics.
+async fn run(
+    args: cli::SoakArgs,
+    run_dir: std::path::PathBuf,
+    stop_token: tokio_util::sync::CancellationToken,
+    abort_token: tokio_util::sync::CancellationToken,
+) -> Result<(), color_eyre::eyre::Report> {
     if !args.skip_postgres_boot {
-        setup_db::boot_postgres().await?;
+        common::run_unless_cancelled(&stop_token, "booting postgres", setup_db::boot_postgres())
+            .await?;
     }
 
-    let pool = setup_db::wait_for_database(&args.dsn, DB_READY_TIMEOUT).await?;
-    waymark_backend_postgres_migrations::run(&pool)
-        .await
-        .wrap_err("run migrations before soak")?;
-
-    let observability_pool =
-        waymark_sqlx_postgres_schema_pool::connect(args.dsn.expose_secret(), OBSERVABILITY_SCHEMA)
+    let pool = common::run_unless_cancelled(
+        &stop_token,
+        "waiting for the database",
+        setup_db::wait_for_database(&args.dsn, DB_READY_TIMEOUT),
+    )
+    .await?;
+    common::run_unless_cancelled(&stop_token, "running migrations", async {
+        waymark_backend_postgres_migrations::run(&pool)
             .await
-            .wrap_err("connect the observability schema pool")?;
+            .wrap_err("run migrations before soak")
+    })
+    .await?;
+
+    let observability_pool = common::run_unless_cancelled(
+        &stop_token,
+        "connecting the observability schema pool",
+        async {
+            waymark_sqlx_postgres_schema_pool::connect(
+                args.dsn.expose_secret(),
+                OBSERVABILITY_SCHEMA,
+            )
+            .await
+            .wrap_err("connect the observability schema pool")
+        },
+    )
+    .await?;
     let observability_store = waymark_observability_store_postgres::Store {
         pool: observability_pool,
     };
@@ -72,45 +103,66 @@ async fn main() -> Result<(), color_eyre::eyre::Report> {
     let backend = PostgresBackend::new(pool.clone());
     if !args.keep_existing_data {
         info!("clearing durable-VM and observability data before soak run");
-        waymark_backend_postgres::reset::truncate_all(&pool)
-            .await
-            .wrap_err("clear durable tables")?;
-        waymark_observability_store_postgres::reset::truncate_all(&observability_store.pool)
-            .await
-            .wrap_err("clear observability tables")?;
+        common::run_unless_cancelled(&stop_token, "clearing durable tables", async {
+            waymark_backend_postgres::reset::truncate_all(&pool)
+                .await
+                .wrap_err("clear durable tables")
+        })
+        .await?;
+        common::run_unless_cancelled(&stop_token, "clearing observability tables", async {
+            waymark_observability_store_postgres::reset::truncate_all(&observability_store.pool)
+                .await
+                .wrap_err("clear observability tables")
+        })
+        .await?;
     }
     let services = setup_workflows::soak_services(&backend);
 
     let mut worker = if args.skip_worker_launch {
         None
     } else {
-        Some(setup_workers::start_workers(&args, &run_dir).await?)
+        Some(
+            common::run_unless_cancelled(
+                &stop_token,
+                "starting the worker",
+                setup_workers::start_workers(&args, &run_dir),
+            )
+            .await?,
+        )
     };
 
     if let Some(worker_process) = worker.as_mut()
-        && let Err(err) = setup_workers::wait_for_node_sample(
-            &observability_store,
-            Duration::from_secs(60),
-            Duration::from_secs(args.startup_log_interval_secs.max(1)),
-            worker_process,
+        && let Err(err) = common::run_unless_cancelled(
+            &stop_token,
+            "waiting for the first node sample",
+            setup_workers::wait_for_node_sample(
+                &observability_store,
+                Duration::from_secs(60),
+                Duration::from_secs(args.startup_log_interval_secs.max(1)),
+                worker_process,
+            ),
         )
         .await
     {
-        setup_workers::shutdown_worker_if_running(&mut worker).await;
+        setup_workers::shutdown_worker_if_running(&mut worker, &abort_token).await;
         return Err(err);
     }
 
-    let workflow = match setup_workflows::register_workflow(
-        &services,
-        args.timeout_seconds,
-        args.actions_per_workflow,
-        &args.user_module,
+    let workflow = match common::run_unless_cancelled(
+        &stop_token,
+        "registering the soak workflow",
+        setup_workflows::register_workflow(
+            &services,
+            args.timeout_seconds,
+            args.actions_per_workflow,
+            &args.user_module,
+        ),
     )
     .await
     {
         Ok(workflow) => workflow,
         Err(err) => {
-            setup_workers::shutdown_worker_if_running(&mut worker).await;
+            setup_workers::shutdown_worker_if_running(&mut worker, &abort_token).await;
             return Err(err);
         }
     };
@@ -138,6 +190,7 @@ async fn main() -> Result<(), color_eyre::eyre::Report> {
         &observability_store,
         &workflow,
         &mut worker,
+        stop_token.clone(),
     )
     .await;
     let (reason, samples) = match run_result {
@@ -151,21 +204,37 @@ async fn main() -> Result<(), color_eyre::eyre::Report> {
         }
     };
 
-    let diagnostics_path = diag::capture_diagnostics(
-        &args,
-        &pool,
-        &observability_store,
-        &workflow,
-        &reason,
-        &samples,
-        worker.as_ref().map(|process| process.log_path.as_path()),
-        &run_dir,
+    // The worker is stopped whatever the capture did: a failed or
+    // aborted capture must not leave the child behind.
+    let diagnostics_result = common::run_unless_cancelled(
+        &abort_token,
+        "capturing diagnostics",
+        diag::capture_diagnostics(
+            &args,
+            &pool,
+            &observability_store,
+            &workflow,
+            &reason,
+            &samples,
+            worker.as_ref().map(|process| process.log_path.as_path()),
+            &run_dir,
+        ),
     )
-    .await?;
-
-    if let Some(worker_process) = worker.as_mut() {
-        setup_workers::shutdown_worker(worker_process).await?;
-    }
+    .await;
+    let shutdown_result = match worker.as_mut() {
+        Some(worker_process) => setup_workers::shutdown_worker(worker_process, &abort_token).await,
+        None => Ok(()),
+    };
+    let diagnostics_path = match diagnostics_result {
+        Ok(diagnostics_path) => diagnostics_path,
+        Err(err) => {
+            if let Err(shutdown_err) = shutdown_result {
+                warn!(error = %shutdown_err, "failed to stop worker process during error cleanup");
+            }
+            return Err(err);
+        }
+    };
+    shutdown_result?;
 
     info!(
         reason = ?reason,
