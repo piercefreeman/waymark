@@ -92,6 +92,14 @@ impl Child {
         self.child.wait().await
     }
 
+    /// Checks whether the child process has exited, without waiting.
+    ///
+    /// Returns the exit status once the child has exited and `None` while
+    /// it is still running.
+    pub fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, std::io::Error> {
+        self.child.try_wait()
+    }
+
     /// Waits for the child process to exit up to `timeout`.
     ///
     /// Returns [`WaitWithTimeoutError::Timeout`] when the timeout expires.
