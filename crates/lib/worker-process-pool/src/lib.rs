@@ -1,21 +1,15 @@
 use std::{
     num::{NonZeroU64, NonZeroUsize},
     sync::{
-        Arc, Mutex as StdMutex,
+        Arc,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
-    time::{Duration, Instant},
 };
 
 use nonempty_collections::NEVec;
 use tokio::sync::RwLock;
 
-use tracing::{error, info, trace, warn};
-
-use waymark_worker_metrics::{WorkerPoolMetrics, WorkerThroughputSnapshot};
-
-const LATENCY_SAMPLE_SIZE: usize = 256;
-const THROUGHPUT_WINDOW_SECS: u64 = 1;
+use tracing::{error, info, warn};
 
 type Registry = waymark_worker_reservation::Registry<waymark_worker_message_protocol::Channels>;
 
@@ -42,9 +36,6 @@ pub struct Pool<Spec> {
 
     /// Cursor for round-robin selection
     cursor: AtomicUsize,
-
-    /// Shared metrics tracker for throughput + latency.
-    metrics: StdMutex<WorkerPoolMetrics>,
 
     /// Action counts per worker slot (for lifecycle tracking)
     action_counts: NEVec<AtomicU64>,
@@ -136,7 +127,6 @@ where
             .set((worker_count.get() * max_concurrent_per_worker.get()) as f64);
 
         let worker_id_sequence = AtomicU64::new(worker_id_sequence);
-        let worker_ids = workers.iter().map(|worker| worker.id).collect();
         let action_counts = nevec_fn(worker_count, |_| AtomicU64::new(0));
         let in_flight_counts = nevec_fn(worker_count, |_| AtomicUsize::new(0));
         Ok(Self {
@@ -145,11 +135,6 @@ where
             worker_id_sequence,
             worker_processes: RwLock::new(workers),
             cursor: AtomicUsize::new(0),
-            metrics: StdMutex::new(WorkerPoolMetrics::new(
-                worker_ids,
-                Duration::from_secs(THROUGHPUT_WINDOW_SECS),
-                LATENCY_SAMPLE_SIZE,
-            )),
             action_counts,
             in_flight_counts,
             max_concurrent_per_worker,
@@ -286,45 +271,6 @@ impl<Spec> Pool<Spec> {
             .map(|c| c.load(Ordering::Relaxed))
             .unwrap_or(0)
     }
-
-    /// Get throughput snapshots for all workers.
-    ///
-    /// Returns worker throughput metrics including completion counts and rates.
-    pub fn throughput_snapshots(&self) -> Vec<WorkerThroughputSnapshot> {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.throughput_snapshots(Instant::now())
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Record the latest latency measurements for median reporting.
-    pub fn record_latency(&self, ack_latency: Duration, worker_duration: Duration) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.record_latency(ack_latency, worker_duration);
-        }
-    }
-
-    /// Return the current median dequeue/handling latencies in milliseconds.
-    pub fn median_latencies_ms(&self) -> (Option<i64>, Option<i64>) {
-        if let Ok(metrics) = self.metrics.lock() {
-            metrics.median_latencies_ms()
-        } else {
-            (None, None)
-        }
-    }
-
-    /// Get queue statistics: (dispatch_queue_size, total_in_flight).
-    pub fn queue_stats(&self) -> (usize, usize) {
-        let total_in_flight: usize = self
-            .in_flight_counts
-            .iter()
-            .map(|c| c.load(Ordering::Relaxed))
-            .sum();
-        // dispatch_queue_size would require access to the bridge's queue
-        // For now, return 0 as placeholder
-        (0, total_in_flight)
-    }
 }
 
 impl<Spec> Pool<Spec>
@@ -349,23 +295,6 @@ where
             .unwrap_or_default();
         metrics::gauge!("waymark_worker_process_pool_last_action_completed_timestamp_seconds")
             .set(unix_time.as_secs_f64());
-
-        // Update throughput tracking
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.record_completion(worker_idx);
-            if tracing::enabled!(tracing::Level::TRACE) {
-                let snapshots = metrics.throughput_snapshots(Instant::now());
-                if let Some(snapshot) = snapshots.get(worker_idx) {
-                    trace!(
-                        worker_id = snapshot.worker_id,
-                        throughput_per_min = snapshot.throughput_per_min,
-                        total_completed = snapshot.total_completed,
-                        last_action_at = ?snapshot.last_action_at,
-                        "worker throughput snapshot"
-                    );
-                }
-            }
-        }
 
         // Increment action count
         if let Some(counter) = self.action_counts.get(worker_idx) {
@@ -428,11 +357,6 @@ where
             counter.store(0, Ordering::SeqCst);
         }
 
-        // Update throughput tracker with new worker ID
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.reset_worker(worker_idx, new_worker_id);
-        }
-
         info!(
             worker_idx,
             old_worker_id = old_worker.id,
@@ -478,31 +402,10 @@ impl<Spec> Pool<Spec> {
     }
 }
 
-impl<Spec> waymark_worker_status_core::WorkerPoolStats for Pool<Spec> {
-    fn stats_snapshot(&self) -> waymark_worker_status_core::WorkerPoolStatsSnapshot {
-        let snapshots = self.throughput_snapshots();
-        let active_workers = snapshots.len() as u16;
-        let throughput_per_min: f64 = snapshots.iter().map(|s| s.throughput_per_min).sum();
-        let total_completed: i64 = snapshots.iter().map(|s| s.total_completed as i64).sum();
-        let last_action_at = snapshots.iter().filter_map(|s| s.last_action_at).max();
-        let (dispatch_queue_size, total_in_flight) = self.queue_stats();
-        let (median_dequeue_ms, median_handling_ms) = self.median_latencies_ms();
-
-        waymark_worker_status_core::WorkerPoolStatsSnapshot {
-            active_workers,
-            throughput_per_min,
-            total_completed,
-            last_action_at,
-            dispatch_queue_size,
-            total_in_flight,
-            median_dequeue_ms,
-            median_handling_ms,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[derive(Debug, Default)]
@@ -529,7 +432,6 @@ mod tests {
         let worker_count = NonZeroUsize::new(worker_count).expect("worker count must be non-zero");
         let max_concurrent_per_worker = NonZeroUsize::new(max_concurrent_per_worker)
             .expect("max concurrent per worker must be non-zero");
-        let worker_ids = (0..worker_count.get() as u64).collect();
 
         Pool {
             worker_process_spec: DummySpec,
@@ -537,11 +439,6 @@ mod tests {
             worker_id_sequence: AtomicU64::new(worker_count.get() as u64),
             worker_processes: RwLock::new(Vec::new()),
             cursor: AtomicUsize::new(0),
-            metrics: StdMutex::new(WorkerPoolMetrics::new(
-                worker_ids,
-                Duration::from_secs(THROUGHPUT_WINDOW_SECS),
-                LATENCY_SAMPLE_SIZE,
-            )),
             action_counts: nevec_fn(worker_count, |_| AtomicU64::new(0)),
             in_flight_counts: nevec_fn(worker_count, |_| AtomicUsize::new(0)),
             max_concurrent_per_worker,
