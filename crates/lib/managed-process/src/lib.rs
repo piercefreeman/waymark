@@ -43,6 +43,23 @@ pub fn spawn(command: impl Into<tokio::process::Command>) -> Result<Child, std::
     Ok(Child { child })
 }
 
+/// How [`Child::shutdown`] ended, and the exit status it collected.
+///
+/// The outcome records what the wrapper did, not what ended the process:
+/// the process can exit on its own at any moment, including right before
+/// the kill reaches it.
+#[derive(Debug)]
+pub enum ShutdownOutcome {
+    /// The process exited before any kill was sent.
+    Exited(std::process::ExitStatus),
+
+    /// A kill was sent, because the graceful wait ran out or because the
+    /// platform has no graceful termination. The status is whatever the
+    /// process exited with; it is the process's own exit when the process
+    /// exited before the kill reached it.
+    KillSent(std::process::ExitStatus),
+}
+
 /// Errors that can occur while shutting down a managed child.
 #[derive(Debug, thiserror::Error)]
 pub enum ShutdownError {
@@ -92,6 +109,14 @@ impl Child {
         self.child.wait().await
     }
 
+    /// Checks whether the child process has exited, without waiting.
+    ///
+    /// Returns the exit status once the child has exited and `None` while
+    /// it is still running.
+    pub fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, std::io::Error> {
+        self.child.try_wait()
+    }
+
     /// Waits for the child process to exit up to `timeout`.
     ///
     /// Returns [`WaitWithTimeoutError::Timeout`] when the timeout expires.
@@ -119,12 +144,13 @@ impl Child {
     ///
     /// If `graceful_termination_timeout` is set and graceful termination is
     /// supported on this platform, waits up to that duration before falling
-    /// back to kill.
+    /// back to kill. The returned [`ShutdownOutcome`] says which of the two
+    /// happened.
     pub async fn shutdown(
         mut self,
         graceful_termination_timeout: impl Into<Option<std::time::Duration>>,
         kill_timeout: impl Into<Option<std::time::Duration>>,
-    ) -> Result<std::process::ExitStatus, ShutdownError> {
+    ) -> Result<ShutdownOutcome, ShutdownError> {
         self.trigger_graceful_termination()
             .await
             .map_err(ShutdownError::GracefulTermination)?;
@@ -136,7 +162,7 @@ impl Child {
 
             match result {
                 // Process exited.
-                Ok(exit_code) => return Ok(exit_code),
+                Ok(exit_status) => return Ok(ShutdownOutcome::Exited(exit_status)),
 
                 // `wait()` errored.
                 Err(WaitWithTimeoutError::Wait(error)) => {
@@ -150,9 +176,11 @@ impl Child {
             }
         }
 
-        self.kill_and_wait(kill_timeout)
+        let exit_status = self
+            .kill_and_wait(kill_timeout)
             .await
-            .map_err(ShutdownError::Kill)
+            .map_err(ShutdownError::Kill)?;
+        Ok(ShutdownOutcome::KillSent(exit_status))
     }
 
     /// Sends a kill signal to the child process.
