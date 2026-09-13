@@ -33,6 +33,10 @@ services:
       WAYMARK_MAX_CONCURRENT_INSTANCES: 5000
       RUST_LOG: info,waymark=debug
       WAYMARK_RUNNER_PROFILE_INTERVAL_MS: "5000"
+      WAYMARK_HTTP_ENABLED: "true"
+      WAYMARK_HTTP_ADDR: "0.0.0.0:24119"
+    ports:
+      - "24119:24119"
 
   webapp:
     build: *app-build
