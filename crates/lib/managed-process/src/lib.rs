@@ -15,8 +15,6 @@ pub use self::graceful_termination::*;
 #[cfg(unix)]
 pub use self::platform_unix::*;
 
-use std::process::Stdio;
-
 /// A single managed child process handle.
 ///
 /// Will kill the child process on drop.
@@ -27,13 +25,13 @@ pub struct Child {
 
 /// Spawns a managed child process.
 ///
-/// The child inherits `stderr` and is configured with `kill_on_drop(true)`.
-/// On Unix, the child is also configured with a parent-death signal so it
-/// receives `SIGTERM` when the parent process exits.
+/// The child is configured with `kill_on_drop(true)`. On Unix, the child
+/// is also configured with a parent-death signal so it receives `SIGTERM`
+/// when the parent process exits.
 pub fn spawn(command: impl Into<tokio::process::Command>) -> Result<Child, std::io::Error> {
     let mut command = command.into();
 
-    command.stderr(Stdio::inherit()).kill_on_drop(true);
+    command.kill_on_drop(true);
 
     #[cfg(target_os = "linux")]
     platform_linux::inject_sigterm_pdeathsig(&mut command);
