@@ -22,6 +22,7 @@ waymark-action-runtime-worker-stream = { path = "crates/lib/action-runtime-worke
 waymark-api-essential-metrics-http = { path = "crates/lib/api-essential-metrics-http" }
 waymark-api-observability-events-http = { path = "crates/lib/api-observability-events-http" }
 waymark-api-observability-events-http-types = { path = "crates/lib/api-observability-events-http-types" }
+waymark-api-observability-state-http = { path = "crates/lib/api-observability-state-http" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
 waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migrations" }
 waymark-backends-core = { path = "crates/lib/backends-core" }
@@ -77,6 +78,8 @@ waymark-observability-events-vm-driver-hooks-core = { path = "crates/lib/observa
 waymark-observability-events-vm-driver-hooks-fullset = { path = "crates/lib/observability-events-vm-driver-hooks-fullset" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }
+waymark-observability-state-core = { path = "crates/lib/observability-state-core" }
+waymark-observability-state-query-backend = { path = "crates/lib/observability-state-query-backend" }
 waymark-observability-store-postgres = { path = "crates/lib/observability-store-postgres" }
 waymark-observability-store-postgres-bringup = { path = "crates/lib/observability-store-postgres-bringup" }
 waymark-observability-store-postgres-config = { path = "crates/lib/observability-store-postgres-config" }
