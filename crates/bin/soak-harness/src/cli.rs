@@ -63,6 +63,12 @@ pub struct SoakArgs {
     #[arg(long, default_value_t = 5.try_into().unwrap())]
     pub startup_log_interval_secs: NonZeroU64,
 
+    /// How long the worker gets to stop gracefully before it is killed, in
+    /// milliseconds. Defaults to two slowest generated actions plus 30 s:
+    /// the drain the worker is assumed to need after the stop.
+    #[arg(long)]
+    pub worker_stop_timeout_ms: Option<u64>,
+
     #[arg(long, default_value_t = 20)]
     pub timeout_seconds: u32,
 
@@ -133,7 +139,41 @@ pub struct SoakArgs {
     pub seed: Option<u64>,
 }
 
+impl SoakArgs {
+    /// How long the worker gets to stop gracefully before it is killed.
+    pub fn worker_stop_timeout(&self) -> std::time::Duration {
+        let ms = self
+            .worker_stop_timeout_ms
+            .unwrap_or_else(|| worker_stop_drain_ms(self) + WORKER_STOP_TIMEOUT_MARGIN_MS);
+
+        std::time::Duration::from_millis(ms)
+    }
+}
+
+/// How many slowest generated actions the worker is assumed to drain
+/// after the stop: the one in flight, and one queued at the stop.
+const WORKER_STOP_DRAIN_ACTIONS: u64 = 2;
+
+/// Added to the drain for the default worker stop timeout.
+const WORKER_STOP_TIMEOUT_MARGIN_MS: u64 = 30_000;
+
+/// The drain the worker stop timeout covers, in milliseconds.
+fn worker_stop_drain_ms(args: &SoakArgs) -> u64 {
+    u64::from(crate::flow::slowest_action_ms(args)) * WORKER_STOP_DRAIN_ACTIONS
+}
+
 pub fn validate_args(args: &SoakArgs) -> Result<(), color_eyre::eyre::Report> {
+    if !args.skip_worker_launch
+        && let Some(ms) = args.worker_stop_timeout_ms
+        && ms < worker_stop_drain_ms(args)
+    {
+        bail!(
+            "--worker-stop-timeout-ms {ms} is below the worker's drain after the stop, \
+             {} ms for {WORKER_STOP_DRAIN_ACTIONS} slowest generated actions; a clean run \
+             could end with the worker killed",
+            worker_stop_drain_ms(args)
+        );
+    }
     if args.timeout_percent < 0.0 || args.failure_percent < 0.0 || args.slow_percent < 0.0 {
         bail!("workload percentages cannot be negative");
     }
