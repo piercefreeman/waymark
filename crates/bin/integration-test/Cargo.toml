@@ -11,11 +11,11 @@ waymark-convert-core = { workspace = true }
 waymark-execution-bringup = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
-waymark-managed-process = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-secret-string = { workspace = true }
 waymark-support-integration = { workspace = true }
 waymark-system-vm = { workspace = true }
+waymark-task-supervisor = { workspace = true }
 waymark-transient-execution-bringup = { workspace = true }
 waymark-transient-execution-worker-pool-bringup = { workspace = true }
 waymark-vm-ast-old = { workspace = true }
