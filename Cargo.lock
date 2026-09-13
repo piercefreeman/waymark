@@ -5428,6 +5428,7 @@ dependencies = [
  "waymark-ids",
  "waymark-metrics-bringup",
  "waymark-observability-bringup",
+ "waymark-os-shutdown-requests",
  "waymark-scheduler-bringup",
  "waymark-tokio-metrics-bringup",
  "waymark-worker-python",
