@@ -5773,6 +5773,7 @@ dependencies = [
  "waymark-action-core",
  "waymark-fn-main-common",
  "waymark-system-vm",
+ "waymark-task-supervisor",
  "waymark-transient-execution-bringup",
  "waymark-transient-execution-worker-pool-bringup",
  "waymark-vm-ast-old",
