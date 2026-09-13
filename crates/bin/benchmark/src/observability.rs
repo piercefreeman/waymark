@@ -3,7 +3,6 @@
 //! metrics sampler exactly as a worker node does.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use color_eyre::eyre::WrapErr as _;
 use waymark_secret_string::SecretStr;
@@ -14,9 +13,6 @@ const SCHEMA: &str = "observability";
 
 /// The observability subsystem of one benchmark run.
 pub struct Observability {
-    /// The spawned pipelines.
-    pub handles: waymark_observability_bringup::Handles,
-
     /// The node's event emitter, for the VM driver hooks.
     pub emitter: Arc<waymark_observability_bringup::Emitter>,
 
@@ -29,12 +25,14 @@ pub struct Observability {
 }
 
 /// Bring the observability subsystem up over the benchmark database,
-/// with its tables emptied first, ending on `shutdown_token`.
+/// with its tables emptied first, ending on `shutdown_token`; its
+/// pipelines are supervised by `supervisor`.
 ///
 /// The metrics recorder is installed process-wide here, with the
 /// Prometheus exporter on an ephemeral port nobody scrapes: the
 /// essential-metrics sampler needs the recorder, not the exporter.
 pub async fn start(
+    supervisor: &mut crate::Supervisor,
     dsn: &SecretStr,
     node_id: waymark_ids::NodeId,
     shutdown_token: tokio_util::sync::CancellationToken,
@@ -58,35 +56,44 @@ pub async fn start(
             .await
             .wrap_err("start the observability subsystem")?;
 
+    supervisor.track(
+        "essential metrics sampler",
+        handles.essential_metrics.sampler,
+    );
+    supervisor.track(
+        "essential metrics batcher",
+        handles.essential_metrics.batcher,
+    );
+    supervisor.track(
+        "essential metrics retention",
+        handles.essential_metrics.retention,
+    );
+    supervisor.track(
+        "observability events batcher",
+        handles.observability_events.batcher,
+    );
+    supervisor.track(
+        "observability events retention",
+        handles.observability_events.retention,
+    );
+
     Ok(Observability {
-        handles,
         emitter: Arc::new(emitter),
         vm_driver_hooks_policy,
         store,
     })
 }
 
-/// Wait for the pipelines to end — their token is cancelled by the
-/// caller — and count the events the run recorded.
-pub async fn shutdown(observability: Observability) -> Result<u64, color_eyre::eyre::Report> {
+/// Count the events the run recorded, once its pipelines have been
+/// drained.
+pub async fn recorded_events(
+    observability: Observability,
+) -> Result<u64, color_eyre::eyre::Report> {
     let Observability {
-        handles,
-        emitter,
+        emitter: _,
         vm_driver_hooks_policy: _,
         store,
     } = observability;
-    drop(emitter);
-
-    let _ = tokio::time::timeout(Duration::from_secs(5), handles.essential_metrics.sampler).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), handles.essential_metrics.batcher).await;
-    let _ = tokio::time::timeout(Duration::from_secs(2), handles.essential_metrics.retention).await;
-    let _ =
-        tokio::time::timeout(Duration::from_secs(5), handles.observability_events.batcher).await;
-    let _ = tokio::time::timeout(
-        Duration::from_secs(2),
-        handles.observability_events.retention,
-    )
-    .await;
 
     let events: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM observability_events")
         .fetch_one(&store.pool)
