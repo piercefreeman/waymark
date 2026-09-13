@@ -192,3 +192,180 @@ async fn events_round_trip_through_the_store() {
         ]
     );
 }
+
+/// A VM's events, made from one hook per call: the same shape the hooks
+/// emit, with the positions and times the test chooses.
+fn vm_driver_event(
+    node_id: waymark_ids::NodeId,
+    counter: &waymark_node_sequence::NodeSequenceCounter,
+    at_secs: i64,
+    vm_id: waymark_ids::InstanceId,
+    run_sequence: u64,
+    observation: waymark_observability_events_payload::vm_driver::Observation,
+) -> waymark_observability_events_core::Event<
+    waymark_ids::NodeId,
+    waymark_observability_events_payload::Payload,
+> {
+    waymark_observability_events_core::Event {
+        node_id,
+        node_sequence: counter.next(),
+        at: chrono::DateTime::from_timestamp_secs(at_secs).unwrap(),
+        payload: waymark_observability_events_payload::Payload::VmDriver(
+            waymark_observability_events_payload::vm_driver::Payload {
+                vm_id,
+                run_sequence,
+                observation,
+            },
+        ),
+    }
+}
+
+/// One VM's timeline is time-merged across the nodes it ran on, oldest
+/// first, and pages by position; other VMs' events never appear in it.
+#[tokio::test]
+async fn vm_timeline_merges_the_nodes_a_vm_ran_on_oldest_first() {
+    let store = test_store("observability_store_test_events_vm_timeline").await;
+    let vm_id = waymark_ids::InstanceId::new_uuid_v4();
+    let other_vm = waymark_ids::InstanceId::new_uuid_v4();
+    let first_node = waymark_ids::NodeId::new_uuid_v4();
+    let second_node = waymark_ids::NodeId::new_uuid_v4();
+    let first_counter = waymark_node_sequence::NodeSequenceCounter::new();
+    let second_counter = waymark_node_sequence::NodeSequenceCounter::new();
+
+    // The VM ran on the first node (positions 0..2), then on the second
+    // (positions 0..1), with another VM interleaved on the first node.
+    let events = [
+        vm_driver_event(first_node, &first_counter, 1_000, vm_id, 0,
+            waymark_observability_events_payload::vm_driver::Observation::VmStarted),
+        vm_driver_event(first_node, &first_counter, 1_001, other_vm, 0,
+            waymark_observability_events_payload::vm_driver::Observation::VmStarted),
+        vm_driver_event(first_node, &first_counter, 1_002, vm_id, 1,
+            waymark_observability_events_payload::vm_driver::Observation::SnapshotPersisted { size_in_bytes: 10 }),
+        vm_driver_event(first_node, &first_counter, 1_003, vm_id, 2,
+            waymark_observability_events_payload::vm_driver::Observation::VmStopped {
+                reason: waymark_observability_events_payload::vm_driver::StopReason::Cancelled,
+            }),
+        vm_driver_event(second_node, &second_counter, 1_004, vm_id, 0,
+            waymark_observability_events_payload::vm_driver::Observation::VmStarted),
+        vm_driver_event(second_node, &second_counter, 1_005, vm_id, 1,
+            waymark_observability_events_payload::vm_driver::Observation::VmStopped {
+                reason: waymark_observability_events_payload::vm_driver::StopReason::NoReadyFramesOrWaitingPromises,
+            }),
+    ];
+    waymark_observability_events_sink_backend::AppendEvents::append_events(
+        &store,
+        NESlice::try_from_slice(&events).expect("non-empty"),
+    )
+    .await
+    .expect("append events");
+
+    let read = |after| async {
+        waymark_observability_events_query_backend::VmTimeline::vm_timeline(
+            &store,
+            waymark_observability_events_query_backend::vm_timeline::Params {
+                vm_id,
+                limit: waymark_query_limit::Limit::new(3).expect("within the cap"),
+                after,
+            },
+        )
+        .await
+        .expect("timeline")
+    };
+
+    let first_page = read(None).await.expect("a page");
+    let second_page = read(Some(first_page.next)).await.expect("a second page");
+    assert!(
+        read(Some(second_page.next)).await.is_none(),
+        "nothing past the last page"
+    );
+
+    let seen: Vec<_> = first_page
+        .events
+        .iter()
+        .chain(second_page.events.iter())
+        .map(|event| {
+            let waymark_observability_events_payload::Payload::VmDriver(payload) = &event.payload;
+            assert_eq!(payload.vm_id, vm_id, "only this VM's events");
+            (
+                event.node_id == first_node,
+                payload.run_sequence,
+                event.at.timestamp(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            (true, 0, 1_000),
+            (true, 1, 1_002),
+            (true, 2, 1_003),
+            (false, 0, 1_004),
+            (false, 1, 1_005),
+        ]
+    );
+
+    assert!(
+        read_for(&store, other_vm).await.is_some(),
+        "the other VM has its own timeline"
+    );
+    assert!(
+        read_for(&store, waymark_ids::InstanceId::new_uuid_v4())
+            .await
+            .is_none(),
+        "an unknown VM has none"
+    );
+}
+
+async fn read_for(
+    store: &crate::Store,
+    vm_id: waymark_ids::InstanceId,
+) -> Option<
+    waymark_observability_events_query_backend::PageFor<crate::Store, crate::VmTimelineCursor>,
+> {
+    waymark_observability_events_query_backend::VmTimeline::vm_timeline(
+        store,
+        waymark_observability_events_query_backend::vm_timeline::Params {
+            vm_id,
+            limit: waymark_query_limit::Limit::new(10).expect("within the cap"),
+            after: None,
+        },
+    )
+    .await
+    .expect("timeline")
+}
+
+/// The timeline read spells the index's expression and predicate, so the
+/// planner takes the index: a query that drifted from them would scan.
+#[tokio::test]
+async fn vm_timeline_read_uses_its_index() {
+    let store = test_store("observability_store_test_events_vm_timeline_plan").await;
+    let vm_id = waymark_ids::InstanceId::new_uuid_v4();
+
+    // Discourage a sequential scan on the empty table so the plan shows
+    // the choice the query shape allows, not the size heuristic.
+    sqlx::query("SET enable_seqscan = off")
+        .execute(&store.pool)
+        .await
+        .expect("planner setting");
+    let plan: Vec<String> = sqlx::query_scalar(&format!(
+        r#"
+        EXPLAIN SELECT {}
+        FROM observability_events
+        WHERE {} AND {} = $1
+        ORDER BY at, node_id, node_sequence
+        "#,
+        super::common::EVENT_COLUMNS,
+        super::common::VM_ID_PRESENT,
+        super::common::VM_ID_EXPRESSION,
+    ))
+    .bind(vm_id)
+    .fetch_all(&store.pool)
+    .await
+    .expect("explain");
+
+    let plan = plan.join("\n");
+    assert!(
+        plan.contains("observability_events_vm_timeline_idx"),
+        "the timeline read must use its index, plan was:\n{plan}"
+    );
+}
