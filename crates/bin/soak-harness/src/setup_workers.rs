@@ -5,14 +5,16 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use color_eyre::eyre::{WrapErr as _, bail};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 use tracing::{info, warn};
 
 use crate::data;
 
-#[derive(Debug)]
+/// How long to wait for the worker to exit once it has been killed.
+const KILL_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub struct WorkerProcess {
-    pub child: Child,
+    pub child: waymark_managed_process::Child,
     pub log_path: PathBuf,
 }
 
@@ -62,9 +64,8 @@ pub async fn start_workers(
     cmd.stdout(Stdio::from(log_file));
     cmd.stderr(Stdio::from(log_file_err));
 
-    let child = cmd
-        .spawn()
-        .wrap_err("spawn waymark-start-workers process")?;
+    let child =
+        waymark_managed_process::spawn(cmd).wrap_err("spawn waymark-start-workers process")?;
     info!(
         log_path = %log_path.display(),
         http_enabled,
@@ -144,51 +145,51 @@ fn find_executable(bin: &str) -> Option<PathBuf> {
     None
 }
 
-/// Kills the worker process and waits for it to stop. The kill is
-/// always sent; only the wait observes `abort_token`, so an abort
-/// still leaves no child behind.
+/// Asks the worker process to stop and waits for it, killing it when
+/// `stop_timeout` runs out. An abort drops the process handle instead,
+/// which kills the worker without waiting for it. A worker that exited
+/// unsuccessfully, or that had to be killed on a platform where it could
+/// have stopped on its own, is an error. Where the platform has no
+/// graceful stop, the kill is the stop.
 pub async fn shutdown_worker(
-    worker: &mut WorkerProcess,
+    worker: WorkerProcess,
+    stop_timeout: Duration,
     abort_token: &tokio_util::sync::CancellationToken,
 ) -> Result<(), color_eyre::eyre::Report> {
-    if worker
-        .child
-        .try_wait()
-        .wrap_err("check worker process status")?
-        .is_some()
-    {
-        return Ok(());
-    }
-
     warn!("stopping worker process");
-    worker
-        .child
-        .start_kill()
-        .wrap_err("send kill signal to worker process")?;
+    let shutdown = worker.child.shutdown(stop_timeout, KILL_WAIT_TIMEOUT);
+    let shutdown_result = abort_token.run_until_cancelled(shutdown).await;
+    let outcome = match shutdown_result {
+        Some(outcome) => outcome.wrap_err("stop the worker process")?,
+        None => bail!("aborted while stopping the worker process; it was killed"),
+    };
 
-    let wait = tokio::time::timeout(Duration::from_secs(10), worker.child.wait());
-    let status = crate::common::run_unless_cancelled(
-        abort_token,
-        "waiting for the worker process to stop",
-        async {
-            let status = wait
-                .await
-                .wrap_err("timed out waiting for worker process shutdown")?;
-            status.wrap_err("wait for worker process")
-        },
-    )
-    .await?;
-
-    info!(status = %status, "worker process stopped");
+    match outcome {
+        waymark_managed_process::ShutdownOutcome::Exited(status) if status.success() => {
+            info!(status = %status, "worker process stopped");
+        }
+        waymark_managed_process::ShutdownOutcome::Exited(status) => {
+            bail!("worker process stopped with {status}");
+        }
+        waymark_managed_process::ShutdownOutcome::KillSent(status)
+            if waymark_managed_process::Child::CAN_GRACEFULLY_TERMINATE =>
+        {
+            bail!("worker process did not stop within the timeout and was killed; {status}");
+        }
+        waymark_managed_process::ShutdownOutcome::KillSent(status) => {
+            info!(status = %status, "worker process killed, as this platform has no graceful stop");
+        }
+    }
     Ok(())
 }
 
 pub async fn shutdown_worker_if_running(
     worker: &mut Option<WorkerProcess>,
+    stop_timeout: Duration,
     abort_token: &tokio_util::sync::CancellationToken,
 ) {
-    if let Some(worker_process) = worker.as_mut()
-        && let Err(err) = shutdown_worker(worker_process, abort_token).await
+    if let Some(worker_process) = worker.take()
+        && let Err(err) = shutdown_worker(worker_process, stop_timeout, abort_token).await
     {
         warn!(error = %err, "failed to stop worker process during error cleanup");
     }
