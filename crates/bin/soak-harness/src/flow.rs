@@ -92,11 +92,10 @@ pub async fn run_soak_loop(
             instant = ticker.tick() => tick_delta.tick(instant),
         };
 
+        // An observed exit takes the worker's handle with it: there is
+        // nothing left to stop, and nothing is shut down later.
         if let Some(worker_process) = worker.as_mut()
-            && let Some(status) = worker_process
-                .child
-                .try_wait()
-                .wrap_err("poll worker process")?
+            && let Some(status) = worker_process.poll_exit().wrap_err("poll worker process")?
         {
             return Ok((
                 TerminationReason::WorkerExited(format!("worker process exited: {status}")),
