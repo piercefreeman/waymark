@@ -50,6 +50,7 @@ pub async fn setup_worker_pool(
     let worker_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
         process_pool,
     ));
+    worker_pool.launch();
 
     Ok((worker_pool, bridge_server_task))
 }
