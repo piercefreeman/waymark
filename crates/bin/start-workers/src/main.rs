@@ -36,8 +36,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::signal;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use waymark_backend_postgres::PostgresBackend;
 use waymark_config::WorkerConfig;
@@ -45,6 +44,11 @@ use waymark_config::WorkerConfig;
 #[tokio::main]
 async fn main() -> Result<(), waymark_fn_main_common::Error> {
     waymark_fn_main_common::init()?;
+
+    // The OS's shutdown requests are held from here on, so one landing at
+    // any point of the startup is latched for the listener.
+    let ctrl_c = waymark_os_shutdown_requests::ctrl_c::install()?;
+    let termination = waymark_os_shutdown_requests::termination::install()?;
 
     let metrics_addr: std::net::SocketAddr = envfury::or_parse("METRICS_ADDR", "0.0.0.0:9118")?;
     let essential_metrics_sampling_handle = waymark_metrics_bringup::start(metrics_addr)?;
@@ -154,17 +158,11 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         None
     };
 
-    let shutdown_handle = tokio::spawn({
-        let shutdown_token = shutdown_token.clone();
-        async move {
-            if let Err(err) = wait_for_shutdown().await {
-                error!(error = %err, "shutdown signal listener failed");
-                return;
-            }
-            info!("shutdown signal received");
-            shutdown_token.cancel();
-        }
-    });
+    let shutdown_handle = tokio::spawn(shutdown_signal_listener(
+        ctrl_c,
+        termination,
+        shutdown_token.clone(),
+    ));
 
     // Start the execution subsystem (workload pinning + execution driver).
     let bringup_config = waymark_execution_bringup::Config {
@@ -301,27 +299,21 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     Ok(())
 }
 
-async fn wait_for_shutdown() -> Result<(), std::io::Error> {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{SignalKind, signal as unix_signal};
-
-        let mut terminate = unix_signal(SignalKind::terminate())?;
-        tokio::select! {
-            _ = signal::ctrl_c() => {
-                info!("Ctrl+C received");
-            }
-            _ = terminate.recv() => {
-                info!("SIGTERM received");
-            }
+/// Wait for the OS's first shutdown request of either kind, then request
+/// the shutdown.
+async fn shutdown_signal_listener(
+    mut ctrl_c: waymark_os_shutdown_requests::ctrl_c::Receiver,
+    mut termination: waymark_os_shutdown_requests::termination::Receiver,
+    shutdown_token: tokio_util::sync::CancellationToken,
+) {
+    tokio::select! {
+        () = ctrl_c.recv() => {
+            info!("Ctrl+C received");
         }
-        Ok(())
+        () = termination.recv() => {
+            info!("termination requested");
+        }
     }
-
-    #[cfg(not(unix))]
-    {
-        signal::ctrl_c().await?;
-        info!("Ctrl+C received");
-        Ok(())
-    }
+    info!("shutdown signal received");
+    shutdown_token.cancel();
 }
