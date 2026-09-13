@@ -98,14 +98,18 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     let backend = PostgresBackend::new(pool);
 
     // Start the observability pipelines.
-    let (observability_handles, observability_api_router, observability_events_emitter) =
-        waymark_observability_bringup::start(
-            config.observability.clone(),
-            node_id,
-            essential_metrics_sampling_handle,
-            shutdown_token.child_token(),
-        )
-        .await?;
+    let (
+        observability_handles,
+        observability_api_router,
+        observability_events_emitter,
+        vm_driver_hooks_policy,
+    ) = waymark_observability_bringup::start(
+        config.observability.clone(),
+        node_id,
+        essential_metrics_sampling_handle,
+        shutdown_token.child_token(),
+    )
+    .await?;
 
     // Start the worker pool (bridge + python workers).
     let mut worker_config = waymark_worker_python::Config::new();
@@ -195,7 +199,10 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         bringup_config,
         Arc::new(backend.clone()),
         remote_pool,
-        Some(Arc::new(observability_events_emitter)),
+        Some(waymark_execution_bringup::ObservabilityEvents {
+            emitter: Arc::new(observability_events_emitter),
+            vm_driver_hooks_policy,
+        }),
         shutdown_token.child_token(),
         force_shutdown_token.child_token(),
     )
