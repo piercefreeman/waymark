@@ -14,6 +14,7 @@ waymark-vm-driver-thread = { workspace = true }
 waymark-workload-pinning-core = { workspace = true }
 waymark-workload-pinning-manager = { workspace = true }
 
+futures-util = { workspace = true }
 metrics = { workspace = true }
 nonempty-collections = { workspace = true }
 tokio = { workspace = true, features = ["sync", "macros", "rt"] }
