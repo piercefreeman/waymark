@@ -63,7 +63,10 @@ type StateFor<
 /// the workload pinning manager, activates each VM, and keeps them alive
 /// while the spawned runtime drives to completion.
 ///
-/// Returns when the [`CancellationToken`] fires or the pinning channel closes.
+/// The intake closes when the [`CancellationToken`] fires or the pinning
+/// channel closes; the loop owns every drive it spawned and returns once
+/// the last of them has ended, so its end means every VM this node was
+/// driving has stopped.
 #[tracing::instrument(skip_all)]
 pub async fn run<
     Factory,
@@ -111,26 +114,45 @@ pub async fn run<
     EffectHandlingError: Send + 'static,
     GettingPromiseSettlementsError: Send + 'static,
 {
+    use futures_util::StreamExt as _;
+
     let shutdown = shutdown_token.clone().cancelled_owned();
     let mut shutdown = std::pin::pin!(shutdown);
 
+    let mut drives = futures_util::stream::FuturesUnordered::new();
+    let mut intake_open = true;
     loop {
-        let batch = tokio::select! {
-            _ = &mut shutdown => {
-                tracing::info!("execution driver shutting down");
-                break;
+        tokio::select! {
+            _ = &mut shutdown, if intake_open => {
+                tracing::info!("execution driver shutting down: no more workloads taken");
+                intake_open = false;
             }
-            Some(batch) = pinned_rx.recv() => batch,
-            else => {
-                tracing::info!("pinned channel closed");
-                break;
+            batch = pinned_rx.recv(), if intake_open => match batch {
+                Some(batch) => {
+                    for pinned in batch {
+                        let state = Arc::clone(&state);
+                        let shutdown = shutdown_token.child_token();
+                        drives.push(tokio::spawn(
+                            drive_one(pinned, state, shutdown).in_current_span(),
+                        ));
+                    }
+                }
+                None => {
+                    tracing::info!("pinned channel closed");
+                    intake_open = false;
+                }
+            },
+            // An empty set yields `None` at once, so it is polled only while
+            // it holds something; with the intake closed as well, there is
+            // nothing left to wait for.
+            Some(joined) = drives.next(), if !drives.is_empty() => {
+                if let Err(join_error) = joined {
+                    // The drive's pinned handle went with the unwind, so
+                    // the workload is released either way.
+                    tracing::error!(%join_error, "a VM drive panicked");
+                }
             }
-        };
-
-        for pinned in batch {
-            let state = Arc::clone(&state);
-            let shutdown = shutdown_token.child_token();
-            tokio::spawn(drive_one(pinned, state, shutdown).in_current_span());
+            else => break,
         }
     }
 }

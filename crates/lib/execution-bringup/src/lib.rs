@@ -165,8 +165,10 @@ pub struct ObservabilityEvents {
 ///
 /// `shutdown_token` requests a graceful stop — new workloads are refused while
 /// the maintenance loop keeps running until all active workloads drain.
-/// `force_shutdown_token` breaks out of that drain immediately, so shutdown
-/// can't hang forever on a workload that never evicts.
+/// `force_shutdown_token` breaks the pinning manager's maintenance loop out
+/// of that drain immediately; the execution driver still ends only once its
+/// last VM driver has exited, so a workload that never evicts keeps the
+/// subsystem from shutting down.
 pub async fn start<Backend, WorkerPool>(
     config: Config<Backend::NodeId>,
     backend: Arc<Backend>,
