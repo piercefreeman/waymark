@@ -11,6 +11,7 @@
 
 mod kind;
 mod payload;
+pub mod vm_driver;
 
 pub use kind::*;
 pub use payload::*;
