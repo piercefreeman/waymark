@@ -1,5 +1,3 @@
-use waymark_worker_core::LaunchWorkerPool as _;
-
 /// Run the runtime over a freshly spawned Python worker pool and return
 /// the workflow outcome.
 pub async fn run(
@@ -29,7 +27,7 @@ pub async fn run(
     let worker_pool = std::sync::Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
         process_pool,
     ));
-    worker_pool.launch().await?;
+    worker_pool.launch();
 
     let waymark_transient_execution_bringup::Execution {
         workflow_outcome_rx,

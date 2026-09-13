@@ -9,7 +9,6 @@ use waymark_smoke_sources::{
     build_try_except_program, build_while_loop_program,
 };
 use waymark_system_vm::{ReadyValue, Value};
-use waymark_worker_core::LaunchWorkerPool as _;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -111,10 +110,7 @@ async fn run_smoke(base: i64) -> i32 {
     let worker_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
         process_pool,
     ));
-    if let Err(err) = worker_pool.launch().await {
-        println!("Failed to launch python worker pool: {err}");
-        return 1;
-    }
+    worker_pool.launch();
 
     let mut failures = 0;
     let mut cases = Vec::new();
