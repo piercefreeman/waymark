@@ -9,7 +9,7 @@ use color_eyre::eyre::{WrapErr as _, bail, eyre};
 
 use crate::ground_truth::PreparedCase;
 use crate::outcome::{CaseOutcome, check_case_outcome, outcome_from_vm};
-use crate::worker_pool::{PythonWorkerPool, setup_worker_pool, teardown_worker_pool};
+use crate::worker_pool::{PythonWorkerPool, Supervisor, drain_run, setup_worker_pool};
 
 pub async fn run_transient_mode(
     repo_root: &Path,
@@ -26,7 +26,9 @@ pub async fn run_transient_mode(
         // its completion into whatever case polls the pool next. Bound every
         // completion's lifetime by its case: each case gets its own pool.
         let shutdown_token = tokio_util::sync::CancellationToken::new();
-        let (worker_pool, bridge_server_task, pool_loop) = setup_worker_pool(
+        let mut supervisor: Supervisor = waymark_task_supervisor::start(shutdown_token.clone());
+        let worker_pool = setup_worker_pool(
+            &mut supervisor,
             shutdown_token.clone(),
             repo_root,
             std::slice::from_ref(prepared),
@@ -41,7 +43,16 @@ pub async fn run_transient_mode(
         })?;
 
         let actual = run_case_transient(prepared, Arc::clone(&worker_pool), timeout).await;
-        teardown_worker_pool(shutdown_token, bridge_server_task, pool_loop, worker_pool).await;
+
+        // The case is done, so the shutdown is requested; then the last
+        // worker pool handle is dropped, which is what ends the worker pool
+        // loop, after which the bridge server's graceful shutdown has no
+        // streams left to wait for.
+        shutdown_token.cancel();
+        drop(worker_pool);
+        drain_run(supervisor)
+            .await
+            .wrap_err_with(|| format!("drain the run for case '{}'", prepared.case.id))?;
 
         if let Some(mismatch) = check_case_outcome(prepared, actual) {
             failures.push(mismatch);
