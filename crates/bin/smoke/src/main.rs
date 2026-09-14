@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use clap::Parser;
+use color_eyre::eyre::WrapErr as _;
 use waymark_smoke_sources::{
     build_control_flow_program, build_parallel_spread_program, build_program,
     build_try_except_program, build_while_loop_program,
@@ -82,115 +83,127 @@ where
 
 async fn run_smoke(base: i64) -> i32 {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
-
-    let worker_config = waymark_worker_python::Config::new()
-        .with_user_module("tests.fixtures.test_actions")
-        .with_python_paths(vec![repo_root().join("python")]);
-
-    let result = waymark_worker_remote_bringup::start(
-        shutdown_token.clone(),
-        None,
-        |bridge_server_addr| waymark_worker_python::Spec {
-            config: worker_config,
-            bridge_server_addr,
-        },
-        2.try_into().unwrap(),
-        None,
-        10.try_into().unwrap(),
-    )
-    .await;
-
-    let (process_pool, bridge_server_task) = match result {
-        Ok(val) => val,
-        Err(err) => {
-            println!("Failed to start python worker pool: {err}");
-            return 2;
-        }
-    };
-
     let mut supervisor =
         waymark_task_supervisor::start::<waymark_fn_main_common::Error>(shutdown_token.clone());
-    supervisor.track("worker bridge server", bridge_server_task);
 
-    let (worker_pool, pool_loop) = waymark_worker_remote_pool::run(process_pool);
-    supervisor.spawn("worker pool loop", pool_loop);
-    let worker_pool = Arc::new(worker_pool);
+    // The run under the supervisor: a failure part-way leaves the tasks
+    // already up supervised, and they are shut down and drained below like
+    // on any other exit.
+    let run_result: Result<_, color_eyre::eyre::Report> = async {
+        let worker_config = waymark_worker_python::Config::new()
+            .with_user_module("tests.fixtures.test_actions")
+            .with_python_paths(vec![repo_root().join("python")]);
 
-    let mut failures = 0;
-    let mut cases = Vec::new();
-    let examples = vec![
-        ("smoke", Ok(build_program())),
-        ("control_flow", build_control_flow_program()),
-        ("parallel_spread", build_parallel_spread_program()),
-        ("try_except", build_try_except_program()),
-        ("while_loop", build_while_loop_program()),
-    ];
-    for (name, program) in examples {
-        let program = match program {
-            Ok(value) => value,
-            Err(err) => {
-                println!("Failed to build {name} program: {err}");
-                failures += 1;
-                continue;
-            }
-        };
-        let program = match waymark_vm_ast_old_proto::convert(program) {
-            Ok(value) => value,
-            Err(err) => {
-                println!("Failed to convert {name} program to the AST: {err}");
-                failures += 1;
-                continue;
-            }
-        };
-        let inputs = match name {
-            "smoke" => HashMap::from([("base".to_string(), Value::Ready(ReadyValue::Int(base)))]),
-            "control_flow" => {
-                HashMap::from([("base".to_string(), Value::Ready(ReadyValue::Int(2)))])
-            }
-            "parallel_spread" => {
-                HashMap::from([("base".to_string(), Value::Ready(ReadyValue::Int(3)))])
-            }
-            "try_except" => HashMap::from([(
-                "values".to_string(),
-                Value::Ready(ReadyValue::List(vec![
-                    Value::Ready(ReadyValue::Int(1)),
-                    Value::Ready(ReadyValue::Int(2)),
-                    Value::Ready(ReadyValue::Int(3)),
-                ])),
-            )]),
-            "while_loop" => {
-                HashMap::from([("limit".to_string(), Value::Ready(ReadyValue::Int(6)))])
-            }
-            _ => HashMap::new(),
-        };
-        cases.push(SmokeCase {
-            name: name.to_string(),
-            program,
-            inputs,
-        });
-    }
+        let (process_pool, bridge_server_task) = waymark_worker_remote_bringup::start(
+            shutdown_token.clone(),
+            None,
+            |bridge_server_addr| waymark_worker_python::Spec {
+                config: worker_config,
+                bridge_server_addr,
+            },
+            2.try_into().unwrap(),
+            None,
+            10.try_into().unwrap(),
+        )
+        .await
+        .wrap_err("start python worker pool")?;
 
-    for case in &cases {
-        if let Err(err) = run_program_smoke(case, Arc::clone(&worker_pool)).await {
-            failures += 1;
-            println!("Smoke case '{}' failed: {}", case.name, err);
+        supervisor.track("worker bridge server", bridge_server_task);
+
+        let (worker_pool, pool_loop) = waymark_worker_remote_pool::run(process_pool);
+        supervisor.spawn("worker pool loop", pool_loop);
+        let worker_pool = Arc::new(worker_pool);
+
+        let mut failures = 0;
+        let mut cases = Vec::new();
+        let examples = vec![
+            ("smoke", Ok(build_program())),
+            ("control_flow", build_control_flow_program()),
+            ("parallel_spread", build_parallel_spread_program()),
+            ("try_except", build_try_except_program()),
+            ("while_loop", build_while_loop_program()),
+        ];
+        for (name, program) in examples {
+            let program = match program {
+                Ok(value) => value,
+                Err(err) => {
+                    println!("Failed to build {name} program: {err}");
+                    failures += 1;
+                    continue;
+                }
+            };
+            let program = match waymark_vm_ast_old_proto::convert(program) {
+                Ok(value) => value,
+                Err(err) => {
+                    println!("Failed to convert {name} program to the AST: {err}");
+                    failures += 1;
+                    continue;
+                }
+            };
+            let inputs = match name {
+                "smoke" => {
+                    HashMap::from([("base".to_string(), Value::Ready(ReadyValue::Int(base)))])
+                }
+                "control_flow" => {
+                    HashMap::from([("base".to_string(), Value::Ready(ReadyValue::Int(2)))])
+                }
+                "parallel_spread" => {
+                    HashMap::from([("base".to_string(), Value::Ready(ReadyValue::Int(3)))])
+                }
+                "try_except" => HashMap::from([(
+                    "values".to_string(),
+                    Value::Ready(ReadyValue::List(vec![
+                        Value::Ready(ReadyValue::Int(1)),
+                        Value::Ready(ReadyValue::Int(2)),
+                        Value::Ready(ReadyValue::Int(3)),
+                    ])),
+                )]),
+                "while_loop" => {
+                    HashMap::from([("limit".to_string(), Value::Ready(ReadyValue::Int(6)))])
+                }
+                _ => HashMap::new(),
+            };
+            cases.push(SmokeCase {
+                name: name.to_string(),
+                program,
+                inputs,
+            });
         }
-    }
 
-    // The work is done, so the shutdown is requested; then the last worker
-    // pool handle is dropped, which is what ends the worker pool loop, after
-    // which the bridge server's graceful shutdown has no streams left to
-    // wait for. The drain waits for every task, however long it takes.
+        for case in &cases {
+            if let Err(err) = run_program_smoke(case, Arc::clone(&worker_pool)).await {
+                failures += 1;
+                println!("Smoke case '{}' failed: {}", case.name, err);
+            }
+        }
+
+        // The work is done, so the shutdown is requested; then the last worker
+        // pool handle is dropped, which is what ends the worker pool loop, after
+        // which the bridge server's graceful shutdown has no streams left to
+        // wait for.
+        shutdown_token.cancel();
+        drop(worker_pool);
+
+        Ok(failures)
+    }
+    .await;
+
+    // Whatever the run did, the shutdown is requested and every task is
+    // drained, however long it takes.
     shutdown_token.cancel();
-    drop(worker_pool);
     let report = supervisor.drain().await;
 
     // The exit code is a bit per kind of wrong: bit 0 for failed cases,
-    // bit 1 for a failed start (the `return 2` above) or a task ending
+    // bit 1 for a failed run (a failed start included) or a task ending
     // before the shutdown was requested.
     let mut exit_code = 0;
-    if failures > 0 {
-        exit_code |= 1 << 0;
+    match run_result {
+        Ok(0) => {}
+        Ok(_failures) => exit_code |= 1 << 0,
+        Err(err) => {
+            println!("Smoke run failed: {err:#}");
+            exit_code |= 1 << 1;
+        }
     }
     if report.any_before_shutdown() {
         println!("A task ended before the shutdown was requested:\n{report}");
