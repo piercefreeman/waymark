@@ -14,7 +14,7 @@ type Registry = waymark_worker_reservation::Registry<waymark_worker_message_prot
 /// Start the worker bridge server.
 ///
 /// If `bind_addr` is None, binds to localhost on an ephemeral port.
-/// The actual bound address can be retrieved with [`Self::addr`].
+/// The actual bound address is returned.
 pub async fn start(
     shutdown_token: tokio_util::sync::CancellationToken,
     workers_registry: Arc<Registry>,
