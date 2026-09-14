@@ -27,32 +27,47 @@ pub async fn run_transient_mode(
         // completion's lifetime by its case: each case gets its own pool.
         let shutdown_token = tokio_util::sync::CancellationToken::new();
         let mut supervisor: Supervisor = waymark_task_supervisor::start(shutdown_token.clone());
-        let worker_pool = setup_worker_pool(
-            &mut supervisor,
-            shutdown_token.clone(),
-            repo_root,
-            std::slice::from_ref(prepared),
-            worker_count,
-        )
-        .await
-        .wrap_err_with(|| {
-            format!(
-                "start transient worker pool for case '{}'",
-                prepared.case.id
+
+        // The case under the supervisor: a failure part-way leaves the tasks
+        // already up supervised, and they are shut down and drained below
+        // like on any other exit.
+        let case_result: Result<_, color_eyre::eyre::Report> = async {
+            let worker_pool = setup_worker_pool(
+                &mut supervisor,
+                shutdown_token.clone(),
+                repo_root,
+                std::slice::from_ref(prepared),
+                worker_count,
             )
-        })?;
-
-        let actual = run_case_transient(prepared, Arc::clone(&worker_pool), timeout).await;
-
-        // The case is done, so the shutdown is requested; then the last
-        // worker pool handle is dropped, which is what ends the worker pool
-        // loop, after which the bridge server's graceful shutdown has no
-        // streams left to wait for.
-        shutdown_token.cancel();
-        drop(worker_pool);
-        drain_run(supervisor)
             .await
-            .wrap_err_with(|| format!("drain the run for case '{}'", prepared.case.id))?;
+            .wrap_err_with(|| {
+                format!(
+                    "start transient worker pool for case '{}'",
+                    prepared.case.id
+                )
+            })?;
+
+            let actual = run_case_transient(prepared, Arc::clone(&worker_pool), timeout).await;
+
+            // The case is done, so the shutdown is requested; then the last
+            // worker pool handle is dropped, which is what ends the worker pool
+            // loop, after which the bridge server's graceful shutdown has no
+            // streams left to wait for.
+            shutdown_token.cancel();
+            drop(worker_pool);
+
+            Ok(actual)
+        }
+        .await;
+
+        // Whatever the case did, the shutdown is requested and the run is
+        // drained; the case's own failure comes first.
+        shutdown_token.cancel();
+        let drain_result = drain_run(supervisor)
+            .await
+            .wrap_err_with(|| format!("drain the run for case '{}'", prepared.case.id));
+        let actual = case_result?;
+        drain_result?;
 
         if let Some(mismatch) = check_case_outcome(prepared, actual) {
             failures.push(mismatch);
