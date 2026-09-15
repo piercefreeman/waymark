@@ -4,6 +4,26 @@ PY_PROTO_OUT := python/src/waymark/proto
 
 all: build-proto
 
+.PHONY: js-deps webapp-build webapp-dev js-lint js-lint-verify
+
+js-deps: node_modules/.package-lock.json
+
+node_modules/.package-lock.json: package-lock.json
+	npm ci
+	touch $@
+
+webapp-build: js-deps
+	npm run build --workspace waymark-webapp
+
+webapp-dev: js-deps
+	npm run dev --workspace waymark-webapp
+
+js-lint: js-deps
+	npm run lint:fix
+
+js-lint-verify: js-deps
+	npm run lint
+
 build-proto:
 	@mkdir -p $(PY_PROTO_OUT)
 	@touch python/src/waymark/proto/__init__.py
@@ -23,9 +43,9 @@ clean:
 	rm -rf target
 	rm -rf $(PY_PROTO_OUT)
 
-lint: python-lint rust-lint
+lint: python-lint js-lint rust-lint
 
-lint-verify: python-lint-verify rust-lint-verify
+lint-verify: python-lint-verify js-lint-verify rust-lint-verify
 
 python-lint:
 	cd python && uv run ruff format .
@@ -43,11 +63,11 @@ python-lint-verify:
 	cd scripts && uv run ruff check .
 	cd scripts && uv run ty check .
 
-rust-lint-base:
+rust-lint-base: js-deps
 	cargo fmt
 	cargo clippy --all-targets --all-features -- -D warnings
 
-rust-lint-base-verify:
+rust-lint-base-verify: js-deps
 	cargo fmt -- --check
 	cargo clippy --all-targets --all-features -- -D warnings
 
@@ -69,11 +89,11 @@ rust-lint-verify: rust-lint-base-verify
 
 # The rustdoc pass excludes waymark-vm-compiler-for-ast-old: rustdoc's auto-trait
 # synthesis for FunctionEmitter<Spec> crashes the compiler (rustc 1.95 ICE).
-rust-lint-extended:
+rust-lint-extended: js-deps
 	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-start-workers --exclude waymark-vm-cli -- -D warnings
 	RUSTDOCFLAGS="-D warnings --cfg tokio_unstable" cargo doc --workspace --no-deps --all-features --exclude waymark-vm-compiler-for-ast-old
 
-rust-lint-extended-verify:
+rust-lint-extended-verify: js-deps
 	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-start-workers --exclude waymark-vm-cli -- -D warnings
 	RUSTDOCFLAGS="-D warnings --cfg tokio_unstable" cargo doc --workspace --no-deps --all-features --exclude waymark-vm-compiler-for-ast-old
 
@@ -85,7 +105,7 @@ python-coverage:
 
 # All features, like the lint gates: a gated test runs even when no member
 # asks for its feature.
-rust-coverage:
+rust-coverage: js-deps
 	cargo llvm-cov clean --workspace
 	cargo llvm-cov --all-features --no-report
 	cargo llvm-cov report --lcov --output-path target/rust-coverage.lcov
