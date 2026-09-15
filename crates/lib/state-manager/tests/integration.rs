@@ -553,6 +553,73 @@ async fn factory_failure_does_not_leak_kv_pair() {
 }
 
 // ---------------------------------------------------------------------------
+// Sweeper run loop
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_sweeper_loop_ends_once_its_state_is_gone() {
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let factory = CountingFactory {
+        value: 0u64,
+        call_count,
+        _phantom: std::marker::PhantomData::<u64>,
+    };
+    let (state, sweeper) = State::<u64, u64, _>::new(retention_1s(), factory);
+
+    // A long interval: within the timeout below, the loop can leave only
+    // through the state-gone arm, never through a tick that finds the maps
+    // gone.
+    let interval = NonZeroDuration::from_secs(60).expect("60s is non-zero");
+    let run = tokio::spawn(waymark_state_manager::sweeper::run(sweeper, interval));
+
+    // The first tick is immediate; let it land before the drop, so the
+    // drop is observed inside the loop's select.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(!run.is_finished());
+
+    drop(state);
+    tokio::time::timeout(Duration::from_secs(5), run)
+        .await
+        .expect("the loop ends once the state is gone")
+        .expect("the loop does not panic");
+}
+
+/// A tick of the sweeper loop evicts an entry past its retention, the way
+/// a hand-driven sweep does: the next get produces the value anew.
+#[tokio::test]
+async fn the_sweeper_loop_evicts_on_its_tick() {
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let factory = CountingFactory {
+        value: 0u64,
+        call_count: call_count.clone(),
+        _phantom: std::marker::PhantomData::<u64>,
+    };
+    let (state, sweeper) = State::<u64, u64, _>::new(retention_10ms(), factory);
+
+    {
+        let _handle = state.get(1).await.unwrap();
+    }
+    assert_eq!(call_count.load(Ordering::Relaxed), 1);
+
+    // The interval is well past the retention, so the entry is stale by
+    // the tick after the immediate first one; the sleep covers a few.
+    let interval = NonZeroDuration::from_millis(50).expect("50ms is non-zero");
+    let run = tokio::spawn(waymark_state_manager::sweeper::run(sweeper, interval));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    {
+        let _handle = state.get(1).await.unwrap();
+    }
+    assert_eq!(call_count.load(Ordering::Relaxed), 2);
+
+    drop(state);
+    tokio::time::timeout(Duration::from_secs(5), run)
+        .await
+        .expect("the loop ends once the state is gone")
+        .expect("the loop does not panic");
+}
+
+// ---------------------------------------------------------------------------
 // Sweeper introspection
 // ---------------------------------------------------------------------------
 
