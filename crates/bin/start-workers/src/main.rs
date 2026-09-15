@@ -59,8 +59,6 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     let (essential_metrics_sampling_handle, prometheus_handle) =
         waymark_metrics_bringup::register()?;
 
-    let _task_monitor = waymark_tokio_metrics_bringup::bringup(env!("CARGO_BIN_NAME"));
-
     // Load configuration and announce startup.
     let config = WorkerConfig::from_env()?;
 
@@ -119,6 +117,13 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         supervisor.spawn(
             "shutdown signal listener",
             shutdown_signal_listener(ctrl_c, termination, shutdown_token.clone()),
+        );
+
+        // The tokio metrics reporters.
+        let _task_monitor = waymark_tokio_metrics_bringup::start(
+            &mut supervisor,
+            env!("CARGO_BIN_NAME"),
+            shutdown_token.child_token(),
         );
 
         // The metrics endpoint, and the Prometheus recorder's upkeep.
