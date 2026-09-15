@@ -20,7 +20,7 @@ waymark-vm-runtime-promise-core = { workspace = true }
 nonempty-collections = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["sync", "time"] }
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
