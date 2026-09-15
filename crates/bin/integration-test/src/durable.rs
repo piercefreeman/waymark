@@ -12,7 +12,8 @@ use waymark_support_integration::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local
 
 use crate::ground_truth::PreparedCase;
 use crate::outcome::{CaseOutcome, check_case_outcome, outcome_from_vm};
-use crate::worker_pool::{Supervisor, drain_run, setup_worker_pool};
+use crate::worker_pool::{drain_run, setup_worker_pool};
+use waymark_managed_spawner_supervised::SupervisorExt as _;
 
 /// The postgres-backed services the durable mode drives directly: workflow
 /// submission (compile + register) and outcome polling. Execution itself is
@@ -46,13 +47,15 @@ pub async fn run_durable_mode(
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
-    let mut supervisor: Supervisor =
+    let mut supervisor =
         waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
     // The run under the supervisor: a failure part-way leaves the tasks
     // already up supervised, and they are shut down and drained below like
     // on any other exit.
     let run_result: Result<_, color_eyre::eyre::Report> = async {
+        let mut supervisor = supervisor.spawner(waymark_fn_main_common::ErrorConverter);
+
         let worker_pool = setup_worker_pool(
             &mut supervisor,
             shutdown_token.clone(),
@@ -66,7 +69,8 @@ pub async fn run_durable_mode(
         // The execution subsystem's tasks hold the worker pool handles and end
         // on the shutdown token, so the last handle drops after the request
         // without the run keeping one.
-        let execution_handles = waymark_execution_bringup::start(
+        waymark_execution_bringup::start(
+            &mut supervisor,
             durable_execution_config(),
             Arc::new(stack.backend.clone()),
             worker_pool,
@@ -75,7 +79,6 @@ pub async fn run_durable_mode(
             force_shutdown_token.child_token(),
         )
         .await;
-        track_execution(&mut supervisor, execution_handles);
 
         let mut failures = Vec::new();
         for prepared in prepared_cases {
@@ -172,59 +175,6 @@ fn durable_execution_config() -> waymark_execution_bringup::Config<uuid::Uuid> {
         executable_retention: Duration::from_secs(300).try_into().unwrap(),
         executable_sweep_interval: Duration::from_secs(60).try_into().unwrap(),
     }
-}
-
-/// Supervise the execution subsystem's tasks.
-fn track_execution(supervisor: &mut Supervisor, handles: waymark_execution_bringup::Handles) {
-    let waymark_execution_bringup::Handles {
-        pinning_manager,
-        execution_driver,
-        executable_sweeper,
-        vm_sweeper,
-        durable_action_completions_writer,
-        durable_action_completions_poller,
-        durable_action_completions_acker,
-        durable_sleeps_poller,
-        durable_sleeps_acker,
-        action_effect_reconciler_lock_renewal,
-        snapshot_batcher,
-        action_effect_reconciler_request_batcher,
-        workflow_completion_batcher,
-        action_effect_reconciler_lock_batcher,
-    } = handles;
-
-    supervisor.track("workload pinning manager", pinning_manager);
-    supervisor.track("execution driver", execution_driver);
-    supervisor.track("executable sweeper", executable_sweeper);
-    supervisor.track("vm runtimes sweeper", vm_sweeper);
-    supervisor.track(
-        "durable action completions writer",
-        durable_action_completions_writer,
-    );
-    supervisor.track(
-        "durable action completions poller",
-        durable_action_completions_poller,
-    );
-    supervisor.track(
-        "durable action completions acker",
-        durable_action_completions_acker,
-    );
-    supervisor.track("durable sleeps poller", durable_sleeps_poller);
-    supervisor.track("durable sleeps acker", durable_sleeps_acker);
-    supervisor.track(
-        "action effect reconciler lock renewal",
-        action_effect_reconciler_lock_renewal,
-    );
-    supervisor.track("snapshot batcher", snapshot_batcher);
-    supervisor.track(
-        "action effect reconciler request batcher",
-        action_effect_reconciler_request_batcher,
-    );
-    supervisor.track("workflow completion batcher", workflow_completion_batcher);
-    supervisor.track(
-        "action effect reconciler lock batcher",
-        action_effect_reconciler_lock_batcher,
-    );
 }
 
 async fn run_case_durable(

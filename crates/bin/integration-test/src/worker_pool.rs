@@ -10,20 +10,18 @@ use crate::ground_truth::PreparedCase;
 
 pub type PythonWorkerPool = Arc<waymark_worker_remote_pool::Pool>;
 
-/// The supervisor of a run's tasks: their errors differ per task, so they
-/// are supervised unified.
-pub type Supervisor =
-    waymark_managed_spawner_supervised::supervisor::Supervisor<waymark_fn_main_common::Error>;
-
-/// Start the worker pool under `supervisor`: the bridge server and the
+/// Start the worker pool under `spawner`: the bridge server and the
 /// worker pool loop are its tasks.
-pub async fn setup_worker_pool(
-    supervisor: &mut Supervisor,
+pub async fn setup_worker_pool<Spawner>(
+    mut spawner: Spawner,
     shutdown_token: tokio_util::sync::CancellationToken,
     repo_root: &Path,
     cases: &[PreparedCase],
     worker_count: NonZeroUsize,
-) -> Result<PythonWorkerPool, color_eyre::eyre::Report> {
+) -> Result<PythonWorkerPool, color_eyre::eyre::Report>
+where
+    Spawner: waymark_managed_spawner::Spawner,
+{
     let mut modules = cases
         .iter()
         .map(|prepared| prepared.case.module_name.to_string())
@@ -39,7 +37,8 @@ pub async fn setup_worker_pool(
             repo_root.join("tests/integration_tests"),
         ]);
 
-    let (process_pool, bridge_server_task) = waymark_worker_remote_bringup::start(
+    let process_pool = waymark_worker_remote_bringup::start(
+        &mut spawner,
         shutdown_token,
         None,
         |bridge_server_addr| waymark_worker_python::Spec {
@@ -53,10 +52,8 @@ pub async fn setup_worker_pool(
     .await
     .wrap_err("create remote worker pool")?;
 
-    supervisor.track("worker bridge server", bridge_server_task);
-
     let (worker_pool, pool_loop) = waymark_worker_remote_pool::run(process_pool);
-    supervisor.spawn("worker pool loop", pool_loop);
+    spawner.spawn("worker pool loop", pool_loop);
 
     Ok(Arc::new(worker_pool))
 }
@@ -64,7 +61,11 @@ pub async fn setup_worker_pool(
 /// Drain a run's tasks, however long it takes, once its shutdown has been
 /// requested and its worker pool handles released. A task that ended
 /// before the request is a failed run.
-pub async fn drain_run(supervisor: Supervisor) -> Result<(), color_eyre::eyre::Report> {
+pub async fn drain_run(
+    supervisor: waymark_managed_spawner_supervised::supervisor::Supervisor<
+        waymark_fn_main_common::Error,
+    >,
+) -> Result<(), color_eyre::eyre::Report> {
     let report = supervisor.drain().await;
 
     if report.any_before_shutdown() {
