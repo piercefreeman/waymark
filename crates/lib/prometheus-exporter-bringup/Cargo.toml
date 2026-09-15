@@ -5,5 +5,10 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+waymark-http-bringup = { workspace = true }
+waymark-managed-spawner = { workspace = true }
+
+axum = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
-tracing = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+tokio-util = { workspace = true }
