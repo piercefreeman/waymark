@@ -4,6 +4,23 @@ PY_PROTO_OUT := python/src/waymark/proto
 
 all: build-proto
 
+.PHONY: webapp-deps webapp-build webapp-dev webapp-lint webapp-lint-verify
+
+webapp-deps:
+	cd webapp && npm ci
+
+webapp-build: webapp-deps
+	cd webapp && npm run build
+
+webapp-dev: webapp-deps
+	cd webapp && npm run dev
+
+webapp-lint: webapp-deps
+	cd webapp && npm run lint:fix
+
+webapp-lint-verify: webapp-deps
+	cd webapp && npm run lint
+
 build-proto:
 	@mkdir -p $(PY_PROTO_OUT)
 	@touch python/src/waymark/proto/__init__.py
@@ -23,9 +40,9 @@ clean:
 	rm -rf target
 	rm -rf $(PY_PROTO_OUT)
 
-lint: python-lint rust-lint
+lint: python-lint webapp-lint rust-lint
 
-lint-verify: python-lint-verify rust-lint-verify
+lint-verify: python-lint-verify webapp-lint-verify rust-lint-verify
 
 python-lint:
 	cd python && uv run ruff format .
@@ -43,11 +60,11 @@ python-lint-verify:
 	cd scripts && uv run ruff check .
 	cd scripts && uv run ty check .
 
-rust-lint-base:
+rust-lint-base: webapp-deps
 	cargo fmt
 	cargo clippy --all-targets --all-features -- -D warnings
 
-rust-lint-base-verify:
+rust-lint-base-verify: webapp-deps
 	cargo fmt -- --check
 	cargo clippy --all-targets --all-features -- -D warnings
 
@@ -67,10 +84,10 @@ rust-lint-verify: rust-lint-base-verify
 	typos
 	cargo deny check
 
-rust-lint-extended:
+rust-lint-extended: webapp-deps
 	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-start-workers --exclude waymark-vm-cli -- -D warnings
 
-rust-lint-extended-verify:
+rust-lint-extended-verify: webapp-deps
 	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-start-workers --exclude waymark-vm-cli -- -D warnings
 
 # Coverage targets
@@ -79,7 +96,7 @@ coverage: python-coverage rust-coverage
 python-coverage:
 	cd python && uv run pytest tests --cov=waymark --cov-report=term-missing --cov-report=xml:coverage.xml --cov-report=html:htmlcov
 
-rust-coverage:
+rust-coverage: webapp-deps
 	cargo llvm-cov --lcov --output-path target/rust-coverage.lcov
 	cargo llvm-cov --html --output-dir target/rust-htmlcov
 

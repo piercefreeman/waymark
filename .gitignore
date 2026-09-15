@@ -219,6 +219,7 @@ __marimo__/
 /target
 
 # Build artifacts
+node_modules/
 .merge-tmp/
 target/wheels/
 *.whl

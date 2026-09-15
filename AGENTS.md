@@ -135,6 +135,7 @@ Follow a modern, developer-focused design language. The design prioritizes clari
 This section is used for the scratch updates, driven by our Agents.
 
 <code_feedback>
+<rule>Keep process-global tracing setup in `waymark-fn-main-common`. Tests that assert emitted tracing events may use scoped subscribers through a dev-dependency, with a documented crate-specific wrapper entry in `deny.toml`.</rule>
 <rule>Avoid webapp tests that assert rendered HTML contains route or API URL strings; test behavior, data wiring, or stable UI semantics instead. Good: assert a handler returns the expected redirect payload or a page renders the expected domain data. Bad: `assert!(rendered.contains("/api/instance/"));`.</rule>
 <rule>Centralize environment parsing in shared config modules and build sub-configs inside `from_env`. Good: `let cfg = WorkerConfig::from_env()?; let webapp = cfg.webapp.clone();` Bad: `let cfg = WorkerConfig::from_env()?; let webapp = WebappConfig::from_env();`</rule>
 <rule>Prefer `?` (with `context` when needed) over wrapping simple errors with `map_err(|err| anyhow!(err))`. Good: `PostgresBackend::connect(dsn).await?;` Bad: `PostgresBackend::connect(dsn).await.map_err(|err| anyhow!(err))?;`</rule>

@@ -30,6 +30,8 @@ reason = "do not redo the base fn main setup manually"
 wrappers = [
   "waymark-fn-main-common",
   "waymark-observability-setup",
+  # Captures emitted events in tests; does not initialize global tracing.
+  "waymark-vm-driver-hooks-tracing",
   "console-subscriber",
   "tracing-chrome",
   "tracing-error",

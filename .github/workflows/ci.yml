@@ -72,6 +72,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/setup-webapp
+
+      - name: Frontend lint
+        run: npm run lint --prefix webapp
+
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
@@ -116,6 +121,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-webapp
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
@@ -229,6 +236,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+
+      - uses: actions/setup-node@v4
+        if: hashFiles('webapp/package-lock.json') != ''
+        with:
+          node-version-file: webapp/.node-version
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
@@ -510,6 +524,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/setup-webapp
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -609,6 +625,8 @@ jobs:
             build-sdist: false
     steps:
       - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-webapp
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7

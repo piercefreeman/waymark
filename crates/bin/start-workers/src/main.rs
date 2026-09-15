@@ -185,7 +185,8 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         let http_api_routes = aide::axum::ApiRouter::new().merge(observability_api_router);
         let http_routes = axum::Router::new()
             .merge(waymark_http_healthz::router())
-            .merge(waymark_http_api::router("/api", http_api_routes));
+            .merge(waymark_http_api::router("/api", http_api_routes))
+            .merge(waymark_http_webapp::router());
 
         // Start the HTTP server.
         if config.http.enabled {
