@@ -5495,6 +5495,7 @@ version = "0.1.0"
 dependencies = [
  "dashmap 6.2.1",
  "tokio",
+ "tokio-util",
  "tracing",
  "waymark-nonzero-duration",
  "waymark-state-manager-core",
