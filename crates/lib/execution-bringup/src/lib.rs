@@ -298,11 +298,11 @@ where
     >::new(Arc::clone(&backend), Arc::clone(&codec));
     let (executable_state, executable_sweeper) =
         waymark_state_manager::State::new(executable_retention, executable_factory);
-    let executable_sweeper_handle = spawn_state_sweeper(
+    let executable_sweeper_handle = tokio::spawn(state_sweeper(
         executable_sweeper,
         executable_sweep_interval,
         shutdown_token.child_token(),
-    );
+    ));
 
     // Durable action-call completions pipeline (not to be confused with
     // workflow completions) — action-call completions are recorded durably
@@ -650,11 +650,11 @@ where
 
     let (vm_runtimes_state, vm_runtimes_sweeper) =
         waymark_state_manager::State::new(vm_retention, vm_runtimes_factory);
-    let vm_runtimes_sweeper_handle = spawn_state_sweeper(
+    let vm_runtimes_sweeper_handle = tokio::spawn(state_sweeper(
         vm_runtimes_sweeper,
         vm_sweep_interval,
         shutdown_token.child_token(),
-    );
+    ));
 
     let pinning_params = waymark_workload_pinning_manager::Params {
         shutdown_token: shutdown_token.child_token(),
@@ -709,30 +709,26 @@ where
     }
 }
 
-fn spawn_state_sweeper<Key, Value>(
+async fn state_sweeper<Key, Value>(
     mut sweeper: waymark_state_manager::Sweeper<Key, Value>,
     interval: waymark_nonzero_duration::NonZeroDuration,
     shutdown: tokio_util::sync::CancellationToken,
-) -> tokio::task::JoinHandle<()>
-where
-    Key: Eq + std::hash::Hash + Clone + Send + Sync + 'static,
-    Value: Send + Sync + 'static,
+) where
+    Key: Eq + std::hash::Hash + Clone,
 {
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(interval.get());
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            tokio::select! {
-                _ = ticker.tick() => {
-                    if !sweeper.associated_state_exists() {
-                        break;
-                    }
-                    sweeper.sweep();
-                }
-                () = shutdown.cancelled() => {
+    let mut ticker = tokio::time::interval(interval.get());
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            _ = ticker.tick() => {
+                if !sweeper.associated_state_exists() {
                     break;
                 }
+                sweeper.sweep();
+            }
+            () = shutdown.cancelled() => {
+                break;
             }
         }
-    })
+    }
 }
