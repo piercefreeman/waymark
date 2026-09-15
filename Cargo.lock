@@ -5645,8 +5645,9 @@ name = "waymark-tokio-metrics-bringup"
 version = "0.1.0"
 dependencies = [
  "metrics",
- "tokio",
  "tokio-metrics",
+ "tokio-util",
+ "waymark-managed-spawner",
 ]
 
 [[package]]
