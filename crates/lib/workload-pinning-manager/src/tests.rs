@@ -574,3 +574,66 @@ async fn unpin_park_flows_end_to_end() {
         outcome.unpin_error
     );
 }
+
+#[test]
+fn outcome_display_lists_the_failed_loops() {
+    let outcome = crate::RunOutcome::<&str, &str, &str> {
+        poll_error: Some(crate::PollLoopError::Poll("connection reset")),
+        maintenance_error: Some(crate::MaintenanceError::ForceShutdown),
+        unpin_error: Some("gave up on pending unpins"),
+    };
+
+    insta::assert_snapshot!(outcome.to_string(), @"poll loop: poll: connection reset; maintenance loop: maintenance loop force shutdown; unpin loop: gave up on pending unpins");
+}
+
+#[test]
+fn outcome_display_of_a_clean_run_says_no_loop_failed() {
+    let outcome = crate::RunOutcome::<&str, &str, &str> {
+        poll_error: None,
+        maintenance_error: None,
+        unpin_error: None,
+    };
+
+    insta::assert_snapshot!(outcome.to_string(), @"no loop failed");
+}
+
+#[test]
+fn outcome_display_of_an_unpin_only_failure_has_no_separator() {
+    let outcome = crate::RunOutcome::<&str, &str, &str> {
+        poll_error: None,
+        maintenance_error: None,
+        unpin_error: Some("gave up on pending unpins"),
+    };
+
+    insta::assert_snapshot!(outcome.to_string(), @"unpin loop: gave up on pending unpins");
+}
+
+#[test]
+fn outcome_display_separates_the_maintenance_and_unpin_failures() {
+    let outcome = crate::RunOutcome::<&str, &str, &str> {
+        poll_error: None,
+        maintenance_error: Some(crate::MaintenanceError::ForceShutdown),
+        unpin_error: Some("gave up on pending unpins"),
+    };
+
+    insta::assert_snapshot!(outcome.to_string(), @"maintenance loop: maintenance loop force shutdown; unpin loop: gave up on pending unpins");
+}
+
+#[test]
+fn outcome_into_result_is_the_outcome_when_one_loop_failed() {
+    let outcome = crate::RunOutcome::<&str, &str, &str> {
+        poll_error: None,
+        maintenance_error: Some(crate::MaintenanceError::ForceShutdown),
+        unpin_error: None,
+    };
+
+    let Err(outcome) = outcome.into_result() else {
+        panic!("a run with a failed loop is not ok");
+    };
+    assert!(outcome.poll_error.is_none());
+    assert!(matches!(
+        outcome.maintenance_error,
+        Some(crate::MaintenanceError::ForceShutdown)
+    ));
+    assert!(outcome.unpin_error.is_none());
+}
