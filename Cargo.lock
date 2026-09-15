@@ -4370,13 +4370,11 @@ dependencies = [
  "chrono",
  "color-eyre",
  "envfury",
- "futures-core",
  "nonempty-collections",
  "prost",
  "sqlx",
  "thiserror",
  "tokio",
- "tokio-stream",
  "tonic",
  "tonic-health",
  "tracing",
@@ -5703,6 +5701,7 @@ dependencies = [
 name = "waymark-transient-execution-worker-stream-bringup"
 version = "0.1.0"
 dependencies = [
+ "futures-core",
  "prost",
  "thiserror",
  "tokio",
