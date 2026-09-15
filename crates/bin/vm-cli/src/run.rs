@@ -1,3 +1,5 @@
+use waymark_managed_spawner_supervised::SupervisorExt as _;
+
 /// Run the runtime over a freshly spawned Python worker pool and return
 /// the workflow outcome.
 pub async fn run(
@@ -7,18 +9,20 @@ pub async fn run(
     waymark_fn_main_common::Error,
 > {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
-    let mut supervisor = waymark_managed_spawner_supervised::supervisor::start::<
-        waymark_fn_main_common::Error,
-    >(shutdown_token.clone());
+    let mut supervisor =
+        waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
     // The run under the supervisor: a failure part-way leaves the tasks
     // already up supervised, and they are shut down and drained below like
     // on any other exit.
     let run_result = async {
+        let mut supervisor = supervisor.spawner(waymark_fn_main_common::ErrorConverter);
+
         let worker_config = waymark_worker_python::Config::new()
             .with_user_module("tests.fixtures.test_actions")
             .with_python_paths(vec![repo_root().join("python")]);
-        let (process_pool, bridge_server_task) = waymark_worker_remote_bringup::start(
+        let process_pool = waymark_worker_remote_bringup::start(
+            &mut supervisor,
             shutdown_token.clone(),
             None,
             |bridge_server_addr| waymark_worker_python::Spec {
@@ -30,8 +34,6 @@ pub async fn run(
             10.try_into().expect("concurrency is nonzero"),
         )
         .await?;
-
-        supervisor.track("worker bridge server", bridge_server_task);
 
         let (worker_pool, pool_loop) = waymark_worker_remote_pool::run(process_pool);
         supervisor.spawn("worker pool loop", pool_loop);

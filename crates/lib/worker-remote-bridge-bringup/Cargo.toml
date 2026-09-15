@@ -5,13 +5,20 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+waymark-managed-spawner = { workspace = true }
 waymark-proto = { workspace = true, features = ["server"] }
 waymark-worker-message-protocol = { workspace = true }
 waymark-worker-remote-bridge-service = { workspace = true }
 waymark-worker-reservation = { workspace = true }
 
-tokio = { workspace = true, features = ["rt", "net"] }
+tokio = { workspace = true, features = ["net"] }
 tokio-stream = { workspace = true, features = ["net"] }
 tokio-util = { workspace = true }
 tonic = { workspace = true, default-features = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+waymark-fn-main-common = { workspace = true }
+waymark-managed-spawner-supervised = { workspace = true }
+
+tokio = { workspace = true, features = ["macros", "rt"] }
