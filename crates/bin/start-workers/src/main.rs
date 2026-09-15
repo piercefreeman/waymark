@@ -102,8 +102,9 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
 
-    let mut supervisor =
-        waymark_task_supervisor::start::<waymark_fn_main_common::Error>(shutdown_token.clone());
+    let mut supervisor = waymark_managed_spawner_supervised::supervisor::start::<
+        waymark_fn_main_common::Error,
+    >(shutdown_token.clone());
 
     // Bring everything up under the supervisor, handing each subsystem's
     // tasks over as soon as they exist. A failure part-way leaves the tasks
