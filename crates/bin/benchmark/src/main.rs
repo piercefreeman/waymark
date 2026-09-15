@@ -89,9 +89,14 @@ async fn run_benchmark(
 
         let observability = if with_observability {
             let node_id = waymark_ids::NodeId::new_uuid_v4();
-            let observability =
-                observability::start(&mut supervisor, dsn, node_id, shutdown_token.child_token())
-                    .await?;
+            let observability = observability::start(
+                &mut supervisor,
+                dsn,
+                node_id,
+                shutdown_token.child_token(),
+                force_shutdown_token.child_token(),
+            )
+            .await?;
             Some(observability)
         } else {
             None
