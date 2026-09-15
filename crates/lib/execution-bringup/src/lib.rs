@@ -301,16 +301,10 @@ pub async fn start<Spawner, Backend, WorkerPool>(
         backend: Arc::clone(&backend),
         ack_rx,
     };
-    spawner.spawn("durable action completions acker", {
-        let shutdown = shutdown_token.child_token();
-        async move {
-            shutdown
-                .run_until_cancelled(waymark_action_completions_reconciler::acker::run(
-                    acker_params,
-                ))
-                .await;
-        }
-    });
+    spawner.spawn(
+        "durable action completions acker",
+        waymark_action_completions_reconciler::acker::run(acker_params),
+    );
 
     let (registrar, poller_state) = waymark_action_completions_reconciler::poller::state::<
         _,
@@ -322,20 +316,10 @@ pub async fn start<Spawner, Backend, WorkerPool>(
         codec: Arc::clone(&codec),
         state: poller_state,
     };
-    spawner.spawn("durable action completions poller", {
-        let shutdown = shutdown_token.child_token();
-        async move {
-            match shutdown
-                .run_until_cancelled(waymark_action_completions_reconciler::poller::run(
-                    poller_params,
-                ))
-                .await
-            {
-                None => Ok(()),
-                Some(Err(error)) => Err(error),
-            }
-        }
-    });
+    spawner.spawn(
+        "durable action completions poller",
+        waymark_action_completions_reconciler::poller::run(poller_params),
+    );
 
     // Durable sleeps pipeline — sleep requests are recorded durably as the
     // VMs emit them (inline in the per-VM effect handler, so there is no
@@ -347,14 +331,10 @@ pub async fn start<Spawner, Backend, WorkerPool>(
         backend: Arc::clone(&backend),
         ack_rx: sleep_ack_rx,
     };
-    spawner.spawn("durable sleeps acker", {
-        let shutdown = shutdown_token.child_token();
-        async move {
-            shutdown
-                .run_until_cancelled(waymark_sleep_reconciler::acker::run(sleep_acker_params))
-                .await;
-        }
-    });
+    spawner.spawn(
+        "durable sleeps acker",
+        waymark_sleep_reconciler::acker::run(sleep_acker_params),
+    );
 
     let (sleep_registrar, sleep_poller_state) =
         waymark_sleep_reconciler::poller::state(sleep_ack_tx);
@@ -363,18 +343,10 @@ pub async fn start<Spawner, Backend, WorkerPool>(
         state: sleep_poller_state,
         poll_interval: sleep_poll_interval,
     };
-    spawner.spawn("durable sleeps poller", {
-        let shutdown = shutdown_token.child_token();
-        async move {
-            match shutdown
-                .run_until_cancelled(waymark_sleep_reconciler::poller::run(sleep_poller_params))
-                .await
-            {
-                None => Ok(()),
-                Some(Err(error)) => Err(error),
-            }
-        }
-    });
+    spawner.spawn(
+        "durable sleeps poller",
+        waymark_sleep_reconciler::poller::run(sleep_poller_params),
+    );
 
     // Durable action-call requests: emitted action calls are recorded as
     // born-locked request rows before delivery to the local pool, and the
