@@ -9,6 +9,7 @@ waymark-api-observability-events-http = { workspace = true }
 waymark-http-api-types = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-lossy-batcher = { workspace = true }
+waymark-managed-spawner = { workspace = true }
 waymark-observability-events-compat = { workspace = true }
 waymark-observability-events-config = { workspace = true }
 waymark-observability-events-emitter = { workspace = true }
@@ -19,5 +20,4 @@ waymark-observability-events-vm-driver-hooks = { workspace = true }
 waymark-retention-sweeper = { workspace = true }
 
 aide = { workspace = true }
-tokio = { workspace = true, features = ["rt"] }
 tokio-util = { workspace = true }

@@ -21,11 +21,7 @@ use waymark_secret_string::SecretStr;
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
 
 use crate::report::BenchmarkStats;
-
-/// The supervisor of the run's tasks: their errors differ per task, so
-/// they are supervised unified.
-type Supervisor =
-    waymark_managed_spawner_supervised::supervisor::Supervisor<waymark_fn_main_common::Error>;
+use waymark_managed_spawner_supervised::SupervisorExt as _;
 
 /// How often to poll the recorded execution results while draining.
 const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -82,13 +78,15 @@ async fn run_benchmark(
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
-    let mut supervisor: Supervisor =
+    let mut supervisor =
         waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
     // The run under the supervisor: a failure part-way leaves the tasks
     // already up supervised, and they are shut down and drained below like
     // on any other exit.
     let run_result: Result<_, color_eyre::eyre::Report> = async {
+        let mut supervisor = supervisor.spawner(waymark_fn_main_common::ErrorConverter);
+
         // One identity for the node, whatever it reports under: the
         // observability events and the execution's pinnings and locks name
         // the same node.
@@ -116,7 +114,8 @@ async fn run_benchmark(
         supervisor.spawn("inline worker pool loop", pool_loop);
 
         let start = Instant::now();
-        let execution_handles = waymark_execution_bringup::start(
+        waymark_execution_bringup::start(
+            &mut supervisor,
             execution::durable_execution_config(max_pinned, node_id)?,
             Arc::new(backend.clone()),
             Arc::new(worker_pool),
@@ -125,7 +124,6 @@ async fn run_benchmark(
             force_shutdown_token.child_token(),
         )
         .await;
-        execution::track(&mut supervisor, execution_handles);
 
         // The supervisor cancels the shutdown token when any task ends before
         // the shutdown was requested (e.g. on a lock fence breach) — watched
