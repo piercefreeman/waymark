@@ -3,7 +3,7 @@
 //!
 //! Instantiates [`waymark_transient_execution_bringup`] with
 //! [`waymark_action_runtime_worker_stream`] channels and adapts the
-//! workflow outcome onto the gRPC response stream.
+//! execution onto the gRPC bidir stream.
 
 #![warn(missing_docs)]
 
@@ -94,34 +94,52 @@ pub fn setup_runtime(
 // Execution bringup
 // ---------------------------------------------------------------------------
 
-/// Channels returned by [`execute`].
-pub struct ExecuteChannels {
-    /// Receives action dispatches and the final workflow result.
-    /// Convert to a gRPC response stream via
-    /// [`tokio_stream::wrappers::ReceiverStream`].
-    pub out_rx: mpsc::Receiver<Result<proto::WorkflowStreamResponse, Status>>,
-
-    /// Sender for feeding [`proto::ActionResult`] messages back into the
-    /// execution.  The caller should forward every action result received
-    /// on the gRPC input stream into this sender.
-    pub action_result_tx: mpsc::Sender<proto::ActionResult>,
+/// A workflow's execution as its gRPC response stream: the action
+/// dispatches, then the workflow outcome.
+///
+/// The execution's per-request tasks — feeding the client's action
+/// results in, forwarding the workflow outcome — are the stream's: they
+/// are aborted and the VM driver is cancelled when the stream is dropped.
+pub struct ExecuteStream {
+    out_rx: mpsc::Receiver<Result<proto::WorkflowStreamResponse, Status>>,
+    tasks: tokio::task::JoinSet<()>,
+    _cancel_driver: tokio_util::sync::DropGuard,
 }
 
-/// Wire up and launch transient workflow execution for the given runtime.
+impl futures_core::Stream for ExecuteStream {
+    type Item = Result<proto::WorkflowStreamResponse, Status>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        while let std::task::Poll::Ready(Some(joined)) = self.tasks.poll_join_next(cx) {
+            if let Err(join_error) = joined {
+                return std::task::Poll::Ready(Some(Err(Status::internal(format!(
+                    "execution task failed: {join_error}"
+                )))));
+            }
+        }
+
+        self.out_rx.poll_recv(cx)
+    }
+}
+
+/// Wire up and launch transient workflow execution for the given runtime,
+/// over the gRPC bidir stream: the [`proto::ActionResult`]s on `in_stream`
+/// feed the execution, and the returned [`ExecuteStream`] is the response
+/// stream.
 ///
 /// Instantiates [`waymark_transient_execution_bringup::execute_with`] with
-/// [`waymark_action_runtime_worker_stream`] channels, and spawns a
-/// background task that awaits the workflow outcome (delivered via a
-/// oneshot channel) and emits it on `out_rx`.
-///
-/// The caller must feed [`proto::ActionResult`]s into
-/// [`ExecuteChannels::action_result_tx`] (typically by forwarding them from
-/// the gRPC bidir input stream) and convert
-/// [`ExecuteChannels::out_rx`] into the gRPC response stream.
+/// [`waymark_action_runtime_worker_stream`] channels.
 ///
 /// When `skip_sleep` is true, every sleep in the workflow resolves
 /// immediately instead of waiting for its deadline.
-pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> ExecuteChannels {
+pub fn execute(
+    runtime: waymark_system_vm::Runtime,
+    skip_sleep: bool,
+    mut in_stream: tonic::Streaming<proto::WorkflowStreamRequest>,
+) -> ExecuteStream {
     let (out_tx, out_rx) = mpsc::channel::<Result<proto::WorkflowStreamResponse, Status>>(32);
     let (action_result_tx, action_result_rx) = mpsc::channel::<proto::ActionResult>(32);
 
@@ -150,30 +168,58 @@ pub fn execute(runtime: waymark_system_vm::Runtime, skip_sleep: bool) -> Execute
         cancellation.clone(),
     );
 
-    tokio::spawn(async move {
-        let response = match workflow_outcome_rx.await {
-            Ok(workflow_outcome) => convert_workflow_outcome_to_stream_response(workflow_outcome),
-            Err(_recv_error) => {
-                tracing::error!(
-                    "workflow completion sender dropped without sending the workflow outcome"
-                );
-                Err(Status::internal(
-                    "workflow driver exited without recording a result",
-                ))
+    let mut tasks = tokio::task::JoinSet::new();
+
+    tasks.spawn(async move {
+        loop {
+            match in_stream.message().await {
+                Ok(Some(msg)) => {
+                    if let Some(proto::workflow_stream_request::Kind::ActionResult(result)) =
+                        msg.kind
+                        && action_result_tx.send(result).await.is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(None) => break,
+                Err(err) => {
+                    tracing::warn!(?err, "gRPC input stream error");
+                    break;
+                }
             }
-        };
-
-        let _ = out_tx.send(response).await;
-
-        cancellation.cancel();
-
-        let Err(err) = driver_handle.await;
-        tracing::warn!(?err, "vm driver exited");
+        }
     });
 
-    ExecuteChannels {
+    tasks.spawn({
+        let cancellation = cancellation.clone();
+        async move {
+            let response = match workflow_outcome_rx.await {
+                Ok(workflow_outcome) => {
+                    convert_workflow_outcome_to_stream_response(workflow_outcome)
+                }
+                Err(_recv_error) => {
+                    tracing::error!(
+                        "workflow completion sender dropped without sending the workflow outcome"
+                    );
+                    Err(Status::internal(
+                        "workflow driver exited without recording a result",
+                    ))
+                }
+            };
+
+            let _ = out_tx.send(response).await;
+
+            cancellation.cancel();
+
+            let Err(err) = driver_handle.await;
+            tracing::warn!(?err, "vm driver exited");
+        }
+    });
+
+    ExecuteStream {
         out_rx,
-        action_result_tx,
+        tasks,
+        _cancel_driver: cancellation.drop_guard(),
     }
 }
 
