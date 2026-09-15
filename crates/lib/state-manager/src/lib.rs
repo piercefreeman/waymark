@@ -8,7 +8,7 @@ mod guard;
 mod handle;
 pub mod provider;
 mod storage;
-mod sweeper;
+pub mod sweeper;
 
 pub use self::handle::Handle;
 pub use self::provider::Provider;
@@ -39,6 +39,10 @@ pub struct State<Key, Value, Factory> {
 
     /// A factory used to produce the values for this state manager.
     factory: Factory,
+
+    /// Tells the [`Sweeper`] that this state is gone.
+    #[expect(dead_code, reason = "held for its drop")]
+    gone_guard: tokio_util::sync::DropGuard,
 }
 
 impl<Key, Value, Factory> State<Key, Value, Factory>
@@ -49,10 +53,19 @@ where
     /// `retention` and `factory`.
     pub fn new(retention: NonZeroDuration, factory: Factory) -> (Self, Sweeper<Key, Value>) {
         let maps = Arc::new(Maps::new());
+        let gone = tokio_util::sync::CancellationToken::new();
 
-        let sweeper = Sweeper::new(retention, Arc::downgrade(&maps));
+        let sweeper = Sweeper::new(
+            retention,
+            Arc::downgrade(&maps),
+            gone.clone().cancelled_owned(),
+        );
 
-        let state = Self { maps, factory };
+        let state = Self {
+            maps,
+            factory,
+            gone_guard: gone.drop_guard(),
+        };
 
         (state, sweeper)
     }
