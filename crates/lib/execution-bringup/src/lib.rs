@@ -96,51 +96,6 @@ pub struct Config<NodeId> {
     pub executable_sweep_interval: NonZeroDuration,
 }
 
-/// Spawned execution subsystem handles.
-pub struct Handles {
-    /// Join handle for the workload pinning manager.
-    pub pinning_manager: tokio::task::JoinHandle<()>,
-
-    /// Join handle for the execution driver.
-    pub execution_driver: tokio::task::JoinHandle<()>,
-
-    /// Join handle for the executable state sweeper.
-    pub executable_sweeper: tokio::task::JoinHandle<()>,
-
-    /// Join handle for the VM state sweeper.
-    pub vm_sweeper: tokio::task::JoinHandle<()>,
-
-    /// Join handle for the durable action-call completions writer.
-    pub durable_action_completions_writer: tokio::task::JoinHandle<()>,
-
-    /// Join handle for the durable action-call completions demand poller.
-    pub durable_action_completions_poller: tokio::task::JoinHandle<()>,
-
-    /// Join handle for the durable action-call completions acker.
-    pub durable_action_completions_acker: tokio::task::JoinHandle<()>,
-
-    /// Join handle for the durable sleeps demand poller.
-    pub durable_sleeps_poller: tokio::task::JoinHandle<()>,
-
-    /// Join handle for the durable sleeps acker.
-    pub durable_sleeps_acker: tokio::task::JoinHandle<()>,
-
-    /// Join handle for the action-call request lock renewal heartbeat.
-    pub action_effect_reconciler_lock_renewal: tokio::task::JoinHandle<()>,
-
-    /// Join handle for the VM snapshot write batcher.
-    pub snapshot_batcher: tokio::task::JoinHandle<()>,
-
-    /// Join handle for the action-call request write batcher.
-    pub action_effect_reconciler_request_batcher: tokio::task::JoinHandle<()>,
-
-    /// Join handle for the workflow terminal-outcome write batcher.
-    pub workflow_completion_batcher: tokio::task::JoinHandle<()>,
-
-    /// Join handle for the revival-reconcile lock batcher.
-    pub action_effect_reconciler_lock_batcher: tokio::task::JoinHandle<()>,
-}
-
 /// The observability events of the VM driver runs: where they go, and
 /// which of the optional ones are recorded.
 pub struct ObservabilityEvents {
@@ -167,15 +122,16 @@ pub struct ObservabilityEvents {
 /// the maintenance loop keeps running until all active workloads drain.
 /// `force_shutdown_token` breaks out of that drain immediately, so shutdown
 /// can't hang forever on a workload that never evicts.
-pub async fn start<Backend, WorkerPool>(
+pub async fn start<Spawner, Backend, WorkerPool>(
+    mut spawner: Spawner,
     config: Config<Backend::NodeId>,
     backend: Arc<Backend>,
     worker_pool: WorkerPool,
     observability_events: Option<ObservabilityEvents>,
     shutdown_token: CancellationToken,
     force_shutdown_token: CancellationToken,
-) -> Handles
-where
+) where
+    Spawner: waymark_managed_spawner::Spawner,
     Backend: waymark_workload_pinning_backend::PollUnpinnedWorkloads,
     Backend: waymark_workload_pinning_backend::KeepalivePinnings,
     Backend: waymark_workload_pinning_backend::UnpinWorkloads,
@@ -204,9 +160,9 @@ where
     Backend: waymark_action_completions_reconciler_backend::AckCompletions,
     Backend: waymark_action_completions_reconciler_backend::HasVmId<VmId = waymark_ids::InstanceId>,
     <Backend as waymark_action_completions_reconciler_backend::RecordCompletions>::Error:
-        Send + 'static,
+        core::error::Error + Send + Sync + 'static,
     <Backend as waymark_action_completions_reconciler_backend::PollCompletions>::Error:
-        Send + 'static,
+        core::error::Error + Send + Sync + 'static,
     <Backend as waymark_action_completions_reconciler_backend::AckCompletions>::Error:
         Send + 'static,
     Backend: waymark_sleep_reconciler_backend::RecordSleeps,
@@ -216,7 +172,8 @@ where
     Backend:
         waymark_sleep_reconciler_backend::HasTimestamp<Timestamp = chrono::DateTime<chrono::Utc>>,
     <Backend as waymark_sleep_reconciler_backend::RecordSleeps>::Error: Send + 'static,
-    <Backend as waymark_sleep_reconciler_backend::PollDueSleeps>::Error: Send + 'static,
+    <Backend as waymark_sleep_reconciler_backend::PollDueSleeps>::Error:
+        core::error::Error + Send + Sync + 'static,
     <Backend as waymark_sleep_reconciler_backend::AckSleeps>::Error: Send + 'static,
     Backend: waymark_action_effect_reconciler_backend::RecordActionCallRequests,
     Backend: waymark_action_effect_reconciler_backend::LockActionCallRequests,
@@ -235,9 +192,12 @@ where
     Backend: waymark_workflow_completion_backend::HasVmId<
             VmId = <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
         >,
-    <Backend as waymark_workload_pinning_backend::PollUnpinnedWorkloads>::Error: Send,
-    <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error: Send,
-    <Backend as waymark_workload_pinning_backend::UnpinWorkloads>::Error: Send,
+    <Backend as waymark_workload_pinning_backend::PollUnpinnedWorkloads>::Error:
+        core::error::Error + Send + Sync + 'static,
+    <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error:
+        core::error::Error + Send + Sync + 'static,
+    <Backend as waymark_workload_pinning_backend::UnpinWorkloads>::Error:
+        core::error::Error + Send + Sync + 'static,
     <Backend as waymark_state_vm_runtimes_backend::StoreSnapshots>::Error: Send + 'static,
     <Backend as waymark_state_vm_runtimes_backend::LoadForRevive>::Error: Send + 'static,
     <Backend as waymark_workflow_completion_backend::RecordOutcomes>::Error: Send + 'static,
@@ -250,7 +210,7 @@ where
     <WorkerPool as waymark_worker_core::QueueActionDispatch>::Error:
         core::fmt::Debug + Send + 'static,
     <WorkerPool as waymark_worker_core::PollActionResults>::Error:
-        core::fmt::Debug + Send + 'static,
+        core::error::Error + Send + Sync + 'static,
 {
     let Config {
         node_id,
@@ -296,11 +256,14 @@ where
     >::new(Arc::clone(&backend), Arc::clone(&codec));
     let (executable_state, executable_sweeper) =
         waymark_state_manager::State::new(executable_retention, executable_factory);
-    let executable_sweeper_handle = tokio::spawn(state_sweeper(
-        executable_sweeper,
-        executable_sweep_interval,
-        shutdown_token.child_token(),
-    ));
+    spawner.spawn(
+        "executable sweeper",
+        state_sweeper(
+            executable_sweeper,
+            executable_sweep_interval,
+            shutdown_token.child_token(),
+        ),
+    );
 
     // Durable action-call completions pipeline (not to be confused with
     // workflow completions) — action-call completions are recorded durably
@@ -323,19 +286,16 @@ where
         backend: Arc::clone(&backend),
         codec: Arc::clone(&codec),
     };
-    let durable_action_completions_writer_handle = tokio::spawn({
+    spawner.spawn("durable action completions writer", {
         let shutdown = shutdown_token.child_token();
         let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
             let _shutdown_guard = shutdown_guard;
             tokio::select! {
-                _ = shutdown.cancelled() => {}
+                _ = shutdown.cancelled() => Ok(()),
                 result = waymark_action_completions_reconciler::writer::run(writer_params) => {
                     let Err(error) = result;
-                    tracing::error!(
-                        ?error,
-                        "durable action-call completions writer failed, shutting down"
-                    );
+                    Err(error)
                 }
             }
         }
@@ -346,7 +306,7 @@ where
         backend: Arc::clone(&backend),
         ack_rx,
     };
-    let durable_action_completions_acker_handle = tokio::spawn({
+    spawner.spawn("durable action completions acker", {
         let shutdown = shutdown_token.child_token();
         let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
@@ -368,19 +328,16 @@ where
         codec: Arc::clone(&codec),
         state: poller_state,
     };
-    let durable_action_completions_poller_handle = tokio::spawn({
+    spawner.spawn("durable action completions poller", {
         let shutdown = shutdown_token.child_token();
         let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
             let _shutdown_guard = shutdown_guard;
             tokio::select! {
-                _ = shutdown.cancelled() => {}
+                _ = shutdown.cancelled() => Ok(()),
                 result = waymark_action_completions_reconciler::poller::run(poller_params) => {
                     let Err(error) = result;
-                    tracing::error!(
-                        ?error,
-                        "durable action-call completions demand poller failed, shutting down"
-                    );
+                    Err(error)
                 }
             }
         }
@@ -397,7 +354,7 @@ where
         backend: Arc::clone(&backend),
         ack_rx: sleep_ack_rx,
     };
-    let durable_sleeps_acker_handle = tokio::spawn({
+    spawner.spawn("durable sleeps acker", {
         let shutdown = shutdown_token.child_token();
         let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
@@ -416,19 +373,16 @@ where
         state: sleep_poller_state,
         poll_interval: sleep_poll_interval,
     };
-    let durable_sleeps_poller_handle = tokio::spawn({
+    spawner.spawn("durable sleeps poller", {
         let shutdown = shutdown_token.child_token();
         let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
             let _shutdown_guard = shutdown_guard;
             tokio::select! {
-                _ = shutdown.cancelled() => {}
+                _ = shutdown.cancelled() => Ok(()),
                 result = waymark_sleep_reconciler::poller::run(sleep_poller_params) => {
                     let Err(error) = result;
-                    tracing::error!(
-                        ?error,
-                        "durable sleeps demand poller failed, shutting down"
-                    );
+                    Err(error)
                 }
             }
         }
@@ -449,25 +403,18 @@ where
         heartbeat: action_effect_reconciler_lock_heartbeat,
         held_locks_rx,
     };
-    let action_effect_reconciler_lock_renewal_handle = tokio::spawn({
+    spawner.spawn("action effect reconciler lock renewal", {
         let shutdown = shutdown_token.child_token();
         let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
             let _shutdown_guard = shutdown_guard;
             tokio::select! {
-                _ = shutdown.cancelled() => {}
+                _ = shutdown.cancelled() => Ok(()),
                 result = waymark_action_effect_reconciler::renewal::run(renewal_params) => {
-                    match result {
-                        Ok(()) => {
-                            tracing::info!("action-call request lock renewal drained");
-                        }
-                        Err(error) => {
-                            tracing::error!(
-                                ?error,
-                                "action-call request lock fence breached, shutting down"
-                            );
-                        }
+                    if result.is_ok() {
+                        tracing::info!("action-call request lock renewal drained");
                     }
+                    result
                 }
             }
         }
@@ -487,8 +434,10 @@ where
                 async move { shutdown.cancelled_owned().await }
             },
         );
-    let action_effect_reconciler_request_batcher_handle =
-        tokio::spawn(action_effect_reconciler_request_batcher_loop);
+    spawner.spawn(
+        "action effect reconciler request batcher",
+        action_effect_reconciler_request_batcher_loop,
+    );
 
     let (outcome_recorder, workflow_completion_batcher_loop) =
         waymark_workflow_completion::outcome_batcher::outcome_batcher(
@@ -502,7 +451,10 @@ where
                 async move { shutdown.cancelled_owned().await }
             },
         );
-    let workflow_completion_batcher_handle = tokio::spawn(workflow_completion_batcher_loop);
+    spawner.spawn(
+        "workflow completion batcher",
+        workflow_completion_batcher_loop,
+    );
 
     let requests_factory_worker_pool = worker_pool.clone();
     let effector_provider = waymark_state_vm_runtimes_core::FnEffectorProvider::new({
@@ -574,7 +526,7 @@ where
             async move { shutdown.cancelled_owned().await }
         },
     );
-    let snapshot_batcher_handle = tokio::spawn(snapshot_batcher_loop);
+    spawner.spawn("snapshot batcher", snapshot_batcher_loop);
 
     let hooks_provider = waymark_state_vm_runtimes_core::FnHooksProvider::new(
         move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
@@ -624,8 +576,10 @@ where
                 async move { shutdown.cancelled_owned().await }
             },
         );
-    let action_effect_reconciler_lock_batcher_handle =
-        tokio::spawn(action_effect_reconciler_lock_batcher_loop);
+    spawner.spawn(
+        "action effect reconciler lock batcher",
+        action_effect_reconciler_lock_batcher_loop,
+    );
 
     let vm_runtimes_factory = waymark_action_effect_reconciler::ReconcilingFactory {
         inner: vm_runtimes_factory,
@@ -649,11 +603,14 @@ where
 
     let (vm_runtimes_state, vm_runtimes_sweeper) =
         waymark_state_manager::State::new(vm_retention, vm_runtimes_factory);
-    let vm_runtimes_sweeper_handle = tokio::spawn(state_sweeper(
-        vm_runtimes_sweeper,
-        vm_sweep_interval,
-        shutdown_token.child_token(),
-    ));
+    spawner.spawn(
+        "vm runtimes sweeper",
+        state_sweeper(
+            vm_runtimes_sweeper,
+            vm_sweep_interval,
+            shutdown_token.child_token(),
+        ),
+    );
 
     let pinning_params = waymark_workload_pinning_manager::Params {
         shutdown_token: shutdown_token.child_token(),
@@ -671,41 +628,19 @@ where
         pinning_fencing_margin,
     };
 
-    let pinning_manager = tokio::spawn(async move {
+    spawner.spawn("workload pinning manager", async move {
         let outcome = waymark_workload_pinning_manager::run(pinning_params).await;
-        if let Some(error) = outcome.poll_error {
-            tracing::error!(?error, "workload pinning manager poll loop failed");
-        }
-        if let Some(error) = outcome.maintenance_error {
-            tracing::error!(?error, "workload pinning manager maintenance loop failed");
-        }
-        if let Some(error) = outcome.unpin_error {
-            tracing::warn!(?error, "workload pinning manager unpin loop failed");
-        }
+        outcome.into_result()
     });
 
-    let execution_driver = tokio::spawn(waymark_execution_driver::run(
-        pinned_rx,
-        Arc::new(vm_runtimes_state),
-        shutdown_token.child_token(),
-    ));
-
-    Handles {
-        pinning_manager,
-        execution_driver,
-        executable_sweeper: executable_sweeper_handle,
-        vm_sweeper: vm_runtimes_sweeper_handle,
-        durable_action_completions_writer: durable_action_completions_writer_handle,
-        durable_action_completions_poller: durable_action_completions_poller_handle,
-        durable_action_completions_acker: durable_action_completions_acker_handle,
-        durable_sleeps_poller: durable_sleeps_poller_handle,
-        durable_sleeps_acker: durable_sleeps_acker_handle,
-        action_effect_reconciler_lock_renewal: action_effect_reconciler_lock_renewal_handle,
-        snapshot_batcher: snapshot_batcher_handle,
-        action_effect_reconciler_request_batcher: action_effect_reconciler_request_batcher_handle,
-        workflow_completion_batcher: workflow_completion_batcher_handle,
-        action_effect_reconciler_lock_batcher: action_effect_reconciler_lock_batcher_handle,
-    }
+    spawner.spawn(
+        "execution driver",
+        waymark_execution_driver::run(
+            pinned_rx,
+            Arc::new(vm_runtimes_state),
+            shutdown_token.child_token(),
+        ),
+    );
 }
 
 async fn state_sweeper<Key, Value>(

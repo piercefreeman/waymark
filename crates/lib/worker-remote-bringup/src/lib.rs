@@ -4,8 +4,6 @@ use std::{
     sync::Arc,
 };
 
-use tokio::task::JoinHandle;
-
 #[derive(Debug, thiserror::Error)]
 pub enum StartError {
     #[error("bridge: {0}")]
@@ -15,21 +13,24 @@ pub enum StartError {
     Pool(#[source] waymark_worker_process_pool::InitError),
 }
 
-pub async fn start<Spec>(
+pub async fn start<Spawner, Spec>(
+    mut spawner: Spawner,
     shutdown_token: tokio_util::sync::CancellationToken,
     bind_addr: Option<SocketAddr>,
     worker_process_spec_builder: impl FnOnce(SocketAddr) -> Spec,
     worker_pool_size: NonZeroUsize,
     max_action_lifecycle: Option<NonZeroU64>,
     max_concurrent_per_worker: NonZeroUsize,
-) -> Result<(waymark_worker_process_pool::Pool<Spec>, JoinHandle<()>), StartError>
+) -> Result<waymark_worker_process_pool::Pool<Spec>, StartError>
 where
+    Spawner: waymark_managed_spawner::Spawner,
     Spec: waymark_worker_process_spec::Spec,
 {
     let workers_registry = Default::default();
 
     // Bringup server first.
-    let (bridge_addr, bridge_task) = waymark_worker_remote_bridge_bringup::start(
+    let bridge_addr = waymark_worker_remote_bridge_bringup::start(
+        &mut spawner,
         shutdown_token,
         Arc::clone(&workers_registry),
         bind_addr,
@@ -55,5 +56,5 @@ where
         "worker pool started"
     );
 
-    Ok((pool, bridge_task))
+    Ok(pool)
 }

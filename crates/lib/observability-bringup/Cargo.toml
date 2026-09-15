@@ -9,6 +9,7 @@ waymark-api-observability-state-http = { workspace = true }
 waymark-essential-metrics-bringup = { workspace = true }
 waymark-essential-metrics-sampler = { workspace = true }
 waymark-ids = { workspace = true }
+waymark-managed-spawner = { workspace = true }
 waymark-observability-config = { workspace = true }
 waymark-observability-events-bringup = { workspace = true }
 waymark-observability-events-vm-driver-hooks = { workspace = true }
