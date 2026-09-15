@@ -297,12 +297,14 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     spawner.spawn("durable action completions writer", {
         let shutdown = shutdown_token.child_token();
         async move {
-            tokio::select! {
-                _ = shutdown.cancelled() => Ok(()),
-                result = waymark_action_completions_reconciler::writer::run(writer_params) => {
-                    let Err(error) = result;
-                    Err(error)
-                }
+            match shutdown
+                .run_until_cancelled(waymark_action_completions_reconciler::writer::run(
+                    writer_params,
+                ))
+                .await
+            {
+                None => Ok(()),
+                Some(Err(error)) => Err(error),
             }
         }
     });
@@ -315,10 +317,11 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     spawner.spawn("durable action completions acker", {
         let shutdown = shutdown_token.child_token();
         async move {
-            tokio::select! {
-                _ = shutdown.cancelled() => {}
-                () = waymark_action_completions_reconciler::acker::run(acker_params) => {}
-            }
+            shutdown
+                .run_until_cancelled(waymark_action_completions_reconciler::acker::run(
+                    acker_params,
+                ))
+                .await;
         }
     });
 
@@ -335,12 +338,14 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     spawner.spawn("durable action completions poller", {
         let shutdown = shutdown_token.child_token();
         async move {
-            tokio::select! {
-                _ = shutdown.cancelled() => Ok(()),
-                result = waymark_action_completions_reconciler::poller::run(poller_params) => {
-                    let Err(error) = result;
-                    Err(error)
-                }
+            match shutdown
+                .run_until_cancelled(waymark_action_completions_reconciler::poller::run(
+                    poller_params,
+                ))
+                .await
+            {
+                None => Ok(()),
+                Some(Err(error)) => Err(error),
             }
         }
     });
@@ -358,10 +363,9 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     spawner.spawn("durable sleeps acker", {
         let shutdown = shutdown_token.child_token();
         async move {
-            tokio::select! {
-                _ = shutdown.cancelled() => {}
-                () = waymark_sleep_reconciler::acker::run(sleep_acker_params) => {}
-            }
+            shutdown
+                .run_until_cancelled(waymark_sleep_reconciler::acker::run(sleep_acker_params))
+                .await;
         }
     });
 
@@ -375,12 +379,12 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     spawner.spawn("durable sleeps poller", {
         let shutdown = shutdown_token.child_token();
         async move {
-            tokio::select! {
-                _ = shutdown.cancelled() => Ok(()),
-                result = waymark_sleep_reconciler::poller::run(sleep_poller_params) => {
-                    let Err(error) = result;
-                    Err(error)
-                }
+            match shutdown
+                .run_until_cancelled(waymark_sleep_reconciler::poller::run(sleep_poller_params))
+                .await
+            {
+                None => Ok(()),
+                Some(Err(error)) => Err(error),
             }
         }
     });
@@ -403,9 +407,14 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     spawner.spawn("action effect reconciler lock renewal", {
         let shutdown = shutdown_token.child_token();
         async move {
-            tokio::select! {
-                _ = shutdown.cancelled() => Ok(()),
-                result = waymark_action_effect_reconciler::renewal::run(renewal_params) => {
+            match shutdown
+                .run_until_cancelled(waymark_action_effect_reconciler::renewal::run(
+                    renewal_params,
+                ))
+                .await
+            {
+                None => Ok(()),
+                Some(result) => {
                     if result.is_ok() {
                         tracing::info!("action-call request lock renewal drained");
                     }
