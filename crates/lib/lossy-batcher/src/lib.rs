@@ -4,6 +4,11 @@
 //! When flushing cannot keep up, items are dropped and counted. Use it
 //! for data that must never slow its producer.
 //!
+//! Lossy means one thing: under contention, when no buffer is free, an
+//! item is dropped rather than its producer slowed. A batch whose flush
+//! fails is dropped as well. Both kinds of drop are counted. Lossy does
+//! not mean work may be discarded to simplify coordination.
+//!
 //! It is the lossy sibling of `waymark-batcher` — the submit-and-await
 //! counterpart for correctness state, where producers block on intake
 //! and receive their item's flush output.
