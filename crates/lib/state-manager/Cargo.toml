@@ -9,7 +9,8 @@ waymark-nonzero-duration = { workspace = true }
 waymark-state-manager-core = { workspace = true }
 
 dashmap = { workspace = true }
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
