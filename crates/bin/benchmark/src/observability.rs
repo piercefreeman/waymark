@@ -26,17 +26,20 @@ pub struct Observability {
 
 /// Bring the observability subsystem up over the benchmark database,
 /// with its tables emptied first, ending on `shutdown_token`; its
-/// pipelines are supervised by `supervisor`.
+/// pipelines are supervised by `spawner`.
 ///
 /// The metrics recorder is installed process-wide here, with the
 /// Prometheus exporter on an ephemeral port nobody scrapes: the
 /// essential-metrics sampler needs the recorder, not the exporter.
-pub async fn start(
-    supervisor: &mut crate::Supervisor,
+pub async fn start<Spawner>(
+    mut spawner: Spawner,
     dsn: &SecretStr,
     node_id: waymark_ids::NodeId,
     shutdown_token: tokio_util::sync::CancellationToken,
-) -> Result<Observability, color_eyre::eyre::Report> {
+) -> Result<Observability, color_eyre::eyre::Report>
+where
+    Spawner: waymark_managed_spawner::Spawner,
+{
     let sampling_handle = waymark_metrics_bringup::start(([127, 0, 0, 1], 0))
         .wrap_err("install the metrics recorder")?;
 
@@ -61,31 +64,15 @@ pub async fn start(
         .await
         .wrap_err("clear the observability tables")?;
 
-    let (handles, _api_router, emitter, vm_driver_hooks_policy) =
-        waymark_observability_bringup::start(config, node_id, sampling_handle, shutdown_token)
-            .await
-            .wrap_err("start the observability subsystem")?;
-
-    supervisor.track(
-        "essential metrics sampler",
-        handles.essential_metrics.sampler,
-    );
-    supervisor.track(
-        "essential metrics batcher",
-        handles.essential_metrics.batcher,
-    );
-    supervisor.track(
-        "essential metrics retention",
-        handles.essential_metrics.retention,
-    );
-    supervisor.track(
-        "observability events batcher",
-        handles.observability_events.batcher,
-    );
-    supervisor.track(
-        "observability events retention",
-        handles.observability_events.retention,
-    );
+    let (_api_router, emitter, vm_driver_hooks_policy) = waymark_observability_bringup::start(
+        &mut spawner,
+        config,
+        node_id,
+        sampling_handle,
+        shutdown_token,
+    )
+    .await
+    .wrap_err("start the observability subsystem")?;
 
     Ok(Observability {
         emitter: Arc::new(emitter),
