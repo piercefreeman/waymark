@@ -4576,6 +4576,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-http-webapp"
+version = "0.1.0"
+dependencies = [
+ "aide",
+ "axum",
+ "http-body-util",
+ "serde_json",
+ "tokio",
+ "tower",
+ "waymark-http-api",
+ "waymark-http-healthz",
+]
+
+[[package]]
 name = "waymark-ids"
 version = "0.1.0"
 dependencies = [
@@ -5311,6 +5325,7 @@ dependencies = [
  "waymark-http-api",
  "waymark-http-bringup",
  "waymark-http-healthz",
+ "waymark-http-webapp",
  "waymark-ids",
  "waymark-managed-spawner-supervised",
  "waymark-metrics-bringup",
