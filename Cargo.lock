@@ -4494,6 +4494,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-http-webapp"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http-body-util",
+ "tokio",
+ "tower",
+ "waymark-webapp-assets",
+]
+
+[[package]]
 name = "waymark-ids"
 version = "0.1.0"
 dependencies = [
@@ -5232,6 +5243,7 @@ dependencies = [
  "waymark-http-api",
  "waymark-http-bringup",
  "waymark-http-healthz",
+ "waymark-http-webapp",
  "waymark-ids",
  "waymark-managed-spawner-supervised",
  "waymark-metrics-bringup",
@@ -6162,6 +6174,14 @@ dependencies = [
  "waymark-vm-value-convert-core",
  "waymark-vm-value-python",
  "waymark-workflow-completion-core",
+]
+
+[[package]]
+name = "waymark-webapp-assets"
+version = "0.1.0"
+dependencies = [
+ "envfury",
+ "thiserror",
 ]
 
 [[package]]
