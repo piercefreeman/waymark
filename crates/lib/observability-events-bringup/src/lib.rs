@@ -15,16 +15,6 @@ use waymark_observability_events_config::ObservabilityEventsConfig;
 /// and the name of the sweep it feeds in its tracing.
 const BATCHER_NAME: &str = "observability_events";
 
-/// The spawned observability-events tasks.
-#[derive(Debug)]
-pub struct Handles {
-    /// The lossy batcher between the emitter and the store sink.
-    pub batcher: tokio::task::JoinHandle<()>,
-
-    /// The retention sweep.
-    pub retention: tokio::task::JoinHandle<()>,
-}
-
 /// The emitter a bringup hands out: the node's one event stream, over
 /// the backend's payload.
 pub type EmitterFor<Backend> = waymark_observability_events_emitter::Emitter<
@@ -33,26 +23,28 @@ pub type EmitterFor<Backend> = waymark_observability_events_emitter::Emitter<
 >;
 
 /// Start the observability-events pipeline over `write_backend`: the
-/// lossy batcher into the store sink, plus the retention sweep, all
-/// ending on `shutdown_token` — and the observability-events API router
-/// over `read_backend`, and the node's emitter for producers to share,
-/// with what the VM driver hooks record through it.
+/// lossy batcher into the store sink, plus the retention sweep, as tasks
+/// of `spawner` all ending on `shutdown_token` — and return the
+/// observability-events API router over `read_backend`, and the node's
+/// emitter for producers to share, with what the VM driver hooks record
+/// through it.
 ///
 /// The emitter is the node's one event stream: constructed here, once,
 /// and shared behind an `Arc` by whoever produces events.
-pub fn start<WriteBackend, ReadBackend>(
+pub fn start<Spawner, WriteBackend, ReadBackend>(
+    mut spawner: Spawner,
     config: ObservabilityEventsConfig,
     node_id: waymark_ids::NodeId,
     write_backend: Arc<WriteBackend>,
     read_backend: Arc<ReadBackend>,
     shutdown_token: tokio_util::sync::CancellationToken,
 ) -> (
-    Handles,
     aide::axum::ApiRouter,
     EmitterFor<WriteBackend>,
     waymark_observability_events_vm_driver_hooks::Policy,
 )
 where
+    Spawner: waymark_managed_spawner::Spawner,
     WriteBackend: waymark_observability_events_sink_backend::AppendEvents,
     WriteBackend:
         waymark_observability_events_sink_backend::HasNodeId<NodeId = waymark_ids::NodeId>,
@@ -101,14 +93,12 @@ where
         shutdown_token.cancelled_owned(),
     );
 
-    let handles = Handles {
-        batcher: tokio::spawn(batcher_task),
-        retention: tokio::spawn(retention_task),
-    };
+    spawner.spawn("observability events batcher", batcher_task);
+    spawner.spawn("observability events retention", retention_task);
 
     let vm_driver_hooks_policy = waymark_observability_events_vm_driver_hooks::Policy {
         snapshot_persisted: config.vm_driver_hooks_policy.record_snapshot_persisted,
     };
 
-    (handles, api_router, emitter, vm_driver_hooks_policy)
+    (api_router, emitter, vm_driver_hooks_policy)
 }

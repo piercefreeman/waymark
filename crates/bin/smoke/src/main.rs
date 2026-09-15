@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use clap::Parser;
 use color_eyre::eyre::WrapErr as _;
+use waymark_managed_spawner_supervised::SupervisorExt as _;
 use waymark_smoke_sources::{
     build_control_flow_program, build_parallel_spread_program, build_program,
     build_try_except_program, build_while_loop_program,
@@ -83,19 +84,21 @@ where
 
 async fn run_smoke(base: i64) -> i32 {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
-    let mut supervisor = waymark_managed_spawner_supervised::supervisor::start::<
-        waymark_fn_main_common::Error,
-    >(shutdown_token.clone());
+    let mut supervisor =
+        waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
     // The run under the supervisor: a failure part-way leaves the tasks
     // already up supervised, and they are shut down and drained below like
     // on any other exit.
     let run_result: Result<_, color_eyre::eyre::Report> = async {
+        let mut supervisor = supervisor.spawner(waymark_fn_main_common::ErrorConverter);
+
         let worker_config = waymark_worker_python::Config::new()
             .with_user_module("tests.fixtures.test_actions")
             .with_python_paths(vec![repo_root().join("python")]);
 
-        let (process_pool, bridge_server_task) = waymark_worker_remote_bringup::start(
+        let process_pool = waymark_worker_remote_bringup::start(
+            &mut supervisor,
             shutdown_token.clone(),
             None,
             |bridge_server_addr| waymark_worker_python::Spec {
@@ -108,8 +111,6 @@ async fn run_smoke(base: i64) -> i32 {
         )
         .await
         .wrap_err("start python worker pool")?;
-
-        supervisor.track("worker bridge server", bridge_server_task);
 
         let (worker_pool, pool_loop) = waymark_worker_remote_pool::run(process_pool);
         supervisor.spawn("worker pool loop", pool_loop);

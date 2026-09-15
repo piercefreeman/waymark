@@ -11,16 +11,6 @@ use waymark_observability_config::{Db, ObservabilityConfig};
 /// subsystem's tables.
 const SCHEMA: &str = "observability";
 
-/// The spawned observability tasks.
-#[derive(Debug)]
-pub struct Handles {
-    /// The essential-metrics subsystem's tasks.
-    pub essential_metrics: waymark_essential_metrics_bringup::Handles,
-
-    /// The observability-events subsystem's tasks.
-    pub observability_events: waymark_observability_events_bringup::Handles,
-}
-
 /// The node's event emitter, over the store's payload.
 pub type Emitter =
     waymark_observability_events_bringup::EmitterFor<waymark_observability_store_postgres::Store>;
@@ -43,28 +33,31 @@ pub enum StartError {
 
 /// Bring up the observability store — a write pool with the migrations,
 /// a read pool — and every observability subsystem's pipeline over the
-/// write side, all ending on `shutdown_token`; returns the observability
-/// API router over the read side alongside the task handles, and the
+/// write side, as tasks of `spawner` all ending on `shutdown_token`;
+/// returns the observability API router over the read side, and the
 /// node's event emitter for producers to share, with what the VM driver
 /// hooks record through it.
 ///
 /// `handle` is the sampling half of the essential-metrics recorder pair;
 /// the recording half must already be installed in the process-global
 /// fanout.
-pub async fn start(
+pub async fn start<Spawner>(
+    mut spawner: Spawner,
     config: ObservabilityConfig,
     node_id: waymark_ids::NodeId,
     handle: waymark_essential_metrics_sampler::recorder::Handle,
     shutdown_token: tokio_util::sync::CancellationToken,
 ) -> Result<
     (
-        Handles,
         aide::axum::ApiRouter,
         Emitter,
         waymark_observability_events_vm_driver_hooks::Policy,
     ),
     StartError,
-> {
+>
+where
+    Spawner: waymark_managed_spawner::Spawner,
+{
     let Db::Postgres(postgres_config) = &config.db;
 
     // The write pool first, and the migrations through it. The read pool
@@ -90,18 +83,19 @@ pub async fn start(
     let write_store = Arc::new(waymark_observability_store_postgres::Store { pool: write_pool });
     let read_store = Arc::new(waymark_observability_store_postgres::Store { pool: read_pool });
 
-    let (essential_metrics, essential_metrics_api_router) =
-        waymark_essential_metrics_bringup::start(
-            config.essential_metrics,
-            node_id,
-            handle,
-            Arc::clone(&write_store),
-            Arc::clone(&read_store),
-            shutdown_token.clone(),
-        );
+    let essential_metrics_api_router = waymark_essential_metrics_bringup::start(
+        &mut spawner,
+        config.essential_metrics,
+        node_id,
+        handle,
+        Arc::clone(&write_store),
+        Arc::clone(&read_store),
+        shutdown_token.clone(),
+    );
 
-    let (observability_events, observability_events_api_router, emitter, vm_driver_hooks_policy) =
+    let (observability_events_api_router, emitter, vm_driver_hooks_policy) =
         waymark_observability_events_bringup::start(
+            &mut spawner,
             config.observability_events,
             node_id,
             write_store,
@@ -116,10 +110,5 @@ pub async fn start(
         .merge(observability_events_api_router)
         .merge(observability_state_api_router);
 
-    let handles = Handles {
-        essential_metrics,
-        observability_events,
-    };
-
-    Ok((handles, api_router, emitter, vm_driver_hooks_policy))
+    Ok((api_router, emitter, vm_driver_hooks_policy))
 }

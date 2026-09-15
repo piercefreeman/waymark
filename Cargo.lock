@@ -4302,6 +4302,7 @@ dependencies = [
  "waymark-execution-bringup",
  "waymark-fn-main-common",
  "waymark-ids",
+ "waymark-managed-spawner",
  "waymark-managed-spawner-supervised",
  "waymark-metrics-bringup",
  "waymark-nonzero-duration",
@@ -4435,7 +4436,6 @@ name = "waymark-essential-metrics-bringup"
 version = "0.1.0"
 dependencies = [
  "aide",
- "tokio",
  "tokio-util",
  "waymark-api-essential-metrics-http",
  "waymark-essential-metrics-compat",
@@ -4446,6 +4446,7 @@ dependencies = [
  "waymark-essential-metrics-sink-backend",
  "waymark-ids",
  "waymark-lossy-batcher",
+ "waymark-managed-spawner",
  "waymark-retention-sweeper",
 ]
 
@@ -4534,6 +4535,7 @@ dependencies = [
  "waymark-extcall-reconciler",
  "waymark-fullset-effect-handler",
  "waymark-ids",
+ "waymark-managed-spawner",
  "waymark-nonzero-duration",
  "waymark-observability-events-vm-driver-hooks",
  "waymark-observability-events-vm-driver-hooks-fullset",
@@ -4721,6 +4723,9 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "waymark-fn-main-common",
+ "waymark-managed-spawner",
+ "waymark-managed-spawner-supervised",
 ]
 
 [[package]]
@@ -4773,6 +4778,7 @@ dependencies = [
  "waymark-execution-bringup",
  "waymark-fn-main-common",
  "waymark-ids",
+ "waymark-managed-spawner",
  "waymark-managed-spawner-supervised",
  "waymark-proto",
  "waymark-secret-string",
@@ -4900,6 +4906,7 @@ dependencies = [
  "waymark-essential-metrics-bringup",
  "waymark-essential-metrics-sampler",
  "waymark-ids",
+ "waymark-managed-spawner",
  "waymark-observability-config",
  "waymark-observability-events-bringup",
  "waymark-observability-events-vm-driver-hooks",
@@ -4927,11 +4934,11 @@ dependencies = [
  "aide",
  "schemars",
  "serde",
- "tokio",
  "tokio-util",
  "waymark-api-observability-events-http",
  "waymark-ids",
  "waymark-lossy-batcher",
+ "waymark-managed-spawner",
  "waymark-observability-events-compat",
  "waymark-observability-events-config",
  "waymark-observability-events-core",
@@ -5276,6 +5283,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "waymark-ids",
+ "waymark-managed-spawner",
  "waymark-nonzero-duration",
  "waymark-scheduler",
  "waymark-scheduler-backend",
@@ -6498,6 +6506,9 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tracing",
+ "waymark-fn-main-common",
+ "waymark-managed-spawner",
+ "waymark-managed-spawner-supervised",
  "waymark-proto",
  "waymark-worker-message-protocol",
  "waymark-worker-remote-bridge-service",
@@ -6527,9 +6538,9 @@ name = "waymark-worker-remote-bringup"
 version = "0.1.0"
 dependencies = [
  "thiserror",
- "tokio",
  "tokio-util",
  "tracing",
+ "waymark-managed-spawner",
  "waymark-worker-process-pool",
  "waymark-worker-process-spec",
  "waymark-worker-remote-bridge-bringup",
