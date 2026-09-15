@@ -20,6 +20,9 @@
 //! settlements; the acks it mints push keys onto the ack channel the
 //! registry was created with (see [`DemandHandle::ack_sender`]), from
 //! where an [`acker::run`](crate::acker::run) loop deletes the rows.
+//! [`PollDriver::all_registrars_and_handles_gone`] resolves once every
+//! registrar and handle is gone: no demand can be registered again, and
+//! the poll loop can end.
 //!
 //! Rows stay in the backend until acked, so all in-memory state here is
 //! disposable: a crashed or re-registered VM simply re-demands and
@@ -130,11 +133,16 @@ where
         closed: AtomicBool::new(false),
         ack_tx,
     });
+    let all_registrars_and_handles_gone = tokio_util::sync::CancellationToken::new();
     (
         DemandRegistrar {
             shared: Arc::clone(&shared),
+            demand_alive: Arc::new(all_registrars_and_handles_gone.clone().drop_guard()),
         },
-        StateToken { shared },
+        StateToken {
+            shared,
+            all_registrars_and_handles_gone,
+        },
     )
 }
 
@@ -147,6 +155,7 @@ where
     VmId: Eq + std::hash::Hash,
 {
     shared: Arc<Shared<VmId, Item, Key>>,
+    all_registrars_and_handles_gone: tokio_util::sync::CancellationToken,
 }
 
 impl<VmId, Item, Key> StateToken<VmId, Item, Key>
@@ -161,6 +170,7 @@ where
     pub fn into_driver(self) -> PollDriver<VmId, Item, Key> {
         PollDriver {
             shared: self.shared,
+            all_registrars_and_handles_gone: self.all_registrars_and_handles_gone,
         }
     }
 }
@@ -174,6 +184,9 @@ where
     VmId: Eq + std::hash::Hash,
 {
     shared: Arc<Shared<VmId, Item, Key>>,
+    /// Shared by every registrar and handle; the last one dropped
+    /// resolves [`PollDriver::all_registrars_and_handles_gone`].
+    demand_alive: Arc<tokio_util::sync::DropGuard>,
 }
 
 impl<VmId, Item, Key> Clone for DemandRegistrar<VmId, Item, Key>
@@ -183,6 +196,7 @@ where
     fn clone(&self) -> Self {
         Self {
             shared: Arc::clone(&self.shared),
+            demand_alive: Arc::clone(&self.demand_alive),
         }
     }
 }
@@ -205,6 +219,7 @@ where
             vm_id,
             entry,
             shared: Arc::clone(&self.shared),
+            demand_alive: Arc::clone(&self.demand_alive),
         }
     }
 }
@@ -223,6 +238,7 @@ where
     VmId: Eq + std::hash::Hash,
 {
     shared: Arc<Shared<VmId, Item, Key>>,
+    all_registrars_and_handles_gone: tokio_util::sync::CancellationToken,
 }
 
 impl<VmId, Item, Key> Drop for PollDriver<VmId, Item, Key>
@@ -252,6 +268,14 @@ where
     /// [`collect_demand`]: PollDriver::collect_demand
     pub fn demand_registered(&self) -> tokio::sync::futures::Notified<'_> {
         self.shared.demand_notify.notified()
+    }
+
+    /// Resolves once every [`DemandRegistrar`] and [`DemandHandle`] is
+    /// gone: no demand can be registered again.
+    pub fn all_registrars_and_handles_gone(
+        &self,
+    ) -> tokio_util::sync::WaitForCancellationFuture<'_> {
+        self.all_registrars_and_handles_gone.cancelled()
     }
 
     /// The union of all registered demand, minus items already buffered.
@@ -330,6 +354,8 @@ where
     vm_id: VmId,
     entry: Arc<VmEntry<Item>>,
     shared: Arc<Shared<VmId, Item, Key>>,
+    #[expect(dead_code, reason = "held for its drop")]
+    demand_alive: Arc<tokio_util::sync::DropGuard>,
 }
 
 impl<VmId, Item, Key> Drop for DemandHandle<VmId, Item, Key>

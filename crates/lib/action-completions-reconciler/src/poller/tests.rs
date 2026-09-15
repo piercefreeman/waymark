@@ -202,3 +202,21 @@ async fn waiters_fail_when_the_run_loop_is_cancelled() {
         Err(PollActionSettlementsError::PollerGone)
     ));
 }
+
+#[tokio::test]
+async fn ends_once_every_registrar_and_handle_is_gone() {
+    let backend = MockBackend::default();
+    let (registrar, params, _ack_rx) = poller(&backend);
+    let handle = registrar.subscribe(InstanceId::new_uuid_v4());
+
+    let mut run = pin!(super::run(params));
+    assert!(poll_once(run.as_mut()).is_pending());
+
+    // A handle outliving its registrar keeps the loop parked.
+    drop(registrar);
+    assert!(poll_once(run.as_mut()).is_pending());
+
+    drop(handle);
+    assert!(matches!(poll_once(run.as_mut()), Poll::Ready(Ok(()))));
+    assert_eq!(backend.inner.poll_calls.load(Ordering::SeqCst), 0);
+}
