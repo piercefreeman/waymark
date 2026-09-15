@@ -25,7 +25,8 @@ pub struct Observability {
 }
 
 /// Bring the observability subsystem up over the benchmark database,
-/// with its tables emptied first, ending on `shutdown_token`; its
+/// with its tables emptied first, ending on `shutdown_token` — the lossy
+/// batchers on their last handle or on `force_shutdown_token`; its
 /// pipelines are supervised by `spawner`.
 ///
 /// The metrics recorder is installed process-wide here, its Prometheus
@@ -37,6 +38,7 @@ pub async fn start<Spawner>(
     dsn: &SecretStr,
     node_id: waymark_ids::NodeId,
     shutdown_token: tokio_util::sync::CancellationToken,
+    force_shutdown_token: tokio_util::sync::CancellationToken,
 ) -> Result<Observability, color_eyre::eyre::Report>
 where
     Spawner: waymark_managed_spawner::Spawner,
@@ -78,6 +80,7 @@ where
         node_id,
         sampling_handle,
         shutdown_token,
+        force_shutdown_token,
     )
     .await
     .wrap_err("start the observability subsystem")?;

@@ -454,6 +454,41 @@ async fn an_overdue_partial_batch_waits_for_a_free_buffer_instead_of_dropping() 
 }
 
 #[tokio::test(start_paused = true)]
+async fn dropping_the_last_handle_flushes_the_partial_batch_and_ends_the_task() {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (handle, task) = metrics::with_local_recorder(&recorder, || {
+        lossy_batcher(
+            "test",
+            valid_policy(2, 10, Duration::from_secs(60), 1),
+            recording_flusher(&seen, Vec::new()),
+            std::future::pending(),
+        )
+    });
+    let task = tokio::spawn(task);
+
+    let clone = handle.clone();
+    handle.push(1);
+    settle().await;
+    drop(handle);
+    settle().await;
+    assert!(!task.is_finished(), "a live handle keeps the task running");
+
+    drop(clone);
+    task.await.expect("batcher task must not panic");
+
+    assert_eq!(
+        counters(&snapshotter),
+        CountersSnapshot {
+            flushed: 1,
+            ..Default::default()
+        }
+    );
+    assert_eq!(*seen.lock().unwrap(), vec![vec![1]]);
+}
+
+#[tokio::test(start_paused = true)]
 async fn shutdown_with_no_free_buffer_drops_the_final_batch_as_full() {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
