@@ -4856,7 +4856,6 @@ dependencies = [
  "metrics-exporter-prometheus",
  "metrics-util",
  "thiserror",
- "tokio",
  "waymark-essential-metrics-sampler",
  "waymark-prometheus-exporter-bringup",
 ]
@@ -5185,8 +5184,12 @@ dependencies = [
 name = "waymark-prometheus-exporter-bringup"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "metrics-exporter-prometheus",
- "tracing",
+ "tokio",
+ "tokio-util",
+ "waymark-http-bringup",
+ "waymark-managed-spawner",
 ]
 
 [[package]]
@@ -5469,6 +5472,7 @@ dependencies = [
  "waymark-metrics-bringup",
  "waymark-observability-bringup",
  "waymark-os-shutdown-requests",
+ "waymark-prometheus-exporter-bringup",
  "waymark-scheduler-bringup",
  "waymark-tokio-metrics-bringup",
  "waymark-worker-python",

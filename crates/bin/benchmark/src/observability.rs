@@ -28,9 +28,9 @@ pub struct Observability {
 /// with its tables emptied first, ending on `shutdown_token`; its
 /// pipelines are supervised by `spawner`.
 ///
-/// The metrics recorder is installed process-wide here, with the
-/// Prometheus exporter on an ephemeral port nobody scrapes: the
-/// essential-metrics sampler needs the recorder, not the exporter.
+/// The metrics recorder is installed process-wide here, its Prometheus
+/// half never served: the essential-metrics sampler needs the recorder,
+/// not the endpoint.
 pub async fn start<Spawner>(
     mut spawner: Spawner,
     dsn: &SecretStr,
@@ -40,8 +40,8 @@ pub async fn start<Spawner>(
 where
     Spawner: waymark_managed_spawner::Spawner,
 {
-    let sampling_handle = waymark_metrics_bringup::start(([127, 0, 0, 1], 0))
-        .wrap_err("install the metrics recorder")?;
+    let (sampling_handle, _prometheus_handle) =
+        waymark_metrics_bringup::register().wrap_err("install the metrics recorder")?;
 
     let config = waymark_observability_config::ObservabilityConfig::from_env(&dsn.into())
         .wrap_err("read the observability config")?;
