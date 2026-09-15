@@ -18,6 +18,7 @@ waymark-managed-spawner-supervised = { workspace = true }
 waymark-metrics-bringup = { workspace = true }
 waymark-observability-bringup = { workspace = true }
 waymark-os-shutdown-requests = { workspace = true }
+waymark-prometheus-exporter-bringup = { workspace = true }
 waymark-scheduler-bringup = { workspace = true }
 waymark-tokio-metrics-bringup = { workspace = true }
 waymark-worker-python = { workspace = true }
