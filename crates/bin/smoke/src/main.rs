@@ -83,8 +83,9 @@ where
 
 async fn run_smoke(base: i64) -> i32 {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
-    let mut supervisor =
-        waymark_task_supervisor::start::<waymark_fn_main_common::Error>(shutdown_token.clone());
+    let mut supervisor = waymark_managed_spawner_supervised::supervisor::start::<
+        waymark_fn_main_common::Error,
+    >(shutdown_token.clone());
 
     // The run under the supervisor: a failure part-way leaves the tasks
     // already up supervised, and they are shut down and drained below like
