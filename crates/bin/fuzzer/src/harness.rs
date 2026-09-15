@@ -66,8 +66,9 @@ pub async fn run_case(
         })?;
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
-    let mut supervisor =
-        waymark_task_supervisor::start::<waymark_fn_main_common::Error>(shutdown_token.clone());
+    let mut supervisor = waymark_managed_spawner_supervised::supervisor::start::<
+        waymark_fn_main_common::Error,
+    >(shutdown_token.clone());
 
     // The case under the supervisor: a failure part-way leaves the tasks
     // already up supervised, and they are shut down and drained below like

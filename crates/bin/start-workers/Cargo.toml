@@ -14,11 +14,11 @@ waymark-http-api = { workspace = true }
 waymark-http-bringup = { workspace = true }
 waymark-http-healthz = { workspace = true }
 waymark-ids = { workspace = true }
+waymark-managed-spawner-supervised = { workspace = true }
 waymark-metrics-bringup = { workspace = true }
 waymark-observability-bringup = { workspace = true }
 waymark-os-shutdown-requests = { workspace = true }
 waymark-scheduler-bringup = { workspace = true }
-waymark-task-supervisor = { workspace = true }
 waymark-tokio-metrics-bringup = { workspace = true }
 waymark-worker-python = { workspace = true }
 waymark-worker-remote-bringup = { workspace = true }
