@@ -25,27 +25,28 @@ pub enum StartError {
 }
 
 /// Start the HTTP server.
-pub async fn start(
+pub async fn start<Spawner>(
+    mut spawner: Spawner,
     bind_addr: SocketAddr,
     router: axum::Router,
     shutdown_signal: tokio_util::sync::WaitForCancellationFutureOwned,
-) -> Result<tokio::task::JoinHandle<()>, StartError> {
+) -> Result<(), StartError>
+where
+    Spawner: waymark_managed_spawner::Spawner,
+{
     let listener = tokio::net::TcpListener::bind(bind_addr)
         .await
         .map_err(|source| StartError::Bind { bind_addr, source })?;
 
     let actual_addr = listener.local_addr().map_err(StartError::LocalAddr)?;
 
-    let task = tokio::spawn(async move {
-        let result = axum::serve(listener, router)
+    spawner.spawn("http server", async move {
+        axum::serve(listener, router)
             .with_graceful_shutdown(shutdown_signal)
-            .await;
-        if let Err(error) = result {
-            tracing::error!(?error, "http server failed");
-        }
+            .await
     });
 
     tracing::info!(addr = %actual_addr, "http server started");
 
-    Ok(task)
+    Ok(())
 }
