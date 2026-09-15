@@ -49,4 +49,44 @@ impl<PollError, KeepaliveError, UnpinError> RunOutcome<PollError, KeepaliveError
     pub fn is_err(&self) -> bool {
         !self.is_ok()
     }
+
+    /// The run as a result: `Ok` when no loop failed, the outcome itself
+    /// otherwise.
+    pub fn into_result(self) -> Result<(), Self> {
+        if self.is_ok() { Ok(()) } else { Err(self) }
+    }
+}
+
+impl<PollError, KeepaliveError, UnpinError> std::fmt::Display
+    for RunOutcome<PollError, KeepaliveError, UnpinError>
+where
+    PollError: std::fmt::Display,
+    KeepaliveError: std::fmt::Display,
+    UnpinError: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "workload pinning manager")?;
+        let mut separator = ": ";
+        if let Some(error) = &self.poll_error {
+            write!(f, "{separator}poll loop: {error}")?;
+            separator = "; ";
+        }
+        if let Some(error) = &self.maintenance_error {
+            write!(f, "{separator}maintenance loop: {error}")?;
+            separator = "; ";
+        }
+        if let Some(error) = &self.unpin_error {
+            write!(f, "{separator}unpin loop: {error}")?;
+        }
+        Ok(())
+    }
+}
+
+impl<PollError, KeepaliveError, UnpinError> std::error::Error
+    for RunOutcome<PollError, KeepaliveError, UnpinError>
+where
+    PollError: std::fmt::Display + std::fmt::Debug,
+    KeepaliveError: std::fmt::Display + std::fmt::Debug,
+    UnpinError: std::fmt::Display + std::fmt::Debug,
+{
 }
