@@ -261,11 +261,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
         waymark_state_manager::State::new(executable_retention, executable_factory);
     spawner.spawn(
         "executable sweeper",
-        state_sweeper(
-            executable_sweeper,
-            executable_sweep_interval,
-            shutdown_token.child_token(),
-        ),
+        waymark_state_manager::sweeper::run(executable_sweeper, executable_sweep_interval),
     );
 
     // Durable action-call completions pipeline (not to be confused with
@@ -591,11 +587,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
         waymark_state_manager::State::new(vm_retention, vm_runtimes_factory);
     spawner.spawn(
         "vm runtimes sweeper",
-        state_sweeper(
-            vm_runtimes_sweeper,
-            vm_sweep_interval,
-            shutdown_token.child_token(),
-        ),
+        waymark_state_manager::sweeper::run(vm_runtimes_sweeper, vm_sweep_interval),
     );
 
     let pinning_params = waymark_workload_pinning_manager::Params {
@@ -627,28 +619,4 @@ pub async fn start<Spawner, Backend, WorkerPool>(
             shutdown_token.child_token(),
         ),
     );
-}
-
-async fn state_sweeper<Key, Value>(
-    mut sweeper: waymark_state_manager::Sweeper<Key, Value>,
-    interval: waymark_nonzero_duration::NonZeroDuration,
-    shutdown: tokio_util::sync::CancellationToken,
-) where
-    Key: Eq + std::hash::Hash + Clone,
-{
-    let mut ticker = tokio::time::interval(interval.get());
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
-        tokio::select! {
-            _ = ticker.tick() => {
-                if !sweeper.associated_state_exists() {
-                    break;
-                }
-                sweeper.sweep();
-            }
-            () = shutdown.cancelled() => {
-                break;
-            }
-        }
-    }
 }
