@@ -26,7 +26,8 @@ pub async fn run_transient_mode(
         // its completion into whatever case polls the pool next. Bound every
         // completion's lifetime by its case: each case gets its own pool.
         let shutdown_token = tokio_util::sync::CancellationToken::new();
-        let mut supervisor: Supervisor = waymark_task_supervisor::start(shutdown_token.clone());
+        let mut supervisor: Supervisor =
+            waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
         // The case under the supervisor: a failure part-way leaves the tasks
         // already up supervised, and they are shut down and drained below

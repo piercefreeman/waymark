@@ -7,8 +7,8 @@ edition = "2024"
 [dependencies]
 waymark-fn-main-common = { workspace = true }
 waymark-ir-parser = { workspace = true }
+waymark-managed-spawner-supervised = { workspace = true }
 waymark-system-vm = { workspace = true }
-waymark-task-supervisor = { workspace = true }
 waymark-transient-execution-bringup = { workspace = true }
 waymark-transient-execution-worker-pool-bringup = { workspace = true }
 waymark-vm-ast-old-proto = { workspace = true }
