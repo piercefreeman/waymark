@@ -21,6 +21,7 @@ waymark-nonzero-duration = { workspace = true }
 waymark-workload-pinning-backend = { workspace = true }
 
 chrono = { workspace = true, default-features = false, features = ["clock"] }
+insta = { workspace = true }
 mockall = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "test-util"] }
 
