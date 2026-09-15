@@ -46,7 +46,9 @@ pub fn router(mount_path: &str, routes: aide::axum::ApiRouter) -> axum::Router {
         // Nesting at the root is not a thing in axum; the router already is
         // at the root.
         "/" => router,
-        mount_path => axum::Router::new().nest(mount_path, router),
+        // Isolate the API's fallback, including at the mount point with a
+        // trailing slash, from the surrounding SPA's fallback.
+        mount_path => axum::Router::new().nest_service(mount_path, router),
     }
 }
 

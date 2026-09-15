@@ -11,6 +11,7 @@
 !python
 !core-python
 !scripts
+!webapp
 !README.md
 
 !example_app
@@ -20,3 +21,5 @@
 *.pyo
 *.pyd
 *.whl
+**/node_modules
+**/dist

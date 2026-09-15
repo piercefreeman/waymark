@@ -53,6 +53,7 @@ waymark-http-api-types = { path = "crates/lib/http-api-types" }
 waymark-http-bringup = { path = "crates/lib/http-bringup" }
 waymark-http-config = { path = "crates/lib/http-config" }
 waymark-http-healthz = { path = "crates/lib/http-healthz" }
+waymark-http-webapp = { path = "crates/lib/http-webapp" }
 waymark-ids = { path = "crates/lib/ids" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
 waymark-lossy-batcher = { path = "crates/lib/lossy-batcher" }

@@ -1,0 +1,12 @@
+name: Set up webapp
+description: Install the Node toolchain and locked frontend dependencies for Rust builds.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version-file: webapp/.node-version
+        cache: npm
+        cache-dependency-path: webapp/package-lock.json
+    - run: npm ci --prefix webapp
+      shell: bash
