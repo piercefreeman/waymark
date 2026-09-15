@@ -6700,6 +6700,7 @@ name = "waymark-workload-pinning-manager"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "insta",
  "mockall",
  "nonempty-collections",
  "thiserror",
