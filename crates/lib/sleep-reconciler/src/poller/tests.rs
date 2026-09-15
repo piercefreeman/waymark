@@ -179,6 +179,63 @@ async fn stale_handle_drop_leaves_resubscribed_entry_intact() {
 }
 
 #[tokio::test]
+async fn ends_once_every_registrar_and_handle_is_gone() {
+    let backend = MockBackend::default();
+    let (registrar, params, _ack_rx) = poller(&backend);
+    let handle = registrar.subscribe::<ReadyValueSleepProvider>(InstanceId::new_uuid_v4());
+
+    let mut run = pin!(super::run(params));
+    assert!(poll_once(run.as_mut()).is_pending());
+
+    // A handle outliving its registrar keeps the loop parked.
+    drop(registrar);
+    assert!(poll_once(run.as_mut()).is_pending());
+
+    drop(handle);
+    assert!(matches!(poll_once(run.as_mut()), Poll::Ready(Ok(()))));
+    assert_eq!(backend.inner.poll_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn ends_from_the_poll_interval_wait_once_everything_is_gone() {
+    let vm_id = InstanceId::new_uuid_v4();
+    let backend = MockBackend::default();
+    backend
+        .inner
+        .poll_batches
+        .lock()
+        .unwrap()
+        .push_back(vec![key(vm_id, 3)]);
+
+    let (registrar, params, _ack_rx) = poller(&backend);
+    // The clone outlives the original.
+    let registrar_clone = registrar.clone();
+    let mut handle = registrar.subscribe::<ReadyValueSleepProvider>(vm_id);
+    drop(registrar);
+
+    {
+        // Register demand, then cancel the wait before delivery.
+        let mut wait = pin!(poll_settlements(&mut handle, &[3]));
+        assert!(poll_once(wait.as_mut()).is_pending());
+    }
+
+    // Drive the poller through its one poll and into the interval wait.
+    let mut run = pin!(super::run(params));
+    for _ in 0..8 {
+        assert!(poll_once(run.as_mut()).is_pending());
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(backend.inner.poll_calls.load(Ordering::SeqCst), 1);
+
+    // No new demand and the interval far from over: the gone arm is the
+    // only way out of that wait, and it is taken.
+    drop(handle);
+    drop(registrar_clone);
+    assert!(matches!(poll_once(run.as_mut()), Poll::Ready(Ok(()))));
+    assert_eq!(backend.inner.poll_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
 async fn waiters_fail_when_the_run_loop_is_cancelled() {
     let vm_id = InstanceId::new_uuid_v4();
     let backend = MockBackend::default();

@@ -184,17 +184,16 @@ where
     pub poll_interval: NonZeroDuration,
 }
 
-/// Poll the backend for demanded due sleeps until a critical failure.
+/// Poll the backend for demanded due sleeps until every registrar and
+/// handle is gone, or a critical failure.
 ///
 /// Drive this in a background task.  Parks while no demand is registered;
 /// otherwise polls every [`Params::poll_interval`], and immediately when
-/// new demand arrives.  The loop never completes normally — errors are
-/// critical, and the caller should stop the subsystem.  When the loop
-/// returns (or its future is dropped after starting), the shared state is
-/// marked closed and all waiting handles fail.
-pub async fn run<Backend>(
-    params: Params<Backend>,
-) -> Result<std::convert::Infallible, Error<Backend::Error>>
+/// new demand arrives.  Errors are critical, and the caller should stop
+/// the subsystem.  When the loop returns (or its future is dropped after
+/// starting), the shared state is marked closed and all waiting handles
+/// fail.
+pub async fn run<Backend>(params: Params<Backend>) -> Result<(), Error<Backend::Error>>
 where
     Backend: PollDueSleeps<Timestamp = chrono::DateTime<chrono::Utc>>,
     Backend::VmId: Clone + Eq + std::hash::Hash,
@@ -215,8 +214,10 @@ where
             vm_id: vm_id.clone(),
             promise_state_id,
         }) else {
-            registered.await;
-            continue;
+            tokio::select! {
+                () = registered => continue,
+                () = driver.all_registrars_and_handles_gone() => return Ok(()),
+            }
         };
 
         let due = backend
@@ -233,6 +234,7 @@ where
         tokio::select! {
             () = tokio::time::sleep(poll_interval.get()) => {}
             () = registered => {}
+            () = driver.all_registrars_and_handles_gone() => return Ok(()),
         }
     }
 }

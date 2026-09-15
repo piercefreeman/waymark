@@ -11,6 +11,7 @@ dashmap = { workspace = true }
 nonempty-collections = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time"] }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 [lib]
