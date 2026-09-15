@@ -12,7 +12,8 @@ pub type PythonWorkerPool = Arc<waymark_worker_remote_pool::Pool>;
 
 /// The supervisor of a run's tasks: their errors differ per task, so they
 /// are supervised unified.
-pub type Supervisor = waymark_task_supervisor::Supervisor<waymark_fn_main_common::Error>;
+pub type Supervisor =
+    waymark_managed_spawner_supervised::supervisor::Supervisor<waymark_fn_main_common::Error>;
 
 /// Start the worker pool under `supervisor`: the bridge server and the
 /// worker pool loop are its tasks.
