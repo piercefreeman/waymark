@@ -287,9 +287,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     };
     spawner.spawn("durable action completions writer", {
         let shutdown = shutdown_token.child_token();
-        let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
-            let _shutdown_guard = shutdown_guard;
             tokio::select! {
                 _ = shutdown.cancelled() => Ok(()),
                 result = waymark_action_completions_reconciler::writer::run(writer_params) => {
@@ -307,9 +305,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     };
     spawner.spawn("durable action completions acker", {
         let shutdown = shutdown_token.child_token();
-        let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
-            let _shutdown_guard = shutdown_guard;
             tokio::select! {
                 _ = shutdown.cancelled() => {}
                 () = waymark_action_completions_reconciler::acker::run(acker_params) => {}
@@ -329,9 +325,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     };
     spawner.spawn("durable action completions poller", {
         let shutdown = shutdown_token.child_token();
-        let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
-            let _shutdown_guard = shutdown_guard;
             tokio::select! {
                 _ = shutdown.cancelled() => Ok(()),
                 result = waymark_action_completions_reconciler::poller::run(poller_params) => {
@@ -345,9 +339,8 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     // Durable sleeps pipeline — sleep requests are recorded durably as the
     // VMs emit them (inline in the per-VM effect handler, so there is no
     // writer loop) and removed only once their settlements have been
-    // durably applied.  Two background loops, each holding a drop guard on
-    // the subsystem shutdown token, mirroring the completions pipeline
-    // above.
+    // durably applied.  Two background loops, mirroring the completions
+    // pipeline above.
     let (sleep_ack_tx, sleep_ack_rx) = tokio::sync::mpsc::unbounded_channel();
     let sleep_acker_params = waymark_sleep_reconciler::acker::Params {
         backend: Arc::clone(&backend),
@@ -355,9 +348,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     };
     spawner.spawn("durable sleeps acker", {
         let shutdown = shutdown_token.child_token();
-        let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
-            let _shutdown_guard = shutdown_guard;
             tokio::select! {
                 _ = shutdown.cancelled() => {}
                 () = waymark_sleep_reconciler::acker::run(sleep_acker_params) => {}
@@ -374,9 +365,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     };
     spawner.spawn("durable sleeps poller", {
         let shutdown = shutdown_token.child_token();
-        let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
-            let _shutdown_guard = shutdown_guard;
             tokio::select! {
                 _ = shutdown.cancelled() => Ok(()),
                 result = waymark_sleep_reconciler::poller::run(sleep_poller_params) => {
@@ -392,7 +381,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     // renewal heartbeat keeps the held locks alive while the attempts run.
     // A held lock is the authorization to execute its attempt; a lock that
     // cannot be renewed in time is a fence breach, and with no per-attempt
-    // termination primitive the drop guard escalates to subsystem shutdown,
+    // termination primitive the supervisor escalates to shutdown,
     // force-terminating every local attempt with the process.
     let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
     let renewal_params = waymark_action_effect_reconciler::renewal::Params {
@@ -404,9 +393,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     };
     spawner.spawn("action effect reconciler lock renewal", {
         let shutdown = shutdown_token.child_token();
-        let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
-            let _shutdown_guard = shutdown_guard;
             tokio::select! {
                 _ = shutdown.cancelled() => Ok(()),
                 result = waymark_action_effect_reconciler::renewal::run(renewal_params) => {
