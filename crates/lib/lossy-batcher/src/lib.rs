@@ -28,13 +28,12 @@
 //! # Lifecycle
 //!
 //! [`lossy_batcher`] returns a ([`BatcherHandle`], task future) pair; the
-//! caller spawns the task. The task ends when `shutdown` resolves: the
-//! filling buffer goes out one last time (best effort: discarded and
-//! counted `full` when no buffer is free), pending flushes finish, and
-//! every later push counts as `closed`. Dropping handles does
-//! not end the task. Dropping the task before its `shutdown` future
-//! resolves closes the intake at the next swap: that batch and every later
-//! push count as `closed`.
+//! caller spawns the task. The task ends when every handle is dropped or
+//! when `shutdown` resolves: the filling buffer goes out one last time
+//! (best effort: discarded and counted `full` when no buffer is free),
+//! pending flushes finish, and every later push counts as `closed`.
+//! Dropping the task while handles are alive closes the intake at the
+//! next swap: that batch and every later push count as `closed`.
 
 #![warn(missing_docs)]
 
@@ -183,6 +182,12 @@ struct Shared<T> {
     /// buffers pool.
     pub buffer_freed: tokio::sync::Notify,
 
+    /// The live [`BatcherHandle`]s.
+    pub handles: std::sync::atomic::AtomicUsize,
+
+    /// Wakes the task when the last handle is dropped.
+    pub handles_gone: tokio::sync::Notify,
+
     pub counters: Counters,
 }
 
@@ -237,8 +242,24 @@ pub struct BatcherHandle<T> {
 // Derived `Clone` would demand `T: Clone`; the handle is just an `Arc`.
 impl<T> Clone for BatcherHandle<T> {
     fn clone(&self) -> Self {
+        self.shared
+            .handles
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self {
             shared: Arc::clone(&self.shared),
+        }
+    }
+}
+
+impl<T> Drop for BatcherHandle<T> {
+    fn drop(&mut self) {
+        if self
+            .shared
+            .handles
+            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel)
+            == 1
+        {
+            self.shared.handles_gone.notify_one();
         }
     }
 }
@@ -296,6 +317,8 @@ where
         swapchain,
         first_push: tokio::sync::Notify::new(),
         buffer_freed: tokio::sync::Notify::new(),
+        handles: std::sync::atomic::AtomicUsize::new(1),
+        handles_gone: tokio::sync::Notify::new(),
         counters: Counters {
             dropped_full: dropped("full"),
             dropped_closed: dropped("closed"),
@@ -314,7 +337,7 @@ where
     (handle, task)
 }
 
-/// The batcher task: the delay timer, the flush loops, and the shutdown
+/// The batcher task: the delay timer, the flush loops, and the close
 /// sequence.
 async fn run<T, Flusher, Shutdown>(
     shared: Arc<Shared<T>>,
@@ -340,6 +363,7 @@ async fn run<T, Flusher, Shutdown>(
         tokio::select! {
             biased;
             () = shutdown => {}
+            () = shared.handles_gone.notified() => {}
             never = timer => match never {},
             _ = &mut flushers => {
                 unreachable!("the sender is dropped only by close, which runs after this select")

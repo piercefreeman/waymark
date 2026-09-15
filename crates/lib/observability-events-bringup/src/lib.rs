@@ -23,7 +23,8 @@ pub type EmitterFor<Backend> = waymark_observability_events_emitter::Emitter<
 
 /// Start the observability-events pipeline over `write_backend`: the
 /// lossy batcher into the store sink, plus the retention sweep, as tasks
-/// of `spawner` all ending on `shutdown_token` — and return the
+/// of `spawner`; the sweep ends on `shutdown_token`, the batcher when its
+/// last handle is dropped or on `force_shutdown_token` — and return the
 /// observability-events API router over `read_backend`, and the node's
 /// emitter for producers to share, with what the VM driver hooks record
 /// through it.
@@ -37,6 +38,7 @@ pub fn start<Spawner, WriteBackend, ReadBackend>(
     write_backend: Arc<WriteBackend>,
     read_backend: Arc<ReadBackend>,
     shutdown_token: tokio_util::sync::CancellationToken,
+    force_shutdown_token: tokio_util::sync::CancellationToken,
 ) -> (
     aide::axum::ApiRouter,
     EmitterFor<WriteBackend>,
@@ -71,7 +73,7 @@ where
         BATCHER_NAME,
         config.lossy_batcher_policy,
         BackendFlusher(Arc::clone(&write_backend)),
-        shutdown_token.clone().cancelled_owned(),
+        force_shutdown_token.cancelled_owned(),
     );
     let emitter = waymark_observability_events_emitter::Emitter::new(node_id, batcher);
 
