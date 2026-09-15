@@ -145,6 +145,19 @@ To build truly robust background tasks, you need to consider how things can go w
 
 By default an action runs once: an exception fails the workflow, and there is no timeout. A `RetryPolicy` retries the exceptions the action raises; `ActionTimeout` is retried only when the policy lists it by name, because the timed-out attempt may still be running.
 
+### Webapp development
+
+The HTTP server serves an embedded SPA at `/`, alongside `/api` and `/healthz`.
+The initial page is a hello-world placeholder. Enable it with
+`WAYMARK_HTTP_ENABLED=true` (default address: `http://localhost:24119`).
+
+Building from source requires Node.js (version in `.node-version`) and npm:
+
+```sh
+make js-deps
+cargo build --bin waymark-start-workers
+```
+
 ### Configuration
 
 Waymark runtime configuration is environment-variable driven.
