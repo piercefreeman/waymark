@@ -121,8 +121,9 @@ pub struct ObservabilityEvents {
 /// `shutdown_token` requests a graceful stop — new workloads are refused while
 /// the maintenance loop keeps running until all active workloads drain.
 /// `force_shutdown_token` breaks the pinning manager's maintenance loop out
-/// of that drain immediately; the execution driver still ends only once its
-/// last VM driver has exited, so a workload that never evicts keeps the
+/// of that drain immediately and closes the four batchers' intake, which
+/// flush what they hold and end; the execution driver still ends only once
+/// its last VM driver has exited, so a workload that never evicts keeps the
 /// subsystem from shutting down.
 pub async fn start<Spawner, Backend, WorkerPool>(
     mut spawner: Spawner,
@@ -426,10 +427,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
                 max_batch: action_effect_reconciler_request_batch_max,
                 max_delay: action_effect_reconciler_request_batch_delay,
             },
-            {
-                let shutdown = shutdown_token.child_token();
-                async move { shutdown.cancelled_owned().await }
-            },
+            force_shutdown_token.child_token().cancelled_owned(),
         );
     spawner.spawn(
         "action effect reconciler request batcher",
@@ -443,10 +441,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
                 max_batch: workflow_completion_batch_max,
                 max_delay: workflow_completion_batch_delay,
             },
-            {
-                let shutdown = shutdown_token.child_token();
-                async move { shutdown.cancelled_owned().await }
-            },
+            force_shutdown_token.child_token().cancelled_owned(),
         );
     spawner.spawn(
         "workflow completion batcher",
@@ -518,10 +513,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
             max_batch: snapshot_batch_max,
             max_delay: snapshot_batch_delay,
         },
-        {
-            let shutdown = shutdown_token.child_token();
-            async move { shutdown.cancelled_owned().await }
-        },
+        force_shutdown_token.child_token().cancelled_owned(),
     );
     spawner.spawn("snapshot batcher", snapshot_batcher_loop);
 
@@ -568,10 +560,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
                 max_batch: action_effect_reconciler_lock_batch_max,
                 max_delay: action_effect_reconciler_lock_batch_delay,
             },
-            {
-                let shutdown = shutdown_token.child_token();
-                async move { shutdown.cancelled_owned().await }
-            },
+            force_shutdown_token.child_token().cancelled_owned(),
         );
     spawner.spawn(
         "action effect reconciler lock batcher",
