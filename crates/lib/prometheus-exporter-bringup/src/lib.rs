@@ -1,30 +1,23 @@
-//! Bringup for the Prometheus exporter: the recorder and its exporter
-//! server future, built together but not installed or spawned — the
-//! caller decides where the recorder goes (e.g. into a fanout) and when
-//! the server starts.
+//! Bringup for the Prometheus exporter: the recorder, built here and
+//! installed by the caller, and the `/metrics` server and the upkeep
+//! over it, as tasks of the spawner the caller hands in.
 
 #![warn(missing_docs)]
 
-use std::net::SocketAddr;
+/// How often the recorder's upkeep runs.
+const UPKEEP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// Build the Prometheus recorder and its exporter server future, serving
-/// on `metrics_addr` — without installing or spawning anything. Serve
-/// failures inside the returned future are logged.
-///
-/// Must be called within a tokio runtime: the recorder's upkeep task is
-/// spawned here.
-pub fn build(
-    metrics_addr: SocketAddr,
-) -> Result<
+/// Build the Prometheus recorder — without installing it — and return it
+/// with its handle, for [`start`].
+pub fn build() -> Result<
     (
         metrics_exporter_prometheus::PrometheusRecorder,
-        impl Future<Output = ()>,
+        metrics_exporter_prometheus::PrometheusHandle,
     ),
     metrics_exporter_prometheus::BuildError,
 > {
-    let (recorder, exporter) = metrics_exporter_prometheus::PrometheusBuilder::new()
+    let recorder = metrics_exporter_prometheus::PrometheusBuilder::new()
         .with_recommended_naming(true)
-        .with_http_listener(metrics_addr)
         .set_bucket_duration(std::time::Duration::from_secs(600))?
         // One ladder covers every `_seconds` histogram, so it has to span
         // the whole range they occupy: slot acquisition settles in tens of
@@ -41,13 +34,63 @@ pub fn build(
                 30., 60., 300., 600.,
             ],
         )?
-        .build()?;
+        .build_recorder();
+    let handle = recorder.handle();
 
-    let exporter = async move {
-        if let Err(error) = exporter.await {
-            tracing::error!(?error, "prometheus exporter exited");
-        }
-    };
+    Ok((recorder, handle))
+}
 
-    Ok((recorder, exporter))
+/// Start the `/metrics` server on `metrics_addr` and the upkeep of the
+/// recorder behind `handle`, as tasks of `spawner` ending on
+/// `shutdown_token`.
+pub async fn start<Spawner>(
+    mut spawner: Spawner,
+    metrics_addr: std::net::SocketAddr,
+    handle: metrics_exporter_prometheus::PrometheusHandle,
+    shutdown_token: tokio_util::sync::CancellationToken,
+) -> Result<(), waymark_http_bringup::StartError>
+where
+    Spawner: waymark_managed_spawner::Spawner,
+{
+    waymark_http_bringup::start(
+        &mut spawner,
+        metrics_addr,
+        router(handle.clone()),
+        shutdown_token.clone().cancelled_owned(),
+    )
+    .await?;
+
+    spawner.spawn(
+        "prometheus upkeep",
+        upkeep(handle, shutdown_token.child_token()),
+    );
+
+    Ok(())
+}
+
+/// The `/metrics` route: the recorder behind `handle`, rendered.
+pub fn router(handle: metrics_exporter_prometheus::PrometheusHandle) -> axum::Router {
+    axum::Router::new().route(
+        "/metrics",
+        axum::routing::get(move || {
+            let handle = handle.clone();
+            async move { handle.render() }
+        }),
+    )
+}
+
+/// Run the upkeep of the recorder behind `handle` every
+/// [`UPKEEP_INTERVAL`], until `shutdown_token` is cancelled.
+pub async fn upkeep(
+    handle: metrics_exporter_prometheus::PrometheusHandle,
+    shutdown_token: tokio_util::sync::CancellationToken,
+) {
+    shutdown_token
+        .run_until_cancelled(async {
+            loop {
+                tokio::time::sleep(UPKEEP_INTERVAL).await;
+                handle.run_upkeep();
+            }
+        })
+        .await;
 }
