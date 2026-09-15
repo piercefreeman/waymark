@@ -12,4 +12,3 @@ metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 metrics-util = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt"] }

@@ -58,7 +58,8 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     let termination = waymark_os_shutdown_requests::termination::install()?;
 
     let metrics_addr: std::net::SocketAddr = envfury::or_parse("METRICS_ADDR", "0.0.0.0:9118")?;
-    let essential_metrics_sampling_handle = waymark_metrics_bringup::start(metrics_addr)?;
+    let (essential_metrics_sampling_handle, prometheus_handle) =
+        waymark_metrics_bringup::register()?;
 
     let _task_monitor = waymark_tokio_metrics_bringup::bringup(env!("CARGO_BIN_NAME"));
 
@@ -121,6 +122,15 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             "shutdown signal listener",
             shutdown_signal_listener(ctrl_c, termination, shutdown_token.clone()),
         );
+
+        // The metrics endpoint, and the Prometheus recorder's upkeep.
+        waymark_prometheus_exporter_bringup::start(
+            &mut supervisor,
+            metrics_addr,
+            prometheus_handle,
+            shutdown_token.clone(),
+        )
+        .await?;
 
         // Initialize the database and backend.
         let pool = sqlx::postgres::PgPoolOptions::new()
