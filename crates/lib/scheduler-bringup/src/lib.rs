@@ -1,10 +1,10 @@
 //! Bringup for the scheduler subsystem.
 //!
-//! Spawns the firing loop as a background task, pinning the concrete
-//! wiring: the definition-blob codec is the snapshot-plane rmp codec,
-//! and spawned VM ids are freshly minted [`waymark_ids::InstanceId`]s.
-//! The scheduler is its own subsystem — it shares nothing with the
-//! execution bringup beyond the backend handle.
+//! Spawns the firing loop as a task of the spawner it is given, pinning
+//! the concrete wiring: the definition-blob codec is the snapshot-plane
+//! rmp codec, and spawned VM ids are freshly minted
+//! [`waymark_ids::InstanceId`]s. The scheduler is its own subsystem — it
+//! shares nothing with the execution bringup beyond the backend handle.
 
 #![warn(missing_docs)]
 
@@ -28,24 +28,26 @@ pub struct Config {
 
 /// Spawn the scheduler's firing loop.
 ///
-/// The task runs until `shutdown_token` is cancelled or the loop stops
-/// on a critical backend failure (logged as an error; the rest of the
-/// process is unaffected — schedules simply stop firing until restart).
-pub fn start<Backend>(
+/// The task ends when `shutdown_token` is cancelled, or with the loop's
+/// error when it stops on a critical backend failure.
+pub fn start<Spawner, Backend>(
+    mut spawner: Spawner,
     config: Config,
     backend: Arc<Backend>,
     shutdown_token: CancellationToken,
-) -> tokio::task::JoinHandle<()>
-where
+) where
+    Spawner: waymark_managed_spawner::Spawner,
     Backend: waymark_scheduler_backend::PollDueSchedules,
     Backend: waymark_scheduler_backend::RegisterScheduledVmRuntimes,
     Backend: waymark_scheduler_backend::HasVmId<VmId = waymark_ids::InstanceId>,
     Backend: waymark_scheduler_backend::HasTimestamp<Timestamp = chrono::DateTime<chrono::Utc>>,
     Backend: Send + Sync + 'static,
-    <Backend as waymark_scheduler_backend::PollDueSchedules>::Error: std::fmt::Display,
-    <Backend as waymark_scheduler_backend::RegisterScheduledVmRuntimes>::Error: std::fmt::Display,
+    <Backend as waymark_scheduler_backend::PollDueSchedules>::Error:
+        core::error::Error + Send + Sync + 'static,
+    <Backend as waymark_scheduler_backend::RegisterScheduledVmRuntimes>::Error:
+        core::error::Error + Send + Sync + 'static,
 {
-    tokio::spawn(async move {
+    spawner.spawn("scheduler", async move {
         let params = waymark_scheduler::Params {
             backend,
             codec: Arc::new(waymark_vm_codec_rmp::RmpCodec),
@@ -58,11 +60,12 @@ where
                 // The loop's success type is uninhabited: finishing
                 // means failing.
                 let Err(err) = result;
-                tracing::error!(%err, "scheduler loop stopped on a critical failure");
+                Err(err)
             }
             () = shutdown_token.cancelled() => {
                 tracing::info!("scheduler stopped");
+                Ok(())
             }
         }
-    })
+    });
 }

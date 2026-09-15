@@ -38,6 +38,7 @@ use tracing::{error, info};
 
 use waymark_backend_postgres::PostgresBackend;
 use waymark_config::WorkerConfig;
+use waymark_managed_spawner_supervised::SupervisorExt as _;
 
 /// The process exit when a task ended before the shutdown was requested.
 #[derive(Debug, thiserror::Error)]
@@ -101,15 +102,16 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
 
-    let mut supervisor = waymark_managed_spawner_supervised::supervisor::start::<
-        waymark_fn_main_common::Error,
-    >(shutdown_token.clone());
+    let mut supervisor =
+        waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
     // Bring everything up under the supervisor, handing each subsystem's
     // tasks over as soon as they exist. A failure part-way leaves the tasks
     // already up supervised; they are shut down and drained like on any
     // other failure, and the boot error is what main returns.
     let started: Result<(), waymark_fn_main_common::Error> = async {
+        let mut supervisor = supervisor.spawner(waymark_fn_main_common::ErrorConverter);
+
         // The shutdown signal listener: on a request it requests the
         // shutdown, so its end is always after the request.
         supervisor.spawn(
@@ -126,39 +128,15 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         let backend = PostgresBackend::new(pool);
 
         // Start the observability pipelines.
-        let (
-            observability_handles,
-            observability_api_router,
-            observability_events_emitter,
-            vm_driver_hooks_policy,
-        ) = waymark_observability_bringup::start(
-            config.observability.clone(),
-            node_id,
-            essential_metrics_sampling_handle,
-            shutdown_token.child_token(),
-        )
-        .await?;
-
-        supervisor.track(
-            "essential metrics sampler",
-            observability_handles.essential_metrics.sampler,
-        );
-        supervisor.track(
-            "essential metrics batcher",
-            observability_handles.essential_metrics.batcher,
-        );
-        supervisor.track(
-            "essential metrics retention",
-            observability_handles.essential_metrics.retention,
-        );
-        supervisor.track(
-            "observability events batcher",
-            observability_handles.observability_events.batcher,
-        );
-        supervisor.track(
-            "observability events retention",
-            observability_handles.observability_events.retention,
-        );
+        let (observability_api_router, observability_events_emitter, vm_driver_hooks_policy) =
+            waymark_observability_bringup::start(
+                &mut supervisor,
+                config.observability.clone(),
+                node_id,
+                essential_metrics_sampling_handle,
+                shutdown_token.child_token(),
+            )
+            .await?;
 
         // Start the worker pool (bridge + python workers).
         let mut worker_config = waymark_worker_python::Config::new();
@@ -171,7 +149,8 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             config: worker_config,
         };
 
-        let (process_pool, bridge_task) = waymark_worker_remote_bringup::start(
+        let process_pool = waymark_worker_remote_bringup::start(
+            &mut supervisor,
             shutdown_token.clone(),
             Some(config.worker_grpc_addr),
             worker_process_spec_builder,
@@ -181,10 +160,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         )
         .await?;
 
-        supervisor.track("worker bridge server", bridge_task);
-
         let (worker_pool, pool_loop) = waymark_worker_remote_pool::run(process_pool);
-
         supervisor.spawn("worker pool loop", pool_loop);
 
         let remote_pool = Arc::new(worker_pool);
@@ -197,14 +173,13 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
 
         // Start the HTTP server.
         if config.http.enabled {
-            let http_task = waymark_http_bringup::start(
+            waymark_http_bringup::start(
+                &mut supervisor,
                 config.http.addr,
                 http_routes,
                 shutdown_token.clone().cancelled_owned(),
             )
             .await?;
-
-            supervisor.track("http server", http_task);
         } else {
             info!("http server disabled (set WAYMARK_HTTP_ENABLED=true to enable)");
         }
@@ -237,7 +212,8 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             executable_sweep_interval: config.executable_sweep_interval,
         };
 
-        let execution_handles = waymark_execution_bringup::start(
+        waymark_execution_bringup::start(
+            &mut supervisor,
             bringup_config,
             Arc::new(backend.clone()),
             remote_pool,
@@ -250,64 +226,9 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         )
         .await;
 
-        let waymark_execution_bringup::Handles {
-            pinning_manager,
-            execution_driver,
-            executable_sweeper,
-            vm_sweeper,
-            durable_action_completions_writer,
-            durable_action_completions_poller,
-            durable_action_completions_acker,
-            durable_sleeps_poller,
-            durable_sleeps_acker,
-            action_effect_reconciler_lock_renewal,
-            snapshot_batcher,
-            action_effect_reconciler_request_batcher,
-            workflow_completion_batcher,
-            action_effect_reconciler_lock_batcher,
-        } = execution_handles;
-
-        let execution_tasks = [
-            ("workload pinning manager", pinning_manager),
-            ("execution driver", execution_driver),
-            ("executable sweeper", executable_sweeper),
-            ("vm runtimes sweeper", vm_sweeper),
-            (
-                "durable action completions writer",
-                durable_action_completions_writer,
-            ),
-            (
-                "durable action completions poller",
-                durable_action_completions_poller,
-            ),
-            (
-                "durable action completions acker",
-                durable_action_completions_acker,
-            ),
-            ("durable sleeps poller", durable_sleeps_poller),
-            ("durable sleeps acker", durable_sleeps_acker),
-            (
-                "action effect reconciler lock renewal",
-                action_effect_reconciler_lock_renewal,
-            ),
-            ("snapshot batcher", snapshot_batcher),
-            (
-                "action effect reconciler request batcher",
-                action_effect_reconciler_request_batcher,
-            ),
-            ("workflow completion batcher", workflow_completion_batcher),
-            (
-                "action effect reconciler lock batcher",
-                action_effect_reconciler_lock_batcher,
-            ),
-        ];
-
-        for (name, task) in execution_tasks {
-            supervisor.track(name, task);
-        }
-
         // Start the scheduler subsystem (due-schedule polling + spawning).
-        let scheduler_task = waymark_scheduler_bringup::start(
+        waymark_scheduler_bringup::start(
+            &mut supervisor,
             waymark_scheduler_bringup::Config {
                 poll_interval: config.scheduler_poll_interval,
                 max_items: config.scheduler_batch_max,
@@ -315,8 +236,6 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             Arc::new(backend.clone()),
             shutdown_token.child_token(),
         );
-
-        supervisor.track("scheduler", scheduler_task);
 
         Ok(())
     }
