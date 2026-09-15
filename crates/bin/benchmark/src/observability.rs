@@ -36,6 +36,7 @@ pub async fn start<Spawner>(
     dsn: &SecretStr,
     node_id: waymark_ids::NodeId,
     shutdown_token: tokio_util::sync::CancellationToken,
+    force_shutdown_token: tokio_util::sync::CancellationToken,
 ) -> Result<Observability, color_eyre::eyre::Report>
 where
     Spawner: waymark_managed_spawner::Spawner,
@@ -60,6 +61,7 @@ where
         node_id,
         sampling_handle,
         shutdown_token,
+        force_shutdown_token,
     )
     .await
     .wrap_err("start the observability subsystem")?;
