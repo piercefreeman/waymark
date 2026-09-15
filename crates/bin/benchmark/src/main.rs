@@ -24,7 +24,8 @@ use crate::report::BenchmarkStats;
 
 /// The supervisor of the run's tasks: their errors differ per task, so
 /// they are supervised unified.
-type Supervisor = waymark_task_supervisor::Supervisor<waymark_fn_main_common::Error>;
+type Supervisor =
+    waymark_managed_spawner_supervised::supervisor::Supervisor<waymark_fn_main_common::Error>;
 
 /// How often to poll the recorded execution results while draining.
 const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -81,7 +82,8 @@ async fn run_benchmark(
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
-    let mut supervisor: Supervisor = waymark_task_supervisor::start(shutdown_token.clone());
+    let mut supervisor: Supervisor =
+        waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
     // The run under the supervisor: a failure part-way leaves the tasks
     // already up supervised, and they are shut down and drained below like
