@@ -574,3 +574,25 @@ async fn unpin_park_flows_end_to_end() {
         outcome.unpin_error
     );
 }
+
+#[test]
+fn outcome_display_lists_the_failed_loops() {
+    let outcome = crate::RunOutcome::<&str, &str, &str> {
+        poll_error: Some(crate::PollLoopError::Poll("connection reset")),
+        maintenance_error: Some(crate::MaintenanceError::ForceShutdown),
+        unpin_error: Some("gave up on pending unpins"),
+    };
+
+    insta::assert_snapshot!(outcome.to_string(), @"poll loop: poll: connection reset; maintenance loop: maintenance loop force shutdown; unpin loop: gave up on pending unpins");
+}
+
+#[test]
+fn outcome_display_of_a_clean_run_says_no_loop_failed() {
+    let outcome = crate::RunOutcome::<&str, &str, &str> {
+        poll_error: None,
+        maintenance_error: None,
+        unpin_error: None,
+    };
+
+    insta::assert_snapshot!(outcome.to_string(), @"no loop failed");
+}
