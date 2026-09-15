@@ -5,6 +5,8 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+waymark-managed-spawner = { workspace = true }
+
 axum = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["net"] }
@@ -12,6 +14,9 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+waymark-fn-main-common = { workspace = true }
+waymark-managed-spawner-supervised = { workspace = true }
+
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lib]

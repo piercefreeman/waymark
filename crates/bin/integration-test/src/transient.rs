@@ -9,7 +9,8 @@ use color_eyre::eyre::{WrapErr as _, bail, eyre};
 
 use crate::ground_truth::PreparedCase;
 use crate::outcome::{CaseOutcome, check_case_outcome, outcome_from_vm};
-use crate::worker_pool::{PythonWorkerPool, Supervisor, drain_run, setup_worker_pool};
+use crate::worker_pool::{PythonWorkerPool, drain_run, setup_worker_pool};
+use waymark_managed_spawner_supervised::SupervisorExt as _;
 
 pub async fn run_transient_mode(
     repo_root: &Path,
@@ -26,13 +27,15 @@ pub async fn run_transient_mode(
         // its completion into whatever case polls the pool next. Bound every
         // completion's lifetime by its case: each case gets its own pool.
         let shutdown_token = tokio_util::sync::CancellationToken::new();
-        let mut supervisor: Supervisor =
+        let mut supervisor =
             waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
         // The case under the supervisor: a failure part-way leaves the tasks
         // already up supervised, and they are shut down and drained below
         // like on any other exit.
         let case_result: Result<_, color_eyre::eyre::Report> = async {
+            let mut supervisor = supervisor.spawner(waymark_fn_main_common::ErrorConverter);
+
             let worker_pool = setup_worker_pool(
                 &mut supervisor,
                 shutdown_token.clone(),
