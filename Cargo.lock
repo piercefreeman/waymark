@@ -4642,6 +4642,7 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-subscriber",
+ "waymark-managed-spawner-supervised",
 ]
 
 [[package]]
