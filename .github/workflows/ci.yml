@@ -238,6 +238,8 @@ jobs:
           ref: main
 
       - uses: actions/setup-node@v4
+        # TODO: Remove this guard once main contains the root JavaScript workspace.
+        # This job checks out main rather than the pull request's head.
         if: hashFiles('package-lock.json') != ''
         with:
           node-version-file: .node-version
