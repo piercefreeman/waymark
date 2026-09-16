@@ -12,15 +12,22 @@ use waymark_worker_core::{ActionExecutionLoss, ActionExecutionReport, ExecutionP
 
 const DEFAULT_QUEUE_CAPACITY: usize = 1024;
 
-/// The handle to the worker pool loop: the request queue in, the
-/// completion queue out.
+/// The request side of the worker pool loop: the request queue in.
 ///
-/// Obtained from [`run`]. Dropping every worker pool handle closes the
-/// request queue, which is what lets the worker pool loop finish and shut
-/// the worker process pool down.
+/// Obtained from [`run`]. Dropping every [`Requests`] closes the request
+/// queue, which is what lets the worker pool loop finish and shut the
+/// worker process pool down.
 #[derive(Debug)]
-pub struct Pool {
+pub struct Requests {
     request_tx: mpsc::Sender<proto::ActionDispatch>,
+}
+
+/// The completion side of the worker pool loop: the completion queue
+/// out, shut down once the loop has shut the worker process pool down.
+///
+/// Obtained from [`run`].
+#[derive(Debug)]
+pub struct Completions {
     completion_rx: tokio::sync::Mutex<mpsc::Receiver<ActionExecutionReport>>,
 }
 
@@ -29,7 +36,8 @@ pub struct Pool {
 pub fn run<Spec>(
     pool: waymark_worker_process_pool::Pool<Spec>,
 ) -> (
-    Pool,
+    Requests,
+    Completions,
     impl Future<Output = Result<(), waymark_managed_process::ShutdownError>> + Send + 'static,
 )
 where
@@ -39,19 +47,20 @@ where
     run_with_capacity(pool, DEFAULT_QUEUE_CAPACITY, DEFAULT_QUEUE_CAPACITY)
 }
 
-/// The worker pool handle and the worker pool loop over the worker process
-/// pool `pool`, which the loop owns from here on.
+/// The worker pool's two sides and the worker pool loop over the worker
+/// process pool `pool`, which the loop owns from here on.
 ///
 /// The loop runs only once awaited or spawned by the caller. It ends once
-/// every [`Pool`] handle is dropped and every request it took
-/// has been served; it then shuts the worker process pool down and ends
-/// with the result.
+/// every [`Requests`] is dropped and every request it took has been
+/// served; it then shuts the worker process pool down, shuts
+/// [`Completions`] down, and returns the result.
 pub fn run_with_capacity<Spec>(
     pool: waymark_worker_process_pool::Pool<Spec>,
     request_capacity: usize,
     completion_capacity: usize,
 ) -> (
-    Pool,
+    Requests,
+    Completions,
     impl Future<Output = Result<(), waymark_managed_process::ShutdownError>> + Send + 'static,
 )
 where
@@ -63,12 +72,12 @@ where
 
     let pool_loop = pool_loop(pool, request_rx, completion_tx);
 
-    let handle = Pool {
-        request_tx,
+    let requests = Requests { request_tx };
+    let completions = Completions {
         completion_rx: tokio::sync::Mutex::new(completion_rx),
     };
 
-    (handle, pool_loop)
+    (requests, completions, pool_loop)
 }
 
 /// The worker pool loop: serves every request off the queue as a future
@@ -255,7 +264,7 @@ pub enum QueueError {
     Closed,
 }
 
-impl waymark_worker_core::QueueActionDispatch for Pool {
+impl waymark_worker_core::QueueActionDispatch for Requests {
     type Error = QueueError;
 
     async fn queue(&self, dispatch: proto::ActionDispatch) -> Result<(), Self::Error> {
@@ -273,7 +282,7 @@ impl waymark_worker_core::QueueActionDispatch for Pool {
     }
 }
 
-impl waymark_worker_core::PollActionResults for Pool {
+impl waymark_worker_core::PollActionResults for Completions {
     type Error = std::convert::Infallible;
 
     async fn poll_complete(&self) -> Result<Option<NEVec<ActionExecutionReport>>, Self::Error> {
