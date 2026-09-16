@@ -4,12 +4,12 @@
 /// The API title, shared by the document and the docs page over it.
 const TITLE: &str = "Waymark API";
 
-/// The API router, served at `mount_path`: the given routes, plus
+/// The API router: the given routes, plus
 /// `openapi.json` and the `docs` page over it.
 ///
-/// The document paths stay relative to `mount_path`, and the document names
-/// `mount_path` as its only server, so the two come from one place and can
-/// not disagree with where the routes are served.
+/// The document paths stay relative to `mount_path`, which the document names
+/// as its only server. The caller owns mounting the returned router there and
+/// choosing its fallback isolation when composing it with other HTTP surfaces.
 pub fn router(mount_path: &str, routes: aide::axum::ApiRouter) -> axum::Router {
     let mut document = openapi(mount_path);
 
@@ -19,7 +19,7 @@ pub fn router(mount_path: &str, routes: aide::axum::ApiRouter) -> axum::Router {
 
     // The document and docs routes describe nothing but themselves, so they
     // stay out of the document: plain `route`s, not `api_route`s.
-    let router = router
+    router
         .route(
             "/openapi.json",
             axum::routing::get(move || {
@@ -37,19 +37,7 @@ pub fn router(mount_path: &str, routes: aide::axum::ApiRouter) -> axum::Router {
                     .with_title(TITLE)
                     .axum_handler(),
             ),
-        );
-
-    // The mount happens on the finished router, after the document is built,
-    // so that the document paths stay relative to the mount point rather
-    // than being prefixed with it a second time on top of the server entry.
-    match mount_path {
-        // Nesting at the root is not a thing in axum; the router already is
-        // at the root.
-        "/" => router,
-        // Isolate the API's fallback, including at the mount point with a
-        // trailing slash, from the surrounding SPA's fallback.
-        mount_path => axum::Router::new().nest_service(mount_path, router),
-    }
+        )
 }
 
 /// The base document every mounted route contributes to, served from
@@ -113,7 +101,7 @@ mod tests {
 
     #[tokio::test]
     async fn serves_the_openapi_document() {
-        let (status, body) = get(router("/api", routes()), "/api/openapi.json").await;
+        let (status, body) = get(router("/api", routes()), "/openapi.json").await;
         let document: serde_json::Value = serde_json::from_slice(&body).expect("json body");
 
         assert_eq!(status, StatusCode::OK);
@@ -122,7 +110,7 @@ mod tests {
 
     #[tokio::test]
     async fn serves_the_docs_page() {
-        let (status, body) = get(router("/api", routes()), "/api/docs").await;
+        let (status, body) = get(router("/api", routes()), "/docs").await;
         let body = String::from_utf8(body).expect("utf-8 body");
 
         assert_eq!(status, StatusCode::OK);
@@ -137,7 +125,7 @@ mod tests {
 
     #[tokio::test]
     async fn keeps_the_docs_page_out_of_the_document() {
-        let (_status, body) = get(router("/api", routes()), "/api/openapi.json").await;
+        let (_status, body) = get(router("/api", routes()), "/openapi.json").await;
         let document: serde_json::Value = serde_json::from_slice(&body).expect("json body");
 
         assert!(
@@ -147,16 +135,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn serves_the_routes_under_the_mount_path() {
+    async fn leaves_mounting_to_the_caller() {
         let router = router("/api", routes());
 
-        let (status, _body) = get(router.clone(), "/api/thing").await;
+        let (status, _body) = get(router.clone(), "/thing").await;
         assert_eq!(status, StatusCode::OK);
 
-        let (status, _body) = get(router.clone(), "/thing").await;
+        let (status, _body) = get(router.clone(), "/api/thing").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
 
-        let (_status, body) = get(router, "/api/openapi.json").await;
+        let (_status, body) = get(router, "/openapi.json").await;
         let document: serde_json::Value = serde_json::from_slice(&body).expect("json body");
 
         // The path stays relative to the mount point, and the mount point is

@@ -9,10 +9,10 @@ use tower::util::ServiceExt as _;
 async fn serves_the_embedded_spa_alongside_api_and_health_routes() {
     let app = axum::Router::new()
         .merge(waymark_http_healthz::router())
-        .merge(waymark_http_api::router(
+        .nest_service(
             "/api",
-            aide::axum::ApiRouter::new(),
-        ))
+            waymark_http_api::router("/api", aide::axum::ApiRouter::new()),
+        )
         .merge(super::router());
 
     for uri in ["/", "/workflows", "/workflows/example?tab=events"] {
