@@ -9,6 +9,7 @@ Once you are done fixing the TODO, double check your work. Have we really taken 
 Follow this syntax:
 
 <code_feedback>
+<rule>Organize JavaScript applications under `js/app/*` and libraries under `js/lib/*`, with one root npm workspace, lockfile, and Prettier ignore file. Install dependencies once at the workspace root, including in CI and Docker.</rule>
 <rule>Pin the default Node.js toolchain in the repository-root `.node-version`, shared by all JavaScript workspaces and build environments.</rule>
 <rule></rule>
 </code_feedback>

@@ -155,7 +155,7 @@ The initial page is a hello-world placeholder. Enable it with
 Building from source requires Node.js (version in `.node-version`) and npm:
 
 ```sh
-make webapp-deps
+make js-deps
 cargo build --bin waymark-start-workers
 ```
 

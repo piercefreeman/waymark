@@ -1,14 +1,16 @@
 use std::{env, fs, path::PathBuf, process::Command};
 
 fn main() {
-    let webapp = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"))
-        .join("../../../webapp");
-    println!("cargo::rerun-if-changed={}", webapp.join("../.node-version").display());
+    let workspace = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"))
+        .join("../../..");
+    let webapp = workspace.join("js/app/web");
+    for input in [".node-version", "package.json", "package-lock.json"] {
+        println!("cargo::rerun-if-changed={}", workspace.join(input).display());
+    }
     for input in [
         "src",
         "index.html",
         "package.json",
-        "package-lock.json",
         "tsconfig.json",
         "vite.config.ts",
     ] {
@@ -28,10 +30,10 @@ fn main() {
         .args(["run", "build", "--", "--emptyOutDir", "--outDir"])
         .arg(&output)
         .status()
-        .expect("building the webapp requires Node.js and npm; run `make webapp-deps` first");
+        .expect("building the webapp requires Node.js and npm; run `make js-deps` first");
     assert!(
         status.success(),
-        "webapp build failed; run `make webapp-deps` to install its dependencies"
+        "webapp build failed; run `make js-deps` to install its dependencies"
     );
 
     // The server embeds only index.html. Fail rather than ship missing assets.
