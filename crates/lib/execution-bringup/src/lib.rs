@@ -122,11 +122,16 @@ pub struct ObservabilityEvents {
 /// the maintenance loop keeps running until all active workloads drain.
 /// `force_shutdown_token` breaks out of that drain immediately, so shutdown
 /// can't hang forever on a workload that never evicts.
-pub async fn start<Spawner, Backend, WorkerPool>(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the bringup takes every input of the subsystem it wires"
+)]
+pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions>(
     mut spawner: Spawner,
     config: Config<Backend::NodeId>,
     backend: Arc<Backend>,
-    worker_pool: WorkerPool,
+    worker_pool_requests: WorkerPoolRequests,
+    worker_pool_completions: WorkerPoolCompletions,
     observability_events: Option<ObservabilityEvents>,
     shutdown_token: CancellationToken,
     force_shutdown_token: CancellationToken,
@@ -201,16 +206,10 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     <Backend as waymark_state_vm_runtimes_backend::StoreSnapshots>::Error: Send + 'static,
     <Backend as waymark_state_vm_runtimes_backend::LoadForRevive>::Error: Send + 'static,
     <Backend as waymark_workflow_completion_backend::RecordOutcomes>::Error: Send + 'static,
-    WorkerPool: waymark_worker_core::QueueActionDispatch
-        + waymark_worker_core::PollActionResults
-        + Clone
-        + Send
-        + Sync
-        + 'static,
-    <WorkerPool as waymark_worker_core::QueueActionDispatch>::Error:
-        core::fmt::Debug + Send + 'static,
-    <WorkerPool as waymark_worker_core::PollActionResults>::Error:
-        core::error::Error + Send + Sync + 'static,
+    WorkerPoolRequests: waymark_worker_core::QueueActionDispatch + Clone + Send + Sync + 'static,
+    WorkerPoolRequests::Error: core::fmt::Debug + Send + 'static,
+    WorkerPoolCompletions: waymark_worker_core::PollActionResults + Send + Sync + 'static,
+    WorkerPoolCompletions::Error: core::error::Error + Send + Sync + 'static,
 {
     let Config {
         node_id,
@@ -277,24 +276,14 @@ pub async fn start<Spawner, Backend, WorkerPool>(
             >,
             waymark_vm_value_python::ReadyValue,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
-        >::new(worker_pool.clone()),
+        >::new(worker_pool_completions),
         backend: Arc::clone(&backend),
         codec: Arc::clone(&codec),
     };
-    spawner.spawn("durable action completions writer", {
-        let shutdown = shutdown_token.child_token();
-        async move {
-            match shutdown
-                .run_until_cancelled(waymark_action_completions_reconciler::writer::run(
-                    writer_params,
-                ))
-                .await
-            {
-                None => Ok(()),
-                Some(result) => result,
-            }
-        }
-    });
+    spawner.spawn(
+        "durable action completions writer",
+        waymark_action_completions_reconciler::writer::run(writer_params),
+    );
 
     let (ack_tx, ack_rx) = tokio::sync::mpsc::unbounded_channel();
     let acker_params = waymark_action_completions_reconciler::acker::Params {
@@ -413,8 +402,8 @@ pub async fn start<Spawner, Backend, WorkerPool>(
         workflow_completion_batcher_loop,
     );
 
-    let requests_factory_worker_pool = worker_pool.clone();
     let effector_provider = waymark_state_vm_runtimes_core::FnEffectorProvider::new({
+        let worker_pool_requests = worker_pool_requests.clone();
         let backend = Arc::clone(&backend);
         let codec = Arc::clone(&codec);
         let registrar = registrar.clone();
@@ -429,7 +418,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
                     _,
                     waymark_vm_value_python::ReadyValue,
                     waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
-                >::new(worker_pool.clone());
+                >::new(worker_pool_requests.clone());
             let action_call_requester =
                 waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester {
                     vm_id: *vm_id,
@@ -544,7 +533,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
                     _,
                     waymark_vm_value_python::ReadyValue,
                     waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
-                >::new(requests_factory_worker_pool.clone());
+                >::new(worker_pool_requests.clone());
             waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester {
                 vm_id: *vm_id,
                 action_call_requester,

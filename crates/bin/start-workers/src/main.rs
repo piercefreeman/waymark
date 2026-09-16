@@ -184,10 +184,11 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         )
         .await?;
 
-        let (worker_pool, pool_loop) = waymark_worker_remote_pool::run(process_pool);
-        supervisor.spawn("worker pool loop", pool_loop);
+        let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
+            waymark_worker_remote_pool::run(process_pool);
+        supervisor.spawn("worker pool loop", worker_pool_loop);
 
-        let remote_pool = Arc::new(worker_pool);
+        let worker_pool_requests = Arc::new(worker_pool_requests);
 
         // Compose everything the HTTP server serves.
         let http_api_routes = aide::axum::ApiRouter::new().merge(observability_api_router);
@@ -242,7 +243,8 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             &mut supervisor,
             bringup_config,
             Arc::new(backend.clone()),
-            remote_pool,
+            worker_pool_requests,
+            worker_pool_completions,
             Some(waymark_execution_bringup::ObservabilityEvents {
                 emitter: Arc::new(observability_events_emitter),
                 vm_driver_hooks_policy,
