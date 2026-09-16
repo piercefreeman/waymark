@@ -9,6 +9,7 @@ Once you are done fixing the TODO, double check your work. Have we really taken 
 Follow this syntax:
 
 <code_feedback>
+<rule>Keep substantial frontend build orchestration in a testable library consumed through `build-dependencies`, leaving `build.rs` to supply paths. Use `xshell` for command interpolation and contextual filesystem/process errors; test argument boundaries, failed commands, and missing build outputs.</rule>
 <rule>Temporary CI guards for jobs that check out an older baseline must explain why they exist and name the condition for removing them.</rule>
 <rule>Document non-obvious HTTP combinators by the behavior they preserve, including accurate status codes. Use a GET/HEAD method router for static fallback handling so other methods receive 405 rather than HTML.</rule>
 <rule>Name shared setup actions for the language workspace they prepare (for example, `setup-js`), rather than for a single application that consumes them.</rule>

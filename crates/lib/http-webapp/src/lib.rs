@@ -6,10 +6,9 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use rust_embed::Embed;
 
-#[derive(rust_embed::Embed)]
-#[folder = "$OUT_DIR/webapp"]
-struct Assets;
+include!(concat!(env!("OUT_DIR"), "/assets.rs"));
 
 /// Serve the SPA for browser routes, including direct visits to nested pages.
 /// Merge alongside the API and health routers before starting the HTTP server.

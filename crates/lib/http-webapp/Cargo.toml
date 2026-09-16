@@ -4,9 +4,16 @@ edition = "2024"
 version.workspace = true
 publish.workspace = true
 
+[build-dependencies]
+waymark-build-spa = { workspace = true }
+
 [dependencies]
 axum = { workspace = true }
-rust-embed = { workspace = true, features = ["debug-embed", "deterministic-timestamps", "interpolate-folder-path", "mime-guess"] }
+rust-embed = { workspace = true, features = [
+  "debug-embed",
+  "deterministic-timestamps",
+  "mime-guess",
+] }
 
 [dev-dependencies]
 waymark-http-api = { workspace = true }
