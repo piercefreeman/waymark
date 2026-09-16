@@ -39,14 +39,15 @@ fn main() {
         "webapp build failed; run `make js-deps` to install its dependencies"
     );
 
-    // The server embeds only index.html. Fail rather than ship missing assets.
-    let files: Vec<_> = fs::read_dir(&output)
-        .expect("webapp output directory")
-        .map(|entry| entry.expect("webapp output entry").file_name())
-        .collect();
-    assert_eq!(
-        files,
-        ["index.html"],
-        "webapp must build to a single HTML file"
+    assert!(
+        output.join("index.html").is_file(),
+        "webapp build must emit index.html"
     );
+
+    // rust-embed requires a literal folder attribute; use Cargo's resolved path.
+    fs::write(
+        PathBuf::from(env::var_os("OUT_DIR").expect("output directory")).join("assets.rs"),
+        format!("#[derive(Embed)]\n#[folder = {output:?}]\nstruct Assets;\n"),
+    )
+    .expect("write the embedded assets declaration");
 }
