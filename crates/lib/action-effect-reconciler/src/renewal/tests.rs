@@ -220,3 +220,73 @@ async fn renewal_failures_within_the_fence_are_survived() {
         .expect("renewal loop task")
         .expect("no breach: the failures stayed within the fence");
 }
+
+/// Paused-time parameters: a heartbeat a minute apart, so a stop that
+/// waits for the next heartbeat is told apart from one that does not.
+fn slow_params(
+    backend: &Arc<MockBackend>,
+    held_locks_rx: tokio::sync::mpsc::UnboundedReceiver<HeldLock<u64>>,
+) -> Params<MockBackend> {
+    Params {
+        backend: Arc::clone(backend),
+        lock_owner_id: 7u32,
+        lock_time_to_live: Duration::from_secs(600).try_into().unwrap(),
+        heartbeat: Duration::from_secs(60).try_into().unwrap(),
+        held_locks_rx,
+    }
+}
+
+/// The channel closing with nothing tracked stops the loop at once, not
+/// at the next heartbeat.
+#[tokio::test(start_paused = true)]
+async fn a_closed_channel_with_nothing_tracked_stops_at_once() {
+    let backend = Arc::new(MockBackend::default());
+    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let renewal = tokio::spawn(run(slow_params(&backend, held_locks_rx)));
+
+    // Past the interval's first tick; the next one is a minute out.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(!renewal.is_finished());
+
+    drop(held_locks_tx);
+
+    tokio::time::timeout(Duration::from_secs(1), renewal)
+        .await
+        .expect("the loop stops without waiting for the next heartbeat")
+        .expect("renewal loop task")
+        .expect("drain is a peaceful stop");
+}
+
+/// The channel closing with a lock still tracked, then the heartbeat
+/// that finds its row gone: the loop stops on that heartbeat, not the
+/// next one.
+#[tokio::test(start_paused = true)]
+async fn the_heartbeat_that_empties_the_tracked_set_stops_at_once() {
+    let backend = Arc::new(MockBackend::default());
+    seed_locked_row(&backend, key(1), 7);
+    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
+    held_locks_tx.send(held(key(1))).unwrap();
+
+    let renewal = tokio::spawn(run(slow_params(&backend, held_locks_rx)));
+
+    // The lock is tracked and renewed once; the next heartbeat is a
+    // minute out.
+    while *backend.renew_calls.lock().unwrap() == 0 {
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+
+    // The channel closes, then the row goes: the next heartbeat empties
+    // the tracked set.
+    drop(held_locks_tx);
+    backend.rows.lock().unwrap().remove(&key(1));
+
+    // Between one and two heartbeats: a stop deferred to the heartbeat
+    // after the emptying one misses the bound.
+    tokio::time::timeout(Duration::from_secs(90), renewal)
+        .await
+        .expect("the loop stops on the heartbeat that empties the tracked set")
+        .expect("renewal loop task")
+        .expect("drain is a peaceful stop");
+    assert_eq!(*backend.renew_calls.lock().unwrap(), 2);
+}
