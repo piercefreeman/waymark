@@ -9,6 +9,14 @@ Once you are done fixing the TODO, double check your work. Have we really taken 
 Follow this syntax:
 
 <code_feedback>
+<rule>Keep substantial frontend build orchestration in a testable library consumed through `build-dependencies`, leaving `build.rs` to supply paths. Use `xshell` for command interpolation and contextual filesystem/process errors; test argument boundaries, failed commands, and missing build outputs.</rule>
+<rule>Temporary CI guards for jobs that check out an older baseline must explain why they exist and name the condition for removing them.</rule>
+<rule>Document non-obvious HTTP combinators by the behavior they preserve, including accurate status codes. Use a GET/HEAD method router for static fallback handling so other methods receive 405 rather than HTML.</rule>
+<rule>Name shared setup actions for the language workspace they prepare (for example, `setup-js`), rather than for a single application that consumes them.</rule>
+<rule>Embed and serve the complete compiled frontend bundle with correct content types, including in debug builds. Keep missing assets as 404 responses rather than returning the SPA entry point; packaged binaries must not depend on source directories or a Node runtime.</rule>
+<rule>Keep route mounting and fallback isolation in the HTTP composition layer. API modules may describe their external mount path in OpenAPI, but return relative routes without depending on other HTTP surfaces.</rule>
+<rule>Organize JavaScript applications under `js/app/*` and libraries under `js/lib/*`, with one root npm workspace, lockfile, and Prettier ignore file. Install dependencies once at the workspace root, including in CI and Docker.</rule>
+<rule>Pin the default Node.js toolchain in the repository-root `.node-version`, shared by all JavaScript workspaces and build environments.</rule>
 <rule></rule>
 </code_feedback>
 
@@ -135,6 +143,7 @@ Follow a modern, developer-focused design language. The design prioritizes clari
 This section is used for the scratch updates, driven by our Agents.
 
 <code_feedback>
+<rule>Keep process-global tracing setup in `waymark-fn-main-common`. Tests that assert emitted tracing events may use scoped subscribers through a dev-dependency, with a documented crate-specific wrapper entry in `deny.toml`.</rule>
 <rule>Avoid webapp tests that assert rendered HTML contains route or API URL strings; test behavior, data wiring, or stable UI semantics instead. Good: assert a handler returns the expected redirect payload or a page renders the expected domain data. Bad: `assert!(rendered.contains("/api/instance/"));`.</rule>
 <rule>Centralize environment parsing in shared config modules and build sub-configs inside `from_env`. Good: `let cfg = WorkerConfig::from_env()?; let webapp = cfg.webapp.clone();` Bad: `let cfg = WorkerConfig::from_env()?; let webapp = WebappConfig::from_env();`</rule>
 <rule>Prefer `?` (with `context` when needed) over wrapping simple errors with `map_err(|err| anyhow!(err))`. Good: `PostgresBackend::connect(dsn).await?;` Bad: `PostgresBackend::connect(dsn).await.map_err(|err| anyhow!(err))?;`</rule>

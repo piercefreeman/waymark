@@ -1,0 +1,12 @@
+name: Set up JavaScript
+description: Install the Node toolchain and locked dependencies for the JavaScript workspace.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version-file: .node-version
+        cache: npm
+        cache-dependency-path: package-lock.json
+    - run: npm ci
+      shell: bash

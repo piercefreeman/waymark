@@ -146,6 +146,19 @@ To build truly robust background tasks, you need to consider how things can go w
 
 By default we will only try explicit actions one time if there is an explicit exception raised. We will try them infinite times in the case of a timeout since this is usually caused by cross device coordination issues.
 
+### Webapp development
+
+The HTTP server serves an embedded SPA at `/`, alongside `/api` and `/healthz`.
+The initial page is a hello-world placeholder. Enable it with
+`WAYMARK_HTTP_ENABLED=true` (default address: `http://localhost:24119`).
+
+Building from source requires Node.js (version in `.node-version`) and npm:
+
+```sh
+make js-deps
+cargo build --bin waymark-start-workers
+```
+
 ### Configuration
 
 Waymark runtime configuration is environment-variable driven.

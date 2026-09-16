@@ -11,6 +11,11 @@
 !python
 !core-python
 !scripts
+!js
+!package.json
+!package-lock.json
+!.node-version
+!.prettierignore
 !README.md
 
 !example_app
@@ -20,3 +25,5 @@
 *.pyo
 *.pyd
 *.whl
+**/node_modules
+**/dist
