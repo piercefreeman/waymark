@@ -18,16 +18,19 @@ Follow a modern, developer-focused design language. The design prioritizes clari
 
 ### Theme & Color System
 
+The SPA's concrete tokens, shared component contracts, and API display rules live in [webapp/DESIGN.md](webapp/DESIGN.md). Use this guide when extending the UI.
+
 **Dual Theme Support**
 - Every component must support both light and dark modes
+- Default to dark mode and persist the user's explicit theme choice.
 - Dark mode: Near-black backgrounds (#0a0a0a to #1a1a1a), light text
 - Light mode: White/off-white backgrounds, dark text
 - Use CSS variables or Tailwind's dark: prefix for all color values
 
 **Semantic Color Palette**
-- **Green** (#22c55e / emerald): Success, completed, active states, running processes
-- **Blue** (#3b82f6): Primary actions, parent workflows, links, interactive elements
-- **Yellow/Amber** (#eab308): Waiting, pending, in-progress states
+- **Green** (emerald): Success, completed, healthy connections
+- **Blue**: Running, primary actions, links, selection, interactive elements
+- **Yellow/Amber**: Waiting, pending, retrying
 - **Red** (#ef4444): Errors, failures, destructive actions
 - **Gray** (#6b7280): Secondary text, metadata, timestamps, disabled states
 
@@ -135,6 +138,7 @@ Follow a modern, developer-focused design language. The design prioritizes clari
 This section is used for the scratch updates, driven by our Agents.
 
 <code_feedback>
+<rule>Lead the observability sidebar with workspace context and navigation; omit a dedicated logo or wordmark header.</rule>
 <rule>Keep process-global tracing setup in `waymark-fn-main-common`. Tests that assert emitted tracing events may use scoped subscribers through a dev-dependency, with a documented crate-specific wrapper entry in `deny.toml`.</rule>
 <rule>Avoid webapp tests that assert rendered HTML contains route or API URL strings; test behavior, data wiring, or stable UI semantics instead. Good: assert a handler returns the expected redirect payload or a page renders the expected domain data. Bad: `assert!(rendered.contains("/api/instance/"));`.</rule>
 <rule>Centralize environment parsing in shared config modules and build sub-configs inside `from_env`. Good: `let cfg = WorkerConfig::from_env()?; let webapp = cfg.webapp.clone();` Bad: `let cfg = WorkerConfig::from_env()?; let webapp = WebappConfig::from_env();`</rule>

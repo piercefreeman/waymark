@@ -76,6 +76,8 @@ jobs:
 
       - name: Frontend lint
         run: npm run lint --prefix webapp
+      - name: Frontend tests
+        run: npm test --prefix webapp
 
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
