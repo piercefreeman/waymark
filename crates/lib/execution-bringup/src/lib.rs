@@ -352,25 +352,10 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions>(
         heartbeat: action_effect_reconciler_lock_heartbeat,
         held_locks_rx,
     };
-    spawner.spawn("action effect reconciler lock renewal", {
-        let shutdown = shutdown_token.child_token();
-        async move {
-            match shutdown
-                .run_until_cancelled(waymark_action_effect_reconciler::renewal::run(
-                    renewal_params,
-                ))
-                .await
-            {
-                None => Ok(()),
-                Some(result) => {
-                    if result.is_ok() {
-                        tracing::info!("action-call request lock renewal drained");
-                    }
-                    result
-                }
-            }
-        }
-    });
+    spawner.spawn(
+        "action effect reconciler lock renewal",
+        waymark_action_effect_reconciler::renewal::run(renewal_params),
+    );
 
     let (request_recorder, action_effect_reconciler_request_batcher_loop) =
         waymark_action_effect_reconciler::request_batcher(
