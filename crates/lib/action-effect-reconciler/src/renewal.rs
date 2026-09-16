@@ -136,6 +136,10 @@ where
                         tracked.insert(key, taken_at + time_to_live);
                     }
                     None => {
+                        if tracked.is_empty() {
+                            tracing::info!("all locks accounted for and channel closed; stopping");
+                            return Ok(());
+                        }
                         channel_closed = true;
                     }
                 }
