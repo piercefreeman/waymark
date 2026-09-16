@@ -301,7 +301,7 @@ pub async fn start<Spawner, Backend, WorkerPool>(
                 .await
             {
                 None => Ok(()),
-                Some(Err(error)) => Err(error),
+                Some(result) => result,
             }
         }
     });
