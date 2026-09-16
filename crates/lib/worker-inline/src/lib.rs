@@ -32,29 +32,37 @@ struct Request {
     dispatch: proto::ActionDispatch,
 }
 
-/// The worker pool handle: the dispatch queue in, the completion queue
-/// out.
+/// The request side of the worker pool loop: the dispatch queue in.
 ///
-/// Obtained from [`run`]. Dropping every worker pool handle closes the
-/// request queue, which is what lets the worker pool loop finish once
-/// every action it took has completed.
-pub struct Pool {
+/// Obtained from [`run`]. Dropping every [`Requests`] closes the request
+/// queue, which is what lets the worker pool loop finish once every
+/// action it took has completed.
+pub struct Requests {
     actions: HashMap<String, InlineActionCallable>,
     request_tx: mpsc::Sender<Request>,
+}
+
+/// The completion side of the worker pool loop: the completion queue
+/// out, shut down with the loop.
+///
+/// Obtained from [`run`].
+pub struct Completions {
     completion_rx: tokio::sync::Mutex<mpsc::Receiver<ActionExecutionReport>>,
 }
 
-/// The worker pool handle and the worker pool loop serving `actions`.
+/// The worker pool's two sides and the worker pool loop serving `actions`.
 ///
 /// The loop runs only once awaited or spawned by the caller. It owns the
 /// actions it serves, each run as its own task, and ends once every
-/// [`Pool`] handle is dropped and every action it took has completed. If
-/// the loop is dropped instead, the actions in flight are aborted with
-/// it: nothing of the pool's outlives the pool.
+/// [`Requests`] is dropped and every action it took has completed,
+/// shutting [`Completions`] down with it. If the loop is dropped instead,
+/// the actions in flight are aborted with it: nothing of the pool's
+/// outlives the pool.
 pub fn run(
     actions: HashMap<String, InlineActionCallable>,
 ) -> (
-    Pool,
+    Requests,
+    Completions,
     impl Future<Output = Result<(), std::convert::Infallible>> + Send + 'static,
 ) {
     let (request_tx, request_rx) = mpsc::channel(DEFAULT_QUEUE_CAPACITY);
@@ -62,13 +70,15 @@ pub fn run(
 
     let pool_loop = pool_loop(request_rx, completion_tx);
 
-    let pool = Pool {
+    let requests = Requests {
         actions,
         request_tx,
+    };
+    let completions = Completions {
         completion_rx: tokio::sync::Mutex::new(completion_rx),
     };
 
-    (pool, pool_loop)
+    (requests, completions, pool_loop)
 }
 
 async fn pool_loop(
@@ -118,7 +128,7 @@ async fn serve(
         .await;
 }
 
-impl Pool {
+impl Completions {
     #[obs]
     async fn poll_complete_impl(
         &self,
@@ -159,7 +169,7 @@ pub enum QueueError {
     Closed,
 }
 
-impl waymark_worker_core::QueueActionDispatch for Pool {
+impl waymark_worker_core::QueueActionDispatch for Requests {
     type Error = QueueError;
 
     #[obs]
@@ -179,7 +189,7 @@ impl waymark_worker_core::QueueActionDispatch for Pool {
     }
 }
 
-impl waymark_worker_core::PollActionResults for Pool {
+impl waymark_worker_core::PollActionResults for Completions {
     type Error = std::convert::Infallible;
 
     fn poll_complete(

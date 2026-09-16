@@ -8,7 +8,11 @@ use color_eyre::eyre::{WrapErr as _, eyre};
 
 use crate::ground_truth::PreparedCase;
 
-pub type PythonWorkerPool = Arc<waymark_worker_remote_pool::Pool>;
+/// The two sides of a run's worker pool.
+pub struct PythonWorkerPool {
+    pub requests: Arc<waymark_worker_remote_pool::Requests>,
+    pub completions: waymark_worker_remote_pool::Completions,
+}
 
 /// Start the worker pool under `spawner`: the bridge server and the
 /// worker pool loop are its tasks.
@@ -52,10 +56,14 @@ where
     .await
     .wrap_err("create remote worker pool")?;
 
-    let (worker_pool, pool_loop) = waymark_worker_remote_pool::run(process_pool);
-    spawner.spawn("worker pool loop", pool_loop);
+    let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
+        waymark_worker_remote_pool::run(process_pool);
+    spawner.spawn("worker pool loop", worker_pool_loop);
 
-    Ok(Arc::new(worker_pool))
+    Ok(PythonWorkerPool {
+        requests: Arc::new(worker_pool_requests),
+        completions: worker_pool_completions,
+    })
 }
 
 /// Drain a run's tasks, however long it takes, once its shutdown has been
