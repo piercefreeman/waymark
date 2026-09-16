@@ -35,18 +35,22 @@ pub async fn run(
         )
         .await?;
 
-        let (worker_pool, pool_loop) = waymark_worker_remote_pool::run(process_pool);
-        supervisor.spawn("worker pool loop", pool_loop);
+        let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
+            waymark_worker_remote_pool::run(process_pool);
+        supervisor.spawn("worker pool loop", worker_pool_loop);
 
-        // The bringup wants a `Clone` worker pool, hence the `Arc`; the VM
-        // driver owns the only worker pool handle, so joining it is what lets
-        // the worker pool loop end.
+        // The run keeps its own worker pool requests handle so the loop
+        // cannot stop before the shutdown request, whatever the VM driver
+        // does with its own.
+        let worker_pool_requests = std::sync::Arc::new(worker_pool_requests);
+
         let waymark_transient_execution_bringup::Execution {
             workflow_outcome_rx,
             driver_handle,
         } = waymark_transient_execution_worker_pool_bringup::execute(
             runtime,
-            std::sync::Arc::new(worker_pool),
+            std::sync::Arc::clone(&worker_pool_requests),
+            worker_pool_completions,
             false,
             tokio_util::sync::CancellationToken::new(),
         );
@@ -54,11 +58,11 @@ pub async fn run(
         let workflow_outcome = workflow_outcome_rx.await;
 
         // The outcome is the end of the work, so the shutdown is requested
-        // here, before the VM driver is joined: joining it drops the only
-        // worker pool handle, which is what ends the worker pool loop, after
-        // which the bridge server's graceful shutdown has no streams left to
-        // wait for.
+        // here, and then the run's worker pool requests handle is dropped.
+        // The VM driver drops its own when it returns, right after
+        // delivering the outcome; the loop exits on the last of the two.
         shutdown_token.cancel();
+        drop(worker_pool_requests);
 
         // The driver terminates right after delivering the workflow outcome —
         // including on success — so join it unconditionally for its exit report.

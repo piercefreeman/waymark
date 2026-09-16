@@ -66,14 +66,15 @@ pub async fn run_durable_mode(
         .await
         .wrap_err("start durable worker pool")?;
 
-        // The execution subsystem's tasks hold the worker pool handles and end
-        // on the shutdown token, so the last handle drops after the request
-        // without the run keeping one.
+        // The execution subsystem's tasks hold both worker pool sides; the
+        // run keeps neither, so the last worker pool requests handle drops
+        // when those tasks end.
         waymark_execution_bringup::start(
             &mut supervisor,
             durable_execution_config(),
             Arc::new(stack.backend.clone()),
-            worker_pool,
+            worker_pool.requests,
+            worker_pool.completions,
             None,
             shutdown_token.child_token(),
             force_shutdown_token.child_token(),
