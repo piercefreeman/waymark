@@ -1,0 +1,12 @@
+[package]
+name = "waymark-webapp-build"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+xshell = { workspace = true }
+
+[lib]
+doctest = false

@@ -12,6 +12,8 @@ rust-embed = { workspace = true, features = [
 ] }
 
 [build-dependencies]
+waymark-webapp-build = { workspace = true }
+
 envfury = { workspace = true }
 thiserror = { workspace = true }
 

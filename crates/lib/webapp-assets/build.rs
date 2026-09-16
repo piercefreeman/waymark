@@ -1,7 +1,6 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 /// The environment variable that selects how the build includes the webapp.
@@ -58,9 +57,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let package = waymark_webapp_build::Package {
+        workspace_root: &workspace,
+        package_path: Path::new("js/app/web"),
+    };
+    if !matches!(mode, Mode::Disabled) {
+        for input in waymark_webapp_build::inputs(&package) {
+            println!("cargo::rerun-if-changed={}", input.display());
+        }
+    }
+
     let built = match mode {
         Mode::Disabled => false,
-        Mode::Required => match build(&workspace, &output) {
+        Mode::Required => match waymark_webapp_build::build(&package, &output) {
             Ok(()) => true,
             Err(error) => {
                 println!("cargo::error=building the webapp failed: {error}");
@@ -74,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Err(error.into());
             }
         },
-        Mode::BestEffort => match build(&workspace, &output) {
+        Mode::BestEffort => match waymark_webapp_build::build(&package, &output) {
             Ok(()) => true,
             Err(error) => {
                 println!(
@@ -88,6 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
 
+    // Embed the placeholder page when the webapp was not built.
     if !built {
         // A failed build may have left part of its output behind.
         if output.exists() {
@@ -102,49 +112,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "cargo::rustc-env=WAYMARK_WEBAPP_ASSETS_DIR={}",
         output.display()
     );
-
-    Ok(())
-}
-
-fn build(workspace: &Path, output: &Path) -> Result<(), std::io::Error> {
-    let webapp = workspace.join("js/app/web");
-    // Installing the dependencies rewrites this file, so a placeholder from an
-    // earlier failed build gets replaced.
-    for input in [
-        ".node-version",
-        "package.json",
-        "package-lock.json",
-        "node_modules/.package-lock.json",
-    ] {
-        println!(
-            "cargo::rerun-if-changed={}",
-            workspace.join(input).display()
-        );
-    }
-    for input in [
-        "src",
-        "index.html",
-        "package.json",
-        "tsconfig.json",
-        "vite.config.ts",
-    ] {
-        println!("cargo::rerun-if-changed={}", webapp.join(input).display());
-    }
-
-    let status = Command::new("npm")
-        .current_dir(&webapp)
-        .args(["run", "build", "--", "--emptyOutDir", "--outDir"])
-        .arg(output)
-        .status()?;
-    if !status.success() {
-        return Err(std::io::Error::other(format!("npm {status}")));
-    }
-
-    if !output.join("index.html").is_file() {
-        return Err(std::io::Error::other(
-            "the webapp build emitted no index.html",
-        ));
-    }
 
     Ok(())
 }

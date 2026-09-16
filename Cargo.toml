@@ -183,6 +183,7 @@ waymark-vm-value-convert-core = { path = "crates/lib/vm-value-convert-core" }
 waymark-vm-value-python = { path = "crates/lib/vm-value-python" }
 waymark-vm-value-python-convert-proto = { path = "crates/lib/vm-value-python-convert-proto" }
 waymark-webapp-assets = { path = "crates/lib/webapp-assets" }
+waymark-webapp-build = { path = "crates/lib/webapp-build" }
 waymark-worker-core = { path = "crates/lib/worker-core" }
 waymark-worker-inline = { path = "crates/lib/worker-inline" }
 waymark-worker-inline-compat = { path = "crates/lib/worker-inline-compat" }
@@ -275,6 +276,7 @@ tracing-subscriber = "0.3"
 typed_floats = "1"
 typle = "0.13"
 uuid = "1.23"
+xshell = "0.2.7"
 zeroize = "1"
 
 [patch.crates-io]
