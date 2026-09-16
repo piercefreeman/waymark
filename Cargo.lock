@@ -4520,7 +4520,6 @@ dependencies = [
  "chrono",
  "tokio",
  "tokio-util",
- "tracing",
  "waymark-action-completions-reconciler",
  "waymark-action-completions-reconciler-backend",
  "waymark-action-effect-reconciler",
