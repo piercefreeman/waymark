@@ -24,10 +24,6 @@ pub type ReceiveErrorFor<Metadata, Value, ValueConverter> =
 /// Error returned when receiving action results fails.
 #[derive(Debug, thiserror::Error)]
 pub enum ReceiveError<DecodeError, PayloadError> {
-    /// The result channel was closed.
-    #[error("action result channel closed")]
-    ChannelClosed,
-
     /// A result carried correlation metadata that could not be decoded, so it
     /// cannot be routed back to the promise that awaits it.
     #[error("unable to decode correlation metadata for an action completion")]
@@ -80,12 +76,14 @@ where
 
     async fn wait_for_completions(
         &mut self,
-    ) -> Result<NEVec<ActionCallCompletionFor<Self>>, Self::WaitError> {
+    ) -> Result<Option<NEVec<ActionCallCompletionFor<Self>>>, Self::WaitError> {
         // Block until at least one result arrives, then drain any others that
         // are immediately available.  A decode failure on any of them is fatal
         // — the correlation is the only route back to the awaiting promise, so
         // we surface it rather than strand the promise by dropping the result.
-        let result = self.rx.recv().await.ok_or(ReceiveError::ChannelClosed)?;
+        let Some(result) = self.rx.recv().await else {
+            return Ok(None);
+        };
 
         let mut batch = NEVec::new(completion_from_result::<Metadata, Value, ValueConverter>(
             result,
@@ -97,7 +95,7 @@ where
             )?);
         }
 
-        Ok(batch)
+        Ok(Some(batch))
     }
 }
 
@@ -165,7 +163,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn closed_channel_surfaces_as_error() {
+    async fn closed_channel_means_the_provider_shut_down() {
         let (tx, rx) = mpsc::channel::<proto::ActionResult>(1);
         let mut provider = WorkerStreamActionCallCompletionsProvider::<
             ActionCallCorrelation,
@@ -175,6 +173,6 @@ mod tests {
         drop(tx);
 
         let result = provider.wait_for_completions().await;
-        assert!(matches!(result, Err(ReceiveError::ChannelClosed)));
+        assert!(matches!(result, Ok(None)));
     }
 }

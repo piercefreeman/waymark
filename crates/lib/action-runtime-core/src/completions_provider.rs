@@ -76,9 +76,12 @@ pub trait ActionCallCompletionsProvider {
     /// Wait for action call completions to become available.
     ///
     /// Returns a non-empty list of [`ActionCallCompletion`]s when action calls
-    /// have completed. Returns `Err(Self::WaitError)` if the wait itself
-    /// failed (e.g., the provider has shut down).
+    /// have completed, and `None` once the provider has shut down: no
+    /// completion will ever come again. Returns `Err(Self::WaitError)` if
+    /// the wait itself failed.
     fn wait_for_completions(
         &mut self,
-    ) -> impl Future<Output = Result<NEVec<ActionCallCompletionFor<Self>>, Self::WaitError>> + Send + '_;
+    ) -> impl Future<Output = Result<Option<NEVec<ActionCallCompletionFor<Self>>>, Self::WaitError>>
+    + Send
+    + '_;
 }
