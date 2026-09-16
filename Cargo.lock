@@ -6409,7 +6409,6 @@ version = "0.1.0"
 dependencies = [
  "either",
  "nonempty-collections",
- "thiserror",
  "waymark-proto",
 ]
 

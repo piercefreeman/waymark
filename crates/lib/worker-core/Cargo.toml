@@ -12,7 +12,6 @@ waymark-proto = { workspace = true }
 
 either = { workspace = true, optional = true }
 nonempty-collections = { workspace = true }
-thiserror = { workspace = true }
 
 [lib]
 doctest = false
