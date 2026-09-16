@@ -1,5 +1,5 @@
-name: Set up webapp
-description: Install the Node toolchain and locked frontend dependencies for Rust builds.
+name: Set up JavaScript
+description: Install the Node toolchain and locked dependencies for the JavaScript workspace.
 runs:
   using: composite
   steps:
