@@ -14,6 +14,8 @@ struct Assets;
 /// Serve the SPA for browser routes, including direct visits to nested pages.
 /// Merge alongside the API and health routers before starting the HTTP server.
 pub fn router() -> Router {
+    // A method router serves only GET and HEAD fallbacks; other methods get
+    // 405 Method Not Allowed instead of a successful HTML response.
     Router::new().fallback_service(get(asset))
 }
 
