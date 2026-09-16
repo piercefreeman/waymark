@@ -283,10 +283,19 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions>(
         backend: Arc::clone(&backend),
         codec: Arc::clone(&codec),
     };
-    spawner.spawn(
-        "durable action completions writer",
-        waymark_action_completions_reconciler::writer::run(writer_params),
-    );
+    // The lock renewal ends with this writer: once nothing records
+    // completions anymore, no tracked lock can ever leave the renewal's
+    // set. The child is cancelled when the writer's future ends, however
+    // it ends, and by the force shutdown token like every other loop's.
+    // See the FIXME(#725) at the renewal's shutdown arm.
+    let completions_writer_ended = force_shutdown_token.child_token();
+    spawner.spawn("durable action completions writer", {
+        let cancel_on_end = completions_writer_ended.clone().drop_guard();
+        async move {
+            let _cancel_on_end = cancel_on_end;
+            waymark_action_completions_reconciler::writer::run(writer_params).await
+        }
+    });
 
     let (ack_tx, ack_rx) = tokio::sync::mpsc::unbounded_channel();
     let acker_params = waymark_action_completions_reconciler::acker::Params {
@@ -355,25 +364,13 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions>(
         heartbeat: action_effect_reconciler_lock_heartbeat,
         held_locks_rx,
     };
-    spawner.spawn("action effect reconciler lock renewal", {
-        let shutdown = shutdown_token.child_token();
-        async move {
-            match shutdown
-                .run_until_cancelled(waymark_action_effect_reconciler::renewal::run(
-                    renewal_params,
-                ))
-                .await
-            {
-                None => Ok(()),
-                Some(result) => {
-                    if result.is_ok() {
-                        tracing::info!("action-call request lock renewal drained");
-                    }
-                    result
-                }
-            }
-        }
-    });
+    spawner.spawn(
+        "action effect reconciler lock renewal",
+        waymark_action_effect_reconciler::renewal::run(
+            renewal_params,
+            completions_writer_ended.cancelled_owned(),
+        ),
+    );
 
     let (request_recorder, action_effect_reconciler_request_batcher_loop) =
         waymark_action_effect_reconciler::request_batcher(
