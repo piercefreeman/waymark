@@ -197,7 +197,16 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
 
         let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
             waymark_worker_remote_pool::run(process_pool);
-        supervisor.spawn("worker pool loop", worker_pool_loop);
+        // Cancelled when the worker pool loop ends, however it ends, and by
+        // the force shutdown token like every other loop's.
+        let worker_pool_stopped = force_shutdown_token.child_token();
+        supervisor.spawn("worker pool loop", {
+            let cancel_on_end = worker_pool_stopped.clone().drop_guard();
+            async move {
+                let _cancel_on_end = cancel_on_end;
+                worker_pool_loop.await
+            }
+        });
 
         let worker_pool_requests = Arc::new(worker_pool_requests);
 
@@ -257,6 +266,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             Arc::new(backend.clone()),
             worker_pool_requests,
             worker_pool_completions,
+            worker_pool_stopped.cancelled_owned(),
             Some(waymark_execution_bringup::ObservabilityEvents {
                 emitter: Arc::new(observability_events_emitter),
                 vm_driver_hooks_policy,

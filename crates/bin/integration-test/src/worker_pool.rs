@@ -12,6 +12,9 @@ use crate::ground_truth::PreparedCase;
 pub struct PythonWorkerPool {
     pub requests: Arc<waymark_worker_remote_pool::Requests>,
     pub completions: waymark_worker_remote_pool::Completions,
+
+    /// Cancelled when the worker pool loop ends, however it ends.
+    pub stopped: tokio_util::sync::CancellationToken,
 }
 
 /// Start the worker pool under `spawner`: the bridge server and the
@@ -58,11 +61,19 @@ where
 
     let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
         waymark_worker_remote_pool::run(process_pool);
-    spawner.spawn("worker pool loop", worker_pool_loop);
+    let stopped = tokio_util::sync::CancellationToken::new();
+    spawner.spawn("worker pool loop", {
+        let cancel_on_end = stopped.clone().drop_guard();
+        async move {
+            let _cancel_on_end = cancel_on_end;
+            worker_pool_loop.await
+        }
+    });
 
     Ok(PythonWorkerPool {
         requests: Arc::new(worker_pool_requests),
         completions: worker_pool_completions,
+        stopped,
     })
 }
 
