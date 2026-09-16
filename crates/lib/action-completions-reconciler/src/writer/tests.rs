@@ -26,9 +26,17 @@ type TestCompletion = ActionCallCompletion<
 #[error("fake provider exhausted")]
 struct FakeProviderError;
 
-/// Completion source yielding scripted batches, then failing.
+/// What the fake provider does once its script is exhausted.
+enum Then {
+    Fails,
+    ShutsDown,
+}
+
+/// Completion source yielding scripted batches, then failing or shutting
+/// down.
 struct FakeProvider {
     batches: VecDeque<NEVec<TestCompletion>>,
+    then: Then,
 }
 
 impl waymark_action_runtime_core::ActionCallCompletionsProvider for FakeProvider {
@@ -37,8 +45,16 @@ impl waymark_action_runtime_core::ActionCallCompletionsProvider for FakeProvider
     type WaitError = FakeProviderError;
     type Metadata = TestMetadata;
 
-    async fn wait_for_completions(&mut self) -> Result<NEVec<TestCompletion>, Self::WaitError> {
-        self.batches.pop_front().ok_or(FakeProviderError)
+    async fn wait_for_completions(
+        &mut self,
+    ) -> Result<Option<NEVec<TestCompletion>>, Self::WaitError> {
+        match self.batches.pop_front() {
+            Some(batch) => Ok(Some(batch)),
+            None => match self.then {
+                Then::Fails => Err(FakeProviderError),
+                Then::ShutsDown => Ok(None),
+            },
+        }
     }
 }
 
@@ -83,6 +99,7 @@ fn params(
     Params {
         provider: FakeProvider {
             batches: batches.into_iter().collect(),
+            then: Then::Fails,
         },
         backend: Arc::new(backend.clone()),
         codec: RmpCodec,
@@ -220,4 +237,18 @@ async fn divergent_effect_number_is_critical() {
         .await
         .expect_err("divergence is critical");
     assert!(matches!(error, Error::DivergentEffectNumber(_)));
+}
+
+#[tokio::test]
+async fn stops_once_the_provider_shuts_down() {
+    let vm_id = InstanceId::new_uuid_v4();
+    let backend = MockBackend::default();
+    let mut params = params([NEVec::new(completion(vm_id, 3, 7, "done"))], &backend);
+    params.provider.then = Then::ShutsDown;
+
+    super::run(params)
+        .await
+        .expect("the provider shutting down stops the writer");
+
+    assert_eq!(backend.inner.recorded.lock().unwrap().len(), 1);
 }
