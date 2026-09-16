@@ -62,11 +62,13 @@ impl ActionCallCompletionsProvider for FakeCompletionsProvider {
     async fn wait_for_completions(
         &mut self,
     ) -> Result<
-        NEVec<
-            ActionCallCompletion<
-                ActionCallCorrelation,
-                waymark_vm_value_python::ReadyValue,
-                core::convert::Infallible,
+        Option<
+            NEVec<
+                ActionCallCompletion<
+                    ActionCallCorrelation,
+                    waymark_vm_value_python::ReadyValue,
+                    core::convert::Infallible,
+                >,
             >,
         >,
         MockProviderError,
@@ -95,23 +97,25 @@ impl ActionCallCompletionsProvider for LostCompletionsProvider {
     async fn wait_for_completions(
         &mut self,
     ) -> Result<
-        NEVec<
-            ActionCallCompletion<
-                ActionCallCorrelation,
-                waymark_vm_value_python::ReadyValue,
-                ActionCallLossError,
+        Option<
+            NEVec<
+                ActionCallCompletion<
+                    ActionCallCorrelation,
+                    waymark_vm_value_python::ReadyValue,
+                    ActionCallLossError,
+                >,
             >,
         >,
         MockProviderError,
     > {
         match self.lost.take() {
-            Some(stage) => Ok(NEVec::new(ActionCallCompletion {
+            Some(stage) => Ok(Some(NEVec::new(ActionCallCompletion {
                 metadata: ActionCallCorrelation {
                     effect_number: EffectNumber(0),
                     promise_state_id: PromiseStateId(0),
                 },
                 execution_result: Err(ActionCallLossError { stage }),
-            })),
+            }))),
             None => {
                 std::future::pending::<()>().await;
                 unreachable!("pending never resolves")

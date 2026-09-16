@@ -22,6 +22,18 @@ impl<SleepAck> From<Ack> for waymark_extcall_reconciler_core::Ack<Ack, SleepAck>
     }
 }
 
+/// Error of polling settlements from the completions provider.
+#[derive(Debug, thiserror::Error)]
+pub enum PollActionSettlementsError<WaitError> {
+    /// Waiting for completions failed.
+    #[error("waiting for action-call completions: {0}")]
+    Wait(#[source] WaitError),
+
+    /// The provider has shut down: no completion will ever come again.
+    #[error("the action-call completions provider has shut down")]
+    ProviderShutDown,
+}
+
 /// Settles promises from an
 /// [`waymark_action_runtime_core::ActionCallCompletionsProvider`].
 ///
@@ -77,7 +89,7 @@ where
         + Sync,
     UnifiedAck: From<Ack>,
 {
-    type Error = ActionCallCompletionsProvider::WaitError;
+    type Error = PollActionSettlementsError<ActionCallCompletionsProvider::WaitError>;
 
     async fn poll_action_settlements<'a>(
         &'a mut self,
@@ -88,7 +100,14 @@ where
     where
         UnifiedAck: 'a,
     {
-        let completions = self.provider.wait_for_completions().await?;
+        let maybe_completions = self
+            .provider
+            .wait_for_completions()
+            .await
+            .map_err(PollActionSettlementsError::Wait)?;
+        let Some(completions) = maybe_completions else {
+            return Err(PollActionSettlementsError::ProviderShutDown);
+        };
 
         let settlements = completions
             .into_nonempty_iter()

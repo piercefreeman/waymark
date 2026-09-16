@@ -67,14 +67,14 @@ pub struct Params<Provider, Backend, Codec> {
     pub codec: Codec,
 }
 
-/// Ingest and record completions until the provider fails.
+/// Ingest and record completions until the provider shuts down, or fails.
 ///
-/// Drive this in a background task.  The loop never completes normally —
-/// it only ends on an error, every one of which is critical; see
-/// [`Error`].
+/// Drive this in a background task.  The loop returns `Ok` once the
+/// provider has shut down, and otherwise only on an error, every one of
+/// which is critical; see [`Error`].
 pub async fn run<Provider, Backend, Codec>(
     params: Params<Provider, Backend, Codec>,
-) -> Result<std::convert::Infallible, RunError<Provider, Backend, Codec>>
+) -> Result<(), RunError<Provider, Backend, Codec>>
 where
     Provider: ActionCallCompletionsProvider,
     Provider::Metadata: VmScoped<VmId = Backend::VmId> + ActionCallCorrelated,
@@ -90,10 +90,13 @@ where
     } = params;
 
     loop {
-        let completions = provider
+        let maybe_completions = provider
             .wait_for_completions()
             .await
             .map_err(Error::Completions)?;
+        let Some(completions) = maybe_completions else {
+            return Ok(());
+        };
 
         let mut records = Vec::with_capacity(completions.len().get());
         for completion in completions {
