@@ -6,7 +6,7 @@ ARG UV_VERSION=0.12.3
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 
-# Keep this version in sync with webapp/.node-version.
+# Keep this version in sync with .node-version.
 FROM node:24.13.0-bookworm AS webapp-deps
 WORKDIR /repo/webapp
 COPY webapp/package.json webapp/package-lock.json ./

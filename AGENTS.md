@@ -9,6 +9,7 @@ Once you are done fixing the TODO, double check your work. Have we really taken 
 Follow this syntax:
 
 <code_feedback>
+<rule>Pin the default Node.js toolchain in the repository-root `.node-version`, shared by all JavaScript workspaces and build environments.</rule>
 <rule></rule>
 </code_feedback>
 

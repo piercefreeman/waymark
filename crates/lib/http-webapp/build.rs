@@ -3,6 +3,7 @@ use std::{env, fs, path::PathBuf, process::Command};
 fn main() {
     let webapp = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"))
         .join("../../../webapp");
+    println!("cargo::rerun-if-changed={}", webapp.join("../.node-version").display());
     for input in [
         "src",
         "index.html",
@@ -10,7 +11,6 @@ fn main() {
         "package-lock.json",
         "tsconfig.json",
         "vite.config.ts",
-        ".node-version",
     ] {
         println!("cargo::rerun-if-changed={}", webapp.join(input).display());
     }

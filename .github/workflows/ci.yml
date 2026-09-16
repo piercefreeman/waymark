@@ -240,7 +240,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: hashFiles('webapp/package-lock.json') != ''
         with:
-          node-version-file: webapp/.node-version
+          node-version-file: .node-version
           cache: npm
           cache-dependency-path: webapp/package-lock.json
 

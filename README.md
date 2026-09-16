@@ -152,7 +152,7 @@ The HTTP server serves an embedded SPA at `/`, alongside `/api` and `/healthz`.
 The initial page is a hello-world placeholder. Enable it with
 `WAYMARK_HTTP_ENABLED=true` (default address: `http://localhost:24119`).
 
-Building from source requires Node.js (version in `webapp/.node-version`) and npm:
+Building from source requires Node.js (version in `.node-version`) and npm:
 
 ```sh
 make webapp-deps
