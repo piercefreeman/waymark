@@ -8,9 +8,7 @@ use nonempty_collections::NEVec;
 use tokio::sync::mpsc;
 
 use waymark_proto::messages as proto;
-use waymark_worker_core::{
-    ActionExecutionLoss, ActionExecutionReport, ExecutionProgress, WorkerPoolGoneError,
-};
+use waymark_worker_core::{ActionExecutionLoss, ActionExecutionReport, ExecutionProgress};
 
 const DEFAULT_QUEUE_CAPACITY: usize = 1024;
 
@@ -276,12 +274,14 @@ impl waymark_worker_core::QueueActionDispatch for Pool {
 }
 
 impl waymark_worker_core::PollActionResults for Pool {
-    type Error = WorkerPoolGoneError;
+    type Error = std::convert::Infallible;
 
-    async fn poll_complete(&self) -> Result<NEVec<ActionExecutionReport>, Self::Error> {
+    async fn poll_complete(&self) -> Result<Option<NEVec<ActionExecutionReport>>, Self::Error> {
         let mut receiver = self.completion_rx.lock().await;
 
-        let first = receiver.recv().await.ok_or(WorkerPoolGoneError)?;
+        let Some(first) = receiver.recv().await else {
+            return Ok(None);
+        };
 
         let mut completions = NEVec::new(first);
 
@@ -289,7 +289,7 @@ impl waymark_worker_core::PollActionResults for Pool {
             completions.push(item);
         }
 
-        Ok(completions)
+        Ok(Some(completions))
     }
 }
 
