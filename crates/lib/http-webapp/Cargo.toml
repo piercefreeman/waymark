@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 axum = { workspace = true }
+rust-embed = { workspace = true, features = ["debug-embed", "deterministic-timestamps", "interpolate-folder-path", "mime-guess"] }
 
 [dev-dependencies]
 waymark-http-api = { workspace = true }

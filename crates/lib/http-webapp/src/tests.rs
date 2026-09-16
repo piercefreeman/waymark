@@ -22,13 +22,14 @@ async fn serves_the_embedded_spa_alongside_api_and_health_routes() {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK, "{uri}");
-        assert_eq!(
-            response.headers()[header::CONTENT_TYPE],
-            "text/html; charset=utf-8"
-        );
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "text/html");
         assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        assert_eq!(body, super::INDEX, "{uri}");
+        assert_eq!(
+            body.as_ref(),
+            super::Assets::get("index.html").unwrap().data.as_ref(),
+            "{uri}"
+        );
     }
 
     for (method, uri, expected) in [
@@ -36,6 +37,8 @@ async fn serves_the_embedded_spa_alongside_api_and_health_routes() {
         (Method::GET, "/api/", StatusCode::NOT_FOUND),
         (Method::GET, "/api/missing", StatusCode::NOT_FOUND),
         (Method::GET, "/assets/missing.js", StatusCode::NOT_FOUND),
+        (Method::GET, "/assets/missing", StatusCode::NOT_FOUND),
+        (Method::GET, "/assets", StatusCode::NOT_FOUND),
         (Method::GET, "/favicon.ico", StatusCode::NOT_FOUND),
         (Method::POST, "/workflows", StatusCode::METHOD_NOT_ALLOWED),
         (Method::POST, "/api/missing", StatusCode::NOT_FOUND),
@@ -79,6 +82,45 @@ async fn serves_the_embedded_spa_alongside_api_and_health_routes() {
             assert_eq!(document["status"], "ok");
         } else {
             assert_eq!(document["info"]["title"], "Waymark API");
+        }
+    }
+}
+
+#[tokio::test]
+async fn serves_all_compiled_assets_without_runtime_files() {
+    let app = super::router();
+    let files: Vec<_> = super::Assets::iter().collect();
+    assert!(files.iter().any(|path| path.ends_with(".js")));
+    assert!(files.iter().any(|path| path.ends_with(".css")));
+    for path in files {
+        let file = super::Assets::get(&path).unwrap();
+        assert!(
+            matches!(file.data, std::borrow::Cow::Borrowed(_)),
+            "{path} was read from disk"
+        );
+        for method in [Method::GET, Method::HEAD] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method.clone())
+                        .uri(format!("/{path}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert_eq!(
+                response.headers()[header::CONTENT_TYPE],
+                file.metadata.mimetype()
+            );
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            if method == Method::HEAD {
+                assert!(body.is_empty());
+            } else {
+                assert_eq!(body.as_ref(), file.data.as_ref(), "{path}");
+            }
         }
     }
 }

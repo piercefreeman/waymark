@@ -1,11 +1,14 @@
-use std::{env, fs, path::PathBuf, process::Command};
+use std::{env, path::PathBuf, process::Command};
 
 fn main() {
     let workspace = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"))
         .join("../../..");
     let webapp = workspace.join("js/app/web");
     for input in [".node-version", "package.json", "package-lock.json"] {
-        println!("cargo::rerun-if-changed={}", workspace.join(input).display());
+        println!(
+            "cargo::rerun-if-changed={}",
+            workspace.join(input).display()
+        );
     }
     for input in [
         "src",
@@ -36,14 +39,8 @@ fn main() {
         "webapp build failed; run `make js-deps` to install its dependencies"
     );
 
-    // The server embeds only index.html. Fail rather than ship missing assets.
-    let files: Vec<_> = fs::read_dir(&output)
-        .expect("webapp output directory")
-        .map(|entry| entry.expect("webapp output entry").file_name())
-        .collect();
-    assert_eq!(
-        files,
-        ["index.html"],
-        "webapp must build to a single HTML file"
+    assert!(
+        output.join("index.html").is_file(),
+        "webapp build must emit index.html"
     );
 }
