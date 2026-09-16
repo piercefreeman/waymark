@@ -121,6 +121,12 @@ pub struct ObservabilityEvents {
 /// `worker_pool_completions` is the side the durable action completions
 /// writer polls.
 ///
+/// `worker_pool_stopped` stops the action-call request lock renewal, and
+/// that is all this bringup does with it: the caller must resolve it only
+/// once no attempt runs on the local worker pool anymore, or on a forced
+/// stop, since the locks still held at that point lapse by their
+/// time-to-live.
+///
 /// `shutdown_token` requests a graceful stop — new workloads are refused while
 /// the maintenance loop keeps running until all active workloads drain.
 /// `force_shutdown_token` breaks the pinning manager's maintenance loop out
@@ -132,7 +138,9 @@ pub struct ObservabilityEvents {
 /// the drives run on to their VMs' own end, heartbeated by the maintenance
 /// loop, and the execution driver and pinning manager tasks finish only
 /// once those drives have drained, at once when there are none; that is
-/// the task end `spawner` acts on — fatal, but deferred.
+/// the task end `spawner` acts on — fatal, but deferred. The two state
+/// sweepers, the completions writer, acker and poller, the sleeps acker and
+/// poller, and the lock renewal are handed neither token.
 ///
 /// `spawner` must treat a task ending before the shutdown was requested as
 /// fatal for the whole subsystem: nothing here reacts to such an end.
@@ -142,17 +150,19 @@ pub struct ObservabilityEvents {
     clippy::too_many_arguments,
     reason = "the bringup takes every input of the subsystem it wires"
 )]
-pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions>(
+pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, WorkerPoolStopped>(
     mut spawner: Spawner,
     config: Config<Backend::NodeId>,
     backend: Arc<Backend>,
     worker_pool_requests: WorkerPoolRequests,
     worker_pool_completions: WorkerPoolCompletions,
+    worker_pool_stopped: WorkerPoolStopped,
     observability_events: Option<ObservabilityEvents>,
     shutdown_token: CancellationToken,
     force_shutdown_token: CancellationToken,
 ) where
     Spawner: waymark_managed_spawner::Spawner,
+    WorkerPoolStopped: Future<Output = ()> + Send + 'static,
     Backend: waymark_workload_pinning_backend::PollUnpinnedWorkloads,
     Backend: waymark_workload_pinning_backend::KeepalivePinnings,
     Backend: waymark_workload_pinning_backend::UnpinWorkloads,
@@ -358,6 +368,10 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions>(
     // cannot be renewed in time is a fence breach, and with no per-attempt
     // termination primitive the attempt keeps running in the local pool
     // unauthorized: the renewal stops with an error, its only signal.
+    // The renewal stops with the local worker pool: once it has shut down,
+    // or the stop is forced, no attempt that holds a lock is waited for, so
+    // the locks still held can lapse. See the FIXME(#725) at the renewal's
+    // shutdown arm.
     let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
     let renewal_params = waymark_action_effect_reconciler::renewal::Params {
         backend: Arc::clone(&backend),
@@ -366,25 +380,10 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions>(
         heartbeat: action_effect_reconciler_lock_heartbeat,
         held_locks_rx,
     };
-    spawner.spawn("action effect reconciler lock renewal", {
-        let shutdown = shutdown_token.child_token();
-        async move {
-            match shutdown
-                .run_until_cancelled(waymark_action_effect_reconciler::renewal::run(
-                    renewal_params,
-                ))
-                .await
-            {
-                None => Ok(()),
-                Some(result) => {
-                    if result.is_ok() {
-                        tracing::info!("action-call request lock renewal drained");
-                    }
-                    result
-                }
-            }
-        }
-    });
+    spawner.spawn(
+        "action effect reconciler lock renewal",
+        waymark_action_effect_reconciler::renewal::run(renewal_params, worker_pool_stopped),
+    );
 
     let (request_recorder, action_effect_reconciler_request_batcher_loop) =
         waymark_action_effect_reconciler::request_batcher(
