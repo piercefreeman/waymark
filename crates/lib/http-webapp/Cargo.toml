@@ -8,6 +8,8 @@ publish.workspace = true
 waymark-webapp-assets = { workspace = true }
 
 axum = { workspace = true }
+hex = { workspace = true }
+rust-embed = { workspace = true, features = ["mime-guess"] }
 
 [dev-dependencies]
 http-body-util = { workspace = true }
@@ -16,3 +18,7 @@ tower = { workspace = true, features = ["util"] }
 
 [lib]
 doctest = false
+
+[package.metadata.cargo-shear]
+# Only enables the `mime-guess` feature behind `Metadata::mimetype`.
+ignored = ["rust-embed"]

@@ -98,6 +98,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo::rustc-cfg=waymark_webapp_placeholder");
     }
 
+    println!(
+        "cargo::rustc-env=WAYMARK_WEBAPP_ASSETS_DIR={}",
+        output.display()
+    );
+
     Ok(())
 }
 
@@ -135,13 +140,9 @@ fn build(workspace: &Path, output: &Path) -> Result<(), std::io::Error> {
         return Err(std::io::Error::other(format!("npm {status}")));
     }
 
-    // The server embeds only index.html. Fail rather than ship missing assets.
-    let files: Vec<_> = fs::read_dir(output)?
-        .map(|entry| entry.map(|entry| entry.file_name()))
-        .collect::<Result<_, _>>()?;
-    if files != ["index.html"] {
+    if !output.join("index.html").is_file() {
         return Err(std::io::Error::other(
-            "the webapp must build to a single HTML file",
+            "the webapp build emitted no index.html",
         ));
     }
 

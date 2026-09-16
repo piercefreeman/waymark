@@ -8,5 +8,7 @@
 /// Whether this build embedded the placeholder page instead of the webapp.
 pub const EMBEDS_PLACEHOLDER: bool = cfg!(waymark_webapp_placeholder);
 
-/// The embedded entry point.
-pub const INDEX_HTML: &str = include_str!(concat!(env!("OUT_DIR"), "/webapp/index.html"));
+/// The embedded webapp files.
+#[derive(rust_embed::Embed)]
+#[folder = "$WAYMARK_WEBAPP_ASSETS_DIR"]
+pub struct Assets;
