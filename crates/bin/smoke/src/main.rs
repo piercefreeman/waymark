@@ -28,19 +28,16 @@ struct SmokeCase {
     inputs: HashMap<String, Value>,
 }
 
-async fn run_program_smoke<Pool>(
+async fn run_program_smoke<WorkerPoolRequests, WorkerPoolCompletions>(
     case: &SmokeCase,
-    worker_pool: Pool,
+    worker_pool_requests: WorkerPoolRequests,
+    worker_pool_completions: WorkerPoolCompletions,
 ) -> Result<(), color_eyre::eyre::Report>
 where
-    Pool: waymark_worker_core::QueueActionDispatch
-        + waymark_worker_core::PollActionResults
-        + Clone
-        + Send
-        + Sync
-        + 'static,
-    <Pool as waymark_worker_core::QueueActionDispatch>::Error: core::fmt::Debug + Send + 'static,
-    <Pool as waymark_worker_core::PollActionResults>::Error: core::fmt::Debug + Send + 'static,
+    WorkerPoolRequests: waymark_worker_core::QueueActionDispatch + Send + Sync + 'static,
+    WorkerPoolRequests::Error: core::fmt::Debug + Send + 'static,
+    WorkerPoolCompletions: waymark_worker_core::PollActionResults + Send + Sync + 'static,
+    WorkerPoolCompletions::Error: core::fmt::Debug + Send + 'static,
 {
     println!("\nAST program ({})", case.name);
     println!("{}", waymark_vm_ast_old_fmt::display(&case.program));
@@ -54,7 +51,8 @@ where
         driver_handle,
     } = waymark_transient_execution_worker_pool_bringup::execute(
         runtime,
-        worker_pool,
+        worker_pool_requests,
+        worker_pool_completions,
         false,
         tokio_util::sync::CancellationToken::new(),
     );
@@ -112,9 +110,11 @@ async fn run_smoke(base: i64) -> i32 {
         .await
         .wrap_err("start python worker pool")?;
 
-        let (worker_pool, pool_loop) = waymark_worker_remote_pool::run(process_pool);
-        supervisor.spawn("worker pool loop", pool_loop);
-        let worker_pool = Arc::new(worker_pool);
+        let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
+            waymark_worker_remote_pool::run(process_pool);
+        supervisor.spawn("worker pool loop", worker_pool_loop);
+        let worker_pool_requests = Arc::new(worker_pool_requests);
+        let worker_pool_completions = Arc::new(worker_pool_completions);
 
         let mut failures = 0;
         let mut cases = Vec::new();
@@ -173,18 +173,25 @@ async fn run_smoke(base: i64) -> i32 {
         }
 
         for case in &cases {
-            if let Err(err) = run_program_smoke(case, Arc::clone(&worker_pool)).await {
+            if let Err(err) = run_program_smoke(
+                case,
+                Arc::clone(&worker_pool_requests),
+                Arc::clone(&worker_pool_completions),
+            )
+            .await
+            {
                 failures += 1;
                 println!("Smoke case '{}' failed: {}", case.name, err);
             }
         }
 
-        // The work is done, so the shutdown is requested; then the last worker
-        // pool handle is dropped, which is what ends the worker pool loop, after
-        // which the bridge server's graceful shutdown has no streams left to
-        // wait for.
+        // The work is done, so the shutdown is requested; then the last
+        // worker pool requests handle is dropped, which is what shuts the
+        // worker pool down, after which the bridge server's graceful shutdown
+        // has no streams left to wait for.
         shutdown_token.cancel();
-        drop(worker_pool);
+        drop(worker_pool_requests);
+        drop(worker_pool_completions);
 
         Ok(failures)
     }
