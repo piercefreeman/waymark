@@ -51,6 +51,9 @@ enum FakeCompletionsProvider {
 
     /// Immediately fails with [`MockProviderError`].
     Failing,
+
+    /// Has shut down: reports that no completion will ever come again.
+    ShutDown,
 }
 
 impl ActionCallCompletionsProvider for FakeCompletionsProvider {
@@ -62,11 +65,13 @@ impl ActionCallCompletionsProvider for FakeCompletionsProvider {
     async fn wait_for_completions(
         &mut self,
     ) -> Result<
-        NEVec<
-            ActionCallCompletion<
-                ActionCallCorrelation,
-                waymark_vm_value_python::ReadyValue,
-                core::convert::Infallible,
+        Option<
+            NEVec<
+                ActionCallCompletion<
+                    ActionCallCorrelation,
+                    waymark_vm_value_python::ReadyValue,
+                    core::convert::Infallible,
+                >,
             >,
         >,
         MockProviderError,
@@ -77,6 +82,7 @@ impl ActionCallCompletionsProvider for FakeCompletionsProvider {
                 unreachable!("pending never resolves")
             }
             Self::Failing => Err(MockProviderError),
+            Self::ShutDown => Ok(None),
         }
     }
 }
@@ -95,23 +101,25 @@ impl ActionCallCompletionsProvider for LostCompletionsProvider {
     async fn wait_for_completions(
         &mut self,
     ) -> Result<
-        NEVec<
-            ActionCallCompletion<
-                ActionCallCorrelation,
-                waymark_vm_value_python::ReadyValue,
-                ActionCallLossError,
+        Option<
+            NEVec<
+                ActionCallCompletion<
+                    ActionCallCorrelation,
+                    waymark_vm_value_python::ReadyValue,
+                    ActionCallLossError,
+                >,
             >,
         >,
         MockProviderError,
     > {
         match self.lost.take() {
-            Some(stage) => Ok(NEVec::new(ActionCallCompletion {
+            Some(stage) => Ok(Some(NEVec::new(ActionCallCompletion {
                 metadata: ActionCallCorrelation {
                     effect_number: EffectNumber(0),
                     promise_state_id: PromiseStateId(0),
                 },
                 execution_result: Err(ActionCallLossError { stage }),
-            })),
+            }))),
             None => {
                 std::future::pending::<()>().await;
                 unreachable!("pending never resolves")
@@ -267,6 +275,42 @@ async fn action_settler_error_propagates() {
     assert!(
         matches!(result, Err(crate::GetPromiseSettlementsError::Action(_))),
         "expected Action error from GetPromiseSettlementsError"
+    );
+}
+
+#[tokio::test]
+async fn a_shut_down_action_provider_is_an_action_settler_error() {
+    let requester = MockActionRequester::new();
+
+    let provider = FakeCompletionsProvider::ShutDown;
+
+    let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
+        _,
+        waymark_action_runtime_convert::Converter<
+            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
+        >,
+    >::new(provider);
+    let (sleep_handler, sleep_poller) =
+        waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
+    let (_handler, mut settler) =
+        crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
+    // Handler kept alive — sleep poller blocks waiting for sleeps.
+    // Action provider reports its shutdown at once — that wins tokio::select!.
+
+    let result = settler
+        .get_promise_settlements(NEVec::new(PromiseStateId(0)))
+        .await;
+
+    use waymark_extcall_reconciler_action_compat::promise_settler::PollActionSettlementsError;
+    assert!(
+        matches!(
+            result,
+            Err(crate::GetPromiseSettlementsError::Action(
+                PollActionSettlementsError::ProviderShutDown
+            ))
+        ),
+        "expected the provider's shutdown as the Action error"
     );
 }
 
