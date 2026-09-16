@@ -72,12 +72,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ./.github/actions/setup-webapp
+      - uses: ./.github/actions/setup-js
 
       - name: Frontend lint
-        run: npm run lint --prefix webapp
+        run: npm run lint
       - name: Frontend tests
-        run: npm test --prefix webapp
+        run: npm test --workspace waymark-webapp
 
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
@@ -124,7 +124,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ./.github/actions/setup-webapp
+      - uses: ./.github/actions/setup-js
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
@@ -240,11 +240,13 @@ jobs:
           ref: main
 
       - uses: actions/setup-node@v4
-        if: hashFiles('webapp/package-lock.json') != ''
+        # TODO: Remove this guard once main contains the root JavaScript workspace.
+        # This job checks out main rather than the pull request's head.
+        if: hashFiles('package-lock.json') != ''
         with:
-          node-version-file: webapp/.node-version
+          node-version-file: .node-version
           cache: npm
-          cache-dependency-path: webapp/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
@@ -526,7 +528,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ./.github/actions/setup-webapp
+      - uses: ./.github/actions/setup-js
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
@@ -628,7 +630,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: ./.github/actions/setup-webapp
+      - uses: ./.github/actions/setup-js
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7

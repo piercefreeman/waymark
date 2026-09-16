@@ -3,30 +3,44 @@
 use axum::{
     Router,
     http::{StatusCode, Uri, header},
-    response::{Html, IntoResponse, Response},
+    response::{IntoResponse, Response},
     routing::get,
 };
+use rust_embed::Embed;
 
-const INDEX: &str = include_str!(concat!(env!("OUT_DIR"), "/webapp/index.html"));
+include!(concat!(env!("OUT_DIR"), "/assets.rs"));
 
 /// Serve the SPA for browser routes, including direct visits to nested pages.
 /// Merge alongside the API and health routers before starting the HTTP server.
 pub fn router() -> Router {
-    Router::new().fallback_service(get(index))
+    // A method router serves only GET and HEAD fallbacks; other methods get
+    // 405 Method Not Allowed instead of a successful HTML response.
+    Router::new().fallback_service(get(asset))
 }
 
-async fn index(uri: Uri) -> Response {
-    // There are no separate static assets in the single-file build.
-    if uri
-        .path()
-        .rsplit('/')
-        .next()
-        .is_some_and(|name| name.contains('.'))
-    {
+async fn asset(uri: Uri) -> Response {
+    let path = uri.path().trim_start_matches('/');
+    let file = Assets::get(path).or_else(|| {
+        // Missing assets must not receive HTML. Only browser routes fall back
+        // to the entry point, including direct visits to nested SPA pages.
+        if path == "assets" || path.starts_with("assets/") || path.rsplit('/').next()?.contains('.')
+        {
+            return None;
+        }
+        Assets::get("index.html")
+    });
+    let Some(file) = file else {
         return StatusCode::NOT_FOUND.into_response();
-    }
+    };
 
-    ([(header::CACHE_CONTROL, "no-cache")], Html(INDEX)).into_response()
+    (
+        [
+            (header::CONTENT_TYPE, file.metadata.mimetype()),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        file.data,
+    )
+        .into_response()
 }
 
 #[cfg(test)]

@@ -4,22 +4,22 @@ PY_PROTO_OUT := python/src/waymark/proto
 
 all: build-proto
 
-.PHONY: webapp-deps webapp-build webapp-dev webapp-lint webapp-lint-verify
+.PHONY: js-deps webapp-build webapp-dev js-lint js-lint-verify
 
-webapp-deps:
-	cd webapp && npm ci
+js-deps:
+	npm ci
 
-webapp-build: webapp-deps
-	cd webapp && npm run build
+webapp-build: js-deps
+	npm run build --workspace waymark-webapp
 
-webapp-dev: webapp-deps
-	cd webapp && npm run dev
+webapp-dev: js-deps
+	npm run dev --workspace waymark-webapp
 
-webapp-lint: webapp-deps
-	cd webapp && npm run lint:fix
+js-lint: js-deps
+	npm run lint:fix
 
-webapp-lint-verify: webapp-deps
-	cd webapp && npm run lint
+js-lint-verify: js-deps
+	npm run lint
 
 build-proto:
 	@mkdir -p $(PY_PROTO_OUT)
@@ -40,9 +40,9 @@ clean:
 	rm -rf target
 	rm -rf $(PY_PROTO_OUT)
 
-lint: python-lint webapp-lint rust-lint
+lint: python-lint js-lint rust-lint
 
-lint-verify: python-lint-verify webapp-lint-verify rust-lint-verify
+lint-verify: python-lint-verify js-lint-verify rust-lint-verify
 
 python-lint:
 	cd python && uv run ruff format .
@@ -60,11 +60,11 @@ python-lint-verify:
 	cd scripts && uv run ruff check .
 	cd scripts && uv run ty check .
 
-rust-lint-base: webapp-deps
+rust-lint-base: js-deps
 	cargo fmt
 	cargo clippy --all-targets --all-features -- -D warnings
 
-rust-lint-base-verify: webapp-deps
+rust-lint-base-verify: js-deps
 	cargo fmt -- --check
 	cargo clippy --all-targets --all-features -- -D warnings
 
@@ -84,10 +84,10 @@ rust-lint-verify: rust-lint-base-verify
 	typos
 	cargo deny check
 
-rust-lint-extended: webapp-deps
+rust-lint-extended: js-deps
 	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-start-workers --exclude waymark-vm-cli -- -D warnings
 
-rust-lint-extended-verify: webapp-deps
+rust-lint-extended-verify: js-deps
 	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-start-workers --exclude waymark-vm-cli -- -D warnings
 
 # Coverage targets
@@ -96,7 +96,7 @@ coverage: python-coverage rust-coverage
 python-coverage:
 	cd python && uv run pytest tests --cov=waymark --cov-report=term-missing --cov-report=xml:coverage.xml --cov-report=html:htmlcov
 
-rust-coverage: webapp-deps
+rust-coverage: js-deps
 	cargo llvm-cov --lcov --output-path target/rust-coverage.lcov
 	cargo llvm-cov --html --output-dir target/rust-htmlcov
 

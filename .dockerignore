@@ -11,7 +11,11 @@
 !python
 !core-python
 !scripts
-!webapp
+!js
+!package.json
+!package-lock.json
+!.node-version
+!.prettierignore
 !README.md
 
 !example_app

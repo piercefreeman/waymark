@@ -6,10 +6,11 @@ ARG UV_VERSION=0.12.3
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 
-# Keep this version in sync with webapp/.node-version.
-FROM node:24.13.0-bookworm AS webapp-deps
-WORKDIR /repo/webapp
-COPY webapp/package.json webapp/package-lock.json ./
+# Keep this version in sync with .node-version.
+FROM node:24.13.0-bookworm AS js-deps
+WORKDIR /repo
+COPY package.json package-lock.json ./
+COPY js/app/web/package.json ./js/app/web/package.json
 RUN npm ci
 
 FROM rust:1.88-bookworm AS rust-base
@@ -42,8 +43,8 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     cargo chef cook --release --recipe-path recipe.json
 
 FROM rust-builder AS wheel-builder
-COPY --from=webapp-deps /usr/local /usr/local
-COPY --from=webapp-deps /repo/webapp/node_modules /repo/webapp/node_modules
+COPY --from=js-deps /usr/local /usr/local
+COPY --from=js-deps /repo/node_modules /repo/node_modules
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
