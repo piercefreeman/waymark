@@ -126,6 +126,14 @@ where
     let mut channel_closed = false;
 
     loop {
+        // One stop for both the channel closing and the heartbeat that
+        // empties the tracked set, checked before every wait so neither
+        // waits for the next tick.
+        if channel_closed && tracked.is_empty() {
+            tracing::info!("all locks accounted for and channel closed; stopping");
+            return Ok(());
+        }
+
         tokio::select! {
             held_lock = held_locks_rx.recv(), if !channel_closed => {
                 match held_lock {
@@ -139,10 +147,6 @@ where
             }
             _ = interval.tick() => {
                 if tracked.is_empty() {
-                    if channel_closed {
-                        tracing::info!("all locks accounted for and channel closed; stopping");
-                        return Ok(());
-                    }
                     continue;
                 }
 
