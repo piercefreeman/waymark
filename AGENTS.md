@@ -18,16 +18,19 @@ Follow a modern, developer-focused design language. The design prioritizes clari
 
 ### Theme & Color System
 
+The SPA's concrete tokens, shared component contracts, and API display rules live in [js/app/web/DESIGN.md](js/app/web/DESIGN.md). Use this guide when extending the UI.
+
 **Dual Theme Support**
 - Every component must support both light and dark modes
+- Default to dark mode and persist the user's explicit theme choice.
 - Dark mode: Near-black backgrounds (#0a0a0a to #1a1a1a), light text
 - Light mode: White/off-white backgrounds, dark text
 - Use CSS variables or Tailwind's dark: prefix for all color values
 
 **Semantic Color Palette**
-- **Green** (#22c55e / emerald): Success, completed, active states, running processes
-- **Blue** (#3b82f6): Primary actions, parent workflows, links, interactive elements
-- **Yellow/Amber** (#eab308): Waiting, pending, in-progress states
+- **Green** (emerald): Success, completed, healthy connections
+- **Blue**: Running, primary actions, links, selection, interactive elements
+- **Yellow/Amber**: Waiting, pending, retrying
 - **Red** (#ef4444): Errors, failures, destructive actions
 - **Gray** (#6b7280): Secondary text, metadata, timestamps, disabled states
 
@@ -135,6 +138,7 @@ Follow a modern, developer-focused design language. The design prioritizes clari
 This section is used for the scratch updates, driven by our Agents.
 
 <code_feedback>
+<rule>Lead the observability sidebar with workspace context and navigation; omit a dedicated logo or wordmark header.</rule>
 <rule>Keep substantial frontend build orchestration in a testable library consumed through `build-dependencies`, leaving `build.rs` to supply paths. Use `xshell` for command interpolation and contextual filesystem/process errors; test argument boundaries, failed commands, and missing build outputs.</rule>
 <rule>Temporary CI guards for jobs that check out an older baseline must explain why they exist and name the condition for removing them.</rule>
 <rule>Document non-obvious HTTP combinators by the behavior they preserve, including accurate status codes. Use a GET/HEAD method router for static fallback handling so other methods receive 405 rather than HTML.</rule>

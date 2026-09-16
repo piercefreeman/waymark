@@ -1,48 +1,163 @@
-:root {
-  color-scheme: light dark;
-  --background: #fafafa;
-  --foreground: #171717;
-  --muted: #6b7280;
-  --line: #e5e7eb;
-  font-family: system-ui, sans-serif;
-  color: var(--foreground);
-  background: var(--background);
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--foreground);
+  --color-destructive: var(--failed);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--running);
+  --color-running: var(--running);
+  --color-success: var(--success);
+  --color-waiting: var(--waiting);
+  --color-failed: var(--failed);
+  --color-neutral: var(--neutral);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #fafafa;
-    --muted: #9ca3af;
-    --line: #1f1f1f;
+:root {
+  color-scheme: light;
+  --background: #f6f7f9;
+  --foreground: #18202c;
+  --card: #ffffff;
+  --popover: #ffffff;
+  --primary: #245cce;
+  --primary-foreground: #ffffff;
+  --secondary: #eef1f5;
+  --muted: #eef1f5;
+  --muted-foreground: #596579;
+  --accent: #e6ebf3;
+  --border: #dce1e8;
+  --input: #cbd2dc;
+  --running: #245cce;
+  --success: #16734d;
+  --waiting: #8a5900;
+  --failed: #bb3044;
+  --neutral: #626c7c;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #0b0d10;
+  --foreground: #edf0f5;
+  --card: #111419;
+  --popover: #191d24;
+  --primary: #79aaff;
+  --primary-foreground: #0b0d10;
+  --secondary: #191d24;
+  --muted: #191d24;
+  --muted-foreground: #9aa5b5;
+  --accent: #222832;
+  --border: #262c35;
+  --input: #353e4c;
+  --running: #79aaff;
+  --success: #52d6a0;
+  --waiting: #f2c46d;
+  --failed: #fb8793;
+  --neutral: #a5adba;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply m-0 bg-background font-sans text-[13px] leading-5 text-foreground antialiased;
+    font-variant-numeric: tabular-nums;
+  }
+  button,
+  a,
+  input,
+  select,
+  pre,
+  [tabindex],
+  summary {
+    @apply outline-offset-4 focus-visible:outline-2 focus-visible:outline-ring;
+  }
+  button:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--running) 30%, transparent);
   }
 }
 
-body {
-  margin: 0;
-  min-height: 100vh;
-  background-image: linear-gradient(to right, var(--line) 1px, transparent 1px);
-  background-size: 80px 100%;
+@layer components {
+  .eyebrow {
+    @apply text-[10px] font-medium uppercase tracking-[0.13em] text-muted-foreground;
+  }
+  .panel-heading {
+    @apply text-sm font-medium tracking-tight;
+  }
+  .timeline-track {
+    background-image: linear-gradient(
+      to right,
+      var(--border) 1px,
+      transparent 1px
+    );
+    background-size: 25% 100%;
+  }
 }
 
-main {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: clamp(24px, 8vw, 96px) 24px;
+/* Domain status colors take precedence over primitive badge variants. */
+.status-running {
+  color: var(--running);
+}
+.status-success {
+  color: var(--success);
+}
+.status-waiting {
+  color: var(--waiting);
+}
+.status-failed,
+.status-failing {
+  color: var(--failed);
+}
+.status-unknown,
+.status-cancelled {
+  color: var(--neutral);
+}
+.status-badge {
+  border-color: color-mix(in srgb, currentColor 25%, transparent);
+  background: color-mix(in srgb, currentColor 8%, transparent);
 }
 
-.brand {
-  font-family: ui-monospace, monospace;
-  color: var(--foreground);
+@media (pointer: coarse) {
+  button,
+  [role="tab"],
+  [role="combobox"] {
+    min-height: 44px;
+  }
 }
 
-h1 {
-  font-size: clamp(32px, 6vw, 64px);
-  letter-spacing: -0.04em;
-  margin: 64px 0 16px;
-}
-
-p {
-  color: var(--muted);
-  line-height: 1.6;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
