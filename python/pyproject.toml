@@ -10,6 +10,7 @@ dependencies = [
   "mountaineer-di",
   "protobuf>=5.29,<6",
   "pydantic>=2,<3",
+  "typing-extensions>=4.5,<5",
 ]
 
 [project.optional-dependencies]
