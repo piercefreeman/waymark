@@ -1414,6 +1414,7 @@ dependencies = [
     { name = "mountaineer-di" },
     { name = "protobuf" },
     { name = "pydantic" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -1439,6 +1440,7 @@ requires-dist = [
     { name = "protobuf", specifier = ">=5.29,<6" },
     { name = "pydantic", specifier = ">=2,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
+    { name = "typing-extensions", specifier = ">=4.5,<5" },
 ]
 provides-extras = ["dev"]
 
