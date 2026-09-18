@@ -141,9 +141,20 @@ pub enum MessageError {
 /// Errors returned by [`Sender::send_action`].
 #[derive(Debug, thiserror::Error)]
 pub enum SendActionError {
-    /// Worker transport channel closed before ACK or result was received.
-    #[error("channel closed")]
-    ChannelClosed,
+    /// The dispatch never made it onto the worker transport channel: the
+    /// channel was already closed, so the worker never received it.
+    #[error("dispatch not sent: worker transport channel closed")]
+    NotSent,
+
+    /// The dispatch was sent, but the worker transport channel closed
+    /// before its ACK was received.
+    #[error("no ack: worker transport channel closed")]
+    NoAck,
+
+    /// The dispatch was ACKed, but the worker transport channel closed
+    /// before its response was received.
+    #[error("no response: worker transport channel closed")]
+    NoResponse,
 
     /// Worker protocol state was already closed before the action could be registered.
     #[error("worker protocol closed")]
@@ -263,16 +274,15 @@ impl Sender {
                 shared.pending_acks.remove(&delivery_id);
                 shared.pending_responses.remove(&delivery_id);
             }
-            return Err(SendActionError::ChannelClosed);
+            return Err(SendActionError::NotSent);
         }
 
         // Wait for ACK (should be immediate)
-        let ack_instant = ack_rx.await.map_err(|_| SendActionError::ChannelClosed)?;
+        let ack_instant = ack_rx.await.map_err(|_| SendActionError::NoAck)?;
 
         // Wait for the actual response (after execution)
-        let (response, response_instant) = response_rx
-            .await
-            .map_err(|_| SendActionError::ChannelClosed)?;
+        let (response, response_instant) =
+            response_rx.await.map_err(|_| SendActionError::NoResponse)?;
 
         // Calculate metrics
         let ack_latency = ack_instant
@@ -415,7 +425,7 @@ mod tests {
             .await
             .expect_err("send_action should fail when worker channel is closed");
 
-        assert!(matches!(err, SendActionError::ChannelClosed));
+        assert!(matches!(err, SendActionError::NotSent));
 
         drop(sender);
         drop(from_worker_tx);
@@ -463,7 +473,44 @@ mod tests {
         .expect("send_action should not wait for dispatch timeout")
         .expect_err("send_action should fail when worker result channel closes");
 
-        assert!(matches!(err, SendActionError::ChannelClosed));
+        assert!(matches!(err, SendActionError::NoResponse));
+
+        worker_handle.await.expect("worker task should finish");
+        drop(sender);
+        protocol_loop_handle
+            .await
+            .expect("protocol loop task should finish");
+    }
+
+    #[tokio::test]
+    async fn send_action_fails_when_worker_result_channel_closes_before_ack() {
+        let (to_worker_tx, mut to_worker_rx) = tokio::sync::mpsc::channel(4);
+        let (from_worker_tx, from_worker_rx) = tokio::sync::mpsc::channel(4);
+
+        let (sender, protocol_loop) = setup(Channels {
+            to_worker: to_worker_tx,
+            from_worker: from_worker_rx,
+        });
+        let protocol_loop_handle = tokio::spawn(protocol_loop);
+
+        let worker_handle = tokio::spawn(async move {
+            // Take the dispatch, then go away without acknowledging it.
+            to_worker_rx
+                .recv()
+                .await
+                .expect("receive action dispatch envelope");
+            drop(from_worker_tx);
+        });
+
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            sender.send_action(sample_dispatch()),
+        )
+        .await
+        .expect("send_action should not wait for dispatch timeout")
+        .expect_err("send_action should fail when the worker goes away before acking");
+
+        assert!(matches!(err, SendActionError::NoAck));
 
         worker_handle.await.expect("worker task should finish");
         drop(sender);
