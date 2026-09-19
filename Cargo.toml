@@ -114,6 +114,7 @@ waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
 waymark-support-test-python = { path = "crates/lib/support-test-python" }
 waymark-system-vm = { path = "crates/lib/system-vm" }
+waymark-task-supervisor = { path = "crates/lib/task-supervisor" }
 waymark-timed-future = { path = "crates/lib/timed-future" }
 waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
 waymark-transient-execution-bringup = { path = "crates/lib/transient-execution-bringup" }
