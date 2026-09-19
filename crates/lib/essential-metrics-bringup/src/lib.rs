@@ -12,13 +12,18 @@ use waymark_essential_metrics_config::EssentialMetricsConfig;
 
 /// Start the essential-metrics pipeline over `write_backend`: sampler →
 /// lossy batcher → store sink, plus the retention sweep, as tasks of
-/// `spawner` all ending on `shutdown_token` — and return the
-/// essential-metrics API router over `read_backend`.
+/// `spawner`; the sampler and the sweep end on `shutdown_token`, the
+/// batcher when its last handle is dropped or on `force_shutdown_token`
+/// — and return the essential-metrics API router over `read_backend`.
 ///
 /// `handle` is the sampling half of the recorder pair; the recording
 /// half must already be installed in the process-global fanout, so the
 /// metrics bound here (the batcher's own counters included) land in
 /// live recorders.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the bringup takes every input of the pipeline it wires"
+)]
 pub fn start<Spawner, WriteBackend, ReadBackend>(
     mut spawner: Spawner,
     config: EssentialMetricsConfig,
@@ -27,6 +32,7 @@ pub fn start<Spawner, WriteBackend, ReadBackend>(
     write_backend: Arc<WriteBackend>,
     read_backend: Arc<ReadBackend>,
     shutdown_token: tokio_util::sync::CancellationToken,
+    force_shutdown_token: tokio_util::sync::CancellationToken,
 ) -> aide::axum::ApiRouter
 where
     Spawner: waymark_managed_spawner::Spawner,
@@ -48,7 +54,7 @@ where
         waymark_essential_metrics_sampler::bindings::BATCHER_NAME,
         config.lossy_batcher_policy,
         BackendFlusher(Arc::clone(&write_backend)),
-        shutdown_token.clone().cancelled_owned(),
+        force_shutdown_token.cancelled_owned(),
     );
     let sampler_task = waymark_essential_metrics_sampler::run(
         handle,

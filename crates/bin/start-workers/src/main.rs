@@ -150,6 +150,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
                 node_id,
                 essential_metrics_sampling_handle,
                 shutdown_token.child_token(),
+                force_shutdown_token.child_token(),
             )
             .await?;
 
