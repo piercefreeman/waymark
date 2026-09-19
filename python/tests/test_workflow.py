@@ -14,20 +14,15 @@ from waymark import bridge
 from waymark.actions import action
 from waymark.proto import ast_pb2 as ir
 from waymark.proto import messages_pb2 as pb2
+from waymark.proto import python_value_pb2 as pb2v
 from waymark.serialization import arguments_to_kwargs, dumps
 
 
 def workflow_completion_payload(value: object) -> bytes:
-    """Build the workflow-completion payload the server sends back.
-
-    Completions travel as named arguments carrying a `result` value —
-    a separate plane from an action's structurally-discriminated result.
-    """
-    arguments = pb2.WorkflowArguments()
-    entry = arguments.arguments.add()
-    entry.key = "result"
-    entry.value = dumps(value).SerializeToString()
-    return arguments.SerializeToString()
+    """Build the workflow-completion payload the server sends back."""
+    outcome = pb2v.WorkflowOutcome()
+    outcome.value.CopyFrom(dumps(value))
+    return outcome.SerializeToString()
 
 
 workflow_module = importlib.import_module("waymark.workflow")
