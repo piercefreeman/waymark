@@ -34,7 +34,11 @@ where
     ActionRef: Send + 'static,
     ActionCallArgument: Send + 'static,
 {
-    type Effect = waymark_vm_interpreter_fullset::Effect<Value, ActionRef, ActionCallArgument>;
+    type Effect = waymark_vm_interpreter_fullset::Effect<
+        waymark_vm_interpreter_coreset::Effect<Value>,
+        waymark_vm_interpreter_extcallset::Effect<ActionRef, ActionCallArgument>,
+        core::convert::Infallible,
+    >;
     type Error = Error<CoreEffectHandler::Error, ExtcallEffectHandler::Error>;
 
     async fn handle_effect(
