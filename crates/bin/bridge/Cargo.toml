@@ -10,7 +10,7 @@ waymark-backend-postgres-migrations = { workspace = true }
 waymark-convert-core = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
-waymark-proto = { workspace = true }
+waymark-proto = { workspace = true, features = ["server"] }
 waymark-scheduler-convert-proto = { workspace = true }
 waymark-scheduler-core = { workspace = true }
 waymark-secret-string = { workspace = true }
@@ -38,6 +38,6 @@ sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-stream = { workspace = true }
-tonic = { workspace = true }
+tonic = { workspace = true, default-features = true }
 tonic-health = { workspace = true }
 tracing = { workspace = true }
