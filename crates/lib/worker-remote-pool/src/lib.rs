@@ -57,21 +57,29 @@ where
             // The worker died on us: report the loss as the fact it is.
             // The pool decides nothing here — what a lost execution means
             // for the awaiting promise is the VM's business.
-            let progress = match err {
-                // The worker protocol was already closed before the
-                // dispatch was registered: the action provably never
-                // started.
-                waymark_worker_message_protocol::SendActionError::WorkerProtocolClosed => {
-                    ExecutionProgress::NotStarted
-                }
-                // The channel closed somewhere past registration: the
-                // action may not have run at all, or may have run to
-                // completion with only the result lost.
-                waymark_worker_message_protocol::SendActionError::ChannelClosed => {
-                    ExecutionProgress::Unknown
-                }
-            };
+            let progress = loss_progress(err);
             ActionExecutionReport::Lost(ActionExecutionLoss { metadata, progress })
+        }
+    }
+}
+
+/// How far a dispatch provably got when sending it to the worker failed.
+fn loss_progress(error: waymark_worker_message_protocol::SendActionError) -> ExecutionProgress {
+    match error {
+        // The worker protocol was already closed before the dispatch was
+        // registered, or the dispatch never made it onto the worker
+        // transport: the worker never received it, so the action provably
+        // never started.
+        waymark_worker_message_protocol::SendActionError::WorkerProtocolClosed
+        | waymark_worker_message_protocol::SendActionError::NotSent => {
+            ExecutionProgress::NotStarted
+        }
+        // The channel closed after the dispatch was sent: the action may
+        // not have run at all, or may have run to completion with only the
+        // result lost.
+        waymark_worker_message_protocol::SendActionError::NoAck
+        | waymark_worker_message_protocol::SendActionError::NoResponse => {
+            ExecutionProgress::Unknown
         }
     }
 }
@@ -237,3 +245,6 @@ impl<Spec> waymark_worker_status_core::WorkerPoolStats for RemoteWorkerPool<Spec
         self.pool.stats_snapshot()
     }
 }
+
+#[cfg(test)]
+mod tests;
