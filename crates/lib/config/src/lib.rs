@@ -34,6 +34,7 @@ pub struct WorkerConfig {
     pub sleep_poll_interval: NonZeroDuration,
     pub scheduler_poll_interval: NonZeroDuration,
     pub scheduler_batch_max: NonZeroUsize,
+    pub http: waymark_http_config::HttpConfig,
     pub profile_interval: NonZeroDuration,
     pub vm_retention: NonZeroDuration,
     pub vm_sweep_interval: NonZeroDuration,
@@ -63,6 +64,10 @@ pub enum FromEnvError {
     /// An integer-backed variable (without a parsed default) could not be read.
     #[error(transparent)]
     Int(#[from] envfury::Error<envfury::ValueError<core::num::ParseIntError>>),
+
+    /// The HTTP server configuration could not be read.
+    #[error(transparent)]
+    Http(#[from] waymark_http_config::FromEnvError),
 }
 
 impl WorkerConfig {
@@ -135,6 +140,8 @@ impl WorkerConfig {
 
         let scheduler_batch_max = envfury::or_parse("WAYMARK_SCHEDULER_BATCH_MAX", "64")?;
 
+        let http = waymark_http_config::HttpConfig::from_env()?;
+
         let FromMillisMin::<_, 1>(profile_interval) =
             envfury::or_parse("WAYMARK_RUNNER_PROFILE_INTERVAL_MS", "5000")?;
 
@@ -174,6 +181,7 @@ impl WorkerConfig {
             sleep_poll_interval,
             scheduler_poll_interval,
             scheduler_batch_max,
+            http,
             profile_interval,
             vm_retention,
             vm_sweep_interval,
