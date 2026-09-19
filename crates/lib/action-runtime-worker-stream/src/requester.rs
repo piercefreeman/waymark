@@ -1,5 +1,4 @@
 use tokio::sync::mpsc;
-use waymark_action_core::ActionRef;
 use waymark_action_runtime_core::ActionCallRequest;
 use waymark_action_runtime_metadata_codec::Encode;
 use waymark_convert_core::TryConvert;
@@ -40,51 +39,18 @@ where
         &self,
         request: ActionCallRequest<Self::Argument, Self::Metadata>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send + '_ {
-        let result = build_dispatch(request);
+        // The conversion happens eagerly: a dispatch that cannot be built
+        // is sent onto the stream as the error the caller sees.
+        let result = waymark_action_runtime_convert::Converter::try_convert(request)
+            .map(
+                |dispatch: proto::ActionDispatch| proto::WorkflowStreamResponse {
+                    kind: Some(proto::workflow_stream_response::Kind::ActionDispatch(
+                        dispatch,
+                    )),
+                },
+            )
+            .map_err(|err| tonic::Status::internal(format!("action argument conversion: {err}")));
+
         async move { self.tx.send(result).await }
     }
-}
-
-#[allow(clippy::result_large_err)]
-fn build_dispatch<Metadata: Encode>(
-    request: ActionCallRequest<waymark_vm_value_python::ReadyValue, Metadata>,
-) -> Result<proto::WorkflowStreamResponse, tonic::Status> {
-    let ActionCallRequest {
-        action_ref,
-        metadata,
-        arguments,
-    } = request;
-
-    let ActionRef {
-        action_name,
-        module_name,
-        call_args,
-    } = action_ref;
-
-    let kwargs =
-        waymark_action_runtime_convert::Converter::try_convert((&call_args[..], &arguments[..]))
-            .map_err(|err| tonic::Status::internal(format!("action argument conversion: {err}")))?;
-
-    let mut encoded_metadata = Vec::new();
-    metadata.encode(&mut encoded_metadata);
-
-    let dispatch = proto::ActionDispatch {
-        action_id: String::new(),
-        instance_id: String::new(),
-        sequence: 0,
-        action_name: action_name.clone(),
-        module_name: module_name.clone().unwrap_or_default(),
-        kwargs,
-        timeout_seconds: None,
-        max_retries: None,
-        attempt_number: None,
-        dispatch_token: None,
-        metadata: encoded_metadata,
-    };
-
-    Ok(proto::WorkflowStreamResponse {
-        kind: Some(proto::workflow_stream_response::Kind::ActionDispatch(
-            dispatch,
-        )),
-    })
 }
