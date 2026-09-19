@@ -4863,6 +4863,7 @@ dependencies = [
  "waymark-ids",
  "waymark-observability-config",
  "waymark-observability-events-bringup",
+ "waymark-observability-events-vm-driver-hooks",
  "waymark-observability-store-postgres",
  "waymark-observability-store-postgres-bringup",
  "waymark-observability-store-postgres-migrations",
@@ -4899,6 +4900,7 @@ dependencies = [
  "waymark-observability-events-query-backend",
  "waymark-observability-events-retention-backend",
  "waymark-observability-events-sink-backend",
+ "waymark-observability-events-vm-driver-hooks",
  "waymark-retention-sweeper",
 ]
 

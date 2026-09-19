@@ -45,7 +45,8 @@ pub enum StartError {
 /// a read pool — and every observability subsystem's pipeline over the
 /// write side, all ending on `shutdown_token`; returns the observability
 /// API router over the read side alongside the task handles, and the
-/// node's event emitter for producers to share.
+/// node's event emitter for producers to share, with what the VM driver
+/// hooks record through it.
 ///
 /// `handle` is the sampling half of the essential-metrics recorder pair;
 /// the recording half must already be installed in the process-global
@@ -55,7 +56,15 @@ pub async fn start(
     node_id: waymark_ids::NodeId,
     handle: waymark_essential_metrics_sampler::recorder::Handle,
     shutdown_token: tokio_util::sync::CancellationToken,
-) -> Result<(Handles, aide::axum::ApiRouter, Emitter), StartError> {
+) -> Result<
+    (
+        Handles,
+        aide::axum::ApiRouter,
+        Emitter,
+        waymark_observability_events_vm_driver_hooks::Policy,
+    ),
+    StartError,
+> {
     let Db::Postgres(postgres_config) = &config.db;
 
     // The write pool first, and the migrations through it: the read
@@ -88,7 +97,7 @@ pub async fn start(
             shutdown_token.clone(),
         );
 
-    let (observability_events, observability_events_api_router, emitter) =
+    let (observability_events, observability_events_api_router, emitter, vm_driver_hooks_policy) =
         waymark_observability_events_bringup::start(
             config.observability_events,
             node_id,
@@ -109,5 +118,5 @@ pub async fn start(
         observability_events,
     };
 
-    Ok((handles, api_router, emitter))
+    Ok((handles, api_router, emitter, vm_driver_hooks_policy))
 }
