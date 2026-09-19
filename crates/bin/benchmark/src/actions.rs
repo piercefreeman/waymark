@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 
 use waymark_worker_core::WorkerPoolError;
-use waymark_worker_inline::ActionCallable;
+use waymark_worker_inline::InlineActionCallable;
+use waymark_worker_inline_compat::inline_action;
 
 async fn action_double(
     kwargs: HashMap<String, serde_json::Value>,
@@ -29,15 +30,9 @@ async fn action_sum(
     Ok(serde_json::Value::Number(total.into()))
 }
 
-pub fn action_registry() -> HashMap<String, ActionCallable> {
-    let mut actions: HashMap<String, ActionCallable> = HashMap::new();
-    actions.insert(
-        "double".to_string(),
-        std::sync::Arc::new(|kwargs| Box::pin(action_double(kwargs))),
-    );
-    actions.insert(
-        "sum".to_string(),
-        std::sync::Arc::new(|kwargs| Box::pin(action_sum(kwargs))),
-    );
+pub fn action_registry() -> HashMap<String, InlineActionCallable> {
+    let mut actions: HashMap<String, InlineActionCallable> = HashMap::new();
+    actions.insert("double".to_string(), inline_action(action_double));
+    actions.insert("sum".to_string(), inline_action(action_sum));
     actions
 }
