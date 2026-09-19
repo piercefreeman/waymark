@@ -11,7 +11,7 @@ from typing import Any, AsyncIterator, cast
 
 import grpc
 
-from waymark.actions import serialize_error_payload, serialize_result_payload
+from waymark.actions import serialize_raised_exception, serialize_returned_value
 from waymark.proto import messages_pb2 as pb2
 from waymark.proto import messages_pb2_grpc as pb2_grpc
 
@@ -85,19 +85,18 @@ async def _handle_dispatch(
     await _send_ack(outgoing, envelope)
     dispatch = pb2.ActionDispatch()
     dispatch.ParseFromString(envelope.payload)
-    timeout_seconds = dispatch.timeout_seconds if dispatch.HasField("timeout_seconds") else 0
 
-    # Python-side timeout is a safety net for cleanup only.
-    # Rust handles the primary timeout enforcement.
-    # Add buffer so Rust always times out first.
-    cleanup_timeout_buffer = _cleanup_timeout_buffer_seconds()
-    python_timeout = timeout_seconds + cleanup_timeout_buffer if timeout_seconds > 0 else 0
+    # TODO: worker-side timeout supervision is gone — the dispatch no
+    # longer carries a deadline, since retries and timeouts are lowered
+    # in the VM. The cleanup safety net below (and
+    # `_cleanup_timeout_buffer_seconds`) is therefore inert: decide
+    # whether to reintroduce a propagated deadline or drop the machinery.
+    python_timeout = 0
 
     worker_start = time.perf_counter_ns()
     success = True
     action_name = dispatch.action_name
     execution: workflow_runtime.ActionExecutionResult | None = None
-    raised: BaseException | None = None
     try:
         if python_timeout > 0:
             execution = await asyncio.wait_for(
@@ -108,55 +107,33 @@ async def _handle_dispatch(
 
         if execution.exception:
             success = False
-            raised = execution.exception
-            response_payload = serialize_error_payload(action_name, execution.exception)
+            response_payload = serialize_raised_exception(execution.exception)
         else:
-            response_payload = serialize_result_payload(execution.result)
+            response_payload = serialize_returned_value(execution.result)
     except asyncio.TimeoutError:
         # Python-side timeout is just for cleanup - Rust already handled the timeout.
         # Log internally but don't treat as special error type.
         LOGGER.warning(
-            "Action %s hit Python cleanup timeout after %ss (Rust already timed out at %ss) "
-            "for action_id=%s sequence=%s attempt=%s",
+            "Action %s hit Python cleanup timeout after %ss (Rust already timed out)",
             action_name,
             python_timeout,
-            timeout_seconds,
-            dispatch.action_id,
-            dispatch.sequence,
-            dispatch.attempt_number,
         )
         success = False
         # Return generic error - Rust will likely ignore this late response
         error = Exception(
             f"action {action_name} cleanup timeout (Rust-side timeout already triggered)"
         )
-        raised = error
-        response_payload = serialize_error_payload(action_name, error)
+        response_payload = serialize_raised_exception(error)
     except Exception as exc:  # noqa: BLE001 - propagate structured errors
         success = False
-        raised = exc
-        response_payload = serialize_error_payload(action_name, exc)
-        LOGGER.exception(
-            "Action %s failed for action_id=%s sequence=%s",
-            action_name,
-            dispatch.action_id,
-            dispatch.sequence,
-        )
+        response_payload = serialize_raised_exception(exc)
+        LOGGER.exception("Action %s failed", action_name)
     worker_end = time.perf_counter_ns()
     response = pb2.ActionResult(
-        action_id=dispatch.action_id,
-        success=success,
         worker_start_ns=worker_start,
         worker_end_ns=worker_end,
     )
-    response.payload.CopyFrom(response_payload)
-    if raised is not None:
-        # The type id is what an `except` clause and a retry policy match on;
-        # it travels in the result's own fields, as the stream bridge sends it.
-        response.error_type = type(raised).__name__
-        response.error_message = str(raised)
-    if dispatch.dispatch_token:
-        response.dispatch_token = dispatch.dispatch_token
+    response.payload = response_payload
     # Echo the opaque server correlation metadata untouched.
     if dispatch.metadata:
         response.metadata = dispatch.metadata
@@ -167,13 +144,7 @@ async def _handle_dispatch(
         payload=response.SerializeToString(),
     )
     await outgoing.put(response_envelope)
-    LOGGER.debug(
-        "Handled action=%s seq=%s attempt=%s success=%s",
-        action_name,
-        dispatch.sequence,
-        dispatch.attempt_number,
-        success,
-    )
+    LOGGER.debug("Handled action=%s success=%s", action_name, success)
 
 
 async def _handle_incoming_stream(

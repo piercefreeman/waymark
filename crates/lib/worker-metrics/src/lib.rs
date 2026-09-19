@@ -4,35 +4,20 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
 /// Metrics from a single action round-trip.
 #[derive(Debug, Clone)]
 pub struct RoundTripMetrics<ResponsePayload> {
-    /// The action ID that was executed
-    pub action_id: String,
-    /// The workflow instance this action belongs to
-    pub instance_id: String,
     /// Delivery ID used for correlation
     pub delivery_id: u64,
-    /// Sequence number within the instance
-    pub sequence: u32,
     /// Time from send to ACK receipt
     pub ack_latency: Duration,
     /// Time from send to result receipt
     pub round_trip: Duration,
     /// Time the worker spent executing (from worker's perspective)
     pub worker_duration: Duration,
-    /// Serialized result payload
+    /// The outcome the worker reported
     pub response_payload: ResponsePayload,
-    /// Whether the action succeeded
-    pub success: bool,
-    /// Dispatch token for correlation (echoed back)
-    pub dispatch_token: Option<Uuid>,
-    /// Error type if the action failed
-    pub error_type: Option<String>,
-    /// Error message if the action failed
-    pub error_message: Option<String>,
 }
 
 /// Throughput snapshot for a single worker.

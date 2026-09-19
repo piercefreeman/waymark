@@ -18,7 +18,7 @@ from waymark.logger import configure as configure_logger
 from waymark.proto import messages_pb2 as pb2
 from waymark.proto import messages_pb2_grpc as pb2_grpc
 
-from .actions import serialize_error_payload, serialize_result_payload
+from .actions import serialize_raised_exception, serialize_returned_value
 from .grpc_config import GRPC_CHANNEL_OPTIONS
 from .workflow_runtime import execute_action
 
@@ -356,8 +356,7 @@ async def execute_workflow(payload: bytes) -> bytes:
             case "action_dispatch":
                 dispatch = response.action_dispatch
                 LOGGER.debug(
-                    "pytest stream dispatch: action_id=%s module=%s action=%s",
-                    dispatch.action_id,
+                    "pytest stream dispatch: module=%s action=%s",
                     dispatch.module_name,
                     dispatch.action_name,
                 )
@@ -365,30 +364,19 @@ async def execute_workflow(payload: bytes) -> bytes:
                 execution = await execute_action(dispatch)
                 end_ns = time.monotonic_ns()
                 action_result = pb2.ActionResult(
-                    action_id=dispatch.action_id,
-                    success=execution.exception is None,
-                    payload=(
-                        serialize_result_payload(execution.result)
-                        if execution.exception is None
-                        else serialize_error_payload(dispatch.action_name, execution.exception)
-                    ),
                     worker_start_ns=start_ns,
                     worker_end_ns=end_ns,
-                    error_type=(
-                        type(execution.exception).__name__
-                        if execution.exception is not None
-                        else ""
-                    ),
-                    error_message=str(execution.exception)
-                    if execution.exception is not None
-                    else "",
+                )
+                action_result.payload = (
+                    serialize_returned_value(execution.result)
+                    if execution.exception is None
+                    else serialize_raised_exception(execution.exception)
                 )
                 # Echo the opaque server correlation metadata untouched.
                 if dispatch.metadata:
                     action_result.metadata = dispatch.metadata
                 LOGGER.debug(
-                    "pytest stream result: action_id=%s success=%s",
-                    dispatch.action_id,
+                    "pytest stream result: success=%s",
                     execution.exception is None,
                 )
                 await queue.put(pb2.WorkflowStreamRequest(action_result=action_result))

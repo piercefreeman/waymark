@@ -13,24 +13,18 @@ use std::sync::Arc;
 use waymark_worker_core::WorkerPoolError;
 use waymark_worker_inline::InlineActionCallable;
 
-/// Render a successful JSON result into the wire-shaped action result:
-/// the value rides the payload under the `result` key, exactly as a
-/// remote worker would have reported it.
-fn success_action_result(value: &serde_json::Value) -> waymark_proto::messages::ActionResult {
-    let document = waymark_proto_python_value_conversions::json_to_workflow_argument_value(value);
-    let payload = waymark_proto::messages::WorkflowArguments {
-        arguments: vec![waymark_proto::messages::WorkflowArgument {
-            key: "result".to_owned(),
-            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
-                &document,
-            ),
-        }],
+/// Encode how the call completed into the result the wire carries.
+fn encode_result(outcome: Result<serde_json::Value, WorkerPoolError>) -> Vec<u8> {
+    let result_value = match outcome {
+        Ok(value) => waymark_proto_python_value_conversions::returned_value(
+            waymark_proto_python_value_conversions::json_to_workflow_argument_value(&value),
+        ),
+        Err(err) => waymark_proto_python_value_conversions::raised_exception(
+            waymark_proto_python_value_conversions::exception_value(err.kind, err.message),
+        ),
     };
-    waymark_proto::messages::ActionResult {
-        success: true,
-        payload: Some(payload),
-        ..Default::default()
-    }
+
+    waymark_proto_python_value_conversions::encode_action_result_value(&result_value)
 }
 
 /// Adapt a JSON-map action body to the inline callable surface: decode
@@ -57,14 +51,9 @@ where
                 body(entries.into_iter().collect()).await
             }
             .await;
-            match outcome {
-                Ok(value) => success_action_result(&value),
-                Err(err) => waymark_proto::messages::ActionResult {
-                    success: false,
-                    error_type: Some(err.kind),
-                    error_message: Some(err.message),
-                    ..Default::default()
-                },
+            waymark_proto::messages::ActionResult {
+                payload: encode_result(outcome),
+                ..Default::default()
             }
         })
     })
