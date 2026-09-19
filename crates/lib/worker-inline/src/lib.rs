@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 
 use waymark_observability::obs;
 use waymark_proto::messages as proto;
-use waymark_worker_core::{ActionExecutionReport, WorkerPoolGoneError};
+use waymark_worker_core::ActionExecutionReport;
 
 type BoxFuture<'a, T> = std::pin::Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -122,10 +122,12 @@ impl Pool {
     #[obs]
     async fn poll_complete_impl(
         &self,
-    ) -> Result<NEVec<ActionExecutionReport>, WorkerPoolGoneError> {
+    ) -> Result<Option<NEVec<ActionExecutionReport>>, std::convert::Infallible> {
         let mut receiver = self.completion_rx.lock().await;
 
-        let first = receiver.recv().await.ok_or(WorkerPoolGoneError)?;
+        let Some(first) = receiver.recv().await else {
+            return Ok(None);
+        };
 
         let mut executions = NEVec::new(first);
 
@@ -133,7 +135,7 @@ impl Pool {
             executions.push(item);
         }
 
-        Ok(executions)
+        Ok(Some(executions))
     }
 }
 
@@ -178,11 +180,11 @@ impl waymark_worker_core::QueueActionDispatch for Pool {
 }
 
 impl waymark_worker_core::PollActionResults for Pool {
-    type Error = WorkerPoolGoneError;
+    type Error = std::convert::Infallible;
 
     fn poll_complete(
         &self,
-    ) -> impl Future<Output = Result<NEVec<ActionExecutionReport>, Self::Error>> {
+    ) -> impl Future<Output = Result<Option<NEVec<ActionExecutionReport>>, Self::Error>> {
         self.poll_complete_impl()
     }
 }

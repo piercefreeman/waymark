@@ -11,7 +11,7 @@ use waymark_convert_core::TryConvert;
 /// the worker pool.
 #[derive(Debug, thiserror::Error)]
 pub enum WorkerPoolCompletionsError<PollError, MetadataDecodeError, PayloadError> {
-    /// The worker pool can no longer provide completions.
+    /// Polling the worker pool failed.
     ///
     /// Whatever polling failed with, expressed as the pool's own error:
     /// this provider merely propagates it.
@@ -93,13 +93,16 @@ where
 
     async fn wait_for_completions(
         &mut self,
-    ) -> Result<NEVec<ActionCallCompletionFor<Self>>, Self::WaitError> {
+    ) -> Result<Option<NEVec<ActionCallCompletionFor<Self>>>, Self::WaitError> {
         loop {
-            let completions = self
+            let maybe_completions = self
                 .pool
                 .poll_complete()
                 .await
                 .map_err(WorkerPoolCompletionsError::Poll)?;
+            let Some(completions) = maybe_completions else {
+                return Ok(None);
+            };
 
             let vec: Vec<_> = completions
                 .into_iter()
@@ -110,7 +113,7 @@ where
                 continue;
             };
 
-            return Ok(nevec);
+            return Ok(Some(nevec));
         }
     }
 }
