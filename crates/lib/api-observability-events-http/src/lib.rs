@@ -8,10 +8,12 @@ use std::sync::Arc;
 mod common;
 mod list_events;
 mod tail;
+mod vm_timeline;
 
 pub use self::common::*;
 pub use self::list_events::ListEventsQuery;
 pub use self::tail::{TailPath, TailQuery};
+pub use self::vm_timeline::{VmTimelinePath, VmTimelineQuery};
 
 /// The routes of the observability-events domain, over `backend`, under
 /// the domain's own `/observability-events` prefix.
@@ -19,7 +21,9 @@ pub fn router<Backend>(backend: Arc<Backend>) -> aide::axum::ApiRouter
 where
     Backend: waymark_observability_events_query_backend::ListEvents,
     Backend: waymark_observability_events_query_backend::Tail,
+    Backend: waymark_observability_events_query_backend::VmTimeline,
     Backend: waymark_observability_events_query_backend::HasNodeId<NodeId = waymark_ids::NodeId>,
+    Backend: waymark_observability_events_query_backend::HasVmId<VmId = waymark_ids::InstanceId>,
     Backend: waymark_observability_events_query_backend::HasPayload,
     Backend::Payload:
         waymark_observability_events_core::Kinded + serde::Serialize + schemars::JsonSchema,
@@ -27,7 +31,8 @@ where
 {
     let routes = aide::axum::ApiRouter::new()
         .merge(list_events::router())
-        .merge(tail::router());
+        .merge(tail::router())
+        .merge(vm_timeline::router());
 
     aide::axum::ApiRouter::new()
         .nest("/observability-events", routes)
