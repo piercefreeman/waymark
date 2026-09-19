@@ -12,6 +12,7 @@ waymark-execution-bringup = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-proto = { workspace = true }
+waymark-proto-python-value-conversions = { workspace = true }
 waymark-secret-string = { workspace = true }
 waymark-support-integration = { workspace = true }
 waymark-system-vm = { workspace = true }
@@ -21,7 +22,8 @@ waymark-vm-ast-old = { workspace = true }
 waymark-vm-ast-old-proto = { workspace = true }
 waymark-vm-codec-rmp = { workspace = true }
 waymark-vm-runtime-builder = { workspace = true }
-waymark-vm-value-convert-json = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
+waymark-vm-value-convert-proto = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-worker-python = { workspace = true }
 waymark-worker-remote-bringup = { workspace = true }
