@@ -32,3 +32,20 @@ pub const VALUE_ERROR: &str = "ValueError";
 
 /// The runtime exception type identifier for an action call that timed out.
 pub const ACTION_TIMEOUT: &str = "ActionTimeout";
+
+/// The runtime exception type identifier for an action call the worker
+/// never received: the dispatch was lost before it started, so nothing
+/// ran and a retry is safe.
+///
+/// Raised by the runtime so the program's own policy — a compiled-in
+/// retry, a user `except`, or nothing — decides what the loss means.
+pub const ACTION_EXECUTION_NOT_STARTED: &str = "ActionExecutionNotStarted";
+
+/// The runtime exception type identifier for an action call the worker
+/// had when its execution was lost: no result will ever come from that
+/// attempt, and how far it got is unknown — it may have run to
+/// completion.
+///
+/// Raised by the runtime so the program's own policy — a compiled-in
+/// retry, a user `except`, or nothing — decides what the loss means.
+pub const ACTION_EXECUTION_LOST: &str = "ActionExecutionLost";
