@@ -83,43 +83,46 @@ async fn run_benchmark(
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
     let mut supervisor: Supervisor = waymark_task_supervisor::start(shutdown_token.clone());
 
-    let observability = if with_observability {
-        let node_id = waymark_ids::NodeId::new_uuid_v4();
-        let observability =
-            observability::start(&mut supervisor, dsn, node_id, shutdown_token.child_token())
-                .await?;
-        Some(observability)
-    } else {
-        None
-    };
-    let observability_events = observability.as_ref().map(|observability| {
-        waymark_execution_bringup::ObservabilityEvents {
-            emitter: Arc::clone(&observability.emitter),
-            vm_driver_hooks_policy: observability.vm_driver_hooks_policy,
-        }
-    });
+    // The run under the supervisor: a failure part-way leaves the tasks
+    // already up supervised, and they are shut down and drained below like
+    // on any other exit.
+    let run_result: Result<_, color_eyre::eyre::Report> = async {
+        let observability = if with_observability {
+            let node_id = waymark_ids::NodeId::new_uuid_v4();
+            let observability =
+                observability::start(&mut supervisor, dsn, node_id, shutdown_token.child_token())
+                    .await?;
+            Some(observability)
+        } else {
+            None
+        };
+        let observability_events = observability.as_ref().map(|observability| {
+            waymark_execution_bringup::ObservabilityEvents {
+                emitter: Arc::clone(&observability.emitter),
+                vm_driver_hooks_policy: observability.vm_driver_hooks_policy,
+            }
+        });
 
-    let (worker_pool, pool_loop) = waymark_worker_inline::run(actions::action_registry());
-    supervisor.spawn("inline worker pool loop", pool_loop);
+        let (worker_pool, pool_loop) = waymark_worker_inline::run(actions::action_registry());
+        supervisor.spawn("inline worker pool loop", pool_loop);
 
-    let start = Instant::now();
-    let execution_handles = waymark_execution_bringup::start(
-        execution::durable_execution_config(max_pinned)?,
-        Arc::new(backend.clone()),
-        Arc::new(worker_pool),
-        observability_events,
-        shutdown_token.child_token(),
-        force_shutdown_token.child_token(),
-    )
-    .await;
-    execution::track(&mut supervisor, execution_handles);
+        let start = Instant::now();
+        let execution_handles = waymark_execution_bringup::start(
+            execution::durable_execution_config(max_pinned)?,
+            Arc::new(backend.clone()),
+            Arc::new(worker_pool),
+            observability_events,
+            shutdown_token.child_token(),
+            force_shutdown_token.child_token(),
+        )
+        .await;
+        execution::track(&mut supervisor, execution_handles);
 
-    // The supervisor cancels the shutdown token when any task ends before
-    // the shutdown was requested (e.g. on a lock fence breach) — watched
-    // below so the drain loop fails loudly instead of waiting forever on a
-    // dead subsystem. Whichever way the loop ends, the tasks are drained.
-    let mut last_progress = (0i64, Instant::now());
-    let draining_result: Result<(), color_eyre::eyre::Report> = async {
+        // The supervisor cancels the shutdown token when any task ends before
+        // the shutdown was requested (e.g. on a lock fence breach) — watched
+        // below so the drain loop fails loudly instead of waiting forever on a
+        // dead subsystem.
+        let mut last_progress = (0i64, Instant::now());
         loop {
             let done: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM vm_execution_results")
                 .fetch_one(backend.pool())
@@ -144,18 +147,18 @@ async fn run_benchmark(
             tokio::time::sleep(DRAIN_POLL_INTERVAL).await;
         }
 
-        Ok(())
+        Ok((observability, start.elapsed()))
     }
     .await;
-    let elapsed = start.elapsed();
 
-    // Nothing is draining anymore — force the pinning manager out of its
-    // drain loop along with the graceful stop, then wait for every task.
+    // Whatever the run did, nothing is draining anymore — force the pinning
+    // manager out of its drain loop along with the graceful stop, then wait
+    // for every task; the run's own failure comes first.
     shutdown_token.cancel();
     force_shutdown_token.cancel();
     let report = supervisor.drain().await;
 
-    draining_result?;
+    let (observability, elapsed) = run_result?;
     if report.any_before_shutdown() {
         bail!("a task ended before the shutdown was requested:\n{report}");
     }

@@ -47,45 +47,58 @@ pub async fn run_durable_mode(
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
     let mut supervisor: Supervisor = waymark_task_supervisor::start(shutdown_token.clone());
-    let worker_pool = setup_worker_pool(
-        &mut supervisor,
-        shutdown_token.clone(),
-        repo_root,
-        prepared_cases,
-        worker_count,
-    )
-    .await
-    .wrap_err("start durable worker pool")?;
 
-    // The execution subsystem's tasks hold the worker pool handles and end
-    // on the shutdown token, so the last handle drops after the request
-    // without the run keeping one.
-    let execution_handles = waymark_execution_bringup::start(
-        durable_execution_config(),
-        Arc::new(stack.backend.clone()),
-        worker_pool,
-        None,
-        shutdown_token.child_token(),
-        force_shutdown_token.child_token(),
-    )
-    .await;
-    track_execution(&mut supervisor, execution_handles);
+    // The run under the supervisor: a failure part-way leaves the tasks
+    // already up supervised, and they are shut down and drained below like
+    // on any other exit.
+    let run_result: Result<_, color_eyre::eyre::Report> = async {
+        let worker_pool = setup_worker_pool(
+            &mut supervisor,
+            shutdown_token.clone(),
+            repo_root,
+            prepared_cases,
+            worker_count,
+        )
+        .await
+        .wrap_err("start durable worker pool")?;
 
-    let mut failures = Vec::new();
-    for prepared in prepared_cases {
-        let actual = run_case_durable(prepared, &stack, timeout).await;
-        if let Some(mismatch) = check_case_outcome(prepared, actual) {
-            failures.push(mismatch);
+        // The execution subsystem's tasks hold the worker pool handles and end
+        // on the shutdown token, so the last handle drops after the request
+        // without the run keeping one.
+        let execution_handles = waymark_execution_bringup::start(
+            durable_execution_config(),
+            Arc::new(stack.backend.clone()),
+            worker_pool,
+            None,
+            shutdown_token.child_token(),
+            force_shutdown_token.child_token(),
+        )
+        .await;
+        track_execution(&mut supervisor, execution_handles);
+
+        let mut failures = Vec::new();
+        for prepared in prepared_cases {
+            let actual = run_case_durable(prepared, &stack, timeout).await;
+            if let Some(mismatch) = check_case_outcome(prepared, actual) {
+                failures.push(mismatch);
+            }
         }
-    }
 
-    // Every outcome has been received, so nothing is draining — force the
-    // pinning manager out of its drain loop along with the graceful stop.
+        Ok(failures)
+    }
+    .await;
+
+    // Every outcome has been received, or the run failed: nothing is
+    // draining — force the pinning manager out of its drain loop along with
+    // the graceful stop, then drain the run; the run's own failure comes
+    // first.
     shutdown_token.cancel();
     force_shutdown_token.cancel();
-    drain_run(supervisor)
+    let drain_result = drain_run(supervisor)
         .await
-        .wrap_err("drain the durable run")?;
+        .wrap_err("drain the durable run");
+    let failures = run_result?;
+    drain_result?;
 
     Ok(failures)
 }
