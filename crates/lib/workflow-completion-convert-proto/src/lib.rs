@@ -61,36 +61,32 @@ impl
 }
 
 fn exception_workflow_arguments(
-    exception: waymark_proto::python_value::WorkflowExceptionValue,
+    exception: waymark_proto::python_value::ExceptionValue,
 ) -> waymark_proto::messages::WorkflowArguments {
     use waymark_proto::messages::{WorkflowArgument, WorkflowArguments};
 
-    let error_value = waymark_proto::python_value::WorkflowArgumentValue {
-        kind: Some(
-            waymark_proto::python_value::workflow_argument_value::Kind::Exception(Box::new(
-                exception,
-            )),
-        ),
+    let error_value = waymark_proto::python_value::Value {
+        kind: Some(waymark_proto::python_value::value::Kind::Exception(
+            Box::new(exception),
+        )),
     };
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "error".to_string(),
-            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(
-                &error_value,
-            ),
+            value: waymark_proto_python_value_conversions::encode_value(&error_value),
         }],
     }
 }
 
 fn completion_workflow_arguments(
-    value: waymark_proto::python_value::WorkflowArgumentValue,
+    value: waymark_proto::python_value::Value,
 ) -> waymark_proto::messages::WorkflowArguments {
     use waymark_proto::messages::{WorkflowArgument, WorkflowArguments};
 
     WorkflowArguments {
         arguments: vec![WorkflowArgument {
             key: "result".to_string(),
-            value: waymark_proto_python_value_conversions::encode_workflow_argument_value(&value),
+            value: waymark_proto_python_value_conversions::encode_value(&value),
         }],
     }
 }

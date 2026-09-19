@@ -274,7 +274,7 @@ class WorkflowArgument(google.protobuf.message.Message):
     Named arguments at the transport framing level.  The names stay
     proto-visible; each value is opaque encoded bytes whose format is
     the producing language's own business (currently a serialized
-    `waymark.python_value.WorkflowArgumentValue`, see python_value.proto).
+    `waymark.python_value.Value`, see python_value.proto).
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
