@@ -13,7 +13,8 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use mockall::mock;
 use waymark_action_runtime_core::{
-    ActionCallCompletion, ActionCallCompletionsProvider, ActionCallRequest, ActionCallRequester,
+    ActionCallCompletion, ActionCallCompletionsProvider, ActionCallLossError, ActionCallRequest,
+    ActionCallRequester, ActionCallStage,
 };
 use waymark_action_runtime_metadata::ActionCallCorrelation;
 use waymark_sleep_compat_python::ReadyValueSleepProvider;
@@ -54,13 +55,20 @@ enum FakeCompletionsProvider {
 
 impl ActionCallCompletionsProvider for FakeCompletionsProvider {
     type Value = waymark_vm_value_python::ReadyValue;
-    type Error = MockProviderError;
+    type ActionExecutionError = core::convert::Infallible;
+    type WaitError = MockProviderError;
     type Metadata = ActionCallCorrelation;
 
     async fn wait_for_completions(
         &mut self,
     ) -> Result<
-        NEVec<ActionCallCompletion<waymark_vm_value_python::ReadyValue, ActionCallCorrelation>>,
+        NEVec<
+            ActionCallCompletion<
+                ActionCallCorrelation,
+                waymark_vm_value_python::ReadyValue,
+                core::convert::Infallible,
+            >,
+        >,
         MockProviderError,
     > {
         match self {
@@ -73,6 +81,45 @@ impl ActionCallCompletionsProvider for FakeCompletionsProvider {
     }
 }
 
+/// Completions-provider fake yielding one lost execution, then pending.
+struct LostCompletionsProvider {
+    lost: Option<ActionCallStage>,
+}
+
+impl ActionCallCompletionsProvider for LostCompletionsProvider {
+    type Value = waymark_vm_value_python::ReadyValue;
+    type ActionExecutionError = ActionCallLossError;
+    type WaitError = MockProviderError;
+    type Metadata = ActionCallCorrelation;
+
+    async fn wait_for_completions(
+        &mut self,
+    ) -> Result<
+        NEVec<
+            ActionCallCompletion<
+                ActionCallCorrelation,
+                waymark_vm_value_python::ReadyValue,
+                ActionCallLossError,
+            >,
+        >,
+        MockProviderError,
+    > {
+        match self.lost.take() {
+            Some(stage) => Ok(NEVec::new(ActionCallCompletion {
+                metadata: ActionCallCorrelation {
+                    effect_number: EffectNumber(0),
+                    promise_state_id: PromiseStateId(0),
+                },
+                execution_result: Err(ActionCallLossError { stage }),
+            })),
+            None => {
+                std::future::pending::<()>().await;
+                unreachable!("pending never resolves")
+            }
+        }
+    }
+}
+
 #[tokio::test]
 async fn effect_handler_dispatches_action_call() {
     let mut requester = MockActionRequester::new();
@@ -81,7 +128,10 @@ async fn effect_handler_dispatches_action_call() {
     let provider = FakeCompletionsProvider::Pending;
 
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
-    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
+        _,
+        waymark_action_runtime_convert::Converter,
+    >::new(provider);
     let (sleep_handler, sleep_poller) =
         waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
     let (mut handler, _settler) =
@@ -116,7 +166,10 @@ async fn effect_handler_records_sleep() {
     let provider = FakeCompletionsProvider::Pending;
 
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
-    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
+        _,
+        waymark_action_runtime_convert::Converter,
+    >::new(provider);
     let (sleep_handler, sleep_poller) =
         waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
     let (mut handler, mut settler) =
@@ -147,13 +200,51 @@ async fn effect_handler_records_sleep() {
 }
 
 #[tokio::test]
+async fn action_settler_settles_a_lost_execution_raised() {
+    let requester = MockActionRequester::new();
+
+    let provider = LostCompletionsProvider {
+        lost: Some(ActionCallStage::Unknown),
+    };
+
+    let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
+        _,
+        waymark_action_runtime_convert::Converter,
+    >::new(provider);
+    let (sleep_handler, sleep_poller) =
+        waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
+    let (_handler, mut settler) =
+        crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
+
+    let settlements = settler
+        .get_promise_settlements(NEVec::new(PromiseStateId(0)))
+        .await
+        .unwrap();
+    assert_eq!(settlements.len().get(), 1);
+    assert_eq!(settlements[0].promise_state_id, PromiseStateId(0));
+    let waymark_vm_driver_core::PromiseResolution::Rejected(exception) = &settlements[0].resolution
+    else {
+        panic!("a lost execution settles its promise raised");
+    };
+    assert_eq!(
+        exception.type_id,
+        waymark_vm_exception_type_ids::ACTION_EXECUTION_LOST
+    );
+    assert_eq!(exception.details, waymark_vm_value_python::ReadyValue::None);
+}
+
+#[tokio::test]
 async fn action_settler_error_propagates() {
     let requester = MockActionRequester::new();
 
     let provider = FakeCompletionsProvider::Failing;
 
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
-    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
+        _,
+        waymark_action_runtime_convert::Converter,
+    >::new(provider);
     let (sleep_handler, sleep_poller) =
         waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
     let (_handler, mut settler) =
@@ -179,7 +270,10 @@ async fn sleep_settler_error_propagates() {
     let provider = FakeCompletionsProvider::Pending;
 
     let action_handler = waymark_extcall_reconciler_action_compat::EffectHandler::new(requester);
-    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::new(provider);
+    let action_poller = waymark_extcall_reconciler_action_compat::PromiseSettler::<
+        _,
+        waymark_action_runtime_convert::Converter,
+    >::new(provider);
     let (sleep_handler, sleep_poller) =
         waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
     let (handler, mut settler) =
