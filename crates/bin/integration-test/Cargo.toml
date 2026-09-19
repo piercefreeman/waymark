@@ -23,7 +23,7 @@ waymark-vm-ast-old-proto = { workspace = true }
 waymark-vm-codec-rmp = { workspace = true }
 waymark-vm-runtime-builder = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
-waymark-vm-value-convert-proto = { workspace = true }
+waymark-vm-value-python-convert-proto = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-worker-python = { workspace = true }
 waymark-worker-remote-bringup = { workspace = true }

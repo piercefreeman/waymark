@@ -11,8 +11,8 @@ waymark-convert-core = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-proto-python-value-conversions = { workspace = true }
 waymark-vm-value-convert-core = { workspace = true }
-waymark-vm-value-convert-proto = { workspace = true }
 waymark-vm-value-python = { workspace = true }
+waymark-vm-value-python-convert-proto = { workspace = true }
 
 indexmap = { workspace = true }
 prost = { workspace = true }

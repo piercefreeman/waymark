@@ -39,7 +39,7 @@ impl TryConvert<waymark_vm_value_python::ReadyValue, waymark_proto::messages::Wo
     fn try_convert(
         value: waymark_vm_value_python::ReadyValue,
     ) -> Result<waymark_proto::messages::WorkflowArguments, PendingPromiseError> {
-        let value = waymark_vm_value_convert_proto::Converter::try_convert(&value)?;
+        let value = waymark_vm_value_python_convert_proto::Converter::try_convert(&value)?;
         Ok(completion_workflow_arguments(value))
     }
 }
@@ -55,7 +55,7 @@ impl
     fn try_convert(
         exception: waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
     ) -> Result<waymark_proto::messages::WorkflowArguments, PendingPromiseError> {
-        let exception = waymark_vm_value_convert_proto::Converter::try_convert(&exception)?;
+        let exception = waymark_vm_value_python_convert_proto::Converter::try_convert(&exception)?;
         Ok(exception_workflow_arguments(exception))
     }
 }
