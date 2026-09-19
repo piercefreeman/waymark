@@ -20,6 +20,7 @@ waymark-vm-value-python-convert-proto = { workspace = true }
 waymark-workflow-completion-core = { workspace = true }
 waymark-workflow-initialization-convert-proto = { workspace = true }
 
+futures-core = { workspace = true }
 prost = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "macros", "rt"] }
