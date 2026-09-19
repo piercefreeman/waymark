@@ -5109,6 +5109,7 @@ dependencies = [
  "sqlx",
  "thiserror",
  "tokio",
+ "waymark-nonzero-duration",
  "waymark-observability-store-postgres-config",
  "waymark-sqlx-postgres-schema-pool",
  "waymark-support-integration",
@@ -5121,6 +5122,7 @@ version = "0.1.0"
 dependencies = [
  "envfury",
  "thiserror",
+ "waymark-nonzero-duration",
  "waymark-secret-string",
 ]
 
