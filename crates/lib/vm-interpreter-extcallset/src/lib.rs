@@ -155,22 +155,23 @@ where
     }
 }
 
-impl<Spec, Executable, FunctionId, StateId, Value>
-    waymark_vm_runtime_core::CaptureRuntimeView<Executable, FunctionId, StateId, Value>
-    for ExtCallSetInterpreter<Spec, FunctionId, StateId, Value>
+impl<'s, 'r, Executable, FunctionId, StateId, Value>
+    waymark_vm_runtime_view_capture::CaptureRuntimeView<
+        's,
+        waymark_vm_runtime_core::FullRuntimeView<'r, Executable, FunctionId, StateId, Value>,
+    > for RuntimeView<'s, FunctionId, StateId, Value>
 {
-    type RuntimeView<'v>
-        = RuntimeView<'v, FunctionId, StateId, Value>
-    where
-        Executable: 'v,
-        FunctionId: 'v,
-        StateId: 'v,
-        Value: 'v;
-
-    fn capture_runtime_view<'r>(
-        view: waymark_vm_runtime_core::FullRuntimeView<'r, Executable, FunctionId, StateId, Value>,
-    ) -> Self::RuntimeView<'r> {
-        let waymark_vm_runtime_core::FullRuntimeView { state, .. } = view;
-        RuntimeView { state }
+    fn capture_runtime_view(
+        source: &'s mut waymark_vm_runtime_core::FullRuntimeView<
+            'r,
+            Executable,
+            FunctionId,
+            StateId,
+            Value,
+        >,
+    ) -> Self {
+        RuntimeView {
+            state: &mut *source.state,
+        }
     }
 }

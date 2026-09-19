@@ -22,9 +22,7 @@ use waymark_vm_interpreter_extcallset::{
     Effect, Error as InterpreterError, ExtCallSetInterpreter, RuntimeView,
 };
 use waymark_vm_runtime::{CallSpec, Runtime};
-use waymark_vm_runtime_core::{
-    CaptureRuntimeView, Frame, FullRuntimeView, PromiseState, RegisterId,
-};
+use waymark_vm_runtime_core::{Frame, PromiseState, RegisterId};
 use waymark_vm_runtime_promise_core::{
     PromiseStateId, Resolvable, Suspendable, UnresolvedPromiseError,
 };
@@ -175,23 +173,6 @@ pub enum TestEffect {
 #[derive(Default)]
 pub struct RuntimeInterpreter {
     extcall: ExtCallSetInterpreter<TestSpec, FunctionId, StateId, TestValue>,
-}
-
-impl<E> CaptureRuntimeView<E, FunctionId, StateId, TestValue> for RuntimeInterpreter {
-    type RuntimeView<'r>
-        = RuntimeView<'r, FunctionId, StateId, TestValue>
-    where
-        E: 'r,
-        FunctionId: 'r,
-        StateId: 'r,
-        TestValue: 'r;
-
-    fn capture_runtime_view<'r>(
-        view: FullRuntimeView<'r, E, FunctionId, StateId, TestValue>,
-    ) -> Self::RuntimeView<'r> {
-        let FullRuntimeView { state, .. } = view;
-        RuntimeView { state }
-    }
 }
 
 impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {

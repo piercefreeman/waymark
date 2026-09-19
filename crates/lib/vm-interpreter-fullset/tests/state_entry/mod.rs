@@ -6,7 +6,7 @@ use waymark_vm_instructions_extcallset::ExtCallSet;
 use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_interpreter_fullset::FullSetInterpreter;
 use waymark_vm_runtime::Runtime;
-use waymark_vm_runtime_core::{CaptureRuntimeView, FullRuntimeView, RegisterId};
+use waymark_vm_runtime_core::{FullRuntimeView, RegisterId};
 use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
 
@@ -15,19 +15,6 @@ use crate::support::{Instruction, TestActionRef, TestReadyValue, TestSpec, TestV
 #[derive(Default)]
 struct NoPendingExceptionExecuteInterpreter {
     inner: FullSetInterpreter<TestSpec, Executable<Instruction>, TestValue>,
-}
-
-impl CaptureRuntimeView<Executable<Instruction>, FunctionId, StateId, TestValue>
-    for NoPendingExceptionExecuteInterpreter
-{
-    type RuntimeView<'r> =
-        FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, TestValue>;
-
-    fn capture_runtime_view<'r>(
-        view: FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, TestValue>,
-    ) -> Self::RuntimeView<'r> {
-        view
-    }
 }
 
 impl waymark_vm_interpreter::Interpreter for NoPendingExceptionExecuteInterpreter {
