@@ -23,7 +23,7 @@ def serialize_result_payload(value: Any) -> pb2.WorkflowArguments:
     arguments = pb2.WorkflowArguments()
     entry = arguments.arguments.add()
     entry.key = "result"
-    entry.value.CopyFrom(dumps(value))
+    entry.value = dumps(value).SerializeToString()
     return arguments
 
 
@@ -32,7 +32,7 @@ def serialize_error_payload(_action: str, exc: BaseException) -> pb2.WorkflowArg
     arguments = pb2.WorkflowArguments()
     entry = arguments.arguments.add()
     entry.key = "error"
-    entry.value.CopyFrom(dumps(exc))
+    entry.value = dumps(exc).SerializeToString()
     return arguments
 
 

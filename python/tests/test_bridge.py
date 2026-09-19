@@ -18,6 +18,7 @@ from waymark.bridge import (
 )
 from waymark.grpc_config import GRPC_CHANNEL_OPTIONS
 from waymark.proto import messages_pb2 as pb2
+from waymark.proto import python_value_pb2 as pb2v
 
 
 class TestWorkflowStub:
@@ -129,7 +130,9 @@ class TestRunInstance:
         initial_context = pb2.WorkflowArguments()
         arg = initial_context.arguments.add()
         arg.key = "name"
-        arg.value.primitive.string_value = "hello"
+        arg_value = pb2v.WorkflowArgumentValue()
+        arg_value.primitive.string_value = "hello"
+        arg.value = arg_value.SerializeToString()
 
         registration = pb2.WorkflowRegistration(
             workflow_name="contextworkflow",
@@ -258,7 +261,9 @@ class TestRunInstancesBatch:
         initial_context = pb2.WorkflowArguments()
         arg = initial_context.arguments.add()
         arg.key = "name"
-        arg.value.primitive.string_value = "hello"
+        arg_value = pb2v.WorkflowArgumentValue()
+        arg_value.primitive.string_value = "hello"
+        arg.value = arg_value.SerializeToString()
 
         registration = pb2.WorkflowRegistration(
             workflow_name="batchworkflow",
