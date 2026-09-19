@@ -23,39 +23,42 @@ pub struct Handles {
     pub retention: tokio::task::JoinHandle<()>,
 }
 
-/// Start the essential-metrics pipeline over `backend`: sampler → lossy
-/// batcher → store sink, plus the retention sweep, all ending on
-/// `shutdown_token` — and the essential-metrics API router over the
-/// same backend.
+/// Start the essential-metrics pipeline over `write_backend`: sampler →
+/// lossy batcher → store sink, plus the retention sweep, all ending on
+/// `shutdown_token` — and the essential-metrics API router over
+/// `read_backend`.
 ///
 /// `handle` is the sampling half of the recorder pair; the recording
 /// half must already be installed in the process-global fanout, so the
 /// metrics bound here (the batcher's own counters included) land in
 /// live recorders.
-pub fn start<Backend>(
+pub fn start<WriteBackend, ReadBackend>(
     config: EssentialMetricsConfig,
-    node_id: <Backend as waymark_essential_metrics_sink_backend::HasNodeId>::NodeId,
+    node_id: <WriteBackend as waymark_essential_metrics_sink_backend::HasNodeId>::NodeId,
     handle: waymark_essential_metrics_sampler::recorder::Handle,
-    backend: Arc<Backend>,
+    write_backend: Arc<WriteBackend>,
+    read_backend: Arc<ReadBackend>,
     shutdown_token: tokio_util::sync::CancellationToken,
 ) -> (Handles, aide::axum::ApiRouter)
 where
-    Backend: waymark_essential_metrics_sink_backend::AppendSamples,
-    Backend: waymark_essential_metrics_retention_backend::ApplyRetention,
-    Backend: waymark_essential_metrics_query_backend::Latest,
-    Backend: waymark_essential_metrics_query_backend::Series,
-    Backend: waymark_essential_metrics_query_backend::HasNodeId<NodeId = waymark_ids::NodeId>,
-    Backend: Send + Sync + 'static,
-    <Backend as waymark_essential_metrics_sink_backend::AppendSamples>::Error: std::fmt::Display,
-    <Backend as waymark_essential_metrics_sink_backend::HasNodeId>::NodeId:
+    WriteBackend: waymark_essential_metrics_sink_backend::AppendSamples,
+    WriteBackend: waymark_essential_metrics_retention_backend::ApplyRetention,
+    WriteBackend: Send + Sync + 'static,
+    <WriteBackend as waymark_essential_metrics_sink_backend::AppendSamples>::Error:
+        std::fmt::Display,
+    <WriteBackend as waymark_essential_metrics_sink_backend::HasNodeId>::NodeId:
         Clone + Send + Sync + 'static,
+    ReadBackend: waymark_essential_metrics_query_backend::Latest,
+    ReadBackend: waymark_essential_metrics_query_backend::Series,
+    ReadBackend: waymark_essential_metrics_query_backend::HasNodeId<NodeId = waymark_ids::NodeId>,
+    ReadBackend: Send + Sync + 'static,
 {
-    let api_router = waymark_api_essential_metrics_http::router(Arc::clone(&backend));
+    let api_router = waymark_api_essential_metrics_http::router(read_backend);
 
     let (batcher, batcher_task) = waymark_lossy_batcher::lossy_batcher(
         waymark_essential_metrics_sampler::bindings::BATCHER_NAME,
         config.lossy_batcher_policy,
-        BackendFlusher(Arc::clone(&backend)),
+        BackendFlusher(Arc::clone(&write_backend)),
         shutdown_token.clone().cancelled_owned(),
     );
     let sampler_task = waymark_essential_metrics_sampler::run(
@@ -70,8 +73,8 @@ where
         config.retention,
         config.retention_sweep_interval,
         move |cutoff| {
-            let backend = Arc::clone(&backend);
-            async move { backend.apply_retention(cutoff).await }
+            let write_backend = Arc::clone(&write_backend);
+            async move { write_backend.apply_retention(cutoff).await }
         },
         shutdown_token.cancelled_owned(),
     );
