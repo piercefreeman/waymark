@@ -11,7 +11,7 @@ use waymark_secret_string::SecretString;
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
 
 use crate::ground_truth::PreparedCase;
-use crate::outcome::{CaseOutcome, canonicalize_outcome, check_case_outcome, outcome_from_vm};
+use crate::outcome::{CaseOutcome, check_case_outcome, outcome_from_vm};
 use crate::worker_pool::{setup_worker_pool, teardown_worker_pool};
 
 /// The postgres-backed services the durable mode drives directly: workflow
@@ -268,5 +268,5 @@ async fn run_case_durable(
     })?
     .map_err(|err| eyre!("wait for outcome of case '{}': {err}", prepared.case.id))?;
 
-    Ok(canonicalize_outcome(outcome_from_vm(workflow_outcome)?))
+    Ok(outcome_from_vm(workflow_outcome))
 }
