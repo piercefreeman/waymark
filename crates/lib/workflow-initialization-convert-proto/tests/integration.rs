@@ -19,8 +19,8 @@ fn int_arg(key: &str, value: i64) -> waymark_proto::messages::WorkflowArgument {
     }
 }
 
-fn ready_int(value: i64) -> waymark_vm_value::Value {
-    waymark_vm_value::Value::Ready(waymark_vm_value::ReadyValue::Int(value))
+fn ready_int(value: i64) -> waymark_vm_value_python::Value {
+    waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::Int(value))
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn missing_keys_default_to_none() {
         positional,
         vec![
             ready_int(7),
-            waymark_vm_value::Value::Ready(waymark_vm_value::ReadyValue::None),
+            waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::None),
         ],
     );
 }
