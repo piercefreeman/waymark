@@ -6,7 +6,8 @@ use std::time::Duration;
 use color_eyre::eyre::bail;
 use waymark_ir_parser::parse_program;
 use waymark_worker_core::WorkerPoolError;
-use waymark_worker_inline::{ActionCallable, InlineWorkerPool};
+use waymark_worker_inline::{InlineActionCallable, InlineWorkerPool};
+use waymark_worker_inline_compat::inline_action;
 
 use super::generator::GeneratedCase;
 
@@ -94,20 +95,11 @@ pub async fn run_case(
     Ok(())
 }
 
-fn action_registry() -> HashMap<String, ActionCallable> {
-    let mut actions: HashMap<String, ActionCallable> = HashMap::new();
-    actions.insert(
-        "inc".to_string(),
-        std::sync::Arc::new(|kwargs| Box::pin(action_inc(kwargs))),
-    );
-    actions.insert(
-        "double".to_string(),
-        std::sync::Arc::new(|kwargs| Box::pin(action_double(kwargs))),
-    );
-    actions.insert(
-        "sum".to_string(),
-        std::sync::Arc::new(|kwargs| Box::pin(action_sum(kwargs))),
-    );
+fn action_registry() -> HashMap<String, InlineActionCallable> {
+    let mut actions: HashMap<String, InlineActionCallable> = HashMap::new();
+    actions.insert("inc".to_string(), inline_action(action_inc));
+    actions.insert("double".to_string(), inline_action(action_double));
+    actions.insert("sum".to_string(), inline_action(action_sum));
     actions
 }
 
