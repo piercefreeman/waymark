@@ -2,7 +2,6 @@
 
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
 use color_eyre::eyre::{WrapErr as _, bail, eyre};
@@ -51,14 +50,13 @@ pub async fn run_transient_mode(
                 )
             })?;
 
-            let actual = run_case_transient(prepared, Arc::clone(&worker_pool), timeout).await;
+            let actual = run_case_transient(prepared, worker_pool, timeout).await;
 
-            // The case is done, so the shutdown is requested; then the last
-            // worker pool handle is dropped, which is what ends the worker pool
-            // loop, after which the bridge server's graceful shutdown has no
-            // streams left to wait for.
+            // The case is done, so the shutdown is requested; the VM driver
+            // owned the only worker pool requests handle, so joining it is
+            // what shut the worker pool down, after which the bridge server's
+            // graceful shutdown has no streams left to wait for.
             shutdown_token.cancel();
-            drop(worker_pool);
 
             Ok(actual)
         }
@@ -98,7 +96,8 @@ async fn run_case_transient(
         driver_handle,
     } = waymark_transient_execution_worker_pool_bringup::execute(
         runtime,
-        worker_pool,
+        worker_pool.requests,
+        worker_pool.completions,
         false,
         cancel.clone(),
     );
