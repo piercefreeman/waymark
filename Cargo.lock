@@ -5412,6 +5412,7 @@ dependencies = [
  "waymark-fn-main-common",
  "waymark-ids",
  "waymark-ir-parser",
+ "waymark-managed-process",
  "waymark-nonzero-duration",
  "waymark-observability-config",
  "waymark-observability-store-postgres",

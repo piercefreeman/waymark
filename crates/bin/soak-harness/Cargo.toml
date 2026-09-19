@@ -13,6 +13,7 @@ waymark-essential-metrics-query-backend = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-ir-parser = { workspace = true }
+waymark-managed-process = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-observability-config = { workspace = true }
 waymark-observability-store-postgres = { workspace = true }
