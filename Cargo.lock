@@ -4927,6 +4927,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-query-limit"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "waymark-retention-sweeper"
 version = "0.1.0"
 dependencies = [
