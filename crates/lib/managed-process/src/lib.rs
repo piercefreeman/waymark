@@ -15,8 +15,6 @@ pub use self::graceful_termination::*;
 #[cfg(unix)]
 pub use self::platform_unix::*;
 
-use std::process::Stdio;
-
 /// A single managed child process handle.
 ///
 /// Will kill the child process on drop.
@@ -27,13 +25,13 @@ pub struct Child {
 
 /// Spawns a managed child process.
 ///
-/// The child inherits `stderr` and is configured with `kill_on_drop(true)`.
-/// On Unix, the child is also configured with a parent-death signal so it
-/// receives `SIGTERM` when the parent process exits.
+/// The child is configured with `kill_on_drop(true)`. On Unix, the child
+/// is also configured with a parent-death signal so it receives `SIGTERM`
+/// when the parent process exits.
 pub fn spawn(command: impl Into<tokio::process::Command>) -> Result<Child, std::io::Error> {
     let mut command = command.into();
 
-    command.stderr(Stdio::inherit()).kill_on_drop(true);
+    command.kill_on_drop(true);
 
     #[cfg(target_os = "linux")]
     platform_linux::inject_sigterm_pdeathsig(&mut command);
@@ -92,6 +90,14 @@ impl Child {
     /// Waits for the child process to exit.
     pub async fn wait(&mut self) -> Result<std::process::ExitStatus, std::io::Error> {
         self.child.wait().await
+    }
+
+    /// Checks whether the child process has exited, without waiting.
+    ///
+    /// Returns the exit status once the child has exited and `None` while
+    /// it is still running.
+    pub fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, std::io::Error> {
+        self.child.try_wait()
     }
 
     /// Waits for the child process to exit up to `timeout`.
