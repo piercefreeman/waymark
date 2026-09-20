@@ -83,7 +83,7 @@ async def schedule_workflow(
     schedule_name: Union[str, ScheduleName],
     schedule: Union[str, timedelta],
     jitter: Optional[timedelta] = None,
-    inputs: Optional[Dict[str, Any]] = None,
+    arguments: Optional[Dict[str, Any]] = None,
     allow_duplicate: bool = False,
 ) -> str:
     """
@@ -104,7 +104,7 @@ async def schedule_workflow(
         schedule: Either a cron expression string (e.g., "0 * * * *" for hourly)
                   or a timedelta for interval-based scheduling.
         jitter: Optional jitter window to add to each scheduled run.
-        inputs: Optional keyword arguments to pass to each scheduled run.
+        arguments: Optional keyword arguments to pass to each scheduled run.
         allow_duplicate: If False (default), the scheduler skips creating a new
                          instance when one is already running for this schedule.
                          If True, always creates a new instance.
@@ -127,18 +127,18 @@ async def schedule_workflow(
             schedule=timedelta(minutes=5)
         )
 
-        # Multiple schedules with different inputs
+        # Multiple schedules with different arguments
         await schedule_workflow(
             MyWorkflow,
             schedule_name="small-batch",
             schedule="0 0 * * *",
-            inputs={"batch_size": 100}
+            arguments={"batch_size": 100}
         )
         await schedule_workflow(
             MyWorkflow,
             schedule_name="large-batch",
             schedule="0 12 * * *",
-            inputs={"batch_size": 1000}
+            arguments={"batch_size": 1000}
         )
 
         # Exact schedule name, outside the workflow's scope
@@ -177,9 +177,9 @@ async def schedule_workflow(
     schedule_definition.allow_duplicate = allow_duplicate
 
     # The registration names the workflow, pins the compiled version, and
-    # carries the run arguments in its initial context.
-    initial_context = workflow_cls._build_initial_context((), inputs or {})
-    registration = workflow_cls._build_registration_payload(initial_context)
+    # carries the run arguments as its opaque arguments payload.
+    workflow_arguments = workflow_cls._build_workflow_arguments((), arguments or {})
+    registration = workflow_cls._build_registration_payload(workflow_arguments)
 
     request = pb2.RegisterScheduleRequest(
         schedule=schedule_definition,

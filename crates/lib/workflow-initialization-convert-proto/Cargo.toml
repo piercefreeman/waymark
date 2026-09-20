@@ -5,14 +5,15 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
-waymark-action-runtime-convert = { workspace = true }
 waymark-convert-core = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-vm-compiler-metadata = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-value-python = { workspace = true }
+waymark-vm-value-python-convert-proto = { workspace = true }
 
 index_type = { workspace = true }
+prost = { workspace = true }
 thiserror = { workspace = true }
 
 [lib]
