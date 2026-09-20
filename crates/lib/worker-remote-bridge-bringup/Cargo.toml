@@ -14,7 +14,7 @@ waymark-worker-reservation = { workspace = true }
 tokio = { workspace = true, features = ["net"] }
 tokio-stream = { workspace = true, features = ["net"] }
 tokio-util = { workspace = true }
-tonic = { workspace = true, default-features = true }
+tonic = { workspace = true, features = ["router", "server"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
