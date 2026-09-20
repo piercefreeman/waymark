@@ -1,7 +1,9 @@
 use std::marker::PhantomData;
 
 use nonempty_collections::NEVec;
-use waymark_action_runtime_core::{ActionCallCompletion, ActionCallCompletionFor};
+use waymark_action_runtime_core::{
+    ActionCallCompletion, ActionCallCompletionFor, ActionCallLossError, ActionCallStage,
+};
 use waymark_action_runtime_metadata_codec::Decode;
 use waymark_convert_core::TryConvert as _;
 
@@ -79,12 +81,13 @@ where
     Metadata::Error: core::fmt::Display,
 {
     type Value = waymark_vm_value_python::ReadyValue;
-    type Error = WorkerPoolCompletionsError<Pool::Error, Metadata::Error>;
+    type ActionExecutionError = waymark_action_runtime_core::ActionCallLossError;
+    type WaitError = WorkerPoolCompletionsError<Pool::Error, Metadata::Error>;
     type Metadata = Metadata;
 
     async fn wait_for_completions(
         &mut self,
-    ) -> Result<NEVec<ActionCallCompletionFor<Self>>, Self::Error> {
+    ) -> Result<NEVec<ActionCallCompletionFor<Self>>, Self::WaitError> {
         loop {
             let completions = self
                 .pool
@@ -111,11 +114,11 @@ where
 /// and reading how the execution ended.
 ///
 /// A completed execution carries the worker's result, converted as the
-/// outcome it encodes.  A LOST execution settles the awaiting promise
-/// raised with [`ACTION_EXECUTION_NOT_STARTED`] or [`ACTION_EXECUTION_LOST`] by how far
-/// the execution provably got: the runtime states the fact, and the
-/// program's own policy — a compiled-in retry, a user `except`, or
-/// nothing — decides what the loss means.
+/// outcome it encodes.  A LOST execution carries no outcome at all — it
+/// resolves to an [`ActionCallLossError`] execution error stating the stage
+/// the call provably reached; what the loss means for the awaiting
+/// promise is decided where completions are lowered into settlements,
+/// not here.
 ///
 /// The metadata is recovered from the bytes the requester encoded — NOT from
 /// the completion's `executor_id` field — so routing depends only on data the
@@ -126,27 +129,28 @@ where
 /// can neither be routed nor turned into a promise settlement.  Dropping it
 /// would strand that promise forever (the action's side effects may have
 /// already happened), so we surface the error to the caller instead.
-///
-/// [`ACTION_EXECUTION_NOT_STARTED`]: waymark_vm_exception_type_ids::ACTION_EXECUTION_NOT_STARTED
-/// [`ACTION_EXECUTION_LOST`]: waymark_vm_exception_type_ids::ACTION_EXECUTION_LOST
 fn resolve_execution<PollError, Metadata>(
     report: waymark_worker_core::ActionExecutionReport,
 ) -> Result<
-    ActionCallCompletion<waymark_vm_value_python::ReadyValue, Metadata>,
+    ActionCallCompletion<Metadata, waymark_vm_value_python::ReadyValue, ActionCallLossError>,
     WorkerPoolCompletionsError<PollError, Metadata::Error>,
 >
 where
     Metadata: Decode,
     Metadata::Error: core::fmt::Display,
 {
-    let (metadata_bytes, outcome) = match report {
+    let (metadata_bytes, execution_result) = match report {
         waymark_worker_core::ActionExecutionReport::Completed(result) => {
             let outcome = waymark_action_runtime_convert::Converter::try_convert(&result)
                 .map_err(WorkerPoolCompletionsError::Payload)?;
-            (result.metadata, outcome)
+            (result.metadata, Ok(outcome))
         }
         waymark_worker_core::ActionExecutionReport::Lost(loss) => {
-            (loss.metadata, lost_execution_outcome(loss.progress))
+            let stage = match loss.progress {
+                waymark_worker_core::ExecutionProgress::NotStarted => ActionCallStage::NotStarted,
+                waymark_worker_core::ExecutionProgress::Unknown => ActionCallStage::Unknown,
+            };
+            (loss.metadata, Err(ActionCallLossError { stage }))
         }
     };
 
@@ -159,33 +163,10 @@ where
         })
         .map_err(WorkerPoolCompletionsError::Decode)?;
 
-    Ok(ActionCallCompletion { metadata, outcome })
-}
-
-/// The outcome a lost execution settles its promise with: raised
-/// [`ACTION_EXECUTION_NOT_STARTED`] or [`ACTION_EXECUTION_LOST`] by how far the
-/// execution provably got, with no details — the type id is the fact.
-///
-/// [`ACTION_EXECUTION_NOT_STARTED`]: waymark_vm_exception_type_ids::ACTION_EXECUTION_NOT_STARTED
-/// [`ACTION_EXECUTION_LOST`]: waymark_vm_exception_type_ids::ACTION_EXECUTION_LOST
-fn lost_execution_outcome(
-    progress: waymark_worker_core::ExecutionProgress,
-) -> waymark_action_runtime_core::ActionCallOutcome<waymark_vm_value_python::ReadyValue> {
-    let type_id = match progress {
-        waymark_worker_core::ExecutionProgress::NotStarted => {
-            waymark_vm_exception_type_ids::ACTION_EXECUTION_NOT_STARTED
-        }
-        waymark_worker_core::ExecutionProgress::Unknown => {
-            waymark_vm_exception_type_ids::ACTION_EXECUTION_LOST
-        }
-    };
-
-    waymark_action_runtime_core::ActionCallOutcome::Exception(
-        waymark_vm_runtime_exception::Exception {
-            type_id: type_id.to_owned(),
-            details: waymark_vm_value_python::ReadyValue::None,
-        },
-    )
+    Ok(ActionCallCompletion {
+        metadata,
+        execution_result,
+    })
 }
 
 #[cfg(test)]
@@ -211,10 +192,11 @@ mod tests {
     }
 
     #[test]
-    fn a_lost_execution_settles_raised_as_action_execution_lost() {
-        // The runtime states the fact; the program's own policy decides
-        // what the loss means.  The promise settles raised so a
-        // compiled-in retry or a user `except` can catch it.
+    fn a_lost_execution_resolves_to_a_loss() {
+        // The provider states the protocol fact and nothing more: no
+        // outcome exists, only the stage the call provably reached.
+        // What the loss means for the awaiting promise is decided at
+        // settlement lowering, not here.
         let vm_id = InstanceId::new_uuid_v4();
         let mut encoded = Vec::new();
         let correlation = WithVmId {
@@ -235,50 +217,15 @@ mod tests {
         .expect("a lost execution still routes by its metadata");
 
         assert_eq!(resolved.metadata.vm_id, vm_id);
-        let waymark_action_runtime_core::ActionCallOutcome::Exception(exception) = resolved.outcome
-        else {
-            panic!("a lost execution must settle the promise raised");
+        let Err(loss) = resolved.execution_result else {
+            panic!("a lost execution carries no outcome");
         };
         assert_eq!(
-            exception.type_id,
-            waymark_vm_exception_type_ids::ACTION_EXECUTION_LOST
-        );
-        assert_eq!(exception.details, waymark_vm_value_python::ReadyValue::None);
-    }
-
-    #[test]
-    fn a_lost_execution_that_never_started_settles_raised_as_action_execution_not_started() {
-        // The worker never received the dispatch, so nothing ran: the
-        // program's policy may retry it as safely as any other exception.
-        let vm_id = InstanceId::new_uuid_v4();
-        let mut encoded = Vec::new();
-        let correlation = WithVmId {
-            vm_id,
-            inner: ActionCallCorrelation::decode(&mut &[0u8; 16][..]).unwrap(),
-        };
-        correlation.encode(&mut encoded);
-
-        let resolved = resolve_execution::<
-            core::convert::Infallible,
-            WithVmId<InstanceId, ActionCallCorrelation>,
-        >(waymark_worker_core::ActionExecutionReport::Lost(
-            waymark_worker_core::ActionExecutionLoss {
-                metadata: encoded,
-                progress: waymark_worker_core::ExecutionProgress::NotStarted,
+            loss,
+            ActionCallLossError {
+                stage: ActionCallStage::Unknown
             },
-        ))
-        .expect("a lost execution still routes by its metadata");
-
-        assert_eq!(resolved.metadata.vm_id, vm_id);
-        let waymark_action_runtime_core::ActionCallOutcome::Exception(exception) = resolved.outcome
-        else {
-            panic!("a lost execution must settle the promise raised");
-        };
-        assert_eq!(
-            exception.type_id,
-            waymark_vm_exception_type_ids::ACTION_EXECUTION_NOT_STARTED
         );
-        assert_eq!(exception.details, waymark_vm_value_python::ReadyValue::None);
     }
 
     #[test]

@@ -8,9 +8,11 @@ publish.workspace = true
 waymark-action-core = { workspace = true }
 waymark-action-runtime-core = { workspace = true }
 waymark-action-runtime-metadata = { workspace = true }
+waymark-convert-core = { workspace = true }
 waymark-extcall-reconciler-core = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
 nonempty-collections = { workspace = true }
