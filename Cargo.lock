@@ -5372,6 +5372,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-timestamp"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+]
+
+[[package]]
 name = "waymark-tokio-metrics-bringup"
 version = "0.1.0"
 dependencies = [
