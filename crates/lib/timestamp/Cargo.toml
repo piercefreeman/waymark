@@ -1,0 +1,22 @@
+[package]
+name = "waymark-timestamp"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[features]
+now = ["chrono/now"]
+serde = ["dep:serde", "chrono/serde"]
+sqlx-postgres = ["dep:sqlx", "sqlx/postgres", "sqlx/chrono"]
+
+[dependencies]
+chrono = { workspace = true }
+serde = { workspace = true, optional = true }
+sqlx = { workspace = true, default-features = false, optional = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lib]
+doctest = false
