@@ -29,7 +29,7 @@ use std::sync::Arc;
 
 use tracing::Instrument as _;
 
-/// Error from [`SpawningFactory::produce`].
+/// Error from [`SpawningFactory`]'s [`produce`](waymark_state_manager_core::Factory::produce).
 #[derive(Debug, thiserror::Error)]
 pub enum SpawningError<LoadError, ExecutableProviderError, DeserializeError>
 where
