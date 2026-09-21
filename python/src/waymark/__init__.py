@@ -16,6 +16,7 @@ from .exceptions import (
     ExhaustedRetries,
     ExhaustedRetriesError,
     ScheduleAlreadyExistsError,
+    WorkflowFailedError,
 )
 from .ir_builder import UnsupportedPatternError, build_workflow_ir
 from .registry import registry
@@ -30,6 +31,7 @@ from .schedule import (
     resume_schedule,
     schedule_workflow,
 )
+from .serialization import ExceptionValue
 from .workflow import (
     RetryPolicy,
     Workflow,
@@ -51,6 +53,7 @@ __all__ = [
     "deserialize_action_result",
     "deserialize_workflow_outcome",
     "WorkflowOutcomePayload",
+    "ExceptionValue",
     "Depend",
     "Depends",
     "provide_dependencies",
@@ -58,6 +61,7 @@ __all__ = [
     "ExhaustedRetries",
     "ExhaustedRetriesError",
     "ScheduleAlreadyExistsError",
+    "WorkflowFailedError",
     "UnsupportedPatternError",
     # Schedule functions
     "schedule_workflow",
