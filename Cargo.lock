@@ -6446,12 +6446,7 @@ dependencies = [
  "tokio",
  "tracing",
  "waymark-proto",
- "waymark-worker-metrics",
 ]
-
-[[package]]
-name = "waymark-worker-metrics"
-version = "0.1.0"
 
 [[package]]
 name = "waymark-worker-process"
