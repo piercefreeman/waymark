@@ -31,6 +31,7 @@ from waymark.proto import python_value_pb2 as pb2v
 
 from . import bridge
 from .actions import deserialize_workflow_outcome
+from .exceptions import WorkflowFailedError
 from .ir_builder import build_workflow_ir
 from .logger import configure as configure_logger
 from .serialization import build_arguments_from_kwargs
@@ -280,7 +281,7 @@ def _deserialize_workflow_result(
 ) -> Any:
     result = deserialize_workflow_outcome(result_bytes)
     if result.error:
-        raise RuntimeError(f"workflow failed: {result.error}")
+        raise WorkflowFailedError(result.error)
 
     value = result.result
     target_type = _resolve_return_type(workflow_cls)

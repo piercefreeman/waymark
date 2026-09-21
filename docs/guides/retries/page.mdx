@@ -29,9 +29,9 @@ mirror how a regular program would execute:
   worker dies. You opt into a deadline per call with `timeout=`.
 
 When a failure exhausts its retries (or has none), the workflow fails and
-the `await workflow.run(...)` call raises a `RuntimeError` carrying the
-failure - unless a `try/except` in the workflow body catches the
-exception first.
+the `await workflow.run(...)` call raises a `WorkflowFailedError`
+carrying the failure - unless a `try/except` in the workflow body
+catches the exception first. See [Exceptions](/python/api/exceptions).
 
 ## Configuring with run_action {{ id: 'configuring-with-run-action' }}
 

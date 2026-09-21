@@ -10,11 +10,15 @@ from pydantic import BaseModel
 
 from waymark.actions import (
     deserialize_action_result,
+    deserialize_workflow_outcome,
     serialize_raised_exception,
     serialize_returned_value,
 )
+from waymark.exceptions import WorkflowFailedError
 from waymark.proto import messages_pb2 as pb2
 from waymark.proto import python_value_pb2 as pb2v
+from waymark.serialization import ExceptionValue, dumps, loads
+from waymark.workflow import Workflow, _deserialize_workflow_result
 
 
 def action_result(payload: bytes) -> pb2.ActionResult:
@@ -68,13 +72,81 @@ def test_error_payload_serialization() -> None:
     assert decoded.error is not None
     # The exception is a type id plus a details value; the particulars
     # ride inside the details rather than as wire-level structure.
-    assert decoded.error["type_id"] == "RuntimeError"
-    details = decoded.error["details"]
+    assert decoded.error.type_id == "RuntimeError"
+    details = decoded.error.details
     assert details["module"] == "builtins"
     assert "boom" in details["message"]
     assert "Traceback" in details["traceback"]
     assert details["type_hierarchy"][0] == "RuntimeError"
     assert details["values"]["args"][0] == "boom"
+
+
+def test_exception_value_round_trips_with_any_details() -> None:
+    # The VM's own built-in exceptions carry a string; nothing about the
+    # details' shape is assumed.
+    exception = ExceptionValue(type_id="ZeroDivisionError", details="division by zero")
+
+    assert loads(dumps(exception)) == exception
+    assert loads(dumps([exception])) == [exception]
+    assert str(exception) == "ZeroDivisionError: 'division by zero'"
+
+
+def test_a_live_exception_serializes_as_its_exception_value() -> None:
+    # Coerced on the way in, never produced on the way out.
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError as exc:
+        live = exc
+
+    decoded = loads(dumps(live))
+    assert decoded == ExceptionValue.from_exception(live)
+    assert decoded.type_id == "RuntimeError"
+    assert decoded.details["values"]["args"] == ("boom",)
+
+
+def test_workflow_failed_error_wraps_the_vm_exception() -> None:
+    exception = ExceptionValue(type_id="ValueError", details={"message": "boom"})
+    error = WorkflowFailedError(exception)
+
+    assert error.exception_value == exception
+    assert str(error) == "workflow failed: ValueError: {'message': 'boom'}"
+    assert error.args == (exception,)
+
+
+def workflow_outcome_exception(type_id: str, details: pb2v.Value | None) -> bytes:
+    """An encoded workflow outcome ending in an exception, with or without
+    details."""
+    outcome = pb2v.WorkflowOutcome()
+    outcome.exception.type_id = type_id
+    if details is not None:
+        outcome.exception.details.CopyFrom(details)
+    return outcome.SerializeToString()
+
+
+def test_a_workflow_outcome_with_string_details_fails_with_the_vm_exception() -> None:
+    # The VM's own built-in exceptions carry a string.
+    payload = workflow_outcome_exception("ZeroDivisionError", dumps("division by zero"))
+
+    class NoResult(Workflow):
+        async def run(self) -> None:
+            pass
+
+    with pytest.raises(WorkflowFailedError) as exc_info:
+        _deserialize_workflow_result(NoResult, payload)
+    error = exc_info.value
+    assert isinstance(error, WorkflowFailedError)
+    assert error.exception_value == ExceptionValue(
+        type_id="ZeroDivisionError", details="division by zero"
+    )
+
+
+def test_a_workflow_outcome_without_details_decodes_them_as_none() -> None:
+    payload = workflow_outcome_exception("Stopped", None)
+
+    decoded = deserialize_workflow_outcome(payload)
+
+    assert decoded.result is None
+    assert decoded.error == ExceptionValue(type_id="Stopped", details=None)
 
 
 def test_error_payload_captures_exception_values() -> None:
@@ -90,7 +162,7 @@ def test_error_payload_captures_exception_values() -> None:
 
     decoded = deserialize_action_result(action_result(payload))
     assert decoded.error is not None
-    assert decoded.error["details"]["values"]["code"] == 404
+    assert decoded.error.details["values"]["code"] == 404
 
 
 def test_collections_round_trip() -> None:
