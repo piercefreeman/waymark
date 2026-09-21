@@ -38,21 +38,29 @@ its backward-compatible alias with the identical signature, so import
 ## Result payloads
 
 These helpers handle the serialization layer between an action's
-in-process Python objects and the bytes that land in Postgres. Most
-users don't touch them directly - the `@action` decorator handles
-serialization automatically - but they're exposed for tooling that
-needs to interpret persisted results.
+in-process Python objects, or a workflow's outcome, and the bytes that
+land in Postgres. Most users don't touch them directly - the `@action`
+decorator handles serialization automatically - but they're exposed for
+tooling that needs to interpret persisted results.
 
 ::: waymark.actions.ActionResultPayload
 
 ---
 
-::: waymark.actions.serialize_result_payload
+::: waymark.actions.serialize_returned_value
 
 ---
 
-::: waymark.actions.deserialize_result_payload
+::: waymark.actions.serialize_raised_exception
 
 ---
 
-::: waymark.actions.serialize_error_payload
+::: waymark.actions.deserialize_action_result
+
+---
+
+::: waymark.actions.WorkflowOutcomePayload
+
+---
+
+::: waymark.actions.deserialize_workflow_outcome
