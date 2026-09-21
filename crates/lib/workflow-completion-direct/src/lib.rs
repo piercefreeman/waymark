@@ -2,7 +2,7 @@
 //! directly through a [`tokio::sync::oneshot`] channel.
 //!
 //! This is an alternative to
-//! [`waymark_workflow_completion::EffectHandler`] for transient /
+//! `waymark_workflow_completion::EffectHandler` for transient /
 //! in-memory execution where no durable persistence is needed and the
 //! caller wants to await the result directly rather than polling a
 //! backend.
@@ -39,7 +39,7 @@ impl<ReadyValue> DirectHandler<ReadyValue> {
     }
 }
 
-/// Error returned by [`DirectHandler::handle_effect`].
+/// Error returned by [`DirectHandler`]'s [`handle_effect`](waymark_vm_driver_core::EffectHandler::handle_effect).
 #[derive(Debug, thiserror::Error)]
 pub enum DirectHandleEffectError {
     /// `handle_effect` was invoked again after the outcome was already sent.

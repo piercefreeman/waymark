@@ -25,7 +25,7 @@ pub enum LoadError<BackendError, CodecError> {
 
 /// A [`Factory`](waymark_state_manager_core::Factory) that loads VM executables
 /// from a [`waymark_state_vm_executables_backend::LoadExecutable`] backend,
-/// deserializing them with the given [`Codec`].
+/// deserializing them with the given `Codec`.
 pub struct ExecutablesFactory<Backend, Codec, Executable> {
     backend: Arc<Backend>,
     codec: Arc<Codec>,

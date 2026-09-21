@@ -18,7 +18,7 @@ pub struct Exception<Details> {
 #[error("the value is not an exception")]
 pub struct NotAnExceptionError;
 
-/// Error returned by [`AsException::into_exception`].
+/// Error returned by [`IntoException::into_exception`].
 #[derive(Debug, thiserror::Error)]
 #[error("the value is not an exception")]
 pub struct NotAnOwnedExceptionError<Value> {
