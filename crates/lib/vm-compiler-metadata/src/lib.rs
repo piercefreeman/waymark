@@ -15,7 +15,7 @@ use index_type::typed_vec::TypedVec;
 /// entry-function argument names for building `CallSpec`s).
 ///
 /// The `FunctionId` type parameter is the compiler's function-identifier
-/// type (e.g. [`waymark_vm_bytecode_core::FunctionId`]).
+/// type (e.g. `waymark_vm_bytecode_core::FunctionId`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",

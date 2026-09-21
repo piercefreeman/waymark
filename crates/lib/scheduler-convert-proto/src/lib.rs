@@ -1,4 +1,4 @@
-//! [`TryConvert`](waymark_convert_core::TryConvert) implementations
+//! [`waymark_convert_core::TryConvert`] implementations
 //! between the schedule wire messages and the scheduler domain types.
 //!
 //! Proto terminates at the transport layer, and this crate is where it

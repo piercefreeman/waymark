@@ -7,7 +7,7 @@ pub(crate) enum StepOutcome<Effect> {
     Yield,
 }
 
-/// An error of the [`Runtime::step`] function.
+/// An error of the `Runtime::step` function.
 #[derive(Debug, thiserror::Error)]
 pub enum Error<InterpreterError> {
     /// An interpreter has failed executing an instruction.
