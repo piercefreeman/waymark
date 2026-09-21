@@ -13,6 +13,11 @@ pub enum StartError {
     Pool(#[source] waymark_worker_process_pool::InitError),
 }
 
+/// Start the worker bridge server and build the worker process pool
+/// behind it.
+///
+/// The bridge server runs as a task on `spawner` (see
+/// [`waymark_worker_remote_bridge_bringup::start`]).
 pub async fn start<Spawner, Spec>(
     mut spawner: Spawner,
     shutdown_token: tokio_util::sync::CancellationToken,
