@@ -21,9 +21,14 @@ rejected patterns.
 
 A workflow whose action fails without a matching retry or `try/except`
 fails as a whole. The `await workflow.run(...)` call raises a
-`RuntimeError` carrying the failure detail. Handle expected failures
-inside the workflow with `try/except`; treat a `RuntimeError` at the call
-site as the unexpected case.
+`WorkflowFailedError` whose `exception_value` is the exception the
+workflow raised, as the VM models it. Handle expected failures inside the
+workflow with `try/except`; treat a `WorkflowFailedError` at the call site
+as the unexpected case.
+
+::: waymark.exceptions.WorkflowFailedError
+
+::: waymark.serialization.ExceptionValue
 
 ## Retry exhaustion
 

@@ -20,6 +20,63 @@ NULL_VALUE = struct_pb2.NULL_VALUE  # type: ignore[attr-defined]
 PRIMITIVE_TYPES = (str, int, float, bool, type(None))
 
 
+@dataclasses.dataclass(frozen=True)
+class ExceptionValue:
+    """An exception as the VM models one: the type identifying it and the
+    details value raised with it.
+
+    The details are whatever the raiser put there: a Python exception
+    carries the dict [`from_exception`] records, the VM's own built-in
+    exceptions carry a string. Nothing here assumes their shape.
+    """
+
+    type_id: str
+    details: Any
+
+    def __str__(self) -> str:
+        return f"{self.type_id}: {self.details!r}"
+
+    @classmethod
+    def from_exception(cls, exc: BaseException) -> "ExceptionValue":
+        """The value denoting a raised Python exception.
+
+        The particulars are this language's own choice, so they ride as an
+        ordinary dict: the message, the defining module, the traceback, the
+        class hierarchy `except` matches on, and whatever values the
+        exception itself carries. A value the SDK cannot serialize rides
+        as its `str`.
+        """
+        # The class hierarchy (MRO) lets `except LookupError:` catch a
+        # KeyError in the workflow.
+        hierarchy = [c.__name__ for c in exc.__class__.__mro__ if c is not object]
+
+        values: dict[str, Any] = {}
+        for key, item in _exception_values(exc).items():
+            try:
+                dumps(item)
+            except TypeError:
+                item = str(item)
+            values[key] = item
+
+        return cls(
+            type_id=exc.__class__.__name__,
+            details={
+                "message": str(exc),
+                "module": exc.__class__.__module__,
+                "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+                "type_hierarchy": hierarchy,
+                "values": values,
+            },
+        )
+
+
+def _exception_values(exc: BaseException) -> dict[str, Any]:
+    values = dict(vars(exc))
+    if "args" not in values:
+        values["args"] = exc.args
+    return values
+
+
 def dumps(value: Any) -> pb2v.Value:
     """Serialize a Python value into a Value message."""
 
@@ -29,10 +86,7 @@ def dumps(value: Any) -> pb2v.Value:
 def dumps_exception(exc: BaseException) -> pb2v.ExceptionValue:
     """Serialize an exception into the exception value it denotes."""
 
-    return pb2v.ExceptionValue(
-        type_id=exc.__class__.__name__,
-        details=_exception_details(exc),
-    )
+    return _to_argument_value(ExceptionValue.from_exception(exc)).exception
 
 
 def loads(data: Any) -> Any:
@@ -98,6 +152,11 @@ def _to_argument_value(value: Any) -> pb2v.Value:
         # Serialize UUID as string primitive
         argument.primitive.CopyFrom(_serialize_primitive(str(value)))
         return argument
+    if isinstance(value, ExceptionValue):
+        argument.exception.type_id = value.type_id
+        if value.details is not None:
+            argument.exception.details.CopyFrom(_to_argument_value(value.details))
+        return argument
     if isinstance(value, datetime):
         # Serialize datetime as ISO format string
         argument.primitive.CopyFrom(_serialize_primitive(value.isoformat()))
@@ -137,9 +196,7 @@ def _to_argument_value(value: Any) -> pb2v.Value:
             item_value.CopyFrom(_to_argument_value(item))
         return argument
     if isinstance(value, BaseException):
-        argument.exception.type_id = value.__class__.__name__
-        argument.exception.details.CopyFrom(_exception_details(value))
-        return argument
+        return _to_argument_value(ExceptionValue.from_exception(value))
     if _is_base_model(value):
         model_class = value.__class__
         model_data = _serialize_model_data(value)
@@ -186,39 +243,6 @@ def _to_argument_value(value: Any) -> pb2v.Value:
     raise TypeError(f"unsupported value type {type(value)!r}")
 
 
-def _exception_details(value: BaseException) -> pb2v.Value:
-    """Build the details value carried alongside an exception's type id.
-
-    The particulars are this language's own choice, so they ride as an
-    ordinary dict rather than as wire-level structure: the message, the
-    defining module, the traceback, the class hierarchy `except` matches
-    on, and whatever values the exception itself carries.
-    """
-    # Include the exception class hierarchy (MRO) for proper except matching.
-    # This allows `except LookupError:` to catch KeyError, etc.
-    hierarchy = [cls.__name__ for cls in value.__class__.__mro__ if cls is not object]
-
-    values: dict[str, Any] = {}
-    for key, item in _serialize_exception_values(value).items():
-        try:
-            _to_argument_value(item)
-        except TypeError:
-            item = str(item)
-        values[key] = item
-
-    return _to_argument_value(
-        {
-            "message": str(value),
-            "module": value.__class__.__module__,
-            "traceback": "".join(
-                traceback.format_exception(type(value), value, value.__traceback__)
-            ),
-            "type_hierarchy": hierarchy,
-            "values": values,
-        }
-    )
-
-
 def _from_argument_value(argument: pb2v.Value) -> Any:
     kind = argument.WhichOneof("kind")  # type: ignore[attr-defined]
     if kind == "primitive":
@@ -235,9 +259,9 @@ def _from_argument_value(argument: pb2v.Value) -> Any:
         details = (
             _from_argument_value(argument.exception.details)
             if argument.exception.HasField("details")
-            else {}
+            else None
         )
-        return {"type_id": argument.exception.type_id, "details": details}
+        return ExceptionValue(type_id=argument.exception.type_id, details=details)
     if kind == "list_value":
         return [_from_argument_value(item) for item in argument.list_value.items]
     if kind == "tuple_value":
@@ -256,13 +280,6 @@ def _serialize_model_data(model: BaseModel) -> dict[str, Any]:
     if hasattr(model, "dict"):
         return model.dict()  # type: ignore[attr-defined]
     return model.__dict__
-
-
-def _serialize_exception_values(exc: BaseException) -> dict[str, Any]:
-    values = dict(vars(exc))
-    if "args" not in values:
-        values["args"] = exc.args
-    return values
 
 
 def _serialize_primitive(value: Any) -> pb2v.PrimitiveValue:
