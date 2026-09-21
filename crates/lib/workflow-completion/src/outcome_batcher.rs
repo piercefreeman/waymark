@@ -15,7 +15,7 @@
 //! Duplicate vm_ids are deduped first-wins by the batcher itself (the
 //! upsert cannot affect the same row twice, SQLSTATE 21000): the batcher
 //! is a [`deduplicating_write_batcher`](waymark_batcher::deduplicating_write_batcher)
-//! keyed by vm_id.  [`FirstWriteWins`] folds a same-vm newcomer out,
+//! keyed by vm_id.  `FirstWriteWins` folds a same-vm newcomer out,
 //! recording whether it was byte-identical to the incumbent, and settles
 //! its verdict against the incumbent's actual flush output — exactly
 //! what first-write-wins would have said had the two arrived in separate
@@ -25,7 +25,7 @@
 //! An `Err` from the backend means the recording itself failed and
 //! nothing landed.  Retryable ([`ErrorKind::Internal`]) failures are
 //! retried here, whole-batch, with backoff, up to
-//! [`RETRY_MAX_ATTEMPTS`]; an [`ErrorKind::InvalidBatch`] failure, or
+//! `RETRY_MAX_ATTEMPTS`; an [`ErrorKind::InvalidBatch`] failure, or
 //! exhausted retries, fans [`RecordError::Failed`] to every waiter —
 //! the drive loops fail, and revival re-records the outcomes later.
 

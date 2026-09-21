@@ -11,7 +11,7 @@ use crate::outcome::CaseOutcome;
 /// The comparison is structural and ORDER-SENSITIVE: a dict's entries
 /// must appear in the same order on both sides, since insertion order is
 /// part of the value in both languages.  Value equality alone would not
-/// see that — an [`IndexMap`](indexmap::IndexMap) compares as a map,
+/// see that — an `IndexMap` compares as a map,
 /// ignoring order.
 pub fn compare_outcomes(expected: &CaseOutcome, actual: &CaseOutcome) -> Result<(), String> {
     match (expected, actual) {
