@@ -10,15 +10,17 @@ from waymark.proto import python_value_pb2 as pb2v
 
 from .dependencies import provide_dependencies
 from .registry import AsyncAction, registry
-from .serialization import dumps, dumps_exception, loads
+from .serialization import ExceptionValue, dumps, dumps_exception, loads, loads_exception
 
 TAsync = TypeVar("TAsync", bound=AsyncAction)
 
 
 @dataclass
 class ActionResultPayload:
+    """A decoded action result: the value it returned, or the exception it raised."""
+
     result: Any | None
-    error: dict[str, Any] | None
+    error: ExceptionValue | None
 
 
 def serialize_returned_value(value: Any) -> bytes:
@@ -51,10 +53,7 @@ def deserialize_action_result(result: pb2.ActionResult) -> ActionResultPayload:
         case "exception":
             return ActionResultPayload(
                 result=None,
-                error={
-                    "type_id": result_value.exception.type_id,
-                    "details": loads(result_value.exception.details),
-                },
+                error=loads_exception(result_value.exception),
             )
         case None:
             raise ValueError("empty action outcome")
@@ -64,8 +63,10 @@ def deserialize_action_result(result: pb2.ActionResult) -> ActionResultPayload:
 
 @dataclass
 class WorkflowOutcomePayload:
+    """A decoded workflow outcome: the value it returned, or the exception it raised."""
+
     result: Any | None
-    error: dict[str, Any] | None
+    error: ExceptionValue | None
 
 
 def deserialize_workflow_outcome(payload: bytes) -> WorkflowOutcomePayload:
@@ -85,10 +86,7 @@ def deserialize_workflow_outcome(payload: bytes) -> WorkflowOutcomePayload:
         case "exception":
             return WorkflowOutcomePayload(
                 result=None,
-                error={
-                    "type_id": outcome_value.exception.type_id,
-                    "details": loads(outcome_value.exception.details),
-                },
+                error=loads_exception(outcome_value.exception),
             )
         case None:
             raise ValueError("empty workflow outcome")

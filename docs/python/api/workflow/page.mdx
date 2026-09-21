@@ -12,7 +12,8 @@ your own inputs:
   form.
 - `_priority=` sets the queue priority for this instance.
 
-A blocking run(...) raises `RuntimeError` if the workflow fails and
+A blocking run(...) raises `WorkflowFailedError` (whose `exception_value`
+is the exception the workflow raised) if the workflow fails, and
 `TimeoutError` if the instance doesn't complete in time.
 
 ::: waymark.workflow.Workflow
