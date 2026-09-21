@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import importlib
 import logging
-import os
 import sys
 import time
 from typing import Any, AsyncIterator, cast
@@ -21,18 +20,6 @@ from .logger import configure as configure_logger
 
 LOGGER = configure_logger("waymark.worker")
 aio = cast(Any, grpc).aio
-
-DEFAULT_CLEANUP_TIMEOUT_BUFFER_SECONDS = 5
-
-
-def _cleanup_timeout_buffer_seconds() -> int:
-    raw = os.getenv("WAYMARK_PYTHON_CLEANUP_TIMEOUT_BUFFER_SECONDS")
-    if raw is None:
-        return DEFAULT_CLEANUP_TIMEOUT_BUFFER_SECONDS
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return DEFAULT_CLEANUP_TIMEOUT_BUFFER_SECONDS
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -86,44 +73,18 @@ async def _handle_dispatch(
     dispatch = pb2.ActionDispatch()
     dispatch.ParseFromString(envelope.payload)
 
-    # TODO: worker-side timeout supervision is gone — the dispatch no
-    # longer carries a deadline, since retries and timeouts are lowered
-    # in the VM. The cleanup safety net below (and
-    # `_cleanup_timeout_buffer_seconds`) is therefore inert: decide
-    # whether to reintroduce a propagated deadline or drop the machinery.
-    python_timeout = 0
-
     worker_start = time.perf_counter_ns()
     success = True
     action_name = dispatch.action_name
     execution: workflow_runtime.ActionExecutionResult | None = None
     try:
-        if python_timeout > 0:
-            execution = await asyncio.wait_for(
-                workflow_runtime.execute_action(dispatch), timeout=python_timeout
-            )
-        else:
-            execution = await workflow_runtime.execute_action(dispatch)
+        execution = await workflow_runtime.execute_action(dispatch)
 
         if execution.exception:
             success = False
             response_payload = serialize_raised_exception(execution.exception)
         else:
             response_payload = serialize_returned_value(execution.result)
-    except asyncio.TimeoutError:
-        # Python-side timeout is just for cleanup - Rust already handled the timeout.
-        # Log internally but don't treat as special error type.
-        LOGGER.warning(
-            "Action %s hit Python cleanup timeout after %ss (Rust already timed out)",
-            action_name,
-            python_timeout,
-        )
-        success = False
-        # Return generic error - Rust will likely ignore this late response
-        error = Exception(
-            f"action {action_name} cleanup timeout (Rust-side timeout already triggered)"
-        )
-        response_payload = serialize_raised_exception(error)
     except Exception as exc:  # noqa: BLE001 - propagate structured errors
         success = False
         response_payload = serialize_raised_exception(exc)
