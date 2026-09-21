@@ -9,7 +9,16 @@ use std::{
 
 use prost::Message as _;
 use waymark_proto::messages as proto;
-use waymark_worker_metrics::RoundTripMetrics;
+
+/// What one action round trip through the worker came back with.
+#[derive(Debug)]
+pub struct ActionRoundTrip {
+    /// The time the worker spent executing the action, as the worker measured it.
+    pub worker_duration: std::time::Duration,
+
+    /// The response payload the worker produced.
+    pub response_payload: Vec<u8>,
+}
 
 /// Channels for communicating with a connected worker.
 pub struct Channels {
@@ -224,7 +233,7 @@ impl Sender {
     /// 3. Sends the action dispatch
     /// 4. Waits for ACK (immediate)
     /// 5. Waits for result (after execution)
-    /// 6. Returns metrics including latencies
+    /// 6. Returns the round trip: the worker's own duration and its response payload
     ///
     /// # Errors
     ///
@@ -234,7 +243,7 @@ impl Sender {
     pub async fn send_action(
         &self,
         dispatch: proto::ActionDispatch,
-    ) -> Result<RoundTripMetrics<Vec<u8>>, SendActionError> {
+    ) -> Result<ActionRoundTrip, SendActionError> {
         let delivery_id = self
             .next_delivery
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -277,6 +286,10 @@ impl Sender {
             return Err(SendActionError::NotSent);
         }
 
+        // TODO: bring back timed channels (waymark-timed-channel, removed in
+        // 0a311ccb2) and use them here, instead of the `Instant`s
+        // hand-stamped into the ACK and response channels.
+
         // Wait for ACK (should be immediate)
         let ack_instant = ack_rx.await.map_err(|_| SendActionError::NoAck)?;
 
@@ -284,7 +297,6 @@ impl Sender {
         let (response, response_instant) =
             response_rx.await.map_err(|_| SendActionError::NoResponse)?;
 
-        // Calculate metrics
         let ack_latency = ack_instant
             .checked_duration_since(send_instant)
             .unwrap_or_default();
@@ -305,10 +317,7 @@ impl Sender {
             "action completed"
         );
 
-        Ok(RoundTripMetrics {
-            delivery_id,
-            ack_latency,
-            round_trip,
+        Ok(ActionRoundTrip {
             worker_duration,
             response_payload: response.payload,
         })
@@ -337,7 +346,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_action_round_trip_returns_metrics() {
+    async fn send_action_returns_the_round_trip() {
         let (to_worker_tx, mut to_worker_rx) = tokio::sync::mpsc::channel(4);
         let (from_worker_tx, from_worker_rx) = tokio::sync::mpsc::channel(4);
 
@@ -379,6 +388,7 @@ mod tests {
                 .expect("send ack envelope");
 
             let result = proto::ActionResult {
+                payload: b"the response".to_vec(),
                 worker_start_ns: 1_000,
                 worker_end_ns: 4_000,
                 ..Default::default()
@@ -394,12 +404,13 @@ mod tests {
                 .expect("send action result envelope");
         });
 
-        let metrics = sender
+        let round_trip = sender
             .send_action(expected_dispatch)
             .await
             .expect("send_action should succeed");
 
-        assert_eq!(metrics.worker_duration.as_nanos(), 3_000);
+        assert_eq!(round_trip.worker_duration.as_nanos(), 3_000);
+        assert_eq!(round_trip.response_payload, b"the response");
 
         worker_handle.await.expect("worker task should finish");
         drop(sender);

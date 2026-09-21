@@ -6,7 +6,6 @@ publish.workspace = true
 
 [dependencies]
 waymark-proto = { workspace = true }
-waymark-worker-metrics = { workspace = true }
 
 prost = { workspace = true }
 thiserror = { workspace = true }
