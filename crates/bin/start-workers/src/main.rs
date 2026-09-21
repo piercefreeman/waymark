@@ -110,8 +110,11 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     // Bring everything up under the supervisor, handing each subsystem's
     // tasks over as soon as they exist. A failure part-way leaves the tasks
     // already up supervised; they are shut down and drained like on any
-    // other failure, and the boot error is what main returns.
-    let started: Result<(), waymark_fn_main_common::Error> = async {
+    // other failure, and the boot error is what main returns. A shutdown
+    // request during the startup drops the startup where it is, a migration
+    // waiting on its lock or a worker spawn in progress included, and goes
+    // on to the drain of the tasks already up.
+    let startup = async {
         let mut supervisor = supervisor.spawner(waymark_fn_main_common::ErrorConverter);
 
         // The shutdown signal listener: on a request it requests the
@@ -265,13 +268,17 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             shutdown_token.child_token(),
         );
 
-        Ok(())
-    }
-    .await;
+        Ok::<(), waymark_fn_main_common::Error>(())
+    };
+    let started = shutdown_token.run_until_cancelled(startup).await;
 
-    if let Err(error) = &started {
-        error!(error = %error, "startup failed; shutting down");
-        shutdown_token.cancel();
+    match &started {
+        Some(Ok(())) => {}
+        Some(Err(error)) => {
+            error!(error = %error, "startup failed; shutting down");
+            shutdown_token.cancel();
+        }
+        None => info!("shutdown requested during startup; startup abandoned"),
     }
 
     let report = supervisor.drain().await;
@@ -282,7 +289,9 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         info!(%report, "shutdown complete");
     }
 
-    started?;
+    if let Some(started) = started {
+        started?;
+    }
 
     if report.any_before_shutdown() {
         return Err(FailureDrivenShutdown.into());
