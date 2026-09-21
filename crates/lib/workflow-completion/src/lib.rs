@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 
 use waymark_vm_interpreter_coreset::Effect as CoreSetEffect;
 
-/// Error returned by [`EffectHandler::handle_effect`].
+/// Error returned by [`EffectHandler`]'s [`handle_effect`](waymark_vm_driver_core::EffectHandler::handle_effect).
 #[derive(Debug, thiserror::Error)]
 pub enum HandleEffectError<CodecError> {
     /// Serialization of the completion value or exception failed.
