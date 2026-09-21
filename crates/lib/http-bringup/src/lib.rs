@@ -25,6 +25,9 @@ pub enum StartError {
 }
 
 /// Start the HTTP server.
+///
+/// The server runs as the `http server` task on `spawner`; it ends when
+/// `shutdown_signal` completes, or with the serve error.
 pub async fn start<Spawner>(
     mut spawner: Spawner,
     bind_addr: SocketAddr,
