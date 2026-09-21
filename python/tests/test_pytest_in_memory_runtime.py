@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 
-from waymark import RetryPolicy, Workflow, action, workflow
+from waymark import RetryPolicy, Workflow, WorkflowFailedError, action, workflow
 
 
 @action
@@ -70,10 +70,13 @@ class SingleKeyMappingWorkflow(Workflow):
 
 
 def test_pytest_runtime_raises_for_unhandled_action_failure() -> None:
-    with pytest.raises(RuntimeError, match="workflow failed") as exc_info:
+    with pytest.raises(WorkflowFailedError) as exc_info:
         asyncio.run(UnhandledFailureWorkflow().run())
-    assert "ValueError" in str(exc_info.value)
-    assert "boom" in str(exc_info.value)
+
+    error = exc_info.value
+    assert isinstance(error, WorkflowFailedError)
+    assert error.type_id == "ValueError"
+    assert error.message == "boom"
 
 
 def test_pytest_runtime_skips_sleep_nodes() -> None:

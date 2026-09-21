@@ -16,6 +16,7 @@ from .exceptions import (
     ExhaustedRetries,
     ExhaustedRetriesError,
     ScheduleAlreadyExistsError,
+    WorkflowFailedError,
 )
 from .ir_builder import UnsupportedPatternError, build_workflow_ir
 from .registry import registry
@@ -58,6 +59,7 @@ __all__ = [
     "ExhaustedRetries",
     "ExhaustedRetriesError",
     "ScheduleAlreadyExistsError",
+    "WorkflowFailedError",
     "UnsupportedPatternError",
     # Schedule functions
     "schedule_workflow",
