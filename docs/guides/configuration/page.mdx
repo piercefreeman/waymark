@@ -36,10 +36,10 @@ These are the variables you'll touch most often when running
 | Variable | Description | Default |
 | --- | --- | --- |
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN for runtime state. | Required |
+| `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the main database pool. | `25` |
 | `WAYMARK_WORKER_COUNT` | Number of Python worker processes. | Host CPU count |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per worker. | `10` |
 | `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max in-memory instances across runloop shards. | `500` |
-| `WAYMARK_EXECUTOR_SHARDS` | Number of executor shards. | Host CPU count |
 | `WAYMARK_USER_MODULE` | Comma-separated Python modules preloaded in workers. | Unset |
 | `WAYMARK_MAX_ACTION_LIFECYCLE` | Actions per worker before recycle (memory mitigation). | Unset (no limit) |
 | `WAYMARK_WEBAPP_ENABLED` | Enable embedded web UI. | `false` |
@@ -62,16 +62,25 @@ running multiple hosts and have a measured reason.
 | --- | --- | --- |
 | `WAYMARK_WORKER_GRPC_ADDR` | gRPC bind for the Python worker bridge server. | `127.0.0.1:24118` |
 | `WAYMARK_POLL_INTERVAL_MS` | Queue poll interval. | `100` |
-| `WAYMARK_INSTANCE_DONE_BATCH_SIZE` | Batch size for persisting completed instances. | Falls back to `WAYMARK_MAX_CONCURRENT_INSTANCES` |
 | `WAYMARK_PERSIST_INTERVAL_MS` | Persistence flush interval. | `500` |
 | `WAYMARK_LOCK_TTL_MS` | Queue lock TTL. | `15000` |
 | `WAYMARK_LOCK_HEARTBEAT_MS` | Queue lock heartbeat interval. | `5000` |
-| `WAYMARK_EVICT_SLEEP_THRESHOLD_MS` | Sleep threshold for evicting idle instances. | `10000` |
-| `WAYMARK_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS` | Expired lock reclaim sweep. | `15000` |
-| `WAYMARK_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE` | Max locks reclaimed per sweep. | `1000` |
 | `WAYMARK_SCHEDULER_POLL_INTERVAL_MS` | Scheduler poll interval. | `1000` |
-| `WAYMARK_SCHEDULER_BATCH_SIZE` | Scheduler due-item batch size. | `100` |
-| `WAYMARK_RUNNER_PROFILE_INTERVAL_MS` | Worker status / profile publish interval. | `5000` |
+
+## Observability {{ id: 'observability' }}
+
+The worker pool records its metrics and events in an observability store,
+its own schemas and pools even when it shares the main database:
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `WAYMARK_OBSERVABILITY_DATABASE_URL` | DSN for the observability store; the backend is picked by the URL scheme. | `WAYMARK_DATABASE_URL` |
+| `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` | DSN the observability API reads through: the same database, or a read replica of it. | `WAYMARK_OBSERVABILITY_DATABASE_URL` |
+| `WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS` | Connection cap for the observability write pool, additive to the main pool's when sharing the database. | `4` |
+| `WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS` | Connection cap for the observability read pool, additive likewise. | `4` |
+| `WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS` | How long one statement on the write pool may run; retention sweeps and migrations run there. | `600000` |
+| `WAYMARK_OBSERVABILITY_POSTGRES_READ_STATEMENT_TIMEOUT_MS` | How long one statement on the read pool may run. | `10000` |
+| `WAYMARK_OBSERVABILITY_EVENTS_RECORD_SNAPSHOT_PERSISTED` | Record a `snapshot_persisted` event per persisted VM snapshot. | `false` |
 
 ## Bridge {{ id: 'bridge' }}
 
@@ -113,19 +122,3 @@ one. In-flight actions on the old worker complete normally before the
 process exits, so recycling costs you no downtime.
 
 By default this is unset, meaning workers run indefinitely.
-
-## Garbage collection {{ id: 'garbage-collection' }}
-
-The runtime periodically purges completed instances from Postgres to keep
-the active tables small:
-
-| Variable | Description | Default |
-| --- | --- | --- |
-| `WAYMARK_GARBAGE_COLLECTOR_RETENTION_HOURS` | How long finished instances are kept. | `24` |
-| `WAYMARK_GARBAGE_COLLECTOR_INTERVAL_MS` | Sweep interval. | `300000` (5 min) |
-| `WAYMARK_GARBAGE_COLLECTOR_BATCH_SIZE` | Max rows deleted per sweep. | `100` |
-
-The retention window is the one to think about: it bounds how far back
-the webapp's run history goes and how long results stay queryable.
-If you audit workflow runs or debug with day-old history, raise
-`WAYMARK_GARBAGE_COLLECTOR_RETENTION_HOURS` to match your needs.
