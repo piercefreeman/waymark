@@ -9,7 +9,16 @@ use std::{
 
 use prost::Message as _;
 use waymark_proto::messages as proto;
-use waymark_worker_metrics::RoundTripMetrics;
+
+/// What one action round trip through the worker came back with.
+#[derive(Debug)]
+pub struct ActionRoundTrip {
+    /// The time the worker spent executing the action, as the worker measured it.
+    pub worker_duration: std::time::Duration,
+
+    /// The response payload the worker produced.
+    pub response_payload: Vec<u8>,
+}
 
 /// Channels for communicating with a connected worker.
 pub struct Channels {
@@ -224,7 +233,7 @@ impl Sender {
     /// 3. Sends the action dispatch
     /// 4. Waits for ACK (immediate)
     /// 5. Waits for result (after execution)
-    /// 6. Returns metrics including latencies
+    /// 6. Returns the round trip: the worker's own duration and its response payload
     ///
     /// # Errors
     ///
@@ -234,7 +243,7 @@ impl Sender {
     pub async fn send_action(
         &self,
         dispatch: proto::ActionDispatch,
-    ) -> Result<RoundTripMetrics<Vec<u8>>, SendActionError> {
+    ) -> Result<ActionRoundTrip, SendActionError> {
         let delivery_id = self
             .next_delivery
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -305,10 +314,7 @@ impl Sender {
             "action completed"
         );
 
-        Ok(RoundTripMetrics {
-            delivery_id,
-            ack_latency,
-            round_trip,
+        Ok(ActionRoundTrip {
             worker_duration,
             response_payload: response.payload,
         })
@@ -394,12 +400,12 @@ mod tests {
                 .expect("send action result envelope");
         });
 
-        let metrics = sender
+        let round_trip = sender
             .send_action(expected_dispatch)
             .await
             .expect("send_action should succeed");
 
-        assert_eq!(metrics.worker_duration.as_nanos(), 3_000);
+        assert_eq!(round_trip.worker_duration.as_nanos(), 3_000);
 
         worker_handle.await.expect("worker task should finish");
         drop(sender);
