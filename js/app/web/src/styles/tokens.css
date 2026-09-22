@@ -1,0 +1,75 @@
+/*
+ * Raw palette. Only this file knows concrete colors; everything else reads
+ * semantic tokens through theme.css. Switching theme swaps these values only.
+ *
+ * Identity: a surveyor's ledger. Warm graphite in the dark, plain white in
+ * the light. Status is ink, not paint: colored text and glyphs, fills only for
+ * failure. Blue is reserved for interaction (links, focus, live indicator).
+ */
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --canvas: #0f0f0e;
+  --surface: #151514;
+  --surface-raised: #1c1c1a;
+  --surface-overlay: #232321;
+  --surface-selected: #202019;
+
+  --line: #292926;
+  --line-strong: #3b3b37;
+  --line-hatch: #3b3b37;
+
+  --fg: #ebeae4;
+  --fg-muted: #a3a199;
+  --fg-subtle: #6f6d66;
+  --fg-on-accent: #0f0f0e;
+
+  --accent: #7ea6f5;
+  --accent-hover: #9dbbf8;
+  --focus: #7ea6f5;
+
+  --running: #3fc1b7;
+  --success: #86c26f;
+  --waiting: #dba640;
+  --danger: #ff5f49;
+  --neutral: #8f8d85;
+
+  --capacity: #7ea6f5;
+  --chart-grid: #232321;
+  --chart-axis: #6f6d66;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --canvas: #ffffff;
+  --surface: #ffffff;
+  --surface-raised: #f4f4f5;
+  --surface-overlay: #ffffff;
+  --surface-selected: #efeff1;
+
+  --line: #e4e4e7;
+  --line-strong: #d4d4d8;
+  --line-hatch: #d4d4d8;
+
+  --fg: #18181b;
+  --fg-muted: #52525b;
+  --fg-subtle: #86868f;
+  --fg-on-accent: #ffffff;
+
+  --accent: #2d5fcf;
+  --accent-hover: #244fb0;
+  --focus: #2d5fcf;
+
+  --running: #0d8a82;
+  --success: #3d7a2a;
+  --waiting: #8a5d00;
+  --danger: #c3301c;
+  --neutral: #6b6b74;
+
+  --capacity: #2d5fcf;
+  --chart-grid: #ececef;
+  --chart-axis: #86868f;
+}
