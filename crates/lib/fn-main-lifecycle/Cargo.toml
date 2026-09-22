@@ -1,0 +1,21 @@
+[package]
+name = "waymark-fn-main-lifecycle"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-into-error = { workspace = true }
+waymark-task-supervisor = { workspace = true }
+
+futures-util = { workspace = true }
+thiserror = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+waymark-into-error = { workspace = true, features = ["eyre"] }
+
+color-eyre = { workspace = true }
+insta = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
