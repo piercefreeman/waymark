@@ -69,11 +69,12 @@ where
 /// Drain a run's tasks, however long it takes, once its shutdown has been
 /// requested and its worker pool handles released. A task that ended
 /// before the request is a failed run.
-pub async fn drain_run(
-    supervisor: waymark_managed_spawner_supervised::supervisor::Supervisor<
-        waymark_fn_main_common::Error,
-    >,
-) -> Result<(), color_eyre::eyre::Report> {
+pub async fn drain_run<TaskError>(
+    supervisor: waymark_managed_spawner_supervised::supervisor::Supervisor<TaskError>,
+) -> Result<(), color_eyre::eyre::Report>
+where
+    TaskError: std::fmt::Display,
+{
     let report = supervisor.drain().await;
 
     if report.any_before_shutdown() {
