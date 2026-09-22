@@ -6599,8 +6599,10 @@ dependencies = [
  "waymark-proto",
  "waymark-worker-core",
  "waymark-worker-message-protocol",
+ "waymark-worker-process",
  "waymark-worker-process-pool",
  "waymark-worker-process-spec",
+ "waymark-worker-reservation",
 ]
 
 [[package]]
