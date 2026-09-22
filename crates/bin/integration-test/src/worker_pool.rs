@@ -15,10 +15,12 @@ pub struct PythonWorkerPool {
 }
 
 /// Start the worker pool under `spawner`: the bridge server and the
-/// worker pool loop are its tasks.
+/// worker pool loop are its tasks. The loop abandons the actions in
+/// flight once `force_shutdown_token` is cancelled.
 pub async fn setup_worker_pool<Spawner>(
     mut spawner: Spawner,
     shutdown_token: tokio_util::sync::CancellationToken,
+    force_shutdown_token: tokio_util::sync::CancellationToken,
     repo_root: &Path,
     cases: &[PreparedCase],
     worker_count: NonZeroUsize,
@@ -57,7 +59,7 @@ where
     .wrap_err("create remote worker pool")?;
 
     let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
-        waymark_worker_remote_pool::run(process_pool);
+        waymark_worker_remote_pool::run(process_pool, force_shutdown_token.cancelled_owned());
     spawner.spawn("worker pool loop", worker_pool_loop);
 
     Ok(PythonWorkerPool {

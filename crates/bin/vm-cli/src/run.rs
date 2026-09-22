@@ -9,6 +9,7 @@ pub async fn run(
     waymark_fn_main_common::Error,
 > {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
+    let force_shutdown_token = tokio_util::sync::CancellationToken::new();
     let mut supervisor =
         waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
@@ -36,7 +37,10 @@ pub async fn run(
         .await?;
 
         let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
-            waymark_worker_remote_pool::run(process_pool);
+            waymark_worker_remote_pool::run(
+                process_pool,
+                force_shutdown_token.child_token().cancelled_owned(),
+            );
         supervisor.spawn("worker pool loop", worker_pool_loop);
 
         // The VM driver owns the only worker pool requests handle, so joining
@@ -74,10 +78,12 @@ pub async fn run(
     }
     .await;
 
-    // Whatever the run did, the shutdown is requested and every task is
-    // drained. The outcome is what the run is for, so it is returned
-    // whatever the report says; an early end is reported, not returned.
+    // Whatever the run did, the shutdown is requested, the worker pool is
+    // forced off its in-flight actions, and every task is drained. The
+    // outcome is what the run is for, so it is returned whatever the report
+    // says; an early end is reported, not returned.
     shutdown_token.cancel();
+    force_shutdown_token.cancel();
     let report = supervisor.drain().await;
     if report.any_before_shutdown() {
         tracing::error!(%report, "a task ended before the shutdown was requested");
