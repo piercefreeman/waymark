@@ -10,6 +10,7 @@ waymark-backend-postgres-migrations = { workspace = true }
 waymark-config = { workspace = true }
 waymark-execution-bringup = { workspace = true }
 waymark-fn-main-common = { workspace = true }
+waymark-fn-main-lifecycle = { workspace = true }
 waymark-http-api = { workspace = true }
 waymark-http-bringup = { workspace = true }
 waymark-http-healthz = { workspace = true }
@@ -30,7 +31,6 @@ axum = { workspace = true }
 envfury = { workspace = true }
 metrics = { workspace = true }
 sqlx = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
