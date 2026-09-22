@@ -1,203 +1,189 @@
 # Waymark UI design system
 
-## Direction
+## Direction: a surveyor's ledger
 
-A calm, precise workspace for understanding workflows under load. Borrow Linear's
-typography, restrained surfaces, and consistent interaction patterns; borrow the
-monitoring reference's dense tables, inline meters, and persistent inspector.
-Make exceptional behavior easy to find without making every screen look alarming.
+Waymark marks trails; the UI is the engineer's field ledger for them. Ruled,
+precise, printed. Warm graphite in the dark and plain white in the light,
+one sans for labels, one monospace for every value, and status
+rendered as ink rather than paint. Nothing on screen is decorative: every
+line is a rule, every color is a state, every number has a unit and a scope.
 
-This first pass implements the shared components and an interactive sample
-workspace. Run `make webapp-dev` to explore Workflows, Workers, and Components.
-The API guidance below defines the next integration step; the preview uses only
-explicit fixtures from `src/preview/`.
-
-- Dark by default, with an explicit light theme. Theme choice persists locally.
-- Flat layouts, thin dividers, quiet navigation. Save containers for meaningful
-  groupings; avoid a dashboard made entirely of cards.
-- Color communicates state, selection, or a named metric. Decoration stays neutral.
-- Every number has a unit, time range, and scope. Every live view exposes freshness.
-- Use actual domain labels: workflows, actions, workers. Keep VM terminology in
-  technical details where it helps explain an event.
-- Build on React, Tailwind, and locally owned shadcn/ui primitives. Reuse these
-  components throughout the app; feature pages compose them and own data fetching.
+The preview at `make webapp-dev` runs against fixtures authored as event
+streams in `src/data/fixtures.ts`. Everything visible is derived from those
+events by the same code that will consume the live API, so the preview
+cannot show a fact the API does not report.
 
 ## Foundations
 
 ### Color
 
-Use CSS semantic tokens throughout components, including SVG charts. The light
-theme changes token values rather than changing each component's styling.
+Raw values live only in `src/styles/tokens.css`, keyed by `data-theme`.
+Components read semantic tokens through `src/styles/theme.css` (`bg-surface`,
+`text-fg-muted`, `border-line`, `text-danger`, …). Charts read the same
+variables (`var(--running)`), so the light theme is a token swap.
 
-| Role           | Dark      | Light     | Meaning                             |
-| -------------- | --------- | --------- | ----------------------------------- |
-| Canvas         | `#0b0d10` | `#f6f7f9` | Page background                     |
-| Surface        | `#111419` | `#ffffff` | Navigation, tables, inspector       |
-| Raised surface | `#191d24` | `#eef1f5` | Hover, menus, inputs                |
-| Divider        | `#262c35` | `#dce1e8` | Layout structure                    |
-| Primary text   | `#edf0f5` | `#18202c` | Names, values, headings             |
-| Secondary text | `#9aa5b5` | `#596579` | Metadata, supporting text           |
-| Blue           | `#79aaff` | `#245cce` | Running, links, focus, selection    |
-| Green          | `#52d6a0` | `#16734d` | Success, healthy connection         |
-| Amber          | `#f2c46d` | `#8a5900` | Waiting, pending, retrying          |
-| Red            | `#fb8793` | `#bb3044` | Failed, failing, destructive action |
-| Neutral        | `#a5adba` | `#626c7c` | Unknown, cancelled, stale           |
+| Role                | Dark                              | Light                             | Use                                           |
+| ------------------- | --------------------------------- | --------------------------------- | --------------------------------------------- |
+| canvas              | `#0f0f0e`                         | `#ffffff`                         | Page                                          |
+| surface             | `#151514`                         | `#ffffff`                         | Bars, rails, tables, panels                   |
+| surface-raised      | `#1c1c1a`                         | `#f4f4f5`                         | Hover, chips, run strata                      |
+| surface-selected    | `#202019`                         | `#efeff1`                         | The selected row, with a 2px ink left rule    |
+| line                | `#292926`                         | `#e4e4e7`                         | Every rule                                    |
+| fg / muted / subtle | `#ebeae4` / `#a3a199` / `#6f6d66` | `#18181b` / `#52525b` / `#86868f` | Three text levels, no more                    |
+| accent              | `#7ea6f5`                         | `#2d5fcf`                         | Links, focus, primary button, capacity meters |
+| running             | `#3fc1b7`                         | `#0d8a82`                         | Active, open promises, live indicator         |
+| success             | `#86c26f`                         | `#3d7a2a`                         | Completed, resolved, fresh                    |
+| waiting             | `#dba640`                         | `#8a5d00`                         | Suspended, stale, inferred retries, gaps      |
+| danger              | `#ff5f49`                         | `#c3301c`                         | Unhandled exception, run error, rejected      |
+| neutral             | `#8f8d85`                         | `#6b6961`                         | Cancelled, unknown, retired                   |
 
-Status badges pair a readable label with an icon; color is never the only signal.
-Use a subtle tinted fill and border. Running indicators may animate only while
-the view is actively refreshing; respect reduced motion. Charts use the same
-colors as the corresponding labels and legends.
+Rules:
 
-Keep load magnitude separate from workflow outcome: a busy worker is not a failed
-worker. Use blue for capacity usage; reserve amber/red for an explicitly defined
-warning or error. Show unknown capacity as unavailable, never `0%`.
+- Blue means interaction and load. It is never a status. A busy node is not
+  a failed node.
+- Status is a glyph plus colored text (`StatusInk`). Pills are gone. The only
+  fill is the 2px left rule on a row whose instance has an error.
+- Selection is neutral (ink rule + raised surface), never a status color.
+- Tints come from opacity modifiers on the semantic token (`bg-danger/10`),
+  not from extra tokens.
 
-### Type, spacing, and surfaces
+### Type
 
-- System sans-serif for navigation and prose; system monospace for identifiers,
-  function names, payloads, durations, and numeric data. Use tabular numerals.
-- Page title: 24 px / 32 px, semibold. Section title: 14 px / 20 px, medium.
-  Body and table values: 13 px / 20 px. Supporting labels: 12 px / 16 px.
-- A 4 px spacing grid. Controls: 32–36 px tall; tables: 44–48 px rows. Give touch
-  targets at least 44 px on mobile. Page gutters: 24 px desktop, 16 px mobile.
-- Radius: 6 px controls, 8 px panels, full radius only for status pills.
-- One-pixel borders. No dark-mode panel shadows. Only floating menus/dialogs may
-  use translucent surfaces, blur, and restrained shadows.
-- Use fine chart gridlines; keep decorative grids and hatching out of dense text.
-  Hatching can identify an unavailable or idle interval alongside a text label.
+- UI text: IBM Plex Sans. Data: IBM Plex Mono with tabular numerals
+  (`mono-data`). Both are bundled through `@fontsource`.
+- Scale, as Tailwind utilities: `text-title` 18/24, `text-section` 14/20,
+  `text-body` 13/18, `text-label` 12/16, `text-micro` 11/14, `text-metric`
+  20/24. Nothing is larger than 20px; there are no hero numerals.
+- Table headers are the quietest text on the page (10px, subtle). Values are
+  louder than their labels.
 
-## Navigation and screen anatomy
+### Density
 
-Desktop: a 208 px navigation rail, flexible central workspace, and a roughly 360 px
-inspector when an item is selected. One compact global header holds environment
-context, connection freshness, and theme selection. Keep the main workspace wide.
+- Rows: 40px in the ledger, two lines (identity above, evidence below). Controls:
+  `h-control` 28px. Global bar 40px. Icon rail 48px. Gutter 20px.
+- Radius 4px for controls, 6px for panels. One-pixel rules everywhere; no
+  shadows except on floating overlays.
+- Motion 120ms for hover and 180ms for panels; nothing continuous except
+  the live dot, which respects `prefers-reduced-motion`.
 
-Tablet: collapse navigation and let detail content occupy a full page. Mobile:
-stack metrics, offer horizontal scrolling inside tables, and open details as a
-full-screen sheet. Never require precision clicking on a tiny timeline bar.
+## Screen anatomy
 
-### Workflows
+- **Global bar**: mark, environment, sample banner, page title, time window
+  (15m/1h/6h/24h), Live/Paused with freshness, jump box (`⌘K` or `/`), theme.
+- **Rail**: Instances, Fleet. The component gallery is pinned at the bottom
+  and is not product navigation.
+- **Workspace**: one `minmax(0,1fr)` column. The peek panel (480px) overlays
+  it and never pushes columns. Detail is a route, not a sidebar.
+- Filters, the selected instance, the selected promise, and the time window
+  live in the URL (`?state=…&q=…&vm=…`, `/instances/:vm_id?promise=…&tab=…`).
 
-1. Heading, time window, last update, and refresh/pause control.
-2. A flat summary strip: observed running workflows, completed, failed, and worker
-   action concurrency. Label aggregates with their scope.
-3. Search and state filters. Filter state and selected instance belong in the URL
-   so inspection can be shared and browser Back restores context.
-4. Compact rows: workflow name when available, instance ID, status, duration,
-   worker/node, and last activity. Keep the status and selected row easy to scan.
-5. Selecting a workflow opens its inspector without losing list filters or scroll.
+### Instances (`/instances`)
 
-### Workflow inspector
+1. Title, count, window, and a text filter on one line. State chips with
+   page-local counts below it; chips only appear for states present.
+2. The ledger, 40px rows: state ink · the first action the VM called (the
+   closest reported fact to a workflow name) over the short `vm_id` and its
+   module · one plain sentence about now ("Running charge_payment for
+   3.6 s", "Sleeping until 00:36", "Unhandled PaymentMismatch 6m ago",
+   "Effect handling failed: worker reservation timed out") with node and
+   notable counts beneath · a 160px mini-timeline · elapsed time. Rows with
+   an error carry a red left rule. Nothing else: raw event kinds, promise
+   counts, and node columns moved into the peek.
+3. `j`/`k` move, `Enter` peeks, `o` opens, `y` copies the id.
 
-- Identity, status, last observed time, node, and copyable instance ID.
-- Overview / Actions / Events tabs. Show an action waterfall where timings can be
-  established, with a readable chronological list as the keyboard-accessible view.
-- Selecting an action exposes input, result, or error; raw event details stay
-  available for diagnosis. Keep distinct action attempts separate.
-- Call-to-settlement elapsed time includes queueing and handling; label it honestly.
-  Do not call it worker execution time without worker timing data.
-- Payload panels support wrapping, scrolling, and explicit copy. Plain text remains
-  selectable. Render payload content as text, never executable HTML.
-- Missing input/result data says "Not recorded" and explains what is available.
-  It must not look like an empty object, a successful null result, or a loading state.
+### Instance (`/instances/:vm_id`)
 
-### Workers and load
+1. Identity bar: full id with copy, state ink.
+2. The same sentence as the list, the rule that produced the state, and a
+   quiet key–value grid: started, elapsed, promises, driver runs, events.
+3. **Waterfall** (the hero): one row per promise the VM actually called,
+   grouped into strata per driver run. Bars run from call to settlement.
+   Open promises run to now with a hatched tail. Rejections get a red end
+   tick. Snapshots are ◆ on the run band. Inferred retries are marked, never
+   numbered.
+4. Docked drawer: the selected promise (details, an honest "Not recorded"
+   arguments block, events involving it), the raw event log with gap rows,
+   and the driver runs with their stop reasons and error text.
 
-- Overall and per-node concurrency: in-flight actions / maximum in-flight actions.
-- Worker pool size, queued dispatches, driven workflow runtimes, completion rate,
-  dequeue latency, and action handling latency.
-- Time series share the selected time window, units, and x-axis. Show gaps for
-  missing samples; never interpolate across node restarts or label missing as zero.
-- Completion rate comes from counter differences over elapsed time, per node boot.
-  Aggregate histogram buckets before computing an aggregate percentile; never
-  average node medians. Don't claim CPU/RAM utilization from action concurrency.
-- Include last sample age and dropped-observation counts. Stale nodes retain their
-  last values with a stale marker and are excluded from claims about current load.
+### Fleet (`/fleet`)
 
-## Common components
+1. Four numbers with their scope: in flight of capacity, queued (with
+   dequeue p95), completions per second, handling p50 (with p95).
+2. One row per node boot that reads as a sentence: identity and sample age,
+   an in-flight meter, "8 workers · 19 resident VMs · 4 queued · 31.5 done/s"
+   with latency percentiles beneath. Stale boots dim and are excluded from
+   the numbers above.
+3. Two charts on one shared axis with gaps for missing samples: in flight
+   against capacity, and queued dispatches.
 
-`src/components/ui/` contains shadcn primitives. `src/components/` contains shared
-Waymark patterns. Feature-specific table columns and API calls stay with features.
-Components accept values and callbacks; they do not fetch or invent domain data.
+### Sources and refresh
 
-| Component                   | Responsibility                                                |
-| --------------------------- | ------------------------------------------------------------- |
-| `Button`, `Input`, `Select` | Consistent controls, focus, disabled states                   |
-| `Badge`, `Tooltip`          | Supporting labels and optional explanations                   |
-| `Tabs`, `Table`, `Sheet`    | Accessible navigation, data rows, mobile inspection           |
-| `Skeleton`                  | Preserve layout while the first response loads                |
-| `StatusBadge`               | One state vocabulary, icon, and semantic color everywhere     |
-| `Metric`                    | Label, value, unit, and scope/freshness caption               |
-| `CapacityBar`               | Used / available capacity, readable value, accessible meter   |
-| `Timeline`                  | Named intervals, timing scale, selected item, keyboard access |
-| `PayloadViewer`             | Read-only JSON/text, unavailable state, wrap and copy         |
-| `EmptyState`                | Empty, filtered-empty, unavailable, and error explanations    |
-| `AppShell`, `PageHeader`    | Navigation, page hierarchy, and common actions                |
+Pages poll `/api` every 5 s while Live; `?paused=1` stops polling and
+`?source=sample` swaps in the authored fixtures (marked with a banner). A
+refresh failure never empties a view: the previous data stays, with a notice
+that names the error and the last successful time. Nothing falls back to
+sample data silently.
 
-Add primitives as their first consumer arrives. Use shadcn's native table until
-sorting/virtualization requires more; a chart package is justified when the live
-load screen needs coordinated axes and tooltips. Avoid a second component system.
+## Data honesty
 
-## State, accessibility, and motion
+The UI shows only what `/api/observability-state`, `/api/observability-events`
+and `/api/essential-metrics` report (types in `src/domain/api.ts`).
 
-- Preserve the previous response during refresh. A refresh error adds an inline
-  notice with Retry and the last successful update time; it never becomes an empty
-  workflow list. Distinguish no workflows from no observations in the chosen window.
-- Pause polling in hidden tabs. Cancel superseded requests. Preserve selected
-  rows and focus when data changes; don't reorder under the user's pointer.
-- Use links for navigation, buttons for actions, proper table headers, and explicit
-  labels for icon-only controls. Keyboard users must reach row details and payloads.
-- Dialogs/sheets trap focus, close with Escape, and return focus to their trigger.
-  Essential values and status labels remain visible without a tooltip.
-- Minimum contrast: 4.5:1 for ordinary text; 3:1 for large text and important UI
-  boundaries. Use a visible blue focus ring in both themes.
-- Transitions: 120–160 ms for hover/selection, up to 180 ms for panels. No continuous
-  decorative motion; disable movement under `prefers-reduced-motion`.
-- Reference examples are explicitly marked as sample data and never mixed into live
-  responses. An unavailable API must never silently fall back to demo numbers.
+| Fact                  | Source                                               | Treatment                                   |
+| --------------------- | ---------------------------------------------------- | ------------------------------------------- |
+| Instance state        | outcome, then latest run stop reason, then freshness | `deriveInstanceState`; rule shown on hover  |
+| "Failing"             | not a state                                          | rejections counted separately               |
+| Workflow name         | not reported                                         | short `vm_id`; first action labeled derived |
+| Node                  | id per boot, no hostname                             | short id, boot time, retired marker         |
+| Arguments and results | not recorded                                         | explicit "Not recorded" block               |
+| Exception             | type only                                            | the type, nowhere a message                 |
+| Retries               | no attempt number                                    | "retry of #n, inferred"                     |
+| Duration per promise  | call → settlement                                    | labeled as including queueing               |
+| Completion rate       | counter deltas per boot                              | never the raw counter                       |
+| Percentiles           | bucket counts                                        | summed across nodes, never averaged         |
+| Missing events        | gaps in `run_sequence`                               | hatched rows and counts                     |
 
-## Current API contract and implementation limits
+## Components
 
-All paths below are relative to `/api`. Confirmed against the current Rust routes.
+`src/components/ui` holds the retained shadcn primitives (button, input,
+tabs, tooltip), stripped of `dark:` overrides so tokens do all theming.
+`src/components/patterns` holds Waymark patterns; each takes values and
+callbacks and never fetches.
 
-| Need                 | Endpoint                                                                     | Available today                                                                            |
-| -------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Workflow list        | `GET /observability-state/instances?from=…&to=…&limit=…&after=…`             | Instance ID, latest run, terminal outcome, last event; cursor-paginated by last activity   |
-| Workflow detail      | `GET /observability-state/instances/{vm_id}`                                 | The same observed state for one instance                                                   |
-| Action/event history | `GET /observability-events/vms/{vm_id}/timeline?limit=…&after=…`             | Oldest-first events, action names/modules, promise IDs, settlement kind and exception type |
-| Current load         | `GET /essential-metrics/nodes/latest`                                        | Latest per-node concurrency, queue, pool size, counters, and latency histograms            |
-| Historical load      | `GET /essential-metrics/nodes/{node_id}/series?from=…&to=…&bucket_seconds=…` | Bucketed per-node samples                                                                  |
+| Pattern                                            | Responsibility                                         |
+| -------------------------------------------------- | ------------------------------------------------------ |
+| `StatusInk`, `InstanceStateInk`, `PromiseStateInk` | State vocabulary with the rule on hover                |
+| `SectionHeader`                                    | Title, quiet count, description, actions               |
+| `MetricStrip`, `MetricTile`                        | Flat tiles; label, ≤20px value, unit, scope            |
+| `Meter`                                            | Used-of-capacity; unavailable is not 0%                |
+| `Identifier`, `CopyButton`                         | Middle-truncated ids with copy                         |
+| `TimeAgo`, `Clock`, `Duration`                     | Time with the absolute value on hover                  |
+| `KeyValueList`                                     | Rows or grid, on the 4px grid                          |
+| `FilterChips`                                      | Multi-select toggles with counts and a scope caption   |
+| `MiniTimeline`                                     | An instance's life at 160px                            |
+| `Waterfall`                                        | Promise rows in driver-run strata with a time axis     |
+| `EventLog`                                         | Monospace observation log with gap rows                |
+| `TimeSeriesChart`                                  | Shared-axis small multiple; gaps stay gaps; log option |
+| `HistogramBars`                                    | Bucket counts with percentile markers                  |
+| `PayloadViewer`                                    | Recorded / not recorded / pending, visibly distinct    |
+| `EmptyState`                                       | empty / filtered / unavailable / error                 |
+| `AppShell`, `PeekPanel`                            | Global bar, rail, and the overlay peek                 |
 
-### Status rules
+Domain logic lives in `src/domain` (`derive.ts` turns events into runs,
+promises, snapshots and state; `metrics.ts` turns samples into rates and
+percentiles) and is unit tested in Node without React.
 
-Terminal workflow outcome takes precedence: `complete` → success;
-`unhandled_exception` → failed. An un-stopped latest run is observed running,
-subject to freshness. A driver error is a run failure, not proof that the workflow
-has permanently failed. A cancelled driver run is not necessarily a cancelled
-workflow. A rejected action can be caught or retried; it doesn't make its parent
-workflow failed. Waiting/unknown needs an explicit label when the observations
-cannot establish a terminal or active state.
+## Live API
 
-### Gaps to resolve when wiring the full UI
+`src/api/client.ts` wraps the routes the server mounts at `/api`
+(`observability-state/instances`, `observability-events`, `essential-metrics/nodes`).
+`src/data/live.ts` polls them, keeps the previous response while refreshing,
+pauses in hidden tabs, and cancels superseded requests. `src/app.tsx` derives
+view models with `deriveFromInstance` (the state endpoint is authoritative for
+state; events add promises and runs). The list reads one page of instances
+plus the window's events in one paged call; a per-instance summary endpoint
+and server-side state filtering would remove that second read.
 
-- Workflow display names, application/environment grouping, and full start times
-  are not in the instance response. Use IDs until metadata is exposed.
-- The list is a page of activity within a time window, not a complete inventory of
-  in-flight workflows. Global state counts and server-side state/search filters need
-  a backend query; the UI must label page-local counts and filtering accordingly.
-- Action arguments, returned values, and full exceptions are not recorded in the
-  event summaries. Input/result inspection needs an API and persistence extension
-  with explicit retention and redaction rules. Don't reconstruct payloads from names.
-- Event capture can drop observations and retention can remove earlier history.
-  Correlate actions within their driver run and promise identity, expose incomplete
-  timelines, and don't assign invented durations or outcomes to unmatched events.
-- Per-process CPU/memory, per-application grouping, and configured freshness intervals
-  are not returned by these endpoints. Initial load views use the reported node
-  metrics, and any freshness threshold must be documented.
-
-## Sources
-
-- User-provided monitoring screenshot: dense work area, in-row visualization,
-  restrained surfaces, and a persistent detail pane.
-- [shadcn/ui with Vite](https://ui.shadcn.com/docs/installation/vite)
-- [shadcn/ui theme tokens](https://ui.shadcn.com/docs/theming)
+The compiled SPA is embedded in `waymark-start-workers` by the
+`waymark-http-webapp` build script and served next to `/api`; `make webapp-dev`
+proxies `/api` to a running server at `127.0.0.1:24119`.

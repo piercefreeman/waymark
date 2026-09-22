@@ -7,7 +7,7 @@
     "build": "tsc --noEmit && vite build",
     "lint": "tsc --noEmit && prettier --check --ignore-path ../../../.prettierignore .",
     "lint:fix": "prettier --write --ignore-path ../../../.prettierignore . && tsc --noEmit",
-    "test": "node --test src/lib/*.test.ts"
+    "test": "node --test \"src/**/*.test.ts\""
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.3",
@@ -21,11 +21,14 @@
     "vite": "8.3.0"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/ibm-plex-sans": "5.3.0",
     "class-variance-authority": "0.7.1",
-    "cn": "0.3.0",
+    "clsx": "2.1.1",
     "lucide-react": "1.46.0",
     "radix-ui": "1.6.7",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "tailwind-merge": "3.7.0"
   }
 }

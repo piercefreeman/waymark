@@ -1,10 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./app";
-import { readTheme } from "./lib/theme";
+import { readStoredTheme } from "./providers/theme";
 import "./style.css";
 
-document.documentElement.classList.toggle("dark", readTheme() === "dark");
+document.documentElement.dataset.theme = readStoredTheme();
 
 ReactDOM.createRoot(document.getElementById("app")!).render(
   <React.StrictMode>
