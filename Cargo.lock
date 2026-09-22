@@ -4665,6 +4665,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-fn-main-lifecycle"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "futures-util",
+ "insta",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-error-coercion",
+ "waymark-task-supervisor",
+]
+
+[[package]]
 name = "waymark-fullset-effect-handler"
 version = "0.1.0"
 dependencies = [
