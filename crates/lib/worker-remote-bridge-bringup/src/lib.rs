@@ -63,9 +63,8 @@ mod tests {
     #[tokio::test]
     async fn test_server_starts_and_binds() {
         let shutdown_token = tokio_util::sync::CancellationToken::new();
-        let mut supervisor = waymark_managed_spawner_supervised::supervisor::start::<
-            waymark_fn_main_common::Error,
-        >(shutdown_token.clone());
+        let mut supervisor =
+            waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
         let registry = Default::default();
 
