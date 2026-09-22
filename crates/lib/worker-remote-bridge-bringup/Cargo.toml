@@ -18,6 +18,7 @@ tonic = { workspace = true, features = ["router", "server"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
+waymark-eyre-error = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-managed-spawner-supervised = { workspace = true }
 

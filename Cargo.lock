@@ -4650,6 +4650,8 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-subscriber",
+ "waymark-eyre-error",
+ "waymark-into-error",
  "waymark-managed-spawner-supervised",
 ]
 
@@ -4729,6 +4731,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "waymark-eyre-error",
  "waymark-fn-main-common",
  "waymark-managed-spawner",
  "waymark-managed-spawner-supervised",
@@ -4782,6 +4785,7 @@ dependencies = [
  "waymark-backend-postgres-migrations",
  "waymark-convert-core",
  "waymark-execution-bringup",
+ "waymark-eyre-error",
  "waymark-fn-main-common",
  "waymark-ids",
  "waymark-managed-spawner",
@@ -6524,6 +6528,7 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tracing",
+ "waymark-eyre-error",
  "waymark-fn-main-common",
  "waymark-managed-spawner",
  "waymark-managed-spawner-supervised",

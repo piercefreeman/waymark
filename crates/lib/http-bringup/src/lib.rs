@@ -85,7 +85,7 @@ mod tests {
     async fn starts_on_an_ephemeral_port_and_returns_it() {
         let shutdown_token = tokio_util::sync::CancellationToken::new();
         let mut supervisor = waymark_managed_spawner_supervised::supervisor::start::<
-            waymark_fn_main_common::Error,
+            waymark_eyre_error::ReportError,
         >(shutdown_token.clone());
 
         let bind_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();

@@ -71,7 +71,7 @@ where
 /// before the request is a failed run.
 pub async fn drain_run(
     supervisor: waymark_managed_spawner_supervised::supervisor::Supervisor<
-        waymark_fn_main_common::Error,
+        waymark_eyre_error::ReportError,
     >,
 ) -> Result<(), color_eyre::eyre::Report> {
     let report = supervisor.drain().await;
