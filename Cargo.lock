@@ -4807,6 +4807,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-into-error"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "thiserror",
+ "waymark-eyre-error",
+]
+
+[[package]]
 name = "waymark-ir-parser"
 version = "0.1.0"
 dependencies = [

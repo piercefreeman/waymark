@@ -1,0 +1,16 @@
+[package]
+name = "waymark-into-error"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[features]
+eyre = ["dep:waymark-eyre-error", "dep:color-eyre"]
+
+[dependencies]
+waymark-eyre-error = { workspace = true, optional = true }
+
+color-eyre = { workspace = true, optional = true }
+
+[dev-dependencies]
+thiserror = { workspace = true }
