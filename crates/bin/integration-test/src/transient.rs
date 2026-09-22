@@ -26,6 +26,7 @@ pub async fn run_transient_mode(
         // its completion into whatever case polls the pool next. Bound every
         // completion's lifetime by its case: each case gets its own pool.
         let shutdown_token = tokio_util::sync::CancellationToken::new();
+        let force_shutdown_token = tokio_util::sync::CancellationToken::new();
         let mut supervisor =
             waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
@@ -38,6 +39,7 @@ pub async fn run_transient_mode(
             let worker_pool = setup_worker_pool(
                 &mut supervisor,
                 shutdown_token.clone(),
+                force_shutdown_token.child_token(),
                 repo_root,
                 std::slice::from_ref(prepared),
                 worker_count,
@@ -62,11 +64,12 @@ pub async fn run_transient_mode(
         }
         .await;
 
-        // Whatever the case did, the shutdown is requested and the run is
-        // drained. A task that ended before the request is the root cause of
-        // whatever the case saw, so it is reported over the case's own
-        // failure.
+        // Whatever the case did, the shutdown is requested, the worker pool
+        // is forced off its in-flight actions, and the run is drained. A
+        // task that ended before the request is the root cause of whatever
+        // the case saw, so it is reported over the case's own failure.
         shutdown_token.cancel();
+        force_shutdown_token.cancel();
         drain_run(supervisor)
             .await
             .wrap_err_with(|| format!("drain the run for case '{}'", prepared.case.id))?;
