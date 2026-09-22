@@ -4659,6 +4659,8 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-subscriber",
+ "waymark-error-coercion",
+ "waymark-eyre-error",
  "waymark-managed-spawner-supervised",
 ]
 
