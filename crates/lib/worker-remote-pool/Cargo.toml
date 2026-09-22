@@ -18,3 +18,9 @@ nonempty-collections = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "process", "sync"] }
 tracing = { workspace = true }
+
+[dev-dependencies]
+waymark-worker-process = { workspace = true }
+waymark-worker-reservation = { workspace = true }
+
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
