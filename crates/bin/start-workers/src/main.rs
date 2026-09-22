@@ -211,7 +211,10 @@ async fn main()
         checkpoint()?;
 
         let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
-            waymark_worker_remote_pool::run(process_pool);
+            waymark_worker_remote_pool::run(
+                process_pool,
+                force_shutdown_token.child_token().cancelled_owned(),
+            );
         // Cancelled when the worker pool loop ends, however it ends, and by
         // the force shutdown token like every other loop's.
         let worker_pool_stopped = force_shutdown_token.child_token();

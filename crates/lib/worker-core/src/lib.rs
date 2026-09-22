@@ -25,11 +25,12 @@ pub trait QueueActionDispatch {
 /// A report of one execution of a dispatched action, as the pool saw
 /// it end.
 ///
-/// Every dispatched action ends exactly one way per attempt: the worker
-/// reports how the call completed, or the execution is lost — no result
-/// will ever come from this attempt.  The pool reports the fact and
-/// decides nothing: what a lost execution means for the awaiting
-/// promise is the VM's business.
+/// Every dispatched action ends one way per attempt: the worker reports
+/// how the call completed, or the execution is lost — no result will ever
+/// come from this attempt — or the attempt is abandoned with the pool's
+/// shutdown and nothing is reported for it.  The pool reports the fact and
+/// decides nothing: what a lost execution means for the awaiting promise
+/// is the VM's business.
 #[derive(Debug)]
 pub enum ActionExecutionReport {
     /// The call completed: the worker reported how in the result

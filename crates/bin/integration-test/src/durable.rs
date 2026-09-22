@@ -59,6 +59,7 @@ pub async fn run_durable_mode(
         let worker_pool = setup_worker_pool(
             &mut supervisor,
             shutdown_token.clone(),
+            force_shutdown_token.child_token(),
             repo_root,
             prepared_cases,
             worker_count,
@@ -95,10 +96,11 @@ pub async fn run_durable_mode(
     .await;
 
     // Every outcome has been received, or the run failed: nothing is
-    // draining — force the pinning manager out of its drain loop along with
-    // the graceful stop, then drain the run. A task that ended before the
-    // request is the root cause of whatever the run saw, so it is reported
-    // over the run's own failure.
+    // draining — force the pinning manager out of its drain loop and the
+    // worker pool off its in-flight actions along with the graceful stop,
+    // then drain the run. A task that ended before the request is the root
+    // cause of whatever the run saw, so it is reported over the run's own
+    // failure.
     shutdown_token.cancel();
     force_shutdown_token.cancel();
     drain_run(supervisor)

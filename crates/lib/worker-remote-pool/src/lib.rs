@@ -33,8 +33,9 @@ pub struct Completions {
 
 /// The worker pool loop over the worker process pool `pool`, with the
 /// default queue capacities; see [`run_with_capacity`].
-pub fn run<Spec>(
+pub fn run<Spec, Shutdown>(
     pool: waymark_worker_process_pool::Pool<Spec>,
+    shutdown: Shutdown,
 ) -> (
     Requests,
     Completions,
@@ -43,8 +44,15 @@ pub fn run<Spec>(
 where
     Spec: waymark_worker_process_spec::Spec,
     Spec: Send + Sync + 'static,
+    Shutdown: Future<Output = ()>,
+    Shutdown: Send + 'static,
 {
-    run_with_capacity(pool, DEFAULT_QUEUE_CAPACITY, DEFAULT_QUEUE_CAPACITY)
+    run_with_capacity(
+        pool,
+        DEFAULT_QUEUE_CAPACITY,
+        DEFAULT_QUEUE_CAPACITY,
+        shutdown,
+    )
 }
 
 /// The worker pool's two sides and the worker pool loop over the worker
@@ -54,10 +62,16 @@ where
 /// every [`Requests`] is dropped, every request it took has been served
 /// and every recycle it started has finished; it then shuts the worker
 /// process pool down, shuts [`Completions`] down, and returns the result.
-pub fn run_with_capacity<Spec>(
+///
+/// The loop also ends when `shutdown` resolves: the requests in flight
+/// are abandoned, with no completion for them, and the worker process
+/// pool is shut down at once. Pass [`std::future::pending`] for the
+/// drop-driven end only.
+pub fn run_with_capacity<Spec, Shutdown>(
     pool: waymark_worker_process_pool::Pool<Spec>,
     request_capacity: std::num::NonZeroUsize,
     completion_capacity: std::num::NonZeroUsize,
+    shutdown: Shutdown,
 ) -> (
     Requests,
     Completions,
@@ -66,11 +80,13 @@ pub fn run_with_capacity<Spec>(
 where
     Spec: waymark_worker_process_spec::Spec,
     Spec: Send + Sync + 'static,
+    Shutdown: Future<Output = ()>,
+    Shutdown: Send + 'static,
 {
     let (request_tx, request_rx) = mpsc::channel(request_capacity.get());
     let (completion_tx, completion_rx) = mpsc::channel(completion_capacity.get());
 
-    let pool_loop = pool_loop(pool, request_rx, completion_tx);
+    let pool_loop = pool_loop(pool, request_rx, completion_tx, shutdown);
 
     let requests = Requests { request_tx };
     let completions = Completions {
@@ -83,23 +99,40 @@ where
 /// The worker pool loop: serves every request off the queue as a future
 /// borrowed from the worker process pool, runs the recycles those
 /// completions make due, and, with the queue closed, nothing in flight and
-/// no recycle pending, shuts the worker process pool down.
-async fn pool_loop<Spec>(
+/// no recycle pending, shuts the worker process pool down. Once `shutdown`
+/// resolves it does the same at once, dropping what is in flight.
+async fn pool_loop<Spec, Shutdown>(
     pool: waymark_worker_process_pool::Pool<Spec>,
     mut request_rx: mpsc::Receiver<proto::ActionDispatch>,
     completion_tx: mpsc::Sender<ActionExecutionReport>,
+    shutdown: Shutdown,
 ) -> Result<(), waymark_managed_process::ShutdownError>
 where
     Spec: waymark_worker_process_spec::Spec,
+    Shutdown: Future<Output = ()>,
 {
     use futures_util::StreamExt as _;
 
     let mut in_flight = futures_util::stream::FuturesUnordered::new();
     let mut recycles = futures_util::stream::FuturesUnordered::new();
     let mut intake_open = true;
+    let mut shutdown = std::pin::pin!(shutdown);
 
     loop {
+        // The drop-driven end: the intake is closed, nothing is in flight
+        // and no recycle is pending. Checked here rather than as the
+        // select's `else`: the `shutdown` branch is never disabled, so the
+        // select never runs out of branches on its own.
+        if !intake_open && in_flight.is_empty() && recycles.is_empty() {
+            break;
+        }
+
         tokio::select! {
+            // The shutdown first; then the intake ahead of the in-flight and
+            // recycle arms, so a queued dispatch is taken as soon as it can
+            // be rather than left to fill the queue.
+            biased;
+            () = &mut shutdown => break,
             received = request_rx.recv(), if intake_open => match received {
                 Some(dispatch) => {
                     record_dispatch_queue_slots_in_use(
@@ -112,15 +145,13 @@ where
                 None => intake_open = false,
             },
             // An empty set yields `None` at once, so each is polled only
-            // while it holds something; with the intake closed as well,
-            // there is nothing left to wait for.
+            // while it holds something.
             Some(recycle_due) = in_flight.next(), if !in_flight.is_empty() => {
                 if let Some(due) = recycle_due {
                     recycles.push(recycle(&pool, due));
                 }
             }
             Some(()) = recycles.next(), if !recycles.is_empty() => {}
-            else => break,
         }
     }
 
