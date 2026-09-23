@@ -549,7 +549,6 @@ jobs:
           cargo build --bin waymark-start-workers --bin waymark-soak-harness
           cargo run --bin waymark-soak-harness -- \
             --skip-postgres-boot \
-            --disable-webapp \
             --duration-hours 0.0166667 \
             --worker-count 2 \
             --concurrent-per-worker 20 \
