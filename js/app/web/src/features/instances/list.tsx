@@ -150,7 +150,7 @@ export function InstanceList({
     }));
 
   return (
-    <div className="min-w-0">
+    <div className="flex min-h-[calc(100svh-var(--spacing-bar))] min-w-0 flex-col">
       <div className="px-gutter pt-5">
         <SectionHeader
           title="Instances"
@@ -302,51 +302,52 @@ export function InstanceList({
             })}
           </ol>
         )}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-gutter py-2 text-micro text-fg-subtle">
-          <span>
-            {page.direct
-              ? "Direct lookup by id"
-              : query || stateFilter.length
-                ? `${instances.length} match${instances.length === 1 ? "" : "es"} in ${page.scanned} scanned${page.capped ? ` · stopped at ${SCAN_PAGE_CAP} pages` : page.next ? "" : " · whole window"}`
-                : `${instances.length} on this page${page.after ? "" : page.next ? ` · newest ${PAGE_SIZE}` : ""}`}
-            {page.loadingRows > 0 && ` · loading ${page.loadingRows} timelines`}
+      </div>
+
+      <div className="sticky bottom-0 mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface px-gutter py-2 text-micro text-fg-subtle">
+        <span>
+          {page.direct
+            ? "Direct lookup by id"
+            : query || stateFilter.length
+              ? `${instances.length} match${instances.length === 1 ? "" : "es"} in ${page.scanned} scanned${page.capped ? ` · stopped at ${SCAN_PAGE_CAP} pages` : page.next ? "" : " · whole window"}`
+              : `${instances.length} on this page${page.after ? "" : page.next ? ` · newest ${PAGE_SIZE}` : ""}`}
+          {page.loadingRows > 0 && ` · loading ${page.loadingRows} timelines`}
+        </span>
+        <span className="flex items-center gap-2">
+          {page.after && (
+            <a
+              href={withSearch(pathname, search, {
+                after: null,
+                to: null,
+                vm: null,
+              })}
+              onClick={onLinkClick}
+              className="inline-flex h-6 items-center gap-1 rounded-control border border-line-strong px-2 text-fg transition-colors duration-fast hover:bg-surface-raised"
+            >
+              <ChevronLeft className="size-3" aria-hidden />
+              Newest
+            </a>
+          )}
+          {page.next && (
+            <a
+              href={withSearch(pathname, search, {
+                after: page.next,
+                to: (page.pinnedTo ?? fetchedTo ?? now).toISOString(),
+                vm: null,
+              })}
+              onClick={onLinkClick}
+              className="inline-flex h-6 items-center gap-1 rounded-control border border-line-strong px-2 text-fg transition-colors duration-fast hover:bg-surface-raised"
+            >
+              {query || stateFilter.length ? "Keep searching" : "Older"}
+              <ChevronRight className="size-3" aria-hidden />
+            </a>
+          )}
+          <span className="hidden items-center gap-1.5 lg:flex">
+            <Kbd>j</Kbd>
+            <Kbd>k</Kbd> move · <Kbd>↵</Kbd> peek · <Kbd>o</Kbd> open ·{" "}
+            <Kbd>y</Kbd> copy id
           </span>
-          <span className="flex items-center gap-2">
-            {page.after && (
-              <a
-                href={withSearch(pathname, search, {
-                  after: null,
-                  to: null,
-                  vm: null,
-                })}
-                onClick={onLinkClick}
-                className="inline-flex h-6 items-center gap-1 rounded-control border border-line-strong px-2 text-fg transition-colors duration-fast hover:bg-surface-raised"
-              >
-                <ChevronLeft className="size-3" aria-hidden />
-                Newest
-              </a>
-            )}
-            {page.next && (
-              <a
-                href={withSearch(pathname, search, {
-                  after: page.next,
-                  to: (page.pinnedTo ?? fetchedTo ?? now).toISOString(),
-                  vm: null,
-                })}
-                onClick={onLinkClick}
-                className="inline-flex h-6 items-center gap-1 rounded-control border border-line-strong px-2 text-fg transition-colors duration-fast hover:bg-surface-raised"
-              >
-                {query || stateFilter.length ? "Keep searching" : "Older"}
-                <ChevronRight className="size-3" aria-hidden />
-              </a>
-            )}
-            <span className="hidden items-center gap-1.5 lg:flex">
-              <Kbd>j</Kbd>
-              <Kbd>k</Kbd> move · <Kbd>↵</Kbd> peek · <Kbd>o</Kbd> open ·{" "}
-              <Kbd>y</Kbd> copy id
-            </span>
-          </span>
-        </div>
+        </span>
       </div>
 
       <PeekPanel
