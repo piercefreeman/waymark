@@ -11,7 +11,6 @@ import {
 } from "@/lib/router";
 import { useTheme } from "@/providers/theme";
 import { Kbd } from "../patterns/kbd";
-import { SampleBanner } from "../patterns/sample-banner";
 import type { SourceStatus } from "../patterns/source-notice";
 import { StatusDot } from "../patterns/status-ink";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
@@ -110,7 +109,6 @@ export function AppShell({
           Waymark
         </a>
         <span className="text-micro text-fg-subtle">local</span>
-        {source.kind === "sample" && <SampleBanner />}
         <span className="h-4 w-px bg-line" aria-hidden />
         <h1 className="min-w-0 truncate text-label font-medium text-fg">
           {title}
