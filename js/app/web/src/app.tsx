@@ -3,7 +3,6 @@ import { getInstance, nodeSeries, nodesLatest, vmTimeline } from "./api/client";
 import { AppShell, useTimeWindow } from "./components/layout/app-shell";
 import type { SourceStatus } from "./components/patterns/source-notice";
 import { TooltipProvider } from "./components/ui/tooltip";
-import * as fixtures from "./data/fixtures";
 import { fetchInstancePage } from "./data/instances";
 import { useLive } from "./data/live";
 import { useTimelines } from "./data/timelines";
@@ -26,11 +25,7 @@ const POLL_MS = 5000;
 /** The server's default metrics sample interval (WAYMARK_ESSENTIAL_METRICS_SAMPLE_INTERVAL_MS). */
 const SAMPLE_INTERVAL_MS = 10_000;
 
-/**
- * Routes. Data comes from the API mounted at `/api` on the same origin.
- * `?source=sample` switches every page to the authored fixtures; nothing
- * ever falls back to them silently.
- */
+/** Routes. Data comes from the API mounted at `/api` on the same origin. */
 export function App() {
   return (
     <ThemeProvider>
@@ -39,12 +34,6 @@ export function App() {
       </TooltipProvider>
     </ThemeProvider>
   );
-}
-
-function useSourceMode() {
-  const [source] = useSearchParam("source");
-  const [paused] = useSearchParam("paused");
-  return { sample: source === "sample", paused: paused === "1" };
 }
 
 function Router() {
@@ -63,7 +52,7 @@ function Router() {
 function InstancesRoute() {
   const now = useNow();
   const [timeWindow] = useTimeWindow();
-  const { sample, paused } = useSourceMode();
+  const [paused] = useSearchParam("paused");
   const [after] = useSearchParam("after");
   const [pinnedTo] = useSearchParam("to");
   const [query] = useSearchParam("q");
@@ -104,63 +93,36 @@ function InstancesRoute() {
       intervalMs: POLL_MS,
       // A pinned `to` is a frozen page: nothing after it can appear, so
       // there is nothing to poll for.
-      enabled: !paused && !sample && pinned === null,
+      enabled: paused !== "1" && pinned === null,
       key,
     },
   );
 
   const dtos = useMemo(() => live.data?.items ?? [], [live.data]);
-  const timelines = useTimelines(dtos, !sample);
+  const timelines = useTimelines(dtos);
 
   const instances = useMemo<InstanceSummary[]>(() => {
-    if (sample) {
-      const from = fixtures.now.getTime() - timeWindow.ms;
-      const needle = (query ?? "").toLowerCase();
-      return fixtures.instances.filter(
-        (instance) =>
-          instance.lastEventAt.getTime() >= from &&
-          (states.length === 0 || states.includes(instance.state)) &&
-          (needle === "" ||
-            instance.vmId.includes(needle) ||
-            instance.state.includes(needle)),
-      );
-    }
     return dtos.map((dto: Instance) =>
       deriveFromInstance(dto, timelines.get(dto.vm_id)?.events ?? [], now),
     );
     // `timelines.version` is the cache's change counter.
-  }, [sample, dtos, now, timeWindow.ms, query, states, timelines.version]);
+  }, [dtos, now, timelines.version]);
 
-  const source = sourceStatus(sample, live);
-  const page: PageInfo = sample
-    ? {
-        next: null,
-        after: null,
-        pinnedTo: null,
-        scanned: instances.length,
-        capped: false,
-        direct: false,
-        loadingRows: 0,
-      }
-    : {
-        next: live.data?.next ?? null,
-        after,
-        pinnedTo: pinned,
-        scanned: live.data?.scanned ?? 0,
-        capped: live.data?.capped ?? false,
-        direct: live.data?.direct ?? false,
-        loadingRows: timelines.pending,
-      };
+  const source = sourceStatus(live);
+  const page: PageInfo = {
+    next: live.data?.next ?? null,
+    after,
+    pinnedTo: pinned,
+    scanned: live.data?.scanned ?? 0,
+    capped: live.data?.capped ?? false,
+    direct: live.data?.direct ?? false,
+    loadingRows: timelines.pending,
+  };
   return (
-    <AppShell
-      title="Instances"
-      now={sample ? fixtures.now : now}
-      source={source}
-      pinnedTo={pinned}
-    >
+    <AppShell title="Instances" now={now} source={source} pinnedTo={pinned}>
       <InstanceList
         instances={instances}
-        now={sample ? fixtures.now : now}
+        now={now}
         windowLabel={timeWindow.label}
         source={source}
         page={page}
@@ -172,7 +134,7 @@ function InstancesRoute() {
 
 function DetailRoute({ vmId }: { vmId: string }) {
   const now = useNow();
-  const { sample, paused } = useSourceMode();
+  const [paused] = useSearchParam("paused");
   const live = useLive(
     async (signal) => {
       const [dto, timeline] = await Promise.all([
@@ -181,27 +143,18 @@ function DetailRoute({ vmId }: { vmId: string }) {
       ]);
       return { dto, events: timeline.events, complete: timeline.complete };
     },
-    { intervalMs: POLL_MS, enabled: !paused && !sample, key: vmId },
+    { intervalMs: POLL_MS, enabled: paused !== "1", key: vmId },
   );
   const summary = useMemo(() => {
-    if (sample) return fixtures.instanceById(vmId);
     if (!live.data) return undefined;
     return live.data.events.length
       ? deriveInstance(vmId, live.data.events, now)
       : deriveFromInstance(live.data.dto, [], now);
-  }, [sample, live.data, now, vmId]);
-  const source = sourceStatus(sample, live);
+  }, [live.data, now, vmId]);
+  const source = sourceStatus(live);
   return (
-    <AppShell
-      title={`Instance ${shortId(vmId)}`}
-      now={sample ? fixtures.now : now}
-      source={source}
-    >
-      <InstanceDetail
-        summary={summary}
-        now={sample ? fixtures.now : now}
-        source={source}
-      />
+    <AppShell title={`Instance ${shortId(vmId)}`} now={now} source={source}>
+      <InstanceDetail summary={summary} now={now} source={source} />
     </AppShell>
   );
 }
@@ -209,7 +162,7 @@ function DetailRoute({ vmId }: { vmId: string }) {
 function FleetRoute() {
   const now = useNow();
   const [timeWindow] = useTimeWindow();
-  const { sample, paused } = useSourceMode();
+  const [paused] = useSearchParam("paused");
   const live = useLive(
     async (signal) => {
       const range = {
@@ -228,52 +181,35 @@ function FleetRoute() {
       });
       return { latest, seriesByNode, complete: true };
     },
-    { intervalMs: POLL_MS, enabled: !paused && !sample, key: timeWindow.id },
+    { intervalMs: POLL_MS, enabled: paused !== "1", key: timeWindow.id },
   );
-  const source = sourceStatus(sample, live);
-  const current = sample ? fixtures.now : now;
+  const source = sourceStatus(live);
   const window = {
-    from: new Date(current.getTime() - timeWindow.ms),
-    to: current,
+    from: new Date(now.getTime() - timeWindow.ms),
+    to: now,
   };
   return (
-    <AppShell title="Fleet" now={current} source={source}>
+    <AppShell title="Fleet" now={now} source={source}>
       <FleetPage
-        latest={sample ? fixtures.latestSamples : (live.data?.latest ?? [])}
-        seriesByNode={
-          sample ? fixtures.seriesByNode : (live.data?.seriesByNode ?? {})
-        }
-        now={current}
+        latest={live.data?.latest ?? []}
+        seriesByNode={live.data?.seriesByNode ?? {}}
+        now={now}
         window={window}
-        sampleIntervalMs={
-          sample ? fixtures.SAMPLE_INTERVAL_MS : SAMPLE_INTERVAL_MS
-        }
+        sampleIntervalMs={SAMPLE_INTERVAL_MS}
         source={source}
       />
     </AppShell>
   );
 }
 
-function sourceStatus(
-  sample: boolean,
-  live: {
-    fetchedAt: Date | null;
-    error: Error | null;
-    loading: boolean;
-    data: { complete: boolean } | null;
-    refresh: () => void;
-  },
-): SourceStatus {
-  if (sample)
-    return {
-      kind: "sample",
-      fetchedAt: fixtures.now,
-      error: null,
-      loading: false,
-      complete: true,
-    };
+function sourceStatus(live: {
+  fetchedAt: Date | null;
+  error: Error | null;
+  loading: boolean;
+  data: { complete: boolean } | null;
+  refresh: () => void;
+}): SourceStatus {
   return {
-    kind: "live",
     fetchedAt: live.fetchedAt,
     error: live.error,
     loading: live.loading,

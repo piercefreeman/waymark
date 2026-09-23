@@ -8,10 +8,8 @@ one sans for labels, one monospace for every value, and status
 rendered as ink rather than paint. Nothing on screen is decorative: every
 line is a rule, every color is a state, every number has a unit and a scope.
 
-The preview at `make webapp-dev` runs against fixtures authored as event
-streams in `src/data/fixtures.ts`. Everything visible is derived from those
-events by the same code that will consume the live API, so the preview
-cannot show a fact the API does not report.
+The app reads from the live API in development and production. Run
+`make webapp-dev` with a server at `127.0.0.1:24119` for local development.
 
 ## Foundations
 
@@ -68,7 +66,7 @@ Rules:
 
 ## Screen anatomy
 
-- **Global bar**: mark, environment, sample banner, page title, time window
+- **Global bar**: mark, environment, page title, time window
   (15m/1h/6h/24h), Live/Paused with freshness, jump box (`⌘K` or `/`), theme.
 - **Rail**: Instances, Fleet.
 - **Workspace**: one `minmax(0,1fr)` column. The peek panel (480px) overlays
@@ -128,11 +126,10 @@ server-side search.
 
 ### Sources and refresh
 
-Pages poll `/api` every 5 s while Live; `?paused=1` stops polling and
-`?source=sample` swaps in the authored fixtures (marked with a banner). A
+Pages poll `/api` every 5 s while Live; `?paused=1` stops polling. A
 refresh failure never empties a view: the previous data stays, with a notice
-that names the error and the last successful time. Nothing falls back to
-sample data silently.
+that names the error and the last successful time. Empty responses and
+unavailable APIs have explicit states; the app never substitutes fake data.
 
 ## Data honesty
 

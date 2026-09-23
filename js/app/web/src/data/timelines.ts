@@ -20,14 +20,13 @@ function keyOf(instance: Instance): string {
   return `${instance.last_event.node_id}:${instance.last_event.node_sequence}`;
 }
 
-export function useTimelines(instances: Instance[], enabled: boolean) {
+export function useTimelines(instances: Instance[]) {
   const cache = useRef(new Map<string, CachedTimeline>());
   const inFlight = useRef(new Set<string>());
   const [version, setVersion] = useState(0);
   const [pending, setPending] = useState(0);
 
   useEffect(() => {
-    if (!enabled) return;
     const controller = new AbortController();
     const stale = instances.filter(
       (instance) =>
@@ -77,7 +76,7 @@ export function useTimelines(instances: Instance[], enabled: boolean) {
       setPending(0);
     };
     // Re-run when the set of (vm_id, last event) pairs changes.
-  }, [instances.map(keyOf).join("|"), enabled]);
+  }, [instances.map(keyOf).join("|")]);
 
   return {
     version,

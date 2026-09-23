@@ -2,10 +2,8 @@ import { RefreshCw } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatClock, formatRelative } from "@/lib/format";
 
-/** What the page knows about where its data came from. */
+/** Freshness and availability of the page's API data. */
 export interface SourceStatus {
-  /** "sample" for authored fixtures, "live" for the API. */
-  kind: "sample" | "live";
   fetchedAt: Date | null;
   error: Error | null;
   loading: boolean;
