@@ -185,8 +185,8 @@ impl Handle {
 
         // Shutdown the managed process gracefully.
         if let Some(child) = self.child.take() {
-            let exit_status = self.shutdown_params.shutdown_child_process(child).await?;
-            tracing::debug!(?exit_status, "worker child process exited");
+            let shutdown_outcome = self.shutdown_params.shutdown_child_process(child).await?;
+            tracing::debug!(?shutdown_outcome, "worker child process exited");
         }
 
         tracing::info!("worker shutdown complete");
@@ -221,7 +221,8 @@ impl ShutdownParams {
     async fn shutdown_child_process(
         &self,
         child: waymark_managed_process::Child,
-    ) -> Result<std::process::ExitStatus, waymark_managed_process::ShutdownError> {
+    ) -> Result<waymark_managed_process::ShutdownOutcome, waymark_managed_process::ShutdownError>
+    {
         child
             .shutdown(
                 self.process_graceful_shutdown_timeout,
