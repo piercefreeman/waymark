@@ -201,11 +201,11 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions>(
             VmId = <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
         >,
     <Backend as waymark_workload_pinning_backend::PollUnpinnedWorkloads>::Error:
-        core::error::Error + Send + Sync + 'static,
+        core::fmt::Display + core::fmt::Debug + Send + Sync + 'static,
     <Backend as waymark_workload_pinning_backend::KeepalivePinnings>::Error:
-        core::error::Error + Send + Sync + 'static,
+        core::fmt::Display + core::fmt::Debug + Send + Sync + 'static,
     <Backend as waymark_workload_pinning_backend::UnpinWorkloads>::Error:
-        core::error::Error + Send + Sync + 'static,
+        core::fmt::Display + core::fmt::Debug + Send + Sync + 'static,
     <Backend as waymark_state_vm_runtimes_backend::StoreSnapshots>::Error: Send + 'static,
     <Backend as waymark_state_vm_runtimes_backend::LoadForRevive>::Error: Send + 'static,
     <Backend as waymark_workflow_completion_backend::RecordOutcomes>::Error: Send + 'static,
