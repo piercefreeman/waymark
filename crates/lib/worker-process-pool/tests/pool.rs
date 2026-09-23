@@ -58,47 +58,69 @@ fn make_worker_channels() -> waymark_worker_message_protocol::Channels {
     }
 }
 
+/// Registers the worker channels for each reservation the pool's spec hands
+/// out, as a worker would once connected.
+struct Registrar {
+    registry: Arc<Registry>,
+    reservation_id_rx: tokio::sync::mpsc::UnboundedReceiver<waymark_worker_reservation::Id>,
+}
+
+impl Registrar {
+    async fn register_next(&mut self) {
+        let reservation_id = self.reservation_id_rx.recv().await.expect("reservation id");
+        let register_result = self
+            .registry
+            .register(reservation_id, make_worker_channels());
+        assert!(register_result.is_ok(), "register worker channels");
+    }
+
+    fn no_reservation_pending(&mut self) -> bool {
+        matches!(
+            self.reservation_id_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+        )
+    }
+}
+
 async fn make_pool(
     worker_count: usize,
     max_concurrent_per_worker: usize,
     max_action_lifecycle: Option<u64>,
-) -> Pool<DummySpec> {
+) -> (Pool<DummySpec>, Registrar) {
     let registry = Arc::new(Registry::default());
-    let (reservation_id_tx, mut reservation_id_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (reservation_id_tx, reservation_id_rx) = tokio::sync::mpsc::unbounded_channel();
     let spec = DummySpec { reservation_id_tx };
     let worker_count_non_zero =
         NonZeroUsize::new(worker_count).expect("worker count must be non-zero");
     let max_concurrent_per_worker = NonZeroUsize::new(max_concurrent_per_worker)
         .expect("max concurrent per worker must be non-zero");
+    let mut registrar = Registrar {
+        registry: Arc::clone(&registry),
+        reservation_id_rx,
+    };
 
-    let register_registry = Arc::clone(&registry);
-    let register_task = tokio::spawn(async move {
-        for _ in 0..worker_count {
-            let reservation_id = reservation_id_rx.recv().await.expect("reservation id");
-            let register_result =
-                register_registry.register(reservation_id, make_worker_channels());
-            assert!(register_result.is_ok(), "register worker channels");
-        }
-    });
-
-    let pool = Pool::new_with_concurrency(
+    let pool_init = Pool::new_with_concurrency(
         registry,
         spec,
         worker_count_non_zero,
         max_action_lifecycle
             .map(|value| NonZeroU64::new(value).expect("max action lifecycle must be non-zero")),
         max_concurrent_per_worker,
-    )
-    .await
-    .expect("initialize worker pool");
+    );
+    let registrations = async {
+        for _ in 0..worker_count {
+            registrar.register_next().await;
+        }
+    };
+    let (pool, ()) = tokio::join!(pool_init, registrations);
+    let pool = pool.expect("initialize worker pool");
 
-    register_task.await.expect("registration task");
-    pool
+    (pool, registrar)
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn try_acquire_slot_for_worker_enforces_capacity_and_wraps_indices() {
-    let pool = make_pool(2, 2, None).await;
+    let (pool, _registrar) = make_pool(2, 2, None).await;
 
     assert_eq!(pool.len().get(), 2);
     assert_eq!(pool.max_concurrent_per_worker().get(), 2);
@@ -123,7 +145,7 @@ async fn try_acquire_slot_for_worker_enforces_capacity_and_wraps_indices() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn try_acquire_slot_uses_round_robin_and_skips_saturated_workers() {
-    let pool = make_pool(2, 1, None).await;
+    let (pool, _registrar) = make_pool(2, 1, None).await;
 
     assert!(pool.try_acquire_slot_for_worker(0));
     assert_eq!(pool.try_acquire_slot(), Some(1));
@@ -139,7 +161,7 @@ async fn try_acquire_slot_uses_round_robin_and_skips_saturated_workers() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn release_slot_saturates_at_zero() {
-    let pool = make_pool(1, 2, None).await;
+    let (pool, _registrar) = make_pool(1, 2, None).await;
 
     assert!(pool.try_acquire_slot_for_worker(0));
     pool.release_slot(0);
@@ -154,13 +176,67 @@ async fn release_slot_saturates_at_zero() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn record_completion_releases_the_slot() {
-    let pool = make_pool(2, 2, None).await;
+    let (pool, _registrar) = make_pool(2, 2, None).await;
 
     assert!(pool.try_acquire_slot_for_worker(1));
     let recycle_due = pool.record_completion(1);
 
     assert!(recycle_due.is_none());
     assert_eq!(pool.in_flight_for_worker(1), 0);
+
+    pool.shutdown().await.expect("shutdown pool");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn recycle_worker_acts_on_the_first_report_for_a_worker_and_ignores_the_rest() {
+    let (pool, mut registrar) = make_pool(1, 3, Some(2)).await;
+
+    assert!(pool.try_acquire_slot_for_worker(0));
+    assert!(pool.try_acquire_slot_for_worker(0));
+    assert!(pool.try_acquire_slot_for_worker(0));
+    assert!(pool.record_completion(0).is_none(), "below the limit");
+    let first_due = pool.record_completion(0).expect("at the limit");
+    let second_due = pool.record_completion(0).expect("past the limit");
+    assert_eq!(first_due.generation, 0);
+    assert_eq!(second_due.generation, 0);
+
+    // The first report recycles: the replacement is spawned and registered.
+    let (recycle_result, ()) =
+        tokio::join!(pool.recycle_worker(0, first_due), registrar.register_next());
+    recycle_result.expect("recycle worker");
+
+    // The second report is for the replaced worker: nothing is spawned.
+    pool.recycle_worker(0, second_due)
+        .await
+        .expect("a report for a replaced worker is ignored");
+    assert!(registrar.no_reservation_pending());
+
+    // The replacement starts its count over.
+    assert!(pool.try_acquire_slot_for_worker(0));
+    assert!(pool.record_completion(0).is_none(), "below the limit again");
+
+    pool.shutdown().await.expect("shutdown pool");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn recycle_worker_ignores_a_report_while_the_recycle_is_in_progress() {
+    let (pool, mut registrar) = make_pool(1, 2, Some(1)).await;
+
+    assert!(pool.try_acquire_slot_for_worker(0));
+    assert!(pool.try_acquire_slot_for_worker(0));
+    let first_due = pool.record_completion(0).expect("at the limit");
+    let second_due = pool.record_completion(0).expect("past the limit");
+
+    // The first recycle is in progress until its replacement registers;
+    // the second report meanwhile is ignored without a spawn.
+    let (first_result, ()) = tokio::join!(pool.recycle_worker(0, first_due), async {
+        pool.recycle_worker(0, second_due)
+            .await
+            .expect("a report during the recycle is ignored");
+        registrar.register_next().await;
+    });
+    first_result.expect("recycle worker");
+    assert!(registrar.no_reservation_pending());
 
     pool.shutdown().await.expect("shutdown pool");
 }

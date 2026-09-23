@@ -108,8 +108,8 @@ where
             // while it holds something; with the intake closed as well,
             // there is nothing left to wait for.
             Some(recycle_due) = in_flight.next(), if !in_flight.is_empty() => {
-                if let Some(worker_idx) = recycle_due {
-                    recycles.push(recycle(&pool, worker_idx));
+                if let Some((worker_idx, due)) = recycle_due {
+                    recycles.push(recycle(&pool, worker_idx, due));
                 }
             }
             Some(()) = recycles.next(), if !recycles.is_empty() => {}
@@ -124,12 +124,13 @@ where
 }
 
 /// Serve one request and deliver its report to the completion queue;
-/// returns the worker index when the completion made a recycle due.
+/// returns the worker index and the report when the completion made a
+/// recycle due.
 async fn serve<Spec>(
     pool: &waymark_worker_process_pool::Pool<Spec>,
     dispatch: proto::ActionDispatch,
     completion_tx: &mpsc::Sender<ActionExecutionReport>,
-) -> Option<usize>
+) -> Option<(usize, waymark_worker_process_pool::RecycleDue)>
 where
     Spec: waymark_worker_process_spec::Spec,
 {
@@ -145,11 +146,14 @@ where
     recycle_due
 }
 
-async fn recycle<Spec>(pool: &waymark_worker_process_pool::Pool<Spec>, worker_idx: usize)
-where
+async fn recycle<Spec>(
+    pool: &waymark_worker_process_pool::Pool<Spec>,
+    worker_idx: usize,
+    due: waymark_worker_process_pool::RecycleDue,
+) where
     Spec: waymark_worker_process_spec::Spec,
 {
-    if let Err(err) = pool.recycle_worker(worker_idx).await {
+    if let Err(err) = pool.recycle_worker(worker_idx, due).await {
         tracing::error!(worker_idx, ?err, "failed to recycle worker");
     }
 }
@@ -157,7 +161,10 @@ where
 async fn execute_remote_request<Spec>(
     pool: &waymark_worker_process_pool::Pool<Spec>,
     dispatch: proto::ActionDispatch,
-) -> (ActionExecutionReport, Option<usize>)
+) -> (
+    ActionExecutionReport,
+    Option<(usize, waymark_worker_process_pool::RecycleDue)>,
+)
 where
     Spec: waymark_worker_process_spec::Spec,
 {
@@ -185,7 +192,7 @@ where
                 .record(metrics.worker_duration);
             let recycle_due = pool
                 .record_completion(worker_idx)
-                .map(|waymark_worker_process_pool::RecycleDue| worker_idx);
+                .map(|due| (worker_idx, due));
             let report = ActionExecutionReport::Completed(proto::ActionResult {
                 payload: metrics.response_payload,
                 metadata,
