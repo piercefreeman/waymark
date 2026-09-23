@@ -7,6 +7,7 @@ import {
   onLinkClick,
   useLocation,
   useSearchParam,
+  withSearch,
 } from "@/lib/router";
 import { useTheme } from "@/providers/theme";
 import { Kbd } from "../patterns/kbd";
@@ -52,14 +53,17 @@ export function AppShell({
   title,
   now,
   source,
+  pinnedTo = null,
   children,
 }: {
   title: ReactNode;
   now: Date;
   source: SourceStatus;
+  /** When set, the page is frozen at this instant and does not poll. */
+  pinnedTo?: Date | null;
   children: ReactNode;
 }) {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const [window, setWindow] = useTimeWindow();
   const [pausedParam, setPaused] = useSearchParam("paused");
   const live = pausedParam !== "1";
@@ -132,32 +136,52 @@ export function AppShell({
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            aria-pressed={live}
-            onClick={() => setPaused(live ? "1" : null, { replace: true })}
-            className="flex h-control items-center gap-2 rounded-control border border-line-strong bg-surface px-2 text-micro text-fg-muted transition-colors duration-fast hover:text-fg"
-            title={
-              live
-                ? "Polling every 5 s. Click to pause."
-                : "Paused. Click to resume."
-            }
-          >
-            <StatusDot
-              tone={source.error ? "danger" : live ? "running" : "neutral"}
-              pulse={live && !source.error}
-            />
-            <span className="font-medium text-fg">
-              {live ? "Live" : "Paused"}
-            </span>
-            <span className="mono-data hidden sm:inline">
-              {source.fetchedAt
-                ? `${formatRelative(source.fetchedAt, now)} · ${formatClock(source.fetchedAt)}`
-                : source.error
-                  ? "unreachable"
-                  : "loading"}
-            </span>
-          </button>
+          {pinnedTo ? (
+            <button
+              type="button"
+              onClick={() =>
+                navigate(
+                  withSearch(pathname, search, { to: null, after: null }),
+                )
+              }
+              className="flex h-control items-center gap-2 rounded-control border border-waiting/50 bg-waiting/10 px-2 text-micro text-fg transition-colors duration-fast hover:bg-waiting/20"
+              title="This page is frozen at the moment you paged. Click to return to live."
+            >
+              <StatusDot tone="waiting" />
+              <span className="font-medium">Frozen</span>
+              <span className="mono-data hidden sm:inline">
+                {formatClock(pinnedTo)}
+              </span>
+              <span className="text-fg-muted">· resume live</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              aria-pressed={live}
+              onClick={() => setPaused(live ? "1" : null, { replace: true })}
+              className="flex h-control items-center gap-2 rounded-control border border-line-strong bg-surface px-2 text-micro text-fg-muted transition-colors duration-fast hover:text-fg"
+              title={
+                live
+                  ? "Polling every 5 s. Click to pause."
+                  : "Paused. Click to resume."
+              }
+            >
+              <StatusDot
+                tone={source.error ? "danger" : live ? "running" : "neutral"}
+                pulse={live && !source.error}
+              />
+              <span className="font-medium text-fg">
+                {live ? "Live" : "Paused"}
+              </span>
+              <span className="mono-data hidden sm:inline">
+                {source.fetchedAt
+                  ? `${formatRelative(source.fetchedAt, now)} · ${formatClock(source.fetchedAt)}`
+                  : source.error
+                    ? "unreachable"
+                    : "loading"}
+              </span>
+            </button>
+          )}
           <form
             className="relative hidden md:block"
             onSubmit={(event) => {
