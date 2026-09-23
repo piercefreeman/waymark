@@ -22,97 +22,26 @@ Follow this syntax:
 
 ## UI Design Conventions
 
-Follow a modern, developer-focused design language. The design prioritizes clarity, information density, and professional polish.
+The SPA's tokens, type scale, screen anatomy, and data-honesty rules live in [js/app/web/DESIGN.md](js/app/web/DESIGN.md). That document is the source of truth; the summary here exists so the rules travel with the rest of this file.
 
-### Theme & Color System
+**Identity: a surveyor's ledger.** Warm graphite dark theme, warm paper light theme. IBM Plex Sans for UI text, IBM Plex Mono with tabular numerals for every value. One-pixel rules, no cards, no shadows except on floating overlays, no decorative gradients or hatching except to mark an unavailable interval.
 
-**Dual Theme Support**
-- Every component must support both light and dark modes
-- Dark mode: Near-black backgrounds (#0a0a0a to #1a1a1a), light text
-- Light mode: White/off-white backgrounds, dark text
-- Use CSS variables or Tailwind's dark: prefix for all color values
+**Color is state, never decoration.**
+- Semantic tokens only (`bg-surface`, `text-fg-muted`, `border-line`, `text-danger`). Raw hex values live in `src/styles/tokens.css` and nowhere else; charts read the same CSS variables.
+- Running/open = teal, success = green, waiting/stale/inferred = ochre, failure = vermilion, cancelled/unknown = neutral. Blue is reserved for interaction and load (links, focus, meters); a busy node is not a failed node.
+- Status is ink: a glyph plus colored text. No pills. The only fill is the 2px left rule on a row whose instance has an error. Selection is neutral (ink rule + raised surface).
+- Tints come from opacity modifiers on the semantic token (`bg-danger/10`), not from extra tokens.
 
-**Semantic Color Palette**
-- **Green** (#22c55e / emerald): Success, completed, active states, running processes
-- **Blue** (#3b82f6): Primary actions, parent workflows, links, interactive elements
-- **Yellow/Amber** (#eab308): Waiting, pending, in-progress states
-- **Red** (#ef4444): Errors, failures, destructive actions
-- **Gray** (#6b7280): Secondary text, metadata, timestamps, disabled states
+**Type and density.**
+- Scale: `text-title` 18/24, `text-section` 14/20, `text-body` 13/18, `text-label` 12/16, `text-micro` 11/14, `text-metric` 20/24. Nothing larger than 20px; no hero numerals. Headers are quieter than the values under them. Prefer one plain sentence over a row of raw fields: "Running charge_payment for 3.6 s" beats a kind string, a node id, and three counts.
+- Rows 36px (`h-row`), controls 28px (`h-control`), global bar 40px, icon rail 48px, gutter 20px. Radius 4px controls / 6px panels.
+- Every number has a unit and a scope caption ("2 fresh nodes · 1 excluded"). Every live view shows freshness.
 
-### Visual Elements
-
-**Background Treatment**
-- Use subtle vertical or grid lines on dark backgrounds for depth and structure
-- Lines should be very low contrast (e.g., #1f1f1f on #0a0a0a)
-- Diagonal hatching patterns for "idle" or inactive regions
-
-**Cards & Containers**
-- Minimize card usage - prefer flat layouts with subtle borders
-- When cards are needed: thin 1px borders, no shadows in dark mode
-- Light mode cards: subtle shadows allowed, clean white backgrounds
-- Border radius: consistent rounded-lg (8px) or rounded-xl (12px)
-
-**Glassmorphism (Floating Elements Only)**
-- Apply to modals, dropdowns, popovers, and floating UI
-- Use backdrop-blur with semi-transparent backgrounds
-- Dark mode: rgba(0,0,0,0.8) with backdrop-blur-lg
-- Light mode: rgba(255,255,255,0.9) with backdrop-blur-lg
-
-### Component Patterns
-
-**Status Badges/Pills**
-- Rounded-full pill shape with semantic border colors
-- Transparent or semi-transparent fill with colored border
-- Include status dot indicator when appropriate
-- Example: Green border + "Completed" text for success states
-
-**Timeline/Waterfall Visualizations**
-- Horizontal bars showing duration and timing
-- Color-coded by status (green=success, blue=running, yellow=waiting)
-- Show function names and durations inline
-- Use grid lines to indicate time intervals
-
-**Code & Technical Text**
-- Monospace font (font-mono) for: IDs, function names, code snippets, durations
-- Syntax highlighting in code blocks with muted, readable colors
-- Inline code: subtle background tint with rounded corners
-
-**Typography Hierarchy**
-- Headlines: Bold, larger size, high contrast
-- Body text: Regular weight, comfortable reading size
-- Metadata: Smaller size, muted gray color
-- Use font-medium sparingly for emphasis
-
-### Layout Principles
-
-**Spacing**
-- Generous whitespace between sections
-- Consistent padding within components (p-4, p-6)
-- Use gap utilities for flex/grid layouts
-
-**Information Density**
-- Dense data displays (tables, timelines) are acceptable
-- Balance density with clear visual hierarchy
-- Group related information visually
-
-**Responsive Behavior**
-- Mobile-first approach
-- Stack horizontal layouts vertically on small screens
-- Maintain readability at all breakpoints
-
-### Interaction States
-
-**Hover**
-- Subtle background color shift
-- Don't rely on hover for essential information
-
-**Focus**
-- Clear focus rings for accessibility
-- Use ring-2 with brand/accent color
-
-**Active/Selected**
-- Distinct visual treatment from hover
-- Consider using filled backgrounds instead of just borders
+**Structure.**
+- One 40px global bar carries identity, environment, page title, time window, Live/Paused with freshness, jump box, and theme. No page-header band, no taglines, no eyebrow labels, no stack credits.
+- Detail is a route. A peek panel overlays the workspace and never pushes columns. Filters, selection, and the time window live in the URL.
+- Only show what the API reports. Names, payloads, attempt numbers, and hostnames are not reported; render "Not recorded", "derived", "inferred", or a short id instead. Rejections are counted, never promoted to a workflow state.
+- Empty, filtered-empty, unavailable, and error states must never look alike. A missing value must never look like a recorded null or a loading state.
 
 ## Coding Conventions
 
@@ -143,6 +72,9 @@ Follow a modern, developer-focused design language. The design prioritizes clari
 This section is used for the scratch updates, driven by our Agents.
 
 <code_feedback>
+<rule>Ship UI routes backed only by production APIs; keep synthetic fixtures in tests, never in application imports, query-selectable demo modes, or fallback paths. Show explicit empty and unavailable states when real data is absent. Test fixtures should use the API's event or sample types and production derivation code so they cannot invent facts the API does not report.</rule>
+<rule>Keep domain state vocabularies in `src/domain`, derived from wire types, and let UI components import them; never define a status union inside a component. Good: `domain/status.ts` exports `InstanceState` with the rule that produces each value. Bad: `type Status = keyof typeof statuses` living in `status-badge.tsx` and imported by fixtures.</rule>
+<rule>When a fixture helper returns negative offsets (time ago), do not add raw positive milliseconds to it for "later" steps without a comment; jumbled event order silently produces wrong derived state. Good: `minutes(6) + seconds(2)` for 6m02s ago, with the sign convention documented beside the helper. Bad: mixing `minutes(6) - 40` and `minutes(6) + seconds(0.02)` in one scenario.</rule>
 <rule>Keep process-global tracing setup in `waymark-fn-main-common`. Tests that assert emitted tracing events may use scoped subscribers through a dev-dependency, with a documented crate-specific wrapper entry in `deny.toml`.</rule>
 <rule>Avoid webapp tests that assert rendered HTML contains route or API URL strings; test behavior, data wiring, or stable UI semantics instead. Good: assert a handler returns the expected redirect payload or a page renders the expected domain data. Bad: `assert!(rendered.contains("/api/instance/"));`.</rule>
 <rule>Centralize environment parsing in shared config modules and build sub-configs inside `from_env`. Good: `let cfg = WorkerConfig::from_env()?; let webapp = cfg.webapp.clone();` Bad: `let cfg = WorkerConfig::from_env()?; let webapp = WebappConfig::from_env();`</rule>

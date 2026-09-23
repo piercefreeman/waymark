@@ -28,6 +28,7 @@ MANIFEST
 
 # Exception for crates.
 !/crates/lib
+!/js/app/web/src/lib
 !/crates/**/src/**/parts
 
 # PyInstaller

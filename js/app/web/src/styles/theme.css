@@ -1,0 +1,176 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  /* Surfaces */
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-surface-selected: var(--surface-selected);
+
+  /* Lines */
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-focus: var(--focus);
+
+  /* Text */
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-fg-on-accent: var(--fg-on-accent);
+
+  /* Interaction */
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+
+  /* Status */
+  --color-running: var(--running);
+  --color-success: var(--success);
+  --color-waiting: var(--waiting);
+  --color-danger: var(--danger);
+  --color-neutral: var(--neutral);
+
+  /* Data viz */
+  --color-capacity: var(--capacity);
+  --color-chart-grid: var(--chart-grid);
+  --color-chart-axis: var(--chart-axis);
+
+  /* shadcn compatibility for retained primitives */
+  --color-background: var(--canvas);
+  --color-foreground: var(--fg);
+  --color-popover: var(--surface-overlay);
+  --color-popover-foreground: var(--fg);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--fg-on-accent);
+  --color-muted: var(--surface-raised);
+  --color-muted-foreground: var(--fg-muted);
+  --color-accent-foreground: var(--fg);
+  --color-border: var(--line);
+  --color-input: var(--line-strong);
+  --color-ring: var(--focus);
+  --color-destructive: var(--danger);
+
+  /* Type */
+  --font-sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --text-title: 18px;
+  --text-title--line-height: 24px;
+  --text-section: 14px;
+  --text-section--line-height: 20px;
+  --text-body: 13px;
+  --text-body--line-height: 18px;
+  --text-label: 12px;
+  --text-label--line-height: 16px;
+  --text-micro: 11px;
+  --text-micro--line-height: 14px;
+  --text-metric: 20px;
+  --text-metric--line-height: 24px;
+
+  /* Size */
+  --spacing-bar: 40px;
+  --spacing-rail: 48px;
+  --spacing-row: 36px;
+  --spacing-row-compact: 28px;
+  --spacing-control: 28px;
+  --spacing-peek: 480px;
+  --spacing-gutter: 20px;
+
+  /* Shape */
+  --radius-control: 4px;
+  --radius-panel: 6px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+
+  /* Motion */
+  --duration-fast: 120ms;
+  --duration-panel: 180ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@layer base {
+  * {
+    border-color: var(--line);
+  }
+
+  html {
+    background: var(--canvas);
+  }
+
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+  }
+}
+
+@utility hatched {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--line-hatch) 0 1px,
+    transparent 1px 5px
+  );
+}
+
+@utility ruled {
+  background-image: linear-gradient(var(--line) 1px, transparent 1px);
+  background-size: 100% var(--spacing-row);
+}
+
+@utility mono-data {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+@media (pointer: coarse) {
+  button,
+  [role="tab"],
+  [role="combobox"],
+  a[data-row] {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
