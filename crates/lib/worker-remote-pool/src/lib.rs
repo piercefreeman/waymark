@@ -108,8 +108,8 @@ where
             // while it holds something; with the intake closed as well,
             // there is nothing left to wait for.
             Some(recycle_due) = in_flight.next(), if !in_flight.is_empty() => {
-                if let Some(worker_idx) = recycle_due {
-                    recycles.push(recycle(&pool, worker_idx));
+                if let Some(due) = recycle_due {
+                    recycles.push(recycle(&pool, due));
                 }
             }
             Some(()) = recycles.next(), if !recycles.is_empty() => {}
@@ -125,12 +125,12 @@ where
 }
 
 /// Serve one request and deliver its report to the completion queue;
-/// returns the worker index when the completion made a recycle due.
+/// returns the recycle report when the completion made a recycle due.
 async fn serve<Spec>(
     pool: &waymark_worker_process_pool::Pool<Spec>,
     dispatch: proto::ActionDispatch,
     completion_tx: &mpsc::Sender<ActionExecutionReport>,
-) -> Option<usize>
+) -> Option<waymark_worker_process_pool::RecycleDue>
 where
     Spec: waymark_worker_process_spec::Spec,
 {
@@ -146,19 +146,24 @@ where
     recycle_due
 }
 
-async fn recycle<Spec>(pool: &waymark_worker_process_pool::Pool<Spec>, worker_idx: usize)
-where
+async fn recycle<Spec>(
+    pool: &waymark_worker_process_pool::Pool<Spec>,
+    due: waymark_worker_process_pool::RecycleDue,
+) where
     Spec: waymark_worker_process_spec::Spec,
 {
-    if let Err(err) = pool.recycle_worker(worker_idx).await {
-        tracing::error!(worker_idx, ?err, "failed to recycle worker");
+    if let Err(err) = pool.recycle_worker(due).await {
+        tracing::error!(?err, "failed to recycle worker");
     }
 }
 
 async fn execute_remote_request<Spec>(
     pool: &waymark_worker_process_pool::Pool<Spec>,
     dispatch: proto::ActionDispatch,
-) -> (ActionExecutionReport, Option<usize>)
+) -> (
+    ActionExecutionReport,
+    Option<waymark_worker_process_pool::RecycleDue>,
+)
 where
     Spec: waymark_worker_process_spec::Spec,
 {
@@ -184,9 +189,7 @@ where
         Ok(metrics) => {
             metrics::histogram!("waymark_worker_remote_pool_action_handling_seconds")
                 .record(metrics.worker_duration);
-            let recycle_due = pool
-                .record_completion(worker_idx)
-                .map(|waymark_worker_process_pool::RecycleDue| worker_idx);
+            let recycle_due = pool.record_completion(worker_idx);
             let report = ActionExecutionReport::Completed(proto::ActionResult {
                 payload: metrics.response_payload,
                 metadata,
