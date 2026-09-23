@@ -1,25 +1,21 @@
 import { useEffect, useMemo } from "react";
-import {
-  getInstance,
-  listEvents,
-  listInstances,
-  nodeSeries,
-  nodesLatest,
-  vmTimeline,
-} from "./api/client";
+import { getInstance, nodeSeries, nodesLatest, vmTimeline } from "./api/client";
 import { AppShell, useTimeWindow } from "./components/layout/app-shell";
 import type { SourceStatus } from "./components/patterns/source-notice";
 import { TooltipProvider } from "./components/ui/tooltip";
 import * as fixtures from "./data/fixtures";
+import { fetchInstancePage } from "./data/instances";
 import { useLive } from "./data/live";
-import type { Event, Instance, NodeSample } from "./domain/api";
+import { useTimelines } from "./data/timelines";
+import { instanceStates, type InstanceState } from "./domain/status";
+import type { Instance, NodeSample } from "./domain/api";
 import {
   deriveFromInstance,
   deriveInstance,
   type InstanceSummary,
 } from "./domain/derive";
 import { InstanceDetail } from "./features/instances/detail";
-import { InstanceList } from "./features/instances/list";
+import { InstanceList, type PageInfo } from "./features/instances/list";
 import { FleetPage } from "./features/fleet/page";
 import { Gallery } from "./features/gallery/gallery";
 import { shortId } from "./lib/format";
@@ -66,65 +62,111 @@ function Router() {
   return <InstancesRoute />;
 }
 
-function groupByVm(events: Event[]): Map<string, Event[]> {
-  const byVm = new Map<string, Event[]>();
-  for (const event of events) {
-    const list = byVm.get(event.payload.vm_id);
-    if (list) list.push(event);
-    else byVm.set(event.payload.vm_id, [event]);
-  }
-  return byVm;
-}
-
 function InstancesRoute() {
   const now = useNow();
   const [timeWindow] = useTimeWindow();
   const { sample, paused } = useSourceMode();
+  const [after] = useSearchParam("after");
+  const [pinnedTo] = useSearchParam("to");
+  const [query] = useSearchParam("q");
+  const [stateParam] = useSearchParam("state");
+  const states = useMemo(
+    () =>
+      (stateParam ?? "")
+        .split(",")
+        .filter((value): value is InstanceState => value in instanceStates),
+    [stateParam],
+  );
+  const pinned = pinnedTo ? new Date(pinnedTo) : null;
+  const key = [
+    timeWindow.id,
+    after ?? "",
+    pinnedTo ?? "",
+    query ?? "",
+    stateParam ?? "",
+  ].join("|");
+
   const live = useLive(
     async (signal) => {
-      const range = {
-        from: new Date(Date.now() - timeWindow.ms),
-        to: new Date(),
-      };
-      const [page, events] = await Promise.all([
-        listInstances(range, undefined, signal),
-        listEvents(range, signal),
-      ]);
-      return {
-        instances: page.items,
-        events: events.events,
-        complete: events.complete,
-      };
+      const to = pinned ?? new Date();
+      const page = await fetchInstancePage(
+        {
+          from: new Date(to.getTime() - timeWindow.ms),
+          to,
+          after,
+          query: query ?? "",
+          states,
+          now: new Date(),
+        },
+        signal,
+      );
+      return { ...page, to, complete: true };
     },
-    { intervalMs: POLL_MS, enabled: !paused && !sample, key: timeWindow.id },
+    {
+      intervalMs: POLL_MS,
+      // A pinned `to` is a frozen page: nothing after it can appear, so
+      // there is nothing to poll for.
+      enabled: !paused && !sample && pinned === null,
+      key,
+    },
   );
+
+  const dtos = useMemo(() => live.data?.items ?? [], [live.data]);
+  const timelines = useTimelines(dtos, !sample);
 
   const instances = useMemo<InstanceSummary[]>(() => {
     if (sample) {
       const from = fixtures.now.getTime() - timeWindow.ms;
+      const needle = (query ?? "").toLowerCase();
       return fixtures.instances.filter(
-        (instance) => instance.lastEventAt.getTime() >= from,
+        (instance) =>
+          instance.lastEventAt.getTime() >= from &&
+          (states.length === 0 || states.includes(instance.state)) &&
+          (needle === "" ||
+            instance.vmId.includes(needle) ||
+            instance.state.includes(needle)),
       );
     }
-    if (!live.data) return [];
-    const byVm = groupByVm(live.data.events);
-    return live.data.instances.map((dto: Instance) =>
-      deriveFromInstance(dto, byVm.get(dto.vm_id) ?? [], now),
+    return dtos.map((dto: Instance) =>
+      deriveFromInstance(dto, timelines.get(dto.vm_id)?.events ?? [], now),
     );
-  }, [sample, live.data, now, timeWindow.ms]);
+    // `timelines.version` is the cache's change counter.
+  }, [sample, dtos, now, timeWindow.ms, query, states, timelines.version]);
 
   const source = sourceStatus(sample, live);
+  const page: PageInfo = sample
+    ? {
+        next: null,
+        after: null,
+        pinnedTo: null,
+        scanned: instances.length,
+        capped: false,
+        direct: false,
+        loadingRows: 0,
+      }
+    : {
+        next: live.data?.next ?? null,
+        after,
+        pinnedTo: pinned,
+        scanned: live.data?.scanned ?? 0,
+        capped: live.data?.capped ?? false,
+        direct: live.data?.direct ?? false,
+        loadingRows: timelines.pending,
+      };
   return (
     <AppShell
       title="Instances"
       now={sample ? fixtures.now : now}
       source={source}
+      pinnedTo={pinned}
     >
       <InstanceList
         instances={instances}
         now={sample ? fixtures.now : now}
         windowLabel={timeWindow.label}
         source={source}
+        page={page}
+        fetchedTo={live.data?.to ?? null}
       />
     </AppShell>
   );

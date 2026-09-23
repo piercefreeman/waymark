@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { ArrowUpRight, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   formatClock,
@@ -34,31 +34,59 @@ import { InstanceStateInk } from "@/components/patterns/status-ink";
 import { Duration } from "@/components/patterns/time";
 import { Input } from "@/components/ui/input";
 import { PeekPanel } from "@/components/layout/peek-panel";
+import { PAGE_SIZE, SCAN_PAGE_CAP, isExactId } from "@/data/instances";
 import { InstancePeek } from "./peek";
 
-const PAGE_LIMIT = 100;
+export interface PageInfo {
+  next: string | null;
+  after: string | null;
+  pinnedTo: Date | null;
+  scanned: number;
+  capped: boolean;
+  direct: boolean;
+  loadingRows: number;
+}
 
 /**
  * The instance ledger. One row answers one question: what is this instance
  * doing right now? State, identity, a plain sentence, the shape of its
  * life so far, and how long it has taken. Everything else is in the peek.
+ *
+ * Pages follow the list endpoint's cursor. Paging past the head freezes the
+ * window's `to` bound so the pages stay put; the bar offers a way back to
+ * live. Search and state filters are applied while walking the cursor, so
+ * they cover the window, not just the loaded page.
  */
 export function InstanceList({
   instances,
   now,
   windowLabel,
   source,
+  page,
+  fetchedTo,
 }: {
   instances: InstanceSummary[];
   now: Date;
   windowLabel: string;
   source: SourceStatus;
+  page: PageInfo;
+  fetchedTo: Date | null;
 }) {
   const { pathname, search } = useLocation();
-  const [stateParam, setStateParam] = useSearchParam("state");
+  const [stateParam] = useSearchParam("state");
   const [query, setQuery] = useSearchParam("q");
   const [selectedId, setSelectedId] = useSearchParam("vm");
   const rows = useRef<HTMLAnchorElement[]>([]);
+  const [draft, setDraft] = useState(query ?? "");
+  useEffect(() => setDraft(query ?? ""), [query]);
+  useEffect(() => {
+    if (draft === (query ?? "")) return;
+    const timer = window.setTimeout(
+      () => setQuery(draft.trim() || null, { replace: true }),
+      isExactId(draft) ? 0 : 350,
+    );
+    return () => window.clearTimeout(timer);
+  }, [draft, query, setQuery]);
 
   const stateFilter = useMemo(
     () =>
@@ -75,19 +103,7 @@ export function InstanceList({
     return result;
   }, [instances]);
 
-  const visible = useMemo(() => {
-    const needle = (query ?? "").trim().toLowerCase();
-    return instances.filter(
-      (instance) =>
-        (stateFilter.length === 0 || stateFilter.includes(instance.state)) &&
-        (needle === "" ||
-          instance.vmId.includes(needle) ||
-          instance.firstAction?.name.toLowerCase().includes(needle) ||
-          instance.firstAction?.module?.toLowerCase().includes(needle) ||
-          instance.lastNodeId.includes(needle) ||
-          instance.exceptionType?.toLowerCase().includes(needle)),
-    );
-  }, [instances, stateFilter, query]);
+  const visible = instances;
 
   const selected =
     visible.find((instance) => instance.vmId === selectedId) ?? null;
@@ -138,8 +154,12 @@ export function InstanceList({
       <div className="px-gutter pt-5">
         <SectionHeader
           title="Instances"
-          count={instances.length}
-          description={`active in the last ${windowLabel}`}
+          count={page.after ? undefined : instances.length}
+          description={
+            page.pinnedTo
+              ? `active in the ${windowLabel} before ${formatClock(page.pinnedTo)}`
+              : `active in the last ${windowLabel}`
+          }
           actions={
             <div className="relative w-64">
               <Search
@@ -147,12 +167,10 @@ export function InstanceList({
                 aria-hidden
               />
               <Input
-                aria-label="Filter this page by id, action, module, or exception type"
-                placeholder="Filter…"
-                value={query ?? ""}
-                onChange={(event) =>
-                  setQuery(event.target.value || null, { replace: true })
-                }
+                aria-label="Search the window by instance id, node id, or state"
+                placeholder="Search id, node, state…"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
                 className="pl-8"
               />
             </div>
@@ -165,9 +183,13 @@ export function InstanceList({
             options={chipOptions}
             value={stateFilter}
             onChange={(next) =>
-              setStateParam(next.length ? next.join(",") : null, {
-                replace: true,
-              })
+              navigate(
+                withSearch(pathname, search, {
+                  state: next.length ? next.join(",") : null,
+                  after: null,
+                }),
+                { replace: true },
+              )
             }
           />
         )}
@@ -200,16 +222,18 @@ export function InstanceList({
             title={
               source.error && instances.length === 0
                 ? "Instances unavailable"
-                : instances.length === 0
-                  ? `No instances in the last ${windowLabel}`
-                  : "No instances match"
+                : query || stateFilter.length
+                  ? "No instances match"
+                  : `No instances in the last ${windowLabel}`
             }
             description={
               source.error && instances.length === 0
                 ? source.error.message
-                : instances.length === 0
-                  ? "Instances appear once a driver run reports an event. Try a wider window."
-                  : "Clear the state filter or the search."
+                : query || stateFilter.length
+                  ? page.capped
+                    ? `Searched ${page.scanned} instances before stopping; page onward to keep searching, or narrow the window.`
+                    : `Searched ${page.scanned} instances in the window. Search covers ids, node ids, and states; action names need a timeline read.`
+                  : "Instances appear once a driver run reports an event. Try a wider window."
             }
           />
         ) : (
@@ -278,16 +302,49 @@ export function InstanceList({
             })}
           </ol>
         )}
-        <div className="flex items-center justify-between border-t border-line px-gutter py-2 text-micro text-fg-subtle">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-gutter py-2 text-micro text-fg-subtle">
           <span>
-            {visible.length} of {instances.length}
-            {instances.length >= PAGE_LIMIT &&
-              ` · first ${PAGE_LIMIT} by last activity`}
+            {page.direct
+              ? "Direct lookup by id"
+              : query || stateFilter.length
+                ? `${instances.length} match${instances.length === 1 ? "" : "es"} in ${page.scanned} scanned${page.capped ? ` · stopped at ${SCAN_PAGE_CAP} pages` : page.next ? "" : " · whole window"}`
+                : `${instances.length} on this page${page.after ? "" : page.next ? ` · newest ${PAGE_SIZE}` : ""}`}
+            {page.loadingRows > 0 && ` · loading ${page.loadingRows} timelines`}
           </span>
-          <span className="hidden items-center gap-1.5 lg:flex">
-            <Kbd>j</Kbd>
-            <Kbd>k</Kbd> move · <Kbd>↵</Kbd> peek · <Kbd>o</Kbd> open ·{" "}
-            <Kbd>y</Kbd> copy id
+          <span className="flex items-center gap-2">
+            {page.after && (
+              <a
+                href={withSearch(pathname, search, {
+                  after: null,
+                  to: null,
+                  vm: null,
+                })}
+                onClick={onLinkClick}
+                className="inline-flex h-6 items-center gap-1 rounded-control border border-line-strong px-2 text-fg transition-colors duration-fast hover:bg-surface-raised"
+              >
+                <ChevronLeft className="size-3" aria-hidden />
+                Newest
+              </a>
+            )}
+            {page.next && (
+              <a
+                href={withSearch(pathname, search, {
+                  after: page.next,
+                  to: (page.pinnedTo ?? fetchedTo ?? now).toISOString(),
+                  vm: null,
+                })}
+                onClick={onLinkClick}
+                className="inline-flex h-6 items-center gap-1 rounded-control border border-line-strong px-2 text-fg transition-colors duration-fast hover:bg-surface-raised"
+              >
+                {query || stateFilter.length ? "Keep searching" : "Older"}
+                <ChevronRight className="size-3" aria-hidden />
+              </a>
+            )}
+            <span className="hidden items-center gap-1.5 lg:flex">
+              <Kbd>j</Kbd>
+              <Kbd>k</Kbd> move · <Kbd>↵</Kbd> peek · <Kbd>o</Kbd> open ·{" "}
+              <Kbd>y</Kbd> copy id
+            </span>
           </span>
         </div>
       </div>
