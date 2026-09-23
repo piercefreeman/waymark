@@ -70,8 +70,7 @@ Rules:
 
 - **Global bar**: mark, environment, sample banner, page title, time window
   (15m/1h/6h/24h), Live/Paused with freshness, jump box (`⌘K` or `/`), theme.
-- **Rail**: Instances, Fleet. The component gallery is pinned at the bottom
-  and is not product navigation.
+- **Rail**: Instances, Fleet.
 - **Workspace**: one `minmax(0,1fr)` column. The peek panel (480px) overlays
   it and never pushes columns. Detail is a route, not a sidebar.
 - Filters, the selected instance, the selected promise, and the time window
