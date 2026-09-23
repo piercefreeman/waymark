@@ -17,7 +17,6 @@ import {
 import { InstanceDetail } from "./features/instances/detail";
 import { InstanceList, type PageInfo } from "./features/instances/list";
 import { FleetPage } from "./features/fleet/page";
-import { Gallery } from "./features/gallery/gallery";
 import { shortId } from "./lib/format";
 import { matchPath, navigate, useLocation, useSearchParam } from "./lib/router";
 import { useNow } from "./lib/use-now";
@@ -58,7 +57,6 @@ function Router() {
   const detail = matchPath("/instances/:vmId", pathname);
   if (detail) return <DetailRoute vmId={detail.vmId} />;
   if (matchPath("/fleet", pathname)) return <FleetRoute />;
-  if (matchPath("/gallery", pathname)) return <GalleryRoute />;
   return <InstancesRoute />;
 }
 
@@ -252,21 +250,6 @@ function FleetRoute() {
         }
         source={source}
       />
-    </AppShell>
-  );
-}
-
-function GalleryRoute() {
-  const source: SourceStatus = {
-    kind: "sample",
-    fetchedAt: fixtures.now,
-    error: null,
-    loading: false,
-    complete: true,
-  };
-  return (
-    <AppShell title="Component gallery" now={fixtures.now} source={source}>
-      <Gallery instances={fixtures.instances} now={fixtures.now} />
     </AppShell>
   );
 }

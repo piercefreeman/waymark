@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { Layers, ListTree, Moon, Server, Sun } from "lucide-react";
+import { ListTree, Moon, Server, Sun } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatClock, formatRelative } from "@/lib/format";
 import {
@@ -238,14 +238,6 @@ export function AppShell({
               current={pathname.startsWith(item.match)}
             />
           ))}
-          <div className="mt-auto">
-            <RailLink
-              href="/gallery"
-              label="Component gallery"
-              icon={Layers}
-              current={pathname.startsWith("/gallery")}
-            />
-          </div>
         </nav>
         <main id="main" className="min-w-0">
           {children}
