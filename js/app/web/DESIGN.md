@@ -116,6 +116,17 @@ Rules:
 3. Two charts on one shared axis with gaps for missing samples: in flight
    against capacity, and queued dispatches.
 
+### Paging and search
+
+The ledger follows the list endpoint's cursor, 100 per page. Paging past the
+head freezes the window's `to` bound (kept in the URL) so the older pages
+stay put; the bar shows "Frozen" with a way back to live. Search and state
+chips walk the cursor across the window page by page and keep the matches,
+bounded at 20 pages with the footer saying how far the walk got. An exact
+`vm_id` reads the instance directly. Search matches ids, node ids, and
+states, the fields the list endpoint reports; action names would need a
+server-side search.
+
 ### Sources and refresh
 
 Pages poll `/api` every 5 s while Live; `?paused=1` stops polling and
@@ -180,9 +191,10 @@ percentiles) and is unit tested in Node without React.
 `src/data/live.ts` polls them, keeps the previous response while refreshing,
 pauses in hidden tabs, and cancels superseded requests. `src/app.tsx` derives
 view models with `deriveFromInstance` (the state endpoint is authoritative for
-state; events add promises and runs). The list reads one page of instances
-plus the window's events in one paged call; a per-instance summary endpoint
-and server-side state filtering would remove that second read.
+state; events add promises and runs). The list reads one cursor page of instances and, for the rows on screen,
+each instance's timeline, cached by its last event so a poll refetches
+only rows that changed. A per-instance summary endpoint and server-side
+filtering would remove those reads.
 
 The compiled SPA is embedded in `waymark-start-workers` by the
 `waymark-http-webapp` build script and served next to `/api`; `make webapp-dev`
