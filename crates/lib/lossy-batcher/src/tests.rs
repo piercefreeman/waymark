@@ -454,6 +454,41 @@ async fn an_overdue_partial_batch_waits_for_a_free_buffer_instead_of_dropping() 
 }
 
 #[tokio::test(start_paused = true)]
+async fn dropping_the_last_handle_flushes_the_partial_batch_and_ends_the_task() {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (handle, task) = metrics::with_local_recorder(&recorder, || {
+        lossy_batcher(
+            "test",
+            valid_policy(2, 10, Duration::from_secs(60), 1),
+            recording_flusher(&seen, Vec::new()),
+            std::future::pending(),
+        )
+    });
+    let task = tokio::spawn(task);
+
+    let clone = handle.clone();
+    handle.push(1);
+    settle().await;
+    drop(handle);
+    settle().await;
+    assert!(!task.is_finished(), "a live handle keeps the task running");
+
+    drop(clone);
+    task.await.expect("batcher task must not panic");
+
+    assert_eq!(
+        counters(&snapshotter),
+        CountersSnapshot {
+            flushed: 1,
+            ..Default::default()
+        }
+    );
+    assert_eq!(*seen.lock().unwrap(), vec![vec![1]]);
+}
+
+#[tokio::test(start_paused = true)]
 async fn shutdown_with_no_free_buffer_drops_the_final_batch_as_full() {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
@@ -493,6 +528,56 @@ async fn shutdown_with_no_free_buffer_drops_the_final_batch_as_full() {
         counters(&snapshotter),
         CountersSnapshot {
             dropped_closed: 1,
+            ..Default::default()
+        }
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_last_handle_close_waits_for_a_free_buffer() {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let release = Arc::new(tokio::sync::Semaphore::new(0));
+    let (handle, task) = metrics::with_local_recorder(&recorder, || {
+        lossy_batcher(
+            "test",
+            valid_policy(2, 10, Duration::from_secs(60), 1),
+            // The one standby buffer goes out into a held flush.
+            gated_flusher(&seen, &release),
+            std::future::pending(),
+        )
+    });
+    let task = tokio::spawn(task);
+
+    handle.push_many([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    handle.push(10);
+    settle().await;
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]
+    );
+    assert_eq!(counters(&snapshotter), CountersSnapshot::default());
+
+    // The last handle drops with no buffer free: the close waits for the
+    // held flush instead of discarding the final batch.
+    drop(handle);
+    settle().await;
+    assert!(!task.is_finished());
+    assert_eq!(counters(&snapshotter), CountersSnapshot::default());
+
+    // The held flush ends, its buffer comes back, and the final batch goes
+    // out through it.
+    release.add_permits(2);
+    task.await.expect("task ends");
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9], vec![10]]
+    );
+    assert_eq!(
+        counters(&snapshotter),
+        CountersSnapshot {
+            flushed: 11,
             ..Default::default()
         }
     );

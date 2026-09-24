@@ -7,7 +7,6 @@ publish.workspace = true
 [dependencies]
 waymark-nonzero-duration = { workspace = true }
 
-derive-where = { workspace = true }
 futures-util = { workspace = true }
 metrics = { workspace = true }
 nonempty-collections = { workspace = true }

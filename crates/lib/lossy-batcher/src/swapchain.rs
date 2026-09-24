@@ -61,6 +61,11 @@ pub struct PushOutcome {
     pub discarded_closed: usize,
 }
 
+/// Reported by [`Swapchain::try_close`] when the filling buffer is not
+/// empty and no buffer is free to swap it out into: nothing was changed.
+#[derive(Debug)]
+pub struct NoFreeBuffer;
+
 /// What a swap did with the filling buffer.
 pub enum SwapOutcome {
     /// The buffer went to the flushers.
@@ -191,6 +196,27 @@ impl<T> Swapchain<T> {
             Some(empty) => OverdueOutcome::Swapped(self.exchange(&mut filling, empty)),
             None => OverdueOutcome::Held,
         })
+    }
+
+    /// Close the intake only if the final filling buffer can go out: with
+    /// the filling buffer empty the intake just closes; with a buffer free
+    /// the filling buffer is swapped out and the intake closes, as in
+    /// [`close`](Self::close); with no buffer free nothing changes, and the
+    /// caller tries again once one is back.
+    pub fn try_close(&self) -> Result<Option<SwapOutcome>, NoFreeBuffer> {
+        let mut filling = self.filling.lock().unwrap();
+        if filling.buf.is_empty() {
+            filling.full_tx = None;
+            return Ok(None);
+        }
+
+        let Some(empty) = self.take_free() else {
+            return Err(NoFreeBuffer);
+        };
+        let outcome = self.exchange(&mut filling, empty);
+        filling.full_tx = None;
+
+        Ok(Some(outcome))
     }
 
     /// Close the intake and swap out a final non-empty filling buffer. The
