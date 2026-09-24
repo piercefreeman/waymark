@@ -70,7 +70,11 @@ async fn run(
     let pool = common::run_unless_cancelled(
         &stop_token,
         "waiting for the database",
-        setup_db::connect(&args.dsn, DB_READY_TIMEOUT),
+        setup_db::connect(
+            &args.dsn,
+            Duration::from_secs(args.db_statement_timeout_secs.get()),
+            DB_READY_TIMEOUT,
+        ),
     )
     .await?;
     common::run_unless_cancelled(&stop_token, "running migrations", async {
