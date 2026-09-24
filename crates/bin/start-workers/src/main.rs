@@ -185,6 +185,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         if config.http.enabled {
             waymark_http_bringup::start(
                 &mut supervisor,
+                "main http server",
                 config.http.addr,
                 http_routes,
                 shutdown_token.clone().cancelled_owned(),
