@@ -24,6 +24,9 @@ pub struct SoakArgs {
     )]
     pub dsn: SecretString,
 
+    #[arg(long, default_value_t = 600.try_into().unwrap())]
+    pub db_statement_timeout_secs: NonZeroU64,
+
     #[arg(long, default_value_t = false)]
     pub skip_postgres_boot: bool,
 

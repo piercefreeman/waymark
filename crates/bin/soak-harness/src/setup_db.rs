@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use color_eyre::eyre::{WrapErr as _, bail};
 use sqlx::PgPool;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::process::Command;
 use waymark_secret_string::SecretStr;
 
@@ -28,15 +28,25 @@ pub async fn boot_postgres() -> Result<(), color_eyre::eyre::Report> {
     Ok(())
 }
 
+/// Connect the main pool, waiting up to `timeout` for the database to
+/// accept connections; every connection runs its statements under
+/// `statement_timeout`.
 pub async fn connect(
     dsn: &SecretStr,
+    statement_timeout: Duration,
     timeout: Duration,
 ) -> Result<PgPool, color_eyre::eyre::Report> {
+    let options = dsn
+        .expose_secret()
+        .parse::<PgConnectOptions>()
+        .wrap_err("parse the database URL")?
+        .options([("statement_timeout", statement_timeout.as_millis())]);
+
     let pool = crate::common::wait_for_database("the main database", timeout, || async {
         PgPoolOptions::new()
             .max_connections(16)
             .acquire_timeout(Duration::from_secs(5))
-            .connect(dsn.expose_secret())
+            .connect_with(options.clone())
             .await
             .map_err(|error| {
                 if is_permanent(&error) {
