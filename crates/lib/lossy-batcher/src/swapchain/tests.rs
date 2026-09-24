@@ -160,6 +160,30 @@ async fn close_with_no_free_buffer_discards_the_final_buffer_as_full() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn try_close_with_nothing_filling_just_closes() {
+    let (swapchain, mut full_rx) = swapchain(2, 10);
+
+    assert!(matches!(swapchain.try_close(), Ok(None)));
+    assert!(received(&mut full_rx).is_empty());
+    assert!(full_rx.recv().await.is_none());
+}
+
+#[tokio::test(start_paused = true)]
+async fn try_close_with_no_free_buffer_changes_nothing() {
+    let (swapchain, mut full_rx) = swapchain(2, 10);
+
+    swapchain.push_many([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    swapchain.push(10);
+    assert!(matches!(swapchain.try_close(), Err(NoFreeBufferError)));
+
+    // The filling buffer keeps its item and the intake is still open.
+    assert_eq!(filling_len(&swapchain), 1);
+    swapchain.push(11);
+    assert_eq!(filling_len(&swapchain), 2);
+    assert_eq!(received(&mut full_rx), vec![(0..10).collect::<Vec<_>>()]);
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_dropped_receiver_closes_the_intake_at_the_next_swap() {
     let (swapchain, full_rx) = swapchain(2, 2);
     drop(full_rx);
