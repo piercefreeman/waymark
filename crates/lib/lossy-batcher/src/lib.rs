@@ -28,13 +28,14 @@
 //! # Lifecycle
 //!
 //! [`lossy_batcher`] returns a ([`BatcherHandle`], task future) pair; the
-//! caller spawns the task. The task ends when `shutdown` resolves: the
-//! filling buffer goes out one last time (best effort: discarded and
-//! counted `full` when no buffer is free), pending flushes finish, and
-//! every later push counts as `closed`. Dropping handles does
-//! not end the task. Dropping the task before its `shutdown` future
-//! resolves closes the intake at the next swap: that batch and every later
-//! push count as `closed`.
+//! caller spawns the task. The task ends when every handle is dropped or
+//! when `shutdown` resolves. On the last handle the filling buffer goes
+//! out once a buffer is free, since no push can come any more; on
+//! `shutdown` it goes out best effort (discarded and counted `full` when
+//! no buffer is free). Pending flushes finish, and every later push counts
+//! as `closed`. Dropping the task while handles are alive closes the
+//! intake at the next swap that finds a free buffer: that batch and every
+//! later push count as `closed`.
 
 #![warn(missing_docs)]
 
@@ -43,7 +44,6 @@ mod swapchain;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use derive_where::derive_where;
 use nonempty_collections::{NESlice, NEVec};
 use tokio::sync::mpsc;
 use waymark_nonzero_duration::NonZeroDuration;
@@ -170,19 +170,24 @@ struct Counters {
     pub flushed: metrics::Counter,
 }
 
-/// What the handles and the batcher task share: the mechanism
-/// ([`swapchain::Swapchain`]), the timer signal, and the accounting
-/// ([`Counters`]) — tied together by the `record_*` methods, which map
-/// what the mechanism reports onto the counters and the signal.
+/// What the handles and the batcher task share — tied together by the
+/// `record_*` methods, which map what the mechanism reports onto the
+/// counters and the signals.
 struct Shared<T> {
     pub swapchain: swapchain::Swapchain<T>,
 
     /// Wakes the delay timer when a first item enters an empty buffer.
     pub first_push: tokio::sync::Notify,
 
-    /// Wakes a held delay timer when a buffer returns to an empty free
-    /// buffers pool.
+    /// Wakes a held delay timer, or the close waiting on the last handle,
+    /// when a buffer returns to an empty free buffers pool.
     pub buffer_freed: tokio::sync::Notify,
+
+    /// How many [`BatcherHandle`]s are alive.
+    pub handles: std::sync::atomic::AtomicUsize,
+
+    /// Wakes the task when the last handle is dropped.
+    pub handles_gone: tokio::sync::Notify,
 
     pub counters: Counters,
 }
@@ -231,9 +236,32 @@ impl<T> Shared<T> {
 }
 
 /// A handle to a lossy batcher: cloneable and shared by every producer.
-#[derive_where(Clone)]
 pub struct BatcherHandle<T> {
     shared: Arc<Shared<T>>,
+}
+
+impl<T> Clone for BatcherHandle<T> {
+    fn clone(&self) -> Self {
+        self.shared
+            .handles
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self {
+            shared: Arc::clone(&self.shared),
+        }
+    }
+}
+
+impl<T> Drop for BatcherHandle<T> {
+    fn drop(&mut self) {
+        if self
+            .shared
+            .handles
+            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel)
+            == 1
+        {
+            self.shared.handles_gone.notify_one();
+        }
+    }
 }
 
 impl<T> BatcherHandle<T> {
@@ -289,6 +317,8 @@ where
         swapchain,
         first_push: tokio::sync::Notify::new(),
         buffer_freed: tokio::sync::Notify::new(),
+        handles: std::sync::atomic::AtomicUsize::new(1),
+        handles_gone: tokio::sync::Notify::new(),
         counters: Counters {
             dropped_full: dropped("full"),
             dropped_closed: dropped("closed"),
@@ -307,7 +337,7 @@ where
     (handle, task)
 }
 
-/// The batcher task: the delay timer, the flush loops, and the shutdown
+/// The batcher task: the delay timer, the flush loops, and the close
 /// sequence.
 async fn run<T, Flusher, Shutdown>(
     shared: Arc<Shared<T>>,
@@ -327,25 +357,46 @@ async fn run<T, Flusher, Shutdown>(
     let mut flushers = std::pin::pin!(futures_util::future::join_all(
         (0..policy.flushers.get()).map(|_| flush_loop(&shared, &full_rx, name, &flusher)),
     ));
+    let mut shutdown = std::pin::pin!(shutdown);
     // The timer lives only for the select: its block ends, it drops.
-    {
+    let forced = {
         let timer = std::pin::pin!(timer(&shared, policy.max_delay));
         tokio::select! {
             biased;
-            () = shutdown => {}
+            () = &mut shutdown => true,
+            () = shared.handles_gone.notified() => false,
             never = timer => match never {},
             _ = &mut flushers => {
                 unreachable!("the sender is dropped only by close, which runs after this select")
             }
         }
-    }
+    };
 
-    // Close the intake: every later push is refused and counted `closed`;
-    // a final non-empty filling buffer goes out best effort (counted
-    // `full` when no buffer is free — shutdown does not wait for one).
+    // Close the intake: every later push is refused and counted `closed`.
+    // On the last handle no push can come any more, so a final non-empty
+    // filling buffer waits for a free buffer and goes out; `shutdown`,
+    // from the start or while that wait is on, closes best effort (the
+    // buffer is discarded and counted `full` when no buffer is free).
     // Closing drops the sender, so the flushers drain what is buffered and
-    // end on their own.
-    if let Some(outcome) = shared.swapchain.close() {
+    // end on their own; they are polled while the close waits.
+    let outcome = if forced {
+        shared.swapchain.close()
+    } else {
+        loop {
+            if let Ok(outcome) = shared.swapchain.try_close() {
+                break outcome;
+            }
+            tokio::select! {
+                biased;
+                () = &mut shutdown => break shared.swapchain.close(),
+                () = shared.buffer_freed.notified() => {}
+                _ = &mut flushers => {
+                    unreachable!("the sender is dropped only by close, which runs after this select")
+                }
+            }
+        }
+    };
+    if let Some(outcome) = outcome {
         shared.record_swap(outcome);
     }
     flushers.await;

@@ -105,6 +105,7 @@ async fn run_benchmark(
                 observability_dsn,
                 node_id,
                 shutdown_token.child_token(),
+                force_shutdown_token.child_token(),
             )
             .await?;
             // Echoed here, apart from the other parameters: it is the
