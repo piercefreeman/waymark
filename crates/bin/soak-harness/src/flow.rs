@@ -104,8 +104,17 @@ pub async fn run_soak_loop(
             ));
         }
 
+        // The stop is checked between the database steps; a step itself
+        // always runs to its end.
         let workload_snapshot = data::fetch_workload_snapshot(pool).await?;
+        if stop_token.is_cancelled() {
+            return Ok((TerminationReason::Interrupted, samples));
+        }
+
         let node_sample = data::fetch_latest_node_sample(store).await?;
+        if stop_token.is_cancelled() {
+            return Ok((TerminationReason::Interrupted, samples));
+        }
 
         let mut requested = queue_rate.for_delta(elapsed);
 
@@ -119,7 +128,14 @@ pub async fn run_soak_loop(
         let requested: usize = requested.try_into().unwrap_or(usize::MAX);
 
         let queued_this_tick = if requested > 0 {
-            register_instances(services, workflow, args, requested, &mut rng).await?
+            match register_instances(services, workflow, args, requested, &mut rng, stop_token)
+                .await?
+            {
+                RegisterInstancesOutcome::Registered(count) => count,
+                RegisterInstancesOutcome::Stopped => {
+                    return Ok((TerminationReason::Interrupted, samples));
+                }
+            }
         } else {
             0
         };
@@ -267,16 +283,34 @@ fn should_count_stall(
     sample.in_flight_actions == 0 || last_action_age > args.issue_last_action_stale_secs
 }
 
+/// How [`register_instances`] ended.
+#[derive(Debug)]
+enum RegisterInstancesOutcome {
+    /// Every requested instance was registered; the count.
+    Registered(usize),
+
+    /// The stop was requested between two batches; the batches after it
+    /// were not registered.
+    Stopped,
+}
+
+/// Register `count` new instances in batches of `--queue-batch-size`,
+/// checking `stop_token` before each batch.
 async fn register_instances(
     services: &SoakServices,
     workflow: &RegisteredWorkflow,
     args: &crate::cli::SoakArgs,
     count: usize,
     rng: &mut StdRng,
-) -> Result<usize, color_eyre::eyre::Report> {
+    stop_token: &tokio_util::sync::CancellationToken,
+) -> Result<RegisterInstancesOutcome, color_eyre::eyre::Report> {
     let mut registered = 0usize;
 
     while registered < count {
+        if stop_token.is_cancelled() {
+            return Ok(RegisterInstancesOutcome::Stopped);
+        }
+
         let take = (count - registered).min(args.queue_batch_size.get());
         let mut vms = Vec::with_capacity(take);
 
@@ -323,7 +357,7 @@ async fn register_instances(
         registered += take;
     }
 
-    Ok(registered)
+    Ok(RegisterInstancesOutcome::Registered(registered))
 }
 
 #[derive(Debug, Clone)]
