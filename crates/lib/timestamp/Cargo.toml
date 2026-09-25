@@ -16,6 +16,8 @@ sqlx = { workspace = true, default-features = false, optional = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+waymark-timestamp = { workspace = true, features = ["now"] }
+
 serde_json = { workspace = true }
 
 [lib]
