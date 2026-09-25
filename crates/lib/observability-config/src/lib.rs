@@ -88,6 +88,19 @@ impl ObservabilityConfig {
         let read_url: SecretString =
             envfury::or_else("WAYMARK_OBSERVABILITY_READ_DATABASE_URL", || url.clone())
                 .map_err(FromEnvError::ReadDatabaseUrl)?;
+        Self::from_urls_and_env(url, read_url)
+    }
+
+    /// Create config for the store written at `url` and read at
+    /// `read_url`, with the rest from environment variables.
+    ///
+    /// `WAYMARK_OBSERVABILITY_DATABASE_URL` and
+    /// `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` are not read: the URLs
+    /// given stand in for them.
+    pub fn from_urls_and_env(
+        url: SecretString,
+        read_url: SecretString,
+    ) -> Result<Self, FromEnvError> {
         let db = Db::from_urls_and_env(url, read_url)?;
         let essential_metrics =
             waymark_essential_metrics_config::EssentialMetricsConfig::from_env()?;
