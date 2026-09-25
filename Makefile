@@ -84,8 +84,8 @@ python-coverage:
 	cd python && uv run pytest tests --cov=waymark --cov-report=term-missing --cov-report=xml:coverage.xml --cov-report=html:htmlcov
 
 rust-coverage:
-	cargo llvm-cov --lcov --output-path target/rust-coverage.lcov
-	cargo llvm-cov --html --output-dir target/rust-htmlcov
+	cargo llvm-cov --all-features --lcov --output-path target/rust-coverage.lcov
+	cargo llvm-cov --all-features --html --output-dir target/rust-htmlcov
 
 BENCH_ARGS ?= --count 1000
 BENCH_TRACE ?= target/benchmark-trace.json
