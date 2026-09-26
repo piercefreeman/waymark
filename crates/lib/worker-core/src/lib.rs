@@ -5,14 +5,6 @@
 
 use nonempty_collections::NEVec;
 
-/// The pool can no longer serve: it has shut down and will answer
-/// nothing further.
-///
-/// This is what the polling side used to say with a bare `None`.
-#[derive(Debug, thiserror::Error)]
-#[error("worker pool gone")]
-pub struct WorkerPoolGoneError;
-
 /// Submit action dispatches for execution.
 pub trait QueueActionDispatch {
     /// The error queueing produces.
@@ -75,13 +67,19 @@ pub enum ExecutionProgress {
 pub trait PollActionResults {
     /// The error polling produces.
     ///
-    /// This is the pool failing to serve at all — a pool that has shut
-    /// down and will answer nothing further.  It is not how a single
-    /// dispatch fails.
+    /// Note that the following are reported differently, not as this
+    /// error:
+    ///
+    /// - a dispatched action failing to execute - expressed by
+    ///   [`poll_complete`](Self::poll_complete) returning an
+    ///   [`ActionExecutionReport::Lost`] for that dispatch in its batch;
+    /// - the worker pool having shut down - expressed by
+    ///   [`poll_complete`](Self::poll_complete) returning `None`.
     type Error;
 
     /// Await and return a batch of action execution reports, guaranteeing
-    /// at least one execution has ended.
+    /// at least one execution has ended; `None` once the pool has shut
+    /// down and no report will ever come again.
     ///
     /// A report is how the execution ended: completed, with how the call
     /// completed being the result payload's own business, or lost.
@@ -89,7 +87,7 @@ pub trait PollActionResults {
     /// verbatim from the dispatch.
     fn poll_complete(
         &self,
-    ) -> impl Future<Output = Result<NEVec<ActionExecutionReport>, Self::Error>> + Send + '_;
+    ) -> impl Future<Output = Result<Option<NEVec<ActionExecutionReport>>, Self::Error>> + Send + '_;
 }
 
 impl<T> QueueActionDispatch for std::sync::Arc<T>
@@ -114,7 +112,8 @@ where
 
     fn poll_complete(
         &self,
-    ) -> impl Future<Output = Result<NEVec<ActionExecutionReport>, Self::Error>> + Send + '_ {
+    ) -> impl Future<Output = Result<Option<NEVec<ActionExecutionReport>>, Self::Error>> + Send + '_
+    {
         (**self).poll_complete()
     }
 }
@@ -148,7 +147,7 @@ where
 {
     type Error = either::Either<Left::Error, Right::Error>;
 
-    async fn poll_complete(&self) -> Result<NEVec<ActionExecutionReport>, Self::Error> {
+    async fn poll_complete(&self) -> Result<Option<NEVec<ActionExecutionReport>>, Self::Error> {
         match self {
             either::Either::Left(left) => left.poll_complete().await.map_err(either::Either::Left),
             either::Either::Right(right) => {
