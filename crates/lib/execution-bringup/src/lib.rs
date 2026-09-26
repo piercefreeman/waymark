@@ -14,7 +14,6 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 use waymark_nonzero_duration::NonZeroDuration;
-use waymark_worker_core::WorkerPoolError;
 
 /// Configuration for [`start`].
 pub struct Config<NodeId> {
@@ -154,15 +153,12 @@ pub struct ObservabilityEvents {
 
 /// Start the execution subsystem.
 ///
-/// Launches the worker pool, assembles the VM runtime state (spawning
+/// Assembles the VM runtime state (spawning
 /// factory, effectors, and the durable action-call request reconcile),
 /// and spawns every run loop: the workload-pinning manager, the execution
 /// driver, the state sweepers, the durable action-call completions
 /// pipeline, the durable sleeps pipeline, and the action-call request
 /// lock renewal heartbeat.
-///
-/// Returns an error if the worker pool fails to launch; nothing is spawned
-/// in that case.
 ///
 /// `observability_events` is where every VM driver run's events go and
 /// which of the optional ones are recorded; `None` records none.
@@ -178,7 +174,7 @@ pub async fn start<Backend, WorkerPool>(
     observability_events: Option<ObservabilityEvents>,
     shutdown_token: CancellationToken,
     force_shutdown_token: CancellationToken,
-) -> Result<Handles, WorkerPoolError>
+) -> Handles
 where
     Backend: waymark_workload_pinning_backend::PollUnpinnedWorkloads,
     Backend: waymark_workload_pinning_backend::KeepalivePinnings,
@@ -245,8 +241,7 @@ where
     <Backend as waymark_state_vm_runtimes_backend::StoreSnapshots>::Error: Send + 'static,
     <Backend as waymark_state_vm_runtimes_backend::LoadForRevive>::Error: Send + 'static,
     <Backend as waymark_workflow_completion_backend::RecordOutcomes>::Error: Send + 'static,
-    WorkerPool: waymark_worker_core::LaunchWorkerPool<Error = WorkerPoolError>
-        + waymark_worker_core::QueueActionDispatch
+    WorkerPool: waymark_worker_core::QueueActionDispatch
         + waymark_worker_core::PollActionResults
         + Clone
         + Send
@@ -281,13 +276,6 @@ where
         executable_sweep_interval,
     } = config;
 
-    // Launch the worker pool so it can start routing action requests
-    // to Python workers and collecting completions. Done before spawning
-    // anything so a failure doesn't leave background tasks behind.
-    // TODO: worker pool needs a better API, more in-line with the rest of
-    // the new code and exposing the handles.
-    worker_pool.launch().await?;
-
     let interpreter_provider = waymark_state_vm_runtimes_core::DefaultInterpreterProvider::<
         waymark_vm_interpreter_fullset::FullSetInterpreter<
             waymark_system_vm::Spec,
@@ -317,10 +305,9 @@ where
     // Durable action-call completions pipeline (not to be confused with
     // workflow completions) — action-call completions are recorded durably
     // as they arrive from the worker pool and removed only once their
-    // promise settlements have been durably applied.  Three background loops, each
-    // holding a drop guard on the subsystem shutdown token: these are the
-    // only path completions take to reach VMs, so any loop dying escalates
-    // to a subsystem-wide shutdown instead of stranding in-flight promises
+    // promise settlements have been durably applied.  Three background loops:
+    // these are the only path completions take to reach VMs, so any loop
+    // dying escalates to a shutdown instead of stranding in-flight promises
     // silently.
     let writer_params = waymark_action_completions_reconciler::writer::Params {
         provider: waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::<
@@ -702,7 +689,7 @@ where
         shutdown_token.child_token(),
     ));
 
-    Ok(Handles {
+    Handles {
         pinning_manager,
         execution_driver,
         executable_sweeper: executable_sweeper_handle,
@@ -717,7 +704,7 @@ where
         action_effect_reconciler_request_batcher: action_effect_reconciler_request_batcher_handle,
         workflow_completion_batcher: workflow_completion_batcher_handle,
         action_effect_reconciler_lock_batcher: action_effect_reconciler_lock_batcher_handle,
-    })
+    }
 }
 
 fn spawn_state_sweeper<Key, Value>(

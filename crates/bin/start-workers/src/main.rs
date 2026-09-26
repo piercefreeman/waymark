@@ -190,11 +190,11 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
 
         supervisor.track("worker bridge server", bridge_task);
 
-        let process_pool = Arc::new(process_pool);
+        let (worker_pool, pool_loop) = waymark_worker_remote_pool::run(process_pool);
 
-        let remote_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
-            process_pool.clone(),
-        ));
+        supervisor.spawn("worker pool loop", pool_loop);
+
+        let remote_pool = Arc::new(worker_pool);
 
         // Compose everything the HTTP server serves.
         let http_api_routes = aide::axum::ApiRouter::new().merge(observability_api_router);
@@ -257,7 +257,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             shutdown_token.child_token(),
             force_shutdown_token.child_token(),
         )
-        .await?;
+        .await;
 
         let waymark_execution_bringup::Handles {
             pinning_manager,
@@ -311,52 +311,8 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             ),
         ];
 
-        // The worker pool is shut down after every execution task has
-        // ended: those hold the pool through the remote pool, and the pool
-        // shuts down only once it is the last holder. Each execution task
-        // holds one permit for as long as it runs; the shutdown task takes
-        // them all back. The workers' streams then end, which is what lets
-        // the bridge server's own graceful shutdown complete.
-        //
-        // The permits are taken before the shutdown task is spawned, so it
-        // can never take one before an execution task has.
-        let execution_task_count = u32::try_from(execution_tasks.len())
-            .expect("the execution bringup hands out a handful of tasks");
-        let execution_task_permits = Arc::new(tokio::sync::Semaphore::new(execution_tasks.len()));
-
-        let execution_tasks = execution_tasks
-            .into_iter()
-            .map(|(name, task)| {
-                let permit = execution_task_permits
-                    .clone()
-                    .try_acquire_owned()
-                    .expect("one permit per execution task, none taken twice");
-                (name, task, permit)
-            })
-            .collect::<Vec<_>>();
-
-        supervisor.spawn("worker pool shutdown", {
-            let shutdown_token = shutdown_token.clone();
-            let execution_task_permits = execution_task_permits.clone();
-            async move {
-                shutdown_token.cancelled().await;
-
-                let _all_execution_tasks_ended = execution_task_permits
-                    .acquire_many_owned(execution_task_count)
-                    .await?;
-
-                process_pool.shutdown_arc().await?;
-
-                Ok::<(), waymark_fn_main_common::Error>(())
-            }
-        });
-
-        for (name, task, permit) in execution_tasks {
-            supervisor.spawn(name, async move {
-                let _held_while_running = permit;
-
-                task.await
-            });
+        for (name, task) in execution_tasks {
+            supervisor.track(name, task);
         }
 
         // Start the scheduler subsystem (due-schedule polling + spawning).

@@ -18,7 +18,6 @@ waymark-vm-instructions-coreset = { workspace = true }
 waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-instructions-pureset = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
-waymark-worker-core = { workspace = true }
 waymark-worker-python = { workspace = true }
 waymark-worker-remote-bringup = { workspace = true }
 waymark-worker-remote-pool = { workspace = true }
