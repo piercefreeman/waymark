@@ -5206,6 +5206,7 @@ dependencies = [
  "nonempty-collections",
  "thiserror",
  "tokio",
+ "tokio-util",
  "tracing",
  "waymark-vm-runtime-promise-core",
 ]

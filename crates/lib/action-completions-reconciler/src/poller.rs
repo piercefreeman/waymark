@@ -192,16 +192,17 @@ where
     pub state: StateToken<Backend::VmId, Value>,
 }
 
-/// Poll the backend for demanded completions until a critical failure.
+/// Poll the backend for demanded completions until every registrar and
+/// handle is gone, or a critical failure.
 ///
 /// Drive this in a background task.  Parks while no demand is registered;
-/// otherwise polls in a tight loop.  The loop never completes normally —
-/// errors are critical, and the caller should stop the subsystem.  When
-/// the loop returns (or its future is dropped after starting), the shared
-/// state is marked closed and all waiting handles fail.
+/// otherwise polls in a tight loop.  Errors are critical, and the caller
+/// should stop the subsystem.  When the loop returns (or its future is
+/// dropped after starting), the shared state is marked closed and all
+/// waiting handles fail.
 pub async fn run<Backend, Codec, Value>(
     params: Params<Backend, Codec, Value>,
-) -> Result<std::convert::Infallible, Error<Backend::Error, Codec::Error>>
+) -> Result<(), Error<Backend::Error, Codec::Error>>
 where
     Backend: PollCompletions,
     Backend::VmId: Copy + Eq + std::hash::Hash,
@@ -224,8 +225,10 @@ where
             vm_id: *vm_id,
             promise_state_id,
         }) else {
-            registered.await;
-            continue;
+            tokio::select! {
+                () = registered => continue,
+                () = driver.all_registrars_and_handles_gone() => return Ok(()),
+            }
         };
 
         let records = backend
