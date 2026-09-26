@@ -24,8 +24,8 @@ impl waymark_essential_metrics_sink_backend::AppendSamples for Store {
         &self,
         samples: NESlice<'_, NodeSample<waymark_ids::NodeId>>,
     ) -> Result<(), sqlx::Error> {
-        // One statement per batch, fourteen binds per sample: Postgres takes
-        // at most 65,535 binds in a statement, so a batch of more than 4,681
+        // One statement per batch, fifteen binds per sample: Postgres takes
+        // at most 65,535 binds in a statement, so a batch of more than 4,369
         // samples fails to write.
         let mut query = sqlx::QueryBuilder::new(format!(
             r#"
@@ -46,7 +46,10 @@ impl waymark_essential_metrics_sink_backend::AppendSamples for Store {
                 .push_bind(sample.action_dequeue_seconds.sum)
                 .push_bind(to_bigint_array(sample.action_handling_seconds.counts))
                 .push_bind(sample.action_handling_seconds.sum)
-                .push_bind(to_bigint_saturating(sample.essential_metrics_dropped_total));
+                .push_bind(to_bigint_saturating(sample.essential_metrics_dropped_total))
+                .push_bind(to_bigint_saturating(
+                    sample.observability_events_dropped_total,
+                ));
         });
         query.build().execute(&self.pool).await?;
         Ok(())

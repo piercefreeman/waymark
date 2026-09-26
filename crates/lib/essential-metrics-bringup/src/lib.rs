@@ -23,6 +23,12 @@ pub struct Handles {
     pub retention: tokio::task::JoinHandle<()>,
 }
 
+/// The name of the essential-metrics lossy batcher: its metrics label,
+/// which the sampler's recorder filters the drop counter by — its copy
+/// is `bindings::BATCHER_NAME_ESSENTIAL_METRICS` — and the name of the
+/// sweep it feeds in its tracing.
+const BATCHER_NAME: &str = "essential_metrics";
+
 /// Start the essential-metrics pipeline over `write_backend`: sampler →
 /// lossy batcher → store sink, plus the retention sweep, all ending on
 /// `shutdown_token` — and return the essential-metrics API router over
@@ -56,7 +62,7 @@ where
     let api_router = waymark_api_essential_metrics_http::router(read_backend);
 
     let (batcher, batcher_task) = waymark_lossy_batcher::lossy_batcher(
-        waymark_essential_metrics_sampler::bindings::BATCHER_NAME,
+        BATCHER_NAME,
         config.lossy_batcher_policy,
         BackendFlusher(Arc::clone(&write_backend)),
         shutdown_token.clone().cancelled_owned(),
@@ -69,7 +75,7 @@ where
         shutdown_token.clone().cancelled_owned(),
     );
     let retention_task = waymark_retention_sweeper::run(
-        "essential_metrics",
+        BATCHER_NAME,
         config.retention,
         config.retention_sweep_interval,
         move |cutoff| {
@@ -87,3 +93,6 @@ where
 
     (handles, api_router)
 }
+
+#[cfg(test)]
+mod tests;

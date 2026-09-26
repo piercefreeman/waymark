@@ -103,6 +103,7 @@ fn decode_sample(
         action_dequeue_seconds: decode_histogram(row, "action_dequeue_seconds")?,
         action_handling_seconds: decode_histogram(row, "action_handling_seconds")?,
         essential_metrics_dropped_total: as_u64("essential_metrics_dropped_total")?,
+        observability_events_dropped_total: as_u64("observability_events_dropped_total")?,
     })
 }
 
@@ -194,7 +195,8 @@ impl waymark_essential_metrics_query_backend::Series for Store {
                 sum(action_dequeue_seconds_sum) AS action_dequeue_seconds_sum,
                 {handling_counts} AS action_handling_seconds_counts,
                 sum(action_handling_seconds_sum) AS action_handling_seconds_sum,
-                max(essential_metrics_dropped_total) AS essential_metrics_dropped_total
+                max(essential_metrics_dropped_total) AS essential_metrics_dropped_total,
+                max(observability_events_dropped_total) AS observability_events_dropped_total
             FROM essential_metrics_node_samples
             WHERE node_id = $1 AND sampled_at >= $2 AND sampled_at < $3
             GROUP BY node_id, 2

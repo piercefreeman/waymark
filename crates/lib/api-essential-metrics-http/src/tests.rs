@@ -53,6 +53,7 @@ fn bucket_sample(
         action_dequeue_seconds: empty_histogram(),
         action_handling_seconds: empty_histogram(),
         essential_metrics_dropped_total: 0,
+        observability_events_dropped_total: 0,
     }
 }
 
@@ -92,6 +93,7 @@ impl waymark_essential_metrics_query_backend::Latest for FixedBackend {
                 },
                 action_handling_seconds: empty_histogram(),
                 essential_metrics_dropped_total: 0,
+                observability_events_dropped_total: 9,
             },
             bucket_sample(
                 waymark_ids::NodeId::new_uuid_v4(),
@@ -214,6 +216,7 @@ async fn latest_serves_the_samples() {
     assert_eq!(sample["worker_pool_size"], 8);
     assert_eq!(sample["max_in_flight_actions"], 4000);
     assert_eq!(sample["actions_completed_total"], 41);
+    assert_eq!(sample["observability_events_dropped_total"], 9);
     assert_eq!(
         sample["action_handling_seconds"]["p50"],
         serde_json::Value::Null,
