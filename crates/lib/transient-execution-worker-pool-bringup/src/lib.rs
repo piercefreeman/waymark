@@ -4,71 +4,71 @@
 //! [`waymark_action_runtime_worker_pool`] as the action transport: action
 //! calls are dispatched to a
 //! [`waymark_worker_core::QueueActionDispatch`] and
-//! action call completions are polled directly from it.
+//! action call completions are polled from a
+//! [`waymark_worker_core::PollActionResults`].
 
 #![warn(missing_docs)]
 
 /// The [`waymark_transient_execution_bringup::Execution`] type produced by
 /// [`execute`] for the given worker pool.
-pub type ExecutionFor<Pool> = waymark_transient_execution_bringup::Execution<
-    waymark_transient_execution_bringup::DriverHandleFor<
-        waymark_action_runtime_worker_pool::WorkerPoolActionRequester<
-            Pool,
-            waymark_action_runtime_metadata::ActionCallCorrelation,
-            waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
+pub type ExecutionFor<WorkerPoolRequests, WorkerPoolCompletions> =
+    waymark_transient_execution_bringup::Execution<
+        waymark_transient_execution_bringup::DriverHandleFor<
+            waymark_action_runtime_worker_pool::WorkerPoolActionRequester<
+                WorkerPoolRequests,
+                waymark_action_runtime_metadata::ActionCallCorrelation,
+                waymark_vm_value_python::ReadyValue,
+                waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
+            >,
+            waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider<
+                WorkerPoolCompletions,
+                waymark_action_runtime_metadata::ActionCallCorrelation,
+                waymark_vm_value_python::ReadyValue,
+                waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
+            >,
         >,
-        waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider<
-            Pool,
-            waymark_action_runtime_metadata::ActionCallCorrelation,
-            waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
-        >,
-    >,
->;
+    >;
 
 /// Wire up and launch transient workflow execution for the given runtime
 /// over the worker-pool action transport.
 ///
-/// Action calls are dispatched to `worker_pool` and action call completions
-/// are polled directly from it, with the correlation metadata round-tripped
-/// verbatim — there is no per-VM demultiplexing, so this is suitable for
-/// running a single VM at a time. Launching the pool is the caller's
-/// responsibility.
+/// Action calls are dispatched to `worker_pool_requests` and action call
+/// completions are polled from `worker_pool_completions`, with the
+/// correlation metadata round-tripped verbatim — there is no per-VM
+/// demultiplexing, so this is
+/// suitable for running a single VM at a time. Launching the pool is the
+/// caller's responsibility.
 ///
 /// When `skip_sleep` is true, every sleep in the workflow resolves
 /// immediately instead of waiting for its deadline.
 ///
 /// Cancelling `cancel` requests the driver loop to stop.
-pub fn execute<Pool>(
+pub fn execute<WorkerPoolRequests, WorkerPoolCompletions>(
     runtime: waymark_system_vm::Runtime,
-    worker_pool: Pool,
+    worker_pool_requests: WorkerPoolRequests,
+    worker_pool_completions: WorkerPoolCompletions,
     skip_sleep: bool,
     cancel: tokio_util::sync::CancellationToken,
-) -> ExecutionFor<Pool>
+) -> ExecutionFor<WorkerPoolRequests, WorkerPoolCompletions>
 where
-    Pool: waymark_worker_core::QueueActionDispatch
-        + waymark_worker_core::PollActionResults
-        + Clone
-        + Send
-        + Sync
-        + 'static,
-    <Pool as waymark_worker_core::QueueActionDispatch>::Error: core::fmt::Debug + Send + 'static,
-    <Pool as waymark_worker_core::PollActionResults>::Error: core::fmt::Debug + Send + 'static,
+    WorkerPoolRequests: waymark_worker_core::QueueActionDispatch + Send + Sync + 'static,
+    WorkerPoolRequests::Error: core::fmt::Debug + Send + 'static,
+    WorkerPoolCompletions: waymark_worker_core::PollActionResults + Send + Sync + 'static,
+    WorkerPoolCompletions::Error: core::fmt::Debug + Send + 'static,
 {
     let action_call_requester = waymark_action_runtime_worker_pool::WorkerPoolActionRequester::<
         _,
         _,
         waymark_vm_value_python::ReadyValue,
         waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
-    >::new(worker_pool.clone());
+    >::new(worker_pool_requests);
     let action_call_completions_provider =
         waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::<
             _,
             _,
             waymark_vm_value_python::ReadyValue,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
-        >::new(worker_pool);
+        >::new(worker_pool_completions);
 
     waymark_transient_execution_bringup::execute_with(
         runtime,
