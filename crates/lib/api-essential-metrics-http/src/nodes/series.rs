@@ -11,10 +11,10 @@ use super::common::NodeSample;
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct SeriesQuery {
     /// Inclusive start of the time range.
-    pub from: chrono::DateTime<chrono::Utc>,
+    pub from: waymark_http_api_types::Timestamp,
 
     /// Exclusive end of the time range.
-    pub to: chrono::DateTime<chrono::Utc>,
+    pub to: waymark_http_api_types::Timestamp,
 
     /// Bucket width in seconds; samples within one bucket are
     /// aggregated.
@@ -39,8 +39,8 @@ where
 {
     let params = waymark_essential_metrics_query_backend::series::Params {
         node_id: path.node_id.into(),
-        from: query.from,
-        to: query.to,
+        from: query.from.into(),
+        to: query.to.into(),
         bucket: query.bucket_seconds.into(),
     };
 

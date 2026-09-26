@@ -299,6 +299,27 @@ async fn series_non_integer_bucket_is_a_400() {
 }
 
 #[tokio::test]
+async fn series_from_before_the_stores_range_is_a_400() {
+    // The earliest instant chrono reads is below what any store holds; the
+    // wire refuses it before a backend sees it.
+    let node_id = waymark_ids::NodeId::new_uuid_v4();
+    let uri = format!(
+        "/essential-metrics/nodes/{node_id}/series?from=-262143-01-01T00:00:00Z&to=2023-11-15T00:00:00Z&bucket_seconds=60"
+    );
+    let response = router(backend(false))
+        .oneshot(
+            Request::builder()
+                .uri(&uri)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_text_400(response, "must be within").await;
+}
+
+#[tokio::test]
 async fn series_bad_node_id_is_a_400() {
     let response = router(backend(false))
         .oneshot(
