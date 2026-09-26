@@ -15,6 +15,9 @@ type Registry = waymark_worker_reservation::Registry<waymark_worker_message_prot
 ///
 /// If `bind_addr` is None, binds to localhost on an ephemeral port.
 /// The actual bound address is returned.
+///
+/// The server runs as the `worker bridge server` task on `spawner`; it
+/// ends when `shutdown_token` is cancelled, or with the serve error.
 pub async fn start<Spawner>(
     mut spawner: Spawner,
     shutdown_token: tokio_util::sync::CancellationToken,
