@@ -41,10 +41,18 @@ pub const ACTION_DEQUEUE_SECONDS: &str =
 /// Histogram behind `NodeSample::action_handling_seconds`.
 pub const ACTION_HANDLING_SECONDS: &str = "waymark_worker_remote_pool_action_handling_seconds";
 
-/// Counter behind `NodeSample::essential_metrics_dropped_total`, filtered
-/// to the `batcher` label value [`BATCHER_NAME`], all `reason`s summed.
+/// Counter behind `NodeSample::essential_metrics_dropped_total` and
+/// `NodeSample::observability_events_dropped_total`, split by the
+/// `batcher` label value — [`BATCHER_NAME_ESSENTIAL_METRICS`] and
+/// [`BATCHER_NAME_OBSERVABILITY_EVENTS`] — with all `reason`s summed.
 pub const LOSSY_BATCHER_DROPPED: &str = "waymark_lossy_batcher_dropped_total";
 
 /// The `batcher` label value of the essential-metrics pipeline's own
-/// lossy batcher.
-pub const BATCHER_NAME: &str = "essential_metrics";
+/// lossy batcher; the essential-metrics bringup names its batcher with
+/// its own copy.
+pub const BATCHER_NAME_ESSENTIAL_METRICS: &str = "essential_metrics";
+
+/// The `batcher` label value of the observability-events pipeline's
+/// lossy batcher; the observability-events bringup names its batcher
+/// with its own copy.
+pub const BATCHER_NAME_OBSERVABILITY_EVENTS: &str = "observability_events";

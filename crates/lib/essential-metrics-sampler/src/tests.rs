@@ -75,23 +75,36 @@ async fn bound_metrics_land_in_the_sample() {
         metrics::gauge!(bindings::LAST_ACTION_COMPLETED).set(1_700_000_000.0);
         metrics::counter!(
             bindings::LOSSY_BATCHER_DROPPED,
-            "batcher" => bindings::BATCHER_NAME,
+            "batcher" => bindings::BATCHER_NAME_ESSENTIAL_METRICS,
             "reason" => "full",
         )
         .increment(2);
         metrics::counter!(
             bindings::LOSSY_BATCHER_DROPPED,
-            "batcher" => bindings::BATCHER_NAME,
+            "batcher" => bindings::BATCHER_NAME_ESSENTIAL_METRICS,
             "reason" => "flush_failed",
         )
         .increment(1);
-        // Another batcher's drops must not count here.
+        // The observability-events batcher's drops count separately.
         metrics::counter!(
             bindings::LOSSY_BATCHER_DROPPED,
-            "batcher" => "observability_events",
+            "batcher" => bindings::BATCHER_NAME_OBSERVABILITY_EVENTS,
             "reason" => "full",
         )
         .increment(100);
+        metrics::counter!(
+            bindings::LOSSY_BATCHER_DROPPED,
+            "batcher" => bindings::BATCHER_NAME_OBSERVABILITY_EVENTS,
+            "reason" => "closed",
+        )
+        .increment(5);
+        // Any other batcher's drops must not count anywhere.
+        metrics::counter!(
+            bindings::LOSSY_BATCHER_DROPPED,
+            "batcher" => "some_other_batcher",
+            "reason" => "full",
+        )
+        .increment(1000);
         // Unbound metrics get no-op handles.
         metrics::counter!("waymark_postgres_queries_total").increment(1000);
         for value in [1.0, 2.0, 3.0] {
@@ -118,6 +131,7 @@ async fn bound_metrics_land_in_the_sample() {
         Some(chrono::DateTime::from_timestamp_secs(1_700_000_000).unwrap()),
     );
     assert_eq!(sample.essential_metrics_dropped_total, 3);
+    assert_eq!(sample.observability_events_dropped_total, 105);
 
     // Nothing was recorded for dequeues.
     assert_eq!(sample.action_dequeue_seconds.counts, [0; 11]);
@@ -199,6 +213,74 @@ fn counter_absolute_never_lowers_the_count() {
     metrics::CounterFn::absolute(&cell, 5);
 
     assert_eq!(cell.get(), 10);
+}
+
+/// A flusher that never finishes, so the batcher's standby buffer stays
+/// out and every further full buffer is dropped.
+struct PendingFlusher;
+
+impl waymark_lossy_batcher::Flusher<u32> for PendingFlusher {
+    type Error = String;
+
+    async fn flush(&self, _batch: nonempty_collections::NESlice<'_, u32>) -> Result<(), String> {
+        std::future::pending().await
+    }
+}
+
+/// The observability-events batcher's drops reach the sample through the
+/// batcher's own counter — its metric name and `batcher` label as the
+/// batcher emits them, not as the bindings spell them.
+#[tokio::test(start_paused = true)]
+async fn a_real_events_batcher_drops_land_in_the_sample() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (batcher, batcher_task) = test_batcher(&seen);
+    let node_id: u32 = 7;
+    let (recorder, handle) = recorder::new();
+    let sampler_task = run(
+        handle,
+        node_id,
+        NonZeroDuration::from_secs(10).expect("non-zero"),
+        batcher,
+        std::future::pending(),
+    );
+    tokio::spawn(batcher_task);
+    tokio::spawn(sampler_task);
+
+    // Two buffers of two, one flusher that never returns: the first two
+    // items take the standby buffer out for good, the next four find no
+    // buffer free and are dropped as full.
+    let (events_batcher, events_batcher_task) = metrics::with_local_recorder(&recorder, || {
+        waymark_lossy_batcher::lossy_batcher(
+            bindings::BATCHER_NAME_OBSERVABILITY_EVENTS,
+            waymark_lossy_batcher::Policy {
+                buffers: NonZeroUsize::new(2).expect("non-zero"),
+                max_batch: NonZeroUsize::new(2).expect("non-zero"),
+                max_delay: NonZeroDuration::from_secs(60).expect("non-zero"),
+                flushers: NonZeroUsize::new(1).expect("non-zero"),
+            }
+            .validate()
+            .expect("policy is valid"),
+            PendingFlusher,
+            std::future::pending(),
+        )
+    });
+    tokio::spawn(events_batcher_task);
+    for item in 0..6u32 {
+        events_batcher.push(item);
+    }
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+
+    tokio::time::sleep(Duration::from_secs(11)).await;
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+
+    let samples = seen.lock().unwrap();
+    let sample = samples.first().expect("one sample after one interval");
+    assert_eq!(sample.observability_events_dropped_total, 4);
+    assert_eq!(sample.essential_metrics_dropped_total, 0);
 }
 
 /// Let the sampler tick through `interval` and the batcher flush what it

@@ -37,6 +37,7 @@ fn sample(
         action_dequeue_seconds: histogram(2, 1, 0.5),
         action_handling_seconds: histogram(4, 1, 1.0),
         essential_metrics_dropped_total: 1,
+        observability_events_dropped_total: 4,
     }
 }
 
@@ -57,6 +58,7 @@ async fn append_latest_series_and_retention_round_trip() {
             queued_action_dispatches: 6,
             driven_vm_runtimes: 20,
             essential_metrics_dropped_total: 3,
+            observability_events_dropped_total: 12,
             ..sample(node_a, 1_030, 20)
         },
         sample(node_a, 1_060, 30),
@@ -101,6 +103,10 @@ async fn append_latest_series_and_retention_round_trip() {
     assert_eq!(series[0].driven_vm_runtimes, 15, "avg within bucket");
     assert_eq!(
         series[0].essential_metrics_dropped_total, 3,
+        "max within bucket"
+    );
+    assert_eq!(
+        series[0].observability_events_dropped_total, 12,
         "max within bucket"
     );
     assert_eq!(

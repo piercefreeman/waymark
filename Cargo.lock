@@ -4893,6 +4893,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "waymark-api-observability-events-http",
+ "waymark-essential-metrics-sampler",
  "waymark-http-api-types",
  "waymark-ids",
  "waymark-lossy-batcher",

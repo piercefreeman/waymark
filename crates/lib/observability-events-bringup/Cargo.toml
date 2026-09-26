@@ -21,3 +21,6 @@ waymark-retention-sweeper = { workspace = true }
 aide = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 tokio-util = { workspace = true }
+
+[dev-dependencies]
+waymark-essential-metrics-sampler = { workspace = true }

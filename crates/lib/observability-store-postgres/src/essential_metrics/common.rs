@@ -5,7 +5,7 @@ pub(crate) const NODE_SAMPLE_COLUMNS: &str = "node_id, sampled_at, worker_pool_s
                        queued_action_dispatches, driven_vm_runtimes, actions_completed_total, \
                        last_action_completed_at, action_dequeue_seconds_counts, action_dequeue_seconds_sum, \
                        action_handling_seconds_counts, action_handling_seconds_sum, \
-                       essential_metrics_dropped_total";
+                       essential_metrics_dropped_total, observability_events_dropped_total";
 
 /// An aggregate summing a fixed-length `bigint[]` column elementwise.
 ///

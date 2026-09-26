@@ -33,7 +33,8 @@ struct Cells {
     instances_revived: Arc<counter::Cell>,
     instances_evicted: Arc<counter::Cell>,
     actions_completed: Arc<counter::Cell>,
-    dropped: Arc<counter::Cell>,
+    essential_metrics_dropped: Arc<counter::Cell>,
+    observability_events_dropped: Arc<counter::Cell>,
     action_dequeue_seconds: Arc<
         histogram::Cell<
             { waymark_essential_metrics_core::ACTION_DEQUEUE_SECONDS_BOUNDS.len() + 1 },
@@ -58,7 +59,8 @@ impl Default for Cells {
             instances_revived: Arc::default(),
             instances_evicted: Arc::default(),
             actions_completed: Arc::default(),
-            dropped: Arc::default(),
+            essential_metrics_dropped: Arc::default(),
+            observability_events_dropped: Arc::default(),
             action_dequeue_seconds: Arc::new(histogram::Cell::new(
                 &waymark_essential_metrics_core::ACTION_DEQUEUE_SECONDS_BOUNDS,
             )),

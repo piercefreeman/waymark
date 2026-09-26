@@ -11,8 +11,10 @@ use std::sync::Arc;
 use waymark_observability_events_compat::BackendFlusher;
 use waymark_observability_events_config::ObservabilityEventsConfig;
 
-/// The name of the observability-events lossy batcher: its metrics label
-/// and the name of the sweep it feeds in its tracing.
+/// The name of the observability-events lossy batcher: its metrics label,
+/// which the essential-metrics sampler's recorder filters the drop
+/// counter by — its copy is `bindings::BATCHER_NAME_OBSERVABILITY_EVENTS`
+/// — and the name of the sweep it feeds in its tracing.
 const BATCHER_NAME: &str = "observability_events";
 
 /// The spawned observability-events tasks.
@@ -120,3 +122,6 @@ where
 
     (handles, api_router, emitter, vm_driver_hooks_policy)
 }
+
+#[cfg(test)]
+mod tests;
