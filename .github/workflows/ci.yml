@@ -555,7 +555,6 @@ jobs:
             --max-concurrent-instances 200 \
             --poll-interval-ms 50 \
             --persist-interval-ms 100 \
-            --profile-interval-ms 1000 \
             --startup-log-interval-secs 10 \
             --timeout-seconds 2 \
             --queue-rate-per-minute 60 \

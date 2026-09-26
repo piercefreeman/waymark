@@ -37,7 +37,6 @@ pub struct WorkerConfig {
     pub scheduler_batch_max: NonZeroUsize,
     pub http: waymark_http_config::HttpConfig,
     pub observability: waymark_observability_config::ObservabilityConfig,
-    pub profile_interval: NonZeroDuration,
     pub vm_retention: NonZeroDuration,
     pub vm_sweep_interval: NonZeroDuration,
     pub executable_retention: NonZeroDuration,
@@ -155,9 +154,6 @@ impl WorkerConfig {
                 &database_url,
             )?;
 
-        let FromMillisMin::<_, 1>(profile_interval) =
-            envfury::or_parse("WAYMARK_RUNNER_PROFILE_INTERVAL_MS", "5000")?;
-
         let FromMillis(vm_retention) = envfury::or_parse("WAYMARK_VM_RETENTION_MS", "60000")?;
 
         let FromMillis(vm_sweep_interval) =
@@ -197,7 +193,6 @@ impl WorkerConfig {
             scheduler_batch_max,
             http,
             observability,
-            profile_interval,
             vm_retention,
             vm_sweep_interval,
             executable_retention,
