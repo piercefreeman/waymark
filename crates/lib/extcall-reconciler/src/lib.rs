@@ -36,7 +36,7 @@ pub enum HandleEffectError<ActionEffectHandlerError, SleepEffectHandlerError> {
     Sleep(#[source] SleepEffectHandlerError),
 }
 
-/// Error returned when [`PromiseSettler::get_promise_settlements`] fails.
+/// Error returned when [`waymark_vm_driver_core::PromiseSettler::get_promise_settlements`] fails.
 #[derive(Debug, thiserror::Error)]
 pub enum GetPromiseSettlementsError<ActionError, SleepError> {
     /// The action promise settler failed while polling for settlements.

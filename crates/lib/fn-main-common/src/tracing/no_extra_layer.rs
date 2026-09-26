@@ -28,7 +28,7 @@ impl<Subscriber> tracing_subscriber::Layer<Subscriber> for UninhabitableLayer wh
 /// layer in `and_then` pairs) without this crate naming that private
 /// machinery: the inner `None` answers whatever protocol the locked
 /// version expects. The inner `Option`'s `Some` type is the uninhabited
-/// [`UninhabitableLayer`], so the delegate is absent by construction and
+/// `UninhabitableLayer`, so the delegate is absent by construction and
 /// no downcast through it can ever produce a real layer.
 #[derive(Debug, Default)]
 pub struct NoExtraLayer(Option<UninhabitableLayer>);

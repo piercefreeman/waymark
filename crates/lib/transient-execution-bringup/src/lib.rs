@@ -2,7 +2,7 @@
 //! effect-reconciler stack over a caller-provided action transport and
 //! spawns the VM driver on a dedicated OS thread.
 //!
-//! This is the bringup counterpart to [`waymark_execution_bringup`] for
+//! This is the bringup counterpart to `waymark_execution_bringup` for
 //! transient execution: no snapshot persistence and no backend — the
 //! workflow outcome is delivered in-process.
 
