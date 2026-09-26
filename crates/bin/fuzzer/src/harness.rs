@@ -69,56 +69,79 @@ pub async fn run_case(
     let mut supervisor =
         waymark_task_supervisor::start::<waymark_fn_main_common::Error>(shutdown_token.clone());
 
-    let (worker_pool, pool_loop) = waymark_worker_inline::run(action_registry());
-    supervisor.spawn("inline worker pool loop", pool_loop);
+    // The case under the supervisor: a failure part-way leaves the tasks
+    // already up supervised, and they are shut down and drained below like
+    // on any other exit.
+    let case_result: Result<_, color_eyre::eyre::Report> = async {
+        let (worker_pool, pool_loop) = waymark_worker_inline::run(action_registry());
+        supervisor.spawn("inline worker pool loop", pool_loop);
 
-    // The harness keeps its own worker pool handle: the VM
-    // driver drops its own when it returns, and the loop ends on the
-    // last one, so the harness's copy is what orders that end after
-    // the shutdown request.
-    let worker_pool = std::sync::Arc::new(worker_pool);
+        // The harness keeps its own worker pool handle: the VM
+        // driver drops its own when it returns, and the loop ends on the
+        // last one, so the harness's copy is what orders that end after
+        // the shutdown request.
+        let worker_pool = std::sync::Arc::new(worker_pool);
 
-    let cancel = tokio_util::sync::CancellationToken::new();
-    let waymark_transient_execution_bringup::Execution {
-        workflow_outcome_rx,
-        driver_handle,
-    } = waymark_transient_execution_worker_pool_bringup::execute(
-        runtime,
-        std::sync::Arc::clone(&worker_pool),
-        false,
-        cancel.clone(),
-    );
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let waymark_transient_execution_bringup::Execution {
+            workflow_outcome_rx,
+            driver_handle,
+        } = waymark_transient_execution_worker_pool_bringup::execute(
+            runtime,
+            std::sync::Arc::clone(&worker_pool),
+            false,
+            cancel.clone(),
+        );
 
-    let workflow_outcome =
-        match tokio::time::timeout(Duration::from_secs(5), workflow_outcome_rx).await {
-            Ok(received) => received,
-            Err(_elapsed) => {
-                cancel.cancel();
-                shutdown_token.cancel();
-                drop(worker_pool);
-                let Err(driver_exit) = driver_handle.await;
-                tracing::debug!(?driver_exit, "vm driver exited after cancellation");
-                let report = supervisor.drain().await;
-                tracing::debug!(%report, "tasks drained");
-                bail!(
-                    "case {case_index} timed out\n--- program ---\n{}",
-                    case.source
-                )
-            }
-        };
+        let workflow_outcome =
+            match tokio::time::timeout(Duration::from_secs(5), workflow_outcome_rx).await {
+                Ok(received) => received,
+                Err(_elapsed) => {
+                    cancel.cancel();
+                    shutdown_token.cancel();
+                    drop(worker_pool);
+                    let Err(driver_exit) = driver_handle.await;
+                    tracing::debug!(?driver_exit, "vm driver exited after cancellation");
+                    bail!(
+                        "case {case_index} timed out\n--- program ---\n{}",
+                        case.source
+                    )
+                }
+            };
 
-    // The outcome is the end of the work, so the shutdown is requested
-    // here, and then the harness's worker pool handle is dropped. The VM
-    // driver drops its own when it returns, right after delivering the
-    // outcome; the loop ends on the last of the two.
+        // The outcome is the end of the work, so the shutdown is requested
+        // here, and then the harness's worker pool handle is dropped. The VM
+        // driver drops its own when it returns, right after delivering the
+        // outcome; the loop ends on the last of the two.
+        shutdown_token.cancel();
+        drop(worker_pool);
+
+        // The driver terminates right after delivering the workflow outcome —
+        // including on success — so join it unconditionally for its exit report.
+        let Err(driver_exit) = driver_handle.await;
+        tracing::debug!(?driver_exit, "vm driver exited");
+
+        let workflow_outcome = workflow_outcome.map_err(|_recv_error| {
+            color_eyre::eyre::eyre!(
+                "case {case_index}: vm driver exited without delivering a workflow outcome\n--- program ---\n{}",
+                case.source
+            )
+        })?;
+
+        match workflow_outcome {
+            waymark_workflow_completion_core::Outcome::Completion(_value) => Ok(()),
+            waymark_workflow_completion_core::Outcome::Exception(exception) => bail!(
+                "case {case_index} completed with an exception: {exception:?}\n--- program ---\n{}",
+                case.source
+            ),
+        }
+    }
+    .await;
+
+    // Whatever the case did, the shutdown is requested and every task is
+    // drained. A task that ended before the request is the root cause of
+    // whatever the case saw, so it is reported over the case's own failure.
     shutdown_token.cancel();
-    drop(worker_pool);
-
-    // The driver terminates right after delivering the workflow outcome —
-    // including on success — so join it unconditionally for its exit report.
-    let Err(driver_exit) = driver_handle.await;
-    tracing::debug!(?driver_exit, "vm driver exited");
-
     let report = supervisor.drain().await;
     if report.any_before_shutdown() {
         bail!(
@@ -126,21 +149,7 @@ pub async fn run_case(
             case.source
         );
     }
-
-    let workflow_outcome = workflow_outcome.map_err(|_recv_error| {
-        color_eyre::eyre::eyre!(
-            "case {case_index}: vm driver exited without delivering a workflow outcome\n--- program ---\n{}",
-            case.source
-        )
-    })?;
-
-    match workflow_outcome {
-        waymark_workflow_completion_core::Outcome::Completion(_value) => {}
-        waymark_workflow_completion_core::Outcome::Exception(exception) => bail!(
-            "case {case_index} completed with an exception: {exception:?}\n--- program ---\n{}",
-            case.source
-        ),
-    }
+    case_result?;
 
     if (case_index + 1).is_multiple_of(10) {
         println!("Completed fuzz cases: {}", case_index + 1);
