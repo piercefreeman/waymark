@@ -98,6 +98,9 @@ struct FixedBackend {
     /// The node the last tail read was given.
     seen_node_id: std::sync::Mutex<Option<waymark_ids::NodeId>>,
 
+    /// The VM the last timeline read was given.
+    seen_vm_id: std::sync::Mutex<Option<waymark_ids::InstanceId>>,
+
     /// The `after` the last read was given.
     seen_after: std::sync::Mutex<Option<u64>>,
 
@@ -135,6 +138,10 @@ impl waymark_observability_events_query_backend::HasNodeId for FixedBackend {
 
 impl waymark_observability_events_query_backend::HasPayload for FixedBackend {
     type Payload = TestPayload;
+}
+
+impl waymark_observability_events_query_backend::HasVmId for FixedBackend {
+    type VmId = waymark_ids::InstanceId;
 }
 
 impl waymark_observability_events_query_backend::ListEvents for FixedBackend {
@@ -188,12 +195,40 @@ impl waymark_observability_events_query_backend::Tail for FixedBackend {
     }
 }
 
+impl waymark_observability_events_query_backend::VmTimeline for FixedBackend {
+    type Cursor = TestCursor;
+
+    type Error = &'static str;
+
+    async fn vm_timeline(
+        &self,
+        params: waymark_observability_events_query_backend::vm_timeline::Params<
+            waymark_ids::InstanceId,
+            TestCursor,
+        >,
+    ) -> Result<
+        Option<waymark_observability_events_query_backend::PageFor<Self, TestCursor>>,
+        &'static str,
+    > {
+        if self.fail {
+            return Err("backend down");
+        }
+
+        *self.seen_vm_id.lock().unwrap() = Some(params.vm_id);
+        *self.seen_after.lock().unwrap() = params.after.map(|cursor| cursor.0);
+        *self.seen_limit.lock().unwrap() = Some(params.limit.get());
+
+        Ok(self.page())
+    }
+}
+
 fn backend(events: usize, fail: bool) -> Arc<FixedBackend> {
     Arc::new(FixedBackend {
         events,
         fail,
         seen_range: std::sync::Mutex::new(None),
         seen_node_id: std::sync::Mutex::new(None),
+        seen_vm_id: std::sync::Mutex::new(None),
         seen_after: std::sync::Mutex::new(None),
         seen_limit: std::sync::Mutex::new(None),
     })
@@ -396,6 +431,7 @@ fn documents_every_operation() {
 
     let list = &document["paths"]["/observability-events"]["get"];
     let tail = &document["paths"]["/observability-events/nodes/{node_id}/tail"]["get"];
+    let vm_timeline = &document["paths"]["/observability-events/vms/{vm_id}/timeline"]["get"];
 
     assert_eq!(
         parameters(list),
@@ -410,8 +446,12 @@ fn documents_every_operation() {
         parameters(tail),
         [("after", "query"), ("limit", "query"), ("node_id", "path")],
     );
+    assert_eq!(
+        parameters(vm_timeline),
+        [("after", "query"), ("limit", "query"), ("vm_id", "path")],
+    );
 
-    for operation in [list, tail] {
+    for operation in [list, tail, vm_timeline] {
         assert!(
             operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
                 .is_string(),
@@ -433,6 +473,35 @@ fn documents_every_operation() {
 }
 
 #[tokio::test]
+async fn vm_timeline_serves_the_vm_events() {
+    let backend = backend(2, false);
+    let vm_id = waymark_ids::InstanceId::new_uuid_v4();
+    let (status, body) = get(
+        &backend,
+        &format!("/observability-events/vms/{vm_id}/timeline?limit=10&after=5"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["items"].as_array().expect("items").len(), 2);
+    assert_eq!(body["next"], "7");
+    assert_eq!(*backend.seen_vm_id.lock().unwrap(), Some(vm_id));
+    assert_eq!(*backend.seen_after.lock().unwrap(), Some(5));
+    assert_eq!(*backend.seen_limit.lock().unwrap(), Some(10));
+}
+
+#[tokio::test]
+async fn vm_timeline_bad_vm_id_is_a_400() {
+    let backend = backend(1, false);
+    let (status, _) = get(
+        &backend,
+        "/observability-events/vms/not-a-uuid/timeline?limit=10",
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn backend_failure_is_a_500() {
     let backend = backend(1, true);
     let (status, _) = get(&backend, &format!("/observability-events?{RANGE}&limit=10")).await;
@@ -446,6 +515,18 @@ async fn tail_backend_failure_is_a_500() {
     let (status, _) = get(
         &backend,
         &format!("/observability-events/nodes/{node_id}/tail?limit=10"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+async fn vm_timeline_backend_failure_is_a_500() {
+    let backend = backend(1, true);
+    let vm_id = waymark_ids::InstanceId::new_uuid_v4();
+    let (status, _) = get(
+        &backend,
+        &format!("/observability-events/vms/{vm_id}/timeline?limit=10"),
     )
     .await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
