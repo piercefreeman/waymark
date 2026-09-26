@@ -10,37 +10,26 @@ use std::sync::Arc;
 use waymark_essential_metrics_compat::BackendFlusher;
 use waymark_essential_metrics_config::EssentialMetricsConfig;
 
-/// The spawned essential-metrics tasks.
-#[derive(Debug)]
-pub struct Handles {
-    /// The lossy batcher between the sampler and the store sink.
-    pub batcher: tokio::task::JoinHandle<()>,
-
-    /// The sampler.
-    pub sampler: tokio::task::JoinHandle<()>,
-
-    /// The retention sweep.
-    pub retention: tokio::task::JoinHandle<()>,
-}
-
 /// Start the essential-metrics pipeline over `write_backend`: sampler →
-/// lossy batcher → store sink, plus the retention sweep, all ending on
-/// `shutdown_token` — and return the essential-metrics API router over
-/// `read_backend`.
+/// lossy batcher → store sink, plus the retention sweep, as tasks of
+/// `spawner` all ending on `shutdown_token` — and return the
+/// essential-metrics API router over `read_backend`.
 ///
 /// `handle` is the sampling half of the recorder pair; the recording
 /// half must already be installed in the process-global fanout, so the
 /// metrics bound here (the batcher's own counters included) land in
 /// live recorders.
-pub fn start<WriteBackend, ReadBackend>(
+pub fn start<Spawner, WriteBackend, ReadBackend>(
+    mut spawner: Spawner,
     config: EssentialMetricsConfig,
     node_id: <WriteBackend as waymark_essential_metrics_sink_backend::HasNodeId>::NodeId,
     handle: waymark_essential_metrics_sampler::recorder::Handle,
     write_backend: Arc<WriteBackend>,
     read_backend: Arc<ReadBackend>,
     shutdown_token: tokio_util::sync::CancellationToken,
-) -> (Handles, aide::axum::ApiRouter)
+) -> aide::axum::ApiRouter
 where
+    Spawner: waymark_managed_spawner::Spawner,
     WriteBackend: waymark_essential_metrics_sink_backend::AppendSamples,
     WriteBackend: waymark_essential_metrics_retention_backend::ApplyRetention,
     WriteBackend: Send + Sync + 'static,
@@ -79,11 +68,9 @@ where
         shutdown_token.cancelled_owned(),
     );
 
-    let handles = Handles {
-        batcher: tokio::spawn(batcher_task),
-        sampler: tokio::spawn(sampler_task),
-        retention: tokio::spawn(retention_task),
-    };
+    spawner.spawn("essential metrics sampler", sampler_task);
+    spawner.spawn("essential metrics batcher", batcher_task);
+    spawner.spawn("essential metrics retention", retention_task);
 
-    (handles, api_router)
+    api_router
 }

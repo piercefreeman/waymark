@@ -17,6 +17,7 @@ waymark-execution-driver = { workspace = true }
 waymark-extcall-reconciler = { workspace = true }
 waymark-fullset-effect-handler = { workspace = true }
 waymark-ids = { workspace = true }
+waymark-managed-spawner = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-observability-events-vm-driver-hooks = { workspace = true }
 waymark-observability-events-vm-driver-hooks-fullset = { workspace = true }
@@ -42,7 +43,7 @@ waymark-workload-pinning-backend = { workspace = true }
 waymark-workload-pinning-manager = { workspace = true }
 
 chrono = { workspace = true }
-tokio = { workspace = true, features = ["sync", "macros", "rt"] }
+tokio = { workspace = true, features = ["sync", "macros"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 
