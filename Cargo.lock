@@ -5386,6 +5386,7 @@ name = "waymark-sqlx-postgres-schema-pool"
 version = "0.1.0"
 dependencies = [
  "sqlx",
+ "thiserror",
  "tokio",
  "waymark-support-integration",
  "waymark-support-test",
