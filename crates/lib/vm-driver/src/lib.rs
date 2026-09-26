@@ -191,14 +191,14 @@ where
                     // compile error here, forcing a conscious classification.
                     match resolution {
                         PromiseResolution::Resolved(value) => {
-                            tracing::info!(?promise_state_id, ?value, "promise resolution");
+                            tracing::debug!(?promise_state_id, ?value, "promise resolution");
                             match runtime.resolve_promise(promise_state_id, value) {
                                 Ok(()) => {}
                                 Err(
                                     error @ (SettlePromiseError::AlreadySettled(_)
                                     | SettlePromiseError::PromiseStateNotFound(_)),
                                 ) => {
-                                    tracing::info!(
+                                    tracing::debug!(
                                         ?promise_state_id,
                                         ?error,
                                         "stale promise resolution ignored"
@@ -207,14 +207,14 @@ where
                             }
                         }
                         PromiseResolution::Rejected(exception) => {
-                            tracing::info!(?promise_state_id, ?exception, "promise rejection");
+                            tracing::debug!(?promise_state_id, ?exception, "promise rejection");
                             match runtime.reject_promise(promise_state_id, exception) {
                                 Ok(()) => {}
                                 Err(
                                     error @ (SettlePromiseError::AlreadySettled(_)
                                     | SettlePromiseError::PromiseStateNotFound(_)),
                                 ) => {
-                                    tracing::info!(
+                                    tracing::debug!(
                                         ?promise_state_id,
                                         ?error,
                                         "stale promise rejection ignored"
@@ -253,7 +253,7 @@ where
                 // or there is an effect.
                 match runtime.run() {
                     Ok(emitted_effect) => {
-                        tracing::info!(?emitted_effect.effect, %emitted_effect.number, "effect");
+                        tracing::debug!(?emitted_effect.effect, %emitted_effect.number, "effect");
 
                         hooks.effect_emitted(emitted_effect.number, &emitted_effect.effect);
 
