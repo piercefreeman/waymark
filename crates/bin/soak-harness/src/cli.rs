@@ -63,6 +63,9 @@ pub struct SoakArgs {
     #[arg(long, default_value_t = 5.try_into().unwrap())]
     pub startup_log_interval_secs: NonZeroU64,
 
+    #[arg(long, default_value_t = 30)]
+    pub worker_stop_timeout_secs: u64,
+
     #[arg(long, default_value_t = 20)]
     pub timeout_seconds: u32,
 

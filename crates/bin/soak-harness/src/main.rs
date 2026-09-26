@@ -127,6 +127,7 @@ async fn run(
             .await?,
         )
     };
+    let worker_stop_timeout = Duration::from_secs(args.worker_stop_timeout_secs);
 
     if let Some(worker_process) = worker.as_mut()
         && let Err(err) = common::run_unless_cancelled(
@@ -141,7 +142,8 @@ async fn run(
         )
         .await
     {
-        setup_workers::shutdown_worker_if_running(&mut worker, &abort_token).await;
+        setup_workers::shutdown_worker_if_running(&mut worker, worker_stop_timeout, &abort_token)
+            .await;
         return Err(err);
     }
 
@@ -159,7 +161,12 @@ async fn run(
     {
         Ok(workflow) => workflow,
         Err(err) => {
-            setup_workers::shutdown_worker_if_running(&mut worker, &abort_token).await;
+            setup_workers::shutdown_worker_if_running(
+                &mut worker,
+                worker_stop_timeout,
+                &abort_token,
+            )
+            .await;
             return Err(err);
         }
     };
@@ -218,8 +225,10 @@ async fn run(
         ),
     )
     .await;
-    let shutdown_result = match worker.as_mut() {
-        Some(worker_process) => setup_workers::shutdown_worker(worker_process, &abort_token).await,
+    let shutdown_result = match worker.take() {
+        Some(worker_process) => {
+            setup_workers::shutdown_worker(worker_process, worker_stop_timeout, &abort_token).await
+        }
         None => Ok(()),
     };
     let diagnostics_path = match diagnostics_result {
