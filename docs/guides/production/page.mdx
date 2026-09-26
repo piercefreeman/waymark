@@ -124,10 +124,6 @@ If a third-party library leaks memory inside your actions, set
 `WAYMARK_MAX_ACTION_LIFECYCLE` to recycle workers after a fixed number of
 actions. In-flight work completes before the old process exits.
 
-One retention default to know: finished workflow instances are garbage
-collected after 24 hours. If you want longer run history in the webapp
-or for audits, increase the value of `WAYMARK_GARBAGE_COLLECTOR_RETENTION_HOURS`.
-
 The full list of environment variables, including queue polling, lock
 TTLs, and scheduler intervals, lives in [Configuration](/guides/configuration).
 
