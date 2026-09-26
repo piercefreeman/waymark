@@ -27,6 +27,8 @@ waymark-blanket-impl-macros = { path = "crates/lib/blanket-impl-macros" }
 waymark-blocking-future = { path = "crates/lib/blocking-future" }
 waymark-config = { path = "crates/lib/config" }
 waymark-convert-core = { path = "crates/lib/convert-core" }
+waymark-essential-metrics-core = { path = "crates/lib/essential-metrics-core" }
+waymark-essential-metrics-sink-backend = { path = "crates/lib/essential-metrics-sink-backend" }
 waymark-execution-bringup = { path = "crates/lib/execution-bringup" }
 waymark-execution-driver = { path = "crates/lib/execution-driver" }
 waymark-extcall-reconciler = { path = "crates/lib/extcall-reconciler" }
@@ -40,6 +42,7 @@ waymark-http-config = { path = "crates/lib/http-config" }
 waymark-http-healthz = { path = "crates/lib/http-healthz" }
 waymark-ids = { path = "crates/lib/ids" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
+waymark-lossy-batcher = { path = "crates/lib/lossy-batcher" }
 waymark-managed-process = { path = "crates/lib/managed-process" }
 waymark-metrics-util = { path = "crates/lib/metrics-util" }
 waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
