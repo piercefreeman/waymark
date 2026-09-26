@@ -7,8 +7,8 @@ publish.workspace = true
 [dependencies]
 waymark-action-core = { workspace = true }
 waymark-fn-main-common = { workspace = true }
+waymark-managed-spawner-supervised = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
-waymark-task-supervisor = { workspace = true }
 waymark-transient-execution-bringup = { workspace = true }
 waymark-transient-execution-worker-pool-bringup = { workspace = true }
 waymark-vm-ast-old = { workspace = true }
