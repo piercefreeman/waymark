@@ -4583,6 +4583,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-lossy-batcher"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "futures-util",
+ "metrics",
+ "metrics-util",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "waymark-nonzero-duration",
+]
+
+[[package]]
 name = "waymark-managed-process"
 version = "0.1.0"
 dependencies = [
