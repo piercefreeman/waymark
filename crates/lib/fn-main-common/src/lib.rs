@@ -16,6 +16,22 @@ pub mod tracing;
 /// The all-encompassing error type to use for `fn main`.
 pub use color_eyre::eyre::Report as Error;
 
+/// The converter of any error into [`Error`], for a task supervisor over
+/// it.
+#[derive(Debug)]
+pub struct ErrorConverter;
+
+impl waymark_managed_spawner_supervised::UnifyAnyError for ErrorConverter {
+    type UnifiedError = Error;
+
+    fn from_any_error<Error>(error: Error) -> Self::UnifiedError
+    where
+        Error: core::error::Error + Send + Sync + 'static,
+    {
+        Self::UnifiedError::new(error)
+    }
+}
+
 /// Error returned when tracing initialization fails.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
