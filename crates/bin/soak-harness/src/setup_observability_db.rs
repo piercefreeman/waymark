@@ -32,6 +32,9 @@ pub async fn connect(
             Err(error @ waymark_observability_store_postgres_bringup::SchemaPoolError::Url(_)) => {
                 Err(crate::common::WaitForDatabaseAttemptError::Stop(error))
             }
+            // TODO: when the database setup is reworked, classify these the
+            // way the main database's wait does (`setup_db::is_permanent`), so
+            // a wrong password or a missing database stops the wait here too.
             Err(waymark_observability_store_postgres_bringup::SchemaPoolError::Connect(error)) => {
                 Err(crate::common::WaitForDatabaseAttemptError::Retry(error))
             }
