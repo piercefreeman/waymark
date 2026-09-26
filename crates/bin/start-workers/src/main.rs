@@ -35,19 +35,15 @@
 
 use std::sync::Arc;
 
-use tracing::{error, info};
+use tracing::info;
 
 use waymark_backend_postgres::PostgresBackend;
 use waymark_config::WorkerConfig;
 use waymark_managed_spawner_supervised::SupervisorExt as _;
 
-/// The process exit when a task ended before the shutdown was requested.
-#[derive(Debug, thiserror::Error)]
-#[error("shutdown was failure-driven: a task ended before it was requested")]
-struct FailureDrivenShutdown;
-
 #[tokio::main]
-async fn main() -> Result<(), waymark_fn_main_common::Error> {
+async fn main()
+-> Result<waymark_fn_main_lifecycle::CleanShutdown<()>, waymark_fn_main_common::Error> {
     waymark_fn_main_common::init()?;
 
     // The OS's shutdown requests are held from here on, so one landing at
@@ -95,30 +91,43 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     )
     .set(1);
 
-    // Wire shutdown coordination. The graceful token is the only one ever
-    // cancelled: by the signal listener on a signal, or by the supervisor
-    // when a task ends early. The force token is handed to the execution
+    // Wire shutdown coordination. The signal listener cancels the
+    // stop-startup-then-shutdown token; the lifecycle cancels the shutdown
+    // token after it, or when the startup fails, and the supervisor cancels
+    // it when a task ends early. The force token is handed to the execution
     // subsystem and deliberately never cancelled: this process is graceful
     // only, and a drain that never finishes is ended by the orchestrator's
     // kill, not by anything in here.
+    let stop_startup_then_shutdown_token = tokio_util::sync::CancellationToken::new();
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
 
-    let mut supervisor =
-        waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
+    let supervisor = waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
     // Bring everything up under the supervisor, handing each subsystem's
-    // tasks over as soon as they exist. A failure part-way leaves the tasks
-    // already up supervised; they are shut down and drained like on any
-    // other failure, and the boot error is what main returns.
-    let started: Result<(), waymark_fn_main_common::Error> = async {
+    // tasks over as soon as they exist, and run the lifecycle from there:
+    // the startup stops at a checkpoint once the stop-startup-then-shutdown
+    // token is cancelled, a failure part-way shuts the tasks already up
+    // down, and every task is drained at the end.
+    let params = waymark_fn_main_lifecycle::Params {
+        supervisor,
+        stop_startup_then_shutdown_token: stop_startup_then_shutdown_token.clone(),
+        shutdown_token: shutdown_token.clone(),
+    };
+    let clean_shutdown = waymark_fn_main_lifecycle::run(params, async |supervisor, checkpoint| {
         let mut supervisor = supervisor.spawner(waymark_fn_main_common::ErrorConverter);
 
-        // The shutdown signal listener: on a request it requests the
-        // shutdown, so its end is always after the request.
+        // The shutdown signal listener: on a request it cancels the
+        // stop-startup-then-shutdown token, so its end is always after the
+        // request.
         supervisor.spawn(
             "shutdown signal listener",
-            shutdown_signal_listener(ctrl_c, termination, shutdown_token.clone()),
+            shutdown_signal_listener(
+                ctrl_c,
+                termination,
+                stop_startup_then_shutdown_token.clone(),
+                shutdown_token.clone(),
+            ),
         );
 
         // The tokio metrics reporters.
@@ -136,6 +145,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             shutdown_token.clone(),
         )
         .await?;
+        checkpoint()?;
 
         // Initialize the database and backend.
         let pool = sqlx::postgres::PgPoolOptions::new()
@@ -144,6 +154,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             .await?;
         waymark_backend_postgres_migrations::run(&pool).await?;
         let backend = PostgresBackend::new(pool);
+        checkpoint()?;
 
         // The API routes get documented as they are built, from here on; aide
         // reports what it can not document only through this hook, on this
@@ -161,6 +172,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
                 force_shutdown_token.child_token(),
             )
             .await?;
+        checkpoint()?;
 
         // Start the worker pool (bridge + python workers).
         let mut worker_config = waymark_worker_python::Config::new();
@@ -183,6 +195,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             config.concurrent_per_worker,
         )
         .await?;
+        checkpoint()?;
 
         let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
             waymark_worker_remote_pool::run(process_pool);
@@ -211,6 +224,7 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
         } else {
             info!("http server disabled (set WAYMARK_HTTP_ENABLED=true to enable)");
         }
+        checkpoint()?;
 
         // Start the execution subsystem (workload pinning + execution driver).
         let bringup_config = waymark_execution_bringup::Config {
@@ -266,38 +280,19 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
             shutdown_token.child_token(),
         );
 
-        Ok(())
-    }
-    .await;
-
-    if let Err(error) = &started {
-        error!(error = %error, "startup failed; shutting down");
-        shutdown_token.cancel();
-    }
-
-    let report = supervisor.drain().await;
-
-    if report.any_before_shutdown() {
-        error!(%report, "shutdown complete");
-    } else {
-        info!(%report, "shutdown complete");
-    }
-
-    started?;
-
-    if report.any_before_shutdown() {
-        return Err(FailureDrivenShutdown.into());
-    }
-
-    Ok(())
+        Ok::<(), waymark_fn_main_common::Error>(())
+    })
+    .await?;
+    Ok(clean_shutdown)
 }
 
-/// Wait for the OS's first shutdown request of either kind, then request
-/// the shutdown; ends without a request of its own when the shutdown is
-/// requested some other way first.
+/// Wait for the OS's first shutdown request of either kind, then cancel
+/// the stop-startup-then-shutdown token; ends without a request of its own
+/// when the shutdown is requested some other way first.
 async fn shutdown_signal_listener(
     mut ctrl_c: waymark_os_shutdown_requests::ctrl_c::Receiver,
     mut termination: waymark_os_shutdown_requests::termination::Receiver,
+    stop_startup_then_shutdown_token: tokio_util::sync::CancellationToken,
     shutdown_token: tokio_util::sync::CancellationToken,
 ) -> Result<(), std::convert::Infallible> {
     tokio::select! {
@@ -312,7 +307,7 @@ async fn shutdown_signal_listener(
         }
     }
     info!("shutdown signal received");
-    shutdown_token.cancel();
+    stop_startup_then_shutdown_token.cancel();
 
     Ok(())
 }
