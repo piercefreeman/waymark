@@ -82,6 +82,7 @@ where
 
 async fn run_smoke(base: i64) -> i32 {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
+    let force_shutdown_token = tokio_util::sync::CancellationToken::new();
     let mut supervisor =
         waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
@@ -111,7 +112,10 @@ async fn run_smoke(base: i64) -> i32 {
         .wrap_err("start python worker pool")?;
 
         let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
-            waymark_worker_remote_pool::run(process_pool);
+            waymark_worker_remote_pool::run(
+                process_pool,
+                force_shutdown_token.child_token().cancelled_owned(),
+            );
         supervisor.spawn("worker pool loop", worker_pool_loop);
         let worker_pool_requests = Arc::new(worker_pool_requests);
         let worker_pool_completions = Arc::new(worker_pool_completions);
@@ -197,9 +201,10 @@ async fn run_smoke(base: i64) -> i32 {
     }
     .await;
 
-    // Whatever the run did, the shutdown is requested and every task is
-    // drained, however long it takes.
+    // Whatever the run did, the shutdown is requested, the worker pool is
+    // forced off its in-flight actions, and every task is drained.
     shutdown_token.cancel();
+    force_shutdown_token.cancel();
     let report = supervisor.drain().await;
 
     // The exit code is a bit per kind of wrong: bit 0 for failed cases,

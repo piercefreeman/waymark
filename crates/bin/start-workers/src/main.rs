@@ -198,7 +198,10 @@ async fn main()
         checkpoint()?;
 
         let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
-            waymark_worker_remote_pool::run(process_pool);
+            waymark_worker_remote_pool::run(
+                process_pool,
+                force_shutdown_token.child_token().cancelled_owned(),
+            );
         supervisor.spawn("worker pool loop", worker_pool_loop);
 
         let worker_pool_requests = Arc::new(worker_pool_requests);
