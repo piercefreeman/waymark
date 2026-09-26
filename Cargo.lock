@@ -4563,6 +4563,7 @@ dependencies = [
 name = "waymark-execution-driver"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "metrics",
  "nonempty-collections",
  "tokio",
