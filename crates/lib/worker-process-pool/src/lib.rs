@@ -2,7 +2,7 @@ use std::{
     num::{NonZeroU64, NonZeroUsize},
     sync::{
         Arc,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
 };
 
@@ -13,19 +13,48 @@ use tracing::{info, warn};
 
 type Registry = waymark_worker_reservation::Registry<waymark_worker_message_protocol::Channels>;
 
-type WorkerId = u64;
+/// A worker's generation: a fresh number per spawn into the pool.
+type WorkerGeneration = u64;
 
 pub struct WorkerState {
     pub handle: waymark_worker_process::Handle,
     pub sender: Arc<waymark_worker_message_protocol::Sender>,
-    pub id: WorkerId,
+    pub generation: WorkerGeneration,
 }
 
-/// Reported by [`Pool::record_completion`] when the worker's action count
-/// reached the lifecycle limit: the worker is due for
-/// [`Pool::recycle_worker`].
+/// Reported by [`Pool::record_completion`] on every completion at or past
+/// the lifecycle limit, until the slot is recycled: the worker is due for
+/// [`Pool::recycle_worker`], which acts on the first report for a worker
+/// and ignores the rest.
 #[derive(Debug)]
-pub struct RecycleDue;
+pub struct RecycleDue {
+    /// The generation of the worker the completion was recorded against.
+    pub generation: WorkerGeneration,
+}
+
+/// The claim a recycle holds on its slot, released when the recycle is
+/// over, one way or another.
+struct RecycleClaim<'a> {
+    slot: &'a AtomicBool,
+}
+
+impl<'a> RecycleClaim<'a> {
+    /// Claim `slot` for a recycle; `None` when a recycle of the slot is
+    /// already in progress.
+    fn try_acquire(slot: &'a AtomicBool) -> Option<Self> {
+        let acquired = slot
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok();
+
+        acquired.then(|| Self { slot })
+    }
+}
+
+impl Drop for RecycleClaim<'_> {
+    fn drop(&mut self) {
+        self.slot.store(false, Ordering::Release);
+    }
+}
 
 pub struct Pool<Spec> {
     /// The spec for the worker processes.
@@ -34,8 +63,8 @@ pub struct Pool<Spec> {
     /// The registry of the connecting workers.
     workers_registry: Arc<Registry>,
 
-    // Worker ID sequence.
-    worker_id_sequence: AtomicU64,
+    /// The next worker generation.
+    generation_sequence: AtomicU64,
 
     /// The workers in the pool (RwLock for recycling support)
     worker_processes: RwLock<Vec<WorkerState>>,
@@ -45,6 +74,13 @@ pub struct Pool<Spec> {
 
     /// Action counts per worker slot (for lifecycle tracking)
     action_counts: NEVec<AtomicU64>,
+
+    /// The generation of the worker each slot holds, kept in step with
+    /// `worker_processes` for the lock-free completion path.
+    slot_generations: NEVec<AtomicU64>,
+
+    /// Whether a recycle of the slot is in progress, per slot.
+    recycle_claims: NEVec<AtomicBool>,
 
     /// In-flight action counts per worker slot (for concurrency control)
     in_flight_counts: NEVec<AtomicUsize>,
@@ -96,7 +132,7 @@ where
         };
 
         let mut workers = Vec::with_capacity(worker_count.get());
-        let mut worker_id_sequence = 0;
+        let mut generation_sequence = 0;
         for (worker_index, handle) in spawn_results.into_iter().enumerate() {
             let result = handle.await.unwrap(); // propagate panics
             match result {
@@ -104,9 +140,9 @@ where
                     workers.push(WorkerState {
                         handle,
                         sender: Arc::new(sender),
-                        id: worker_id_sequence,
+                        generation: generation_sequence,
                     });
-                    worker_id_sequence += 1;
+                    generation_sequence += 1;
                 }
                 Err(error) => {
                     warn!(
@@ -135,16 +171,22 @@ where
                 .saturating_mul(max_concurrent_per_worker.get()) as f64,
         );
 
-        let worker_id_sequence = AtomicU64::new(worker_id_sequence);
+        let generation_sequence = AtomicU64::new(generation_sequence);
         let action_counts = nevec_fn(worker_count, |_| AtomicU64::new(0));
+        let slot_generations = nevec_fn(worker_count, |index| {
+            AtomicU64::new(workers[index].generation)
+        });
+        let recycle_claims = nevec_fn(worker_count, |_| AtomicBool::new(false));
         let in_flight_counts = nevec_fn(worker_count, |_| AtomicUsize::new(0));
         Ok(Self {
             worker_process_spec,
             workers_registry,
-            worker_id_sequence,
+            generation_sequence,
             worker_processes: RwLock::new(workers),
             cursor: AtomicUsize::new(0),
             action_counts,
+            slot_generations,
+            recycle_claims,
             in_flight_counts,
             max_concurrent_per_worker,
             max_action_lifecycle,
@@ -290,8 +332,10 @@ where
     ///
     /// Decrements the in-flight count and increments the action count for
     /// the worker at the given index. When `max_action_lifecycle` is set and
-    /// the count reaches it, reports that a recycle is due: the caller runs
-    /// [`recycle_worker`](Self::recycle_worker) when it sees fit.
+    /// the count is at or past it, reports that a recycle is due for the
+    /// worker the slot holds. Every completion past the limit reports it
+    /// again until [`recycle_worker`](Self::recycle_worker) resets the
+    /// count; that is where the reports are told apart.
     pub fn record_completion(&self, worker_idx: usize) -> Option<RecycleDue> {
         // Release the in-flight slot
         self.release_slot(worker_idx);
@@ -301,6 +345,14 @@ where
             .unwrap_or_default();
         metrics::gauge!("waymark_worker_process_pool_last_action_completed_timestamp_seconds")
             .set(unix_time.as_secs_f64());
+
+        // The generation is read before the count: a recycle resets the
+        // count before it publishes the replacement's generation, so a
+        // count past the limit is never reported against the replacement.
+        let generation = self
+            .slot_generations
+            .get(worker_idx)?
+            .load(Ordering::SeqCst);
 
         // Increment action count
         let counter = self.action_counts.get(worker_idx)?;
@@ -314,55 +366,98 @@ where
 
         info!(
             worker_idx,
+            generation,
             action_count = new_count,
             max_lifecycle,
             "worker reached action lifecycle limit, recycle due"
         );
 
-        Some(RecycleDue)
+        Some(RecycleDue { generation })
     }
 
-    /// Recycle a worker at the given index.
+    /// Recycle the worker at the given index, on the report `due`.
     ///
-    /// Spawns a new worker and replaces the old one. The old worker
-    /// will be shut down once all in-flight actions complete (when
-    /// its Arc reference count drops to zero).
+    /// Acts once per worker: the report is ignored when the slot no longer
+    /// holds the worker it was reported for, or while a recycle of that
+    /// worker is in progress. Otherwise a replacement is spawned and
+    /// swapped in and the slot's action count is reset. The old worker
+    /// will be shut down once all in-flight actions complete (when its
+    /// Arc reference count drops to zero). A failed spawn releases the
+    /// slot, so the next report retries.
     pub async fn recycle_worker(
         &self,
         worker_idx: usize,
+        due: RecycleDue,
     ) -> Result<(), waymark_worker_process::SpawnError> {
+        let slot = worker_idx % self.len();
+        let RecycleDue { generation } = due;
+
+        // Claim the slot for this worker's recycle, against the worker the
+        // slot holds right now; the read lock keeps a swap from happening
+        // in between.
+        let claim = {
+            let worker_processes = self.worker_processes.read().await;
+            if worker_processes[slot].generation != generation {
+                tracing::debug!(
+                    worker_idx,
+                    generation,
+                    "recycle reported for a worker already replaced; ignored"
+                );
+                return Ok(());
+            }
+
+            let claim_slot = self
+                .recycle_claims
+                .get(slot)
+                .expect("the slot index is within the pool");
+            let Some(claim) = RecycleClaim::try_acquire(claim_slot) else {
+                tracing::debug!(
+                    worker_idx,
+                    generation,
+                    "recycle reported while one is in progress; ignored"
+                );
+                return Ok(());
+            };
+
+            claim
+        };
+
         // Spawn the replacement worker first
         let reservation = self.workers_registry.reserve();
         let params = self
             .worker_process_spec
             .prepare_spawn_params(reservation.id());
         let (handle, sender) = waymark_worker_process::spawn(reservation, params).await?;
-        let new_worker_id = self.worker_id_sequence.fetch_add(1, Ordering::Relaxed);
+        let new_generation = self.generation_sequence.fetch_add(1, Ordering::Relaxed);
         let new_worker = WorkerState {
             handle,
             sender: Arc::new(sender),
-            id: new_worker_id,
+            generation: new_generation,
         };
 
-        // Replace the worker in the pool
+        // Replace the worker in the pool, reset the slot's action count and
+        // only then publish the replacement's generation; see
+        // `record_completion`.
         let old_worker = {
             let mut worker_processes = self.worker_processes.write().await;
-            let idx = worker_idx % worker_processes.len();
-            std::mem::replace(&mut worker_processes[idx], new_worker)
+            let old_worker = std::mem::replace(&mut worker_processes[slot], new_worker);
+
+            if let Some(counter) = self.action_counts.get(slot) {
+                counter.store(0, Ordering::SeqCst);
+            }
+            if let Some(slot_generation) = self.slot_generations.get(slot) {
+                slot_generation.store(new_generation, Ordering::SeqCst);
+            }
+
+            old_worker
         };
 
-        // Reset the action count for this slot
-        if let Some(counter) = self
-            .action_counts
-            .get(worker_idx % self.action_counts.len())
-        {
-            counter.store(0, Ordering::SeqCst);
-        }
+        drop(claim);
 
         info!(
             worker_idx,
-            old_worker_id = old_worker.id,
-            new_worker_id,
+            old_generation = old_worker.generation,
+            new_generation,
             "recycled worker"
         );
 
@@ -416,21 +511,31 @@ mod tests {
         }
     }
 
-    fn make_pool(worker_count: usize, max_concurrent_per_worker: usize) -> Pool<DummySpec> {
+    fn make_pool(
+        worker_count: usize,
+        max_concurrent_per_worker: usize,
+        max_action_lifecycle: Option<u64>,
+    ) -> Pool<DummySpec> {
         let worker_count = NonZeroUsize::new(worker_count).expect("worker count must be non-zero");
         let max_concurrent_per_worker = NonZeroUsize::new(max_concurrent_per_worker)
             .expect("max concurrent per worker must be non-zero");
+        let max_action_lifecycle = max_action_lifecycle
+            .map(|limit| NonZeroU64::new(limit).expect("max action lifecycle must be non-zero"));
 
         Pool {
             worker_process_spec: DummySpec,
             workers_registry: Arc::new(Registry::default()),
-            worker_id_sequence: AtomicU64::new(worker_count.get() as u64),
+            generation_sequence: AtomicU64::new(worker_count.get() as u64),
             worker_processes: RwLock::new(Vec::new()),
             cursor: AtomicUsize::new(0),
             action_counts: nevec_fn(worker_count, |_| AtomicU64::new(0)),
+            slot_generations: nevec_fn(worker_count, |index| {
+                AtomicU64::new(u64::try_from(index).expect("the slot index fits a generation"))
+            }),
+            recycle_claims: nevec_fn(worker_count, |_| AtomicBool::new(false)),
             in_flight_counts: nevec_fn(worker_count, |_| AtomicUsize::new(0)),
             max_concurrent_per_worker,
-            max_action_lifecycle: None,
+            max_action_lifecycle,
         }
     }
 
@@ -447,7 +552,7 @@ mod tests {
         let snapshotter = recorder.snapshotter();
 
         metrics::with_local_recorder(&recorder, || {
-            let pool = make_pool(1, 1);
+            let pool = make_pool(1, 1, None);
 
             assert!(pool.try_acquire_slot_for_worker(0));
             assert!(!pool.try_acquire_slot_for_worker(0), "at capacity");
@@ -486,7 +591,7 @@ mod tests {
 
     #[test]
     fn record_completion_increments_internal_action_count() {
-        let pool = make_pool(2, 2);
+        let pool = make_pool(2, 2, None);
 
         assert!(pool.try_acquire_slot_for_worker(1));
         let recycle_due = pool.record_completion(1);
@@ -501,5 +606,23 @@ mod tests {
 
         assert_eq!(get_action_count(0), 0);
         assert_eq!(get_action_count(1), 1);
+    }
+
+    #[test]
+    fn record_completion_reports_due_on_every_completion_at_or_past_the_limit() {
+        let pool = make_pool(1, 2, Some(2));
+
+        assert!(pool.try_acquire_slot_for_worker(0));
+        assert!(pool.try_acquire_slot_for_worker(0));
+        assert!(pool.record_completion(0).is_none(), "below the limit");
+
+        let due = pool.record_completion(0).expect("at the limit");
+        assert_eq!(due.generation, 0);
+
+        assert!(pool.try_acquire_slot_for_worker(0));
+        let due = pool
+            .record_completion(0)
+            .expect("past the limit, reported again");
+        assert_eq!(due.generation, 0);
     }
 }
