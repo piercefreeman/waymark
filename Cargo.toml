@@ -46,8 +46,10 @@ waymark-execution-driver = { path = "crates/lib/execution-driver" }
 waymark-extcall-reconciler = { path = "crates/lib/extcall-reconciler" }
 waymark-extcall-reconciler-action-compat = { path = "crates/lib/extcall-reconciler-action-compat" }
 waymark-extcall-reconciler-core = { path = "crates/lib/extcall-reconciler-core" }
+waymark-eyre-error = { path = "crates/lib/eyre-error" }
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-fullset-effect-handler = { path = "crates/lib/fullset-effect-handler" }
+waymark-into-error = { path = "crates/lib/into-error" }
 waymark-http-api = { path = "crates/lib/http-api" }
 waymark-http-api-types = { path = "crates/lib/http-api-types" }
 waymark-http-bringup = { path = "crates/lib/http-bringup" }

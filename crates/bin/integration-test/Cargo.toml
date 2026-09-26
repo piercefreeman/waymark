@@ -9,6 +9,7 @@ waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-convert-core = { workspace = true }
 waymark-execution-bringup = { workspace = true }
+waymark-eyre-error = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-managed-spawner = { workspace = true }

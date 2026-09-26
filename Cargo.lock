@@ -4634,6 +4634,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-eyre-error"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "thiserror",
+]
+
+[[package]]
 name = "waymark-fn-main-common"
 version = "0.1.0"
 dependencies = [
@@ -4642,6 +4650,8 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-subscriber",
+ "waymark-eyre-error",
+ "waymark-into-error",
  "waymark-managed-spawner-supervised",
 ]
 
@@ -4721,6 +4731,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "waymark-eyre-error",
  "waymark-fn-main-common",
  "waymark-managed-spawner",
  "waymark-managed-spawner-supervised",
@@ -4774,6 +4785,7 @@ dependencies = [
  "waymark-backend-postgres-migrations",
  "waymark-convert-core",
  "waymark-execution-bringup",
+ "waymark-eyre-error",
  "waymark-fn-main-common",
  "waymark-ids",
  "waymark-managed-spawner",
@@ -4796,6 +4808,15 @@ dependencies = [
  "waymark-workflow-completion-core",
  "waymark-workflow-service-vm-executables",
  "waymark-workflow-service-vm-runtimes",
+]
+
+[[package]]
+name = "waymark-into-error"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "thiserror",
+ "waymark-eyre-error",
 ]
 
 [[package]]
@@ -6507,6 +6528,7 @@ dependencies = [
  "tokio-util",
  "tonic",
  "tracing",
+ "waymark-eyre-error",
  "waymark-fn-main-common",
  "waymark-managed-spawner",
  "waymark-managed-spawner-supervised",
