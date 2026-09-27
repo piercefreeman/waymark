@@ -20,7 +20,7 @@ static LOCAL_POSTGRES_BOOTSTRAPPED: OnceCell<()> = OnceCell::const_new();
 
 /// Error returned when connecting a [`PgPool`] fails.
 #[derive(Debug, thiserror::Error)]
-#[error("connect postgres pool")]
+#[error("connect postgres pool: {0}")]
 pub struct ConnectPoolError(#[source] pub sqlx::Error);
 
 /// Error returned when the local Postgres bootstrap fails.

@@ -23,7 +23,7 @@ use crate::request_batcher::{RecordError, RecordOutcome, RequestRecorderHandle};
 #[derive(Debug, thiserror::Error)]
 pub enum Error<EncodeError, DeliverError> {
     /// The request payload could not be encoded for storage.
-    #[error("unable to encode an action-call request payload")]
+    #[error("unable to encode an action-call request payload: {0}")]
     Encode(#[source] EncodeError),
 
     /// Recording the request failed fatally — the key diverged or the

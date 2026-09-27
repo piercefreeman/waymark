@@ -34,12 +34,12 @@ pub enum Error<ProviderError, EncodeError, RecordError> {
     Completions(#[source] ProviderError),
 
     /// An action-call execution result could not be encoded for storage.
-    #[error("unable to encode an action-call execution result")]
+    #[error("unable to encode an action-call execution result: {0}")]
     ExecutionResultEncode(#[source] EncodeError),
 
     /// The backend reported diverging effect numbers — the
     /// "same effect ⇒ same pair" invariant is broken.
-    #[error("diverging effect numbers reported by the backend")]
+    #[error("diverging effect numbers reported by the backend: {0}")]
     DivergentEffectNumber(#[source] RecordError),
 }
 

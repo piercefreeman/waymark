@@ -37,7 +37,7 @@ pub enum Error<PollError, DecodeError> {
 
     /// A stored execution result could not be decoded — the blob we
     /// wrote cannot be read back, which is a bug.
-    #[error("unable to decode a stored action-call execution result")]
+    #[error("unable to decode a stored action-call execution result: {0}")]
     ExecutionResultDecode(#[source] DecodeError),
 }
 

@@ -91,7 +91,7 @@ pub enum Error<LiteralLoweringError, ActionLoweringError> {
     },
 
     /// Lowering a literal into the target VM constant type failed.
-    #[error("literal lowering failed")]
+    #[error("literal lowering failed: {0}")]
     LiteralLowering(#[source] LiteralLoweringError),
 
     /// Lowering an action call into the target VM action reference failed.
