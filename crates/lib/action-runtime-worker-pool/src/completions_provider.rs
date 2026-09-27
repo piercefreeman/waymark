@@ -15,17 +15,17 @@ pub enum WorkerPoolCompletionsError<PollError, MetadataDecodeError, PayloadError
     ///
     /// Whatever polling failed with, expressed as the pool's own error:
     /// this provider merely propagates it.
-    #[error("polling the worker pool")]
+    #[error("polling the worker pool: {0}")]
     Poll(#[source] PollError),
 
     /// A completion carried correlation metadata that could not be decoded,
     /// so it cannot be routed back to the promise that awaits it.
-    #[error("unable to decode correlation metadata for an action completion")]
+    #[error("unable to decode correlation metadata for an action completion: {0}")]
     Decode(#[source] MetadataDecodeError),
 
     /// A completion carried a payload that could not be converted, so
     /// there is nothing valid to settle the promise with.
-    #[error("unable to convert an action-completion payload")]
+    #[error("unable to convert an action-completion payload: {0}")]
     Payload(#[source] PayloadError),
 }
 
