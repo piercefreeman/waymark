@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use waymark_managed_process::{self as managed_process, WaitWithTimeoutError};
+use waymark_managed_process::{self as managed_process, Observed, ShutdownOutcome};
 
 fn spawn_sleeping_shell() -> managed_process::Child {
     let mut command = tokio::process::Command::new("sh");
@@ -9,17 +9,110 @@ fn spawn_sleeping_shell() -> managed_process::Child {
     managed_process::spawn(command).expect("spawn sleeping shell")
 }
 
-#[tokio::test]
-async fn wait_with_timeout_reports_timeout_for_running_child() {
-    let mut child = spawn_sleeping_shell();
-
-    let result = child.wait_with_timeout(Duration::from_millis(25)).await;
-    assert!(matches!(
-        result,
-        Err(WaitWithTimeoutError::Timeout { elapsed }) if elapsed == Duration::from_millis(25)
+/// Spawns a shell that runs `setup` and then `body`, and returns once
+/// `setup` has run, so the test's signals reach a shell that is ready for
+/// them. The shell reports readiness by creating a marker file.
+async fn spawn_shell_after_setup(setup: &str, body: &str) -> managed_process::Child {
+    let marker = std::env::temp_dir().join(format!(
+        "waymark-managed-process-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
     ));
+    let _ = std::fs::remove_file(&marker);
 
-    let _ = child.kill_and_wait(Some(Duration::from_secs(1))).await;
+    let mut command = tokio::process::Command::new("sh");
+    command
+        .arg("-c")
+        .arg(format!("{setup}; : > '{}'; {body}", marker.display()));
+    let child = managed_process::spawn(command).expect("spawn shell");
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !marker.exists() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "shell did not report readiness in time"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    std::fs::remove_file(&marker).expect("remove readiness marker");
+
+    child
+}
+
+#[tokio::test]
+async fn try_observe_in_leaves_a_running_child_in_its_slot_and_empties_it_on_the_exit() {
+    let mut slot = Some(spawn_sleeping_shell());
+
+    let observed =
+        managed_process::Child::try_observe_in(&mut slot, managed_process::Child::try_wait)
+            .expect("try wait in slot");
+    assert!(observed.is_none(), "expected no exit yet, got {observed:?}");
+    let child = slot.take().expect("the running child stays in its slot");
+
+    let exit_status = child.kill_and_wait().await.expect("kill and wait");
+    assert!(!exit_status.success());
+
+    let empty = managed_process::Child::try_observe_in(&mut slot, managed_process::Child::try_wait)
+        .expect("try wait in an empty slot");
+    assert!(empty.is_none());
+}
+
+#[tokio::test]
+async fn wait_with_timeout_hands_a_running_child_back() {
+    let child = spawn_sleeping_shell();
+
+    let observed = child
+        .wait_with_timeout(Duration::from_millis(25))
+        .await
+        .expect("wait with timeout");
+    let Observed::Running(child) = observed else {
+        panic!("expected the running child back, got {observed:?}");
+    };
+
+    let _ = child
+        .kill_and_wait_with_timeout(Duration::from_secs(1))
+        .await;
+}
+
+#[tokio::test]
+async fn wait_until_hands_a_running_child_back_with_what_cut_the_wait_short() {
+    let child = spawn_sleeping_shell();
+
+    let cut_short = child
+        .wait_until(async { "the deadline" })
+        .await
+        .expect_err("the sleeping child is still running");
+    let managed_process::ErrorWithChild { child, error } = cut_short;
+    assert!(
+        matches!(
+            error,
+            managed_process::WaitUntilError::Until("the deadline")
+        ),
+        "{error:?}"
+    );
+
+    let _ = child
+        .kill_and_wait_with_timeout(Duration::from_secs(1))
+        .await;
+}
+
+#[tokio::test]
+async fn try_wait_hands_a_running_child_back_and_consumes_an_exited_one() {
+    let child = spawn_sleeping_shell();
+
+    let observed = child.try_wait().expect("try wait");
+    let Observed::Running(child) = observed else {
+        panic!("expected the running child back, got {observed:?}");
+    };
+
+    let observed = child
+        .kill_and_wait_with_timeout(Duration::from_secs(1))
+        .await
+        .expect("kill and wait");
+    let Observed::Exited(exit_status) = observed else {
+        panic!("expected the killed child's exit, got {observed:?}");
+    };
+    assert!(!exit_status.success());
 }
 
 #[tokio::test]
@@ -27,7 +120,7 @@ async fn kill_and_wait_terminates_running_child() {
     let child = spawn_sleeping_shell();
 
     let exit_status = child
-        .kill_and_wait(Some(Duration::from_secs(1)))
+        .kill_and_wait()
         .await
         .expect("kill and wait should terminate child");
 
@@ -36,15 +129,10 @@ async fn kill_and_wait_terminates_running_child() {
 
 #[tokio::test]
 async fn shutdown_falls_back_to_kill_after_graceful_timeout() {
-    let mut command = tokio::process::Command::new("sh");
-    command
-        .arg("-c")
-        // Ignore SIGTERM so `shutdown` must use the kill fallback.
-        .arg("trap '' TERM; sleep 60");
+    // Ignore SIGTERM so `shutdown` must use the kill fallback.
+    let child = spawn_shell_after_setup("trap '' TERM", "sleep 60").await;
 
-    let child = managed_process::spawn(command).expect("spawn term-trapping shell");
-
-    let exit_status = child
+    let outcome = child
         .shutdown(
             Some(Duration::from_millis(25)),
             Some(Duration::from_secs(1)),
@@ -52,5 +140,19 @@ async fn shutdown_falls_back_to_kill_after_graceful_timeout() {
         .await
         .expect("shutdown should terminate child");
 
-    assert!(!exit_status.success());
+    assert!(matches!(outcome, ShutdownOutcome::KillSent(status) if !status.success()));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn shutdown_reports_a_graceful_exit() {
+    // Exit successfully on SIGTERM, so `shutdown` ends in the graceful wait.
+    let child = spawn_shell_after_setup("trap 'exit 0' TERM", "while :; do sleep 1; done").await;
+
+    let outcome = child
+        .shutdown(Some(Duration::from_secs(5)), Some(Duration::from_secs(1)))
+        .await
+        .expect("shutdown should stop child");
+
+    assert!(matches!(outcome, ShutdownOutcome::Exited(status) if status.success()));
 }

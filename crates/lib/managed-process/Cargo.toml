@@ -7,7 +7,7 @@ publish.workspace = true
 [dependencies]
 nix = { workspace = true, features = ["signal"] }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["process", "time"] }
+tokio = { workspace = true, features = ["macros", "process", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
