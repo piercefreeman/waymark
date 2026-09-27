@@ -12,7 +12,9 @@ pub struct GracefulTerminationError {
 }
 
 impl Child {
-    pub(crate) const CAN_GRACEFULLY_TERMINATE: bool = cfg!(unix);
+    /// Whether this platform has a graceful termination step, i.e. whether
+    /// [`Child::shutdown`] can end with [`crate::ShutdownOutcome::Exited`].
+    pub const CAN_GRACEFULLY_TERMINATE: bool = cfg!(unix);
 
     pub(crate) async fn trigger_graceful_termination(
         &self,
