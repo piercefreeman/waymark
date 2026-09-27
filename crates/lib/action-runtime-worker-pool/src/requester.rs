@@ -48,7 +48,7 @@ pub enum RequestActionCallError<ConvertError, QueueError> {
     ///
     /// Whatever queueing failed with, expressed as the pool's own error:
     /// this requester merely propagates it.
-    #[error("worker pool queue")]
+    #[error("worker pool queue: {0}")]
     PoolQueue(#[source] QueueError),
 }
 
