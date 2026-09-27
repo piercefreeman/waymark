@@ -5608,6 +5608,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "waymark-backend-postgres-migrations",
+ "waymark-error-fmt",
  "waymark-secret-string",
 ]
 
