@@ -20,7 +20,7 @@ static LOCAL_POSTGRES_BOOTSTRAPPED: OnceCell<()> = OnceCell::const_new();
 
 /// Error returned when connecting a [`PgPool`] fails.
 #[derive(Debug, thiserror::Error)]
-#[error("connect postgres pool")]
+#[error("connect postgres pool: {0}")]
 pub struct ConnectPoolError(#[source] pub sqlx::Error);
 
 /// Error returned when the local Postgres bootstrap fails.
@@ -31,7 +31,7 @@ pub enum EnsureLocalPostgresError {
     Migrations(#[source] sqlx::migrate::MigrateError),
 
     /// The docker compose command could not be run.
-    #[error("run docker compose in {root}")]
+    #[error("run docker compose in {root}: {source}")]
     ComposeRun {
         /// The directory docker compose ran in.
         root: PathBuf,
@@ -46,11 +46,8 @@ pub enum EnsureLocalPostgresError {
     ComposeStatus(std::process::ExitStatus),
 
     /// Postgres did not accept connections before the deadline.
-    #[error("timed out waiting for postgres at {dsn}")]
+    #[error("timed out waiting for postgres{}", waymark_error_fmt::option::suffix(.last_error))]
     WaitTimeout {
-        /// The DSN that was being connected to.
-        dsn: String,
-
         /// The connection error from the last attempt.
         #[source]
         last_error: Option<ConnectPoolError>,
@@ -131,10 +128,7 @@ async fn wait_for_postgres(dsn: &SecretStr) -> Result<PgPool, EnsureLocalPostgre
         }
     }
 
-    Err(EnsureLocalPostgresError::WaitTimeout {
-        dsn: dsn.expose_secret().to_string(),
-        last_error,
-    })
+    Err(EnsureLocalPostgresError::WaitTimeout { last_error })
 }
 
 fn project_root() -> PathBuf {

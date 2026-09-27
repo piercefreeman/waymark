@@ -34,7 +34,7 @@ pub enum ReconcileVmError<DecodeError, DeliverError> {
     Lock(#[source] LockError),
 
     /// A stored request payload could not be decoded.
-    #[error("unable to decode a stored action-call request payload")]
+    #[error("unable to decode a stored action-call request payload: {0}")]
     Decode(#[source] DecodeError),
 
     /// The local pool rejected a redelivery.
