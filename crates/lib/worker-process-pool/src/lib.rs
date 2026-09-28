@@ -1,3 +1,9 @@
+//! A pool of worker processes with per-worker action slots.
+//!
+//! A worker index is an index in `0..len()`, such as those handed out by
+//! [`Pool::try_acquire_slot`]; every method taking one indexes the pool's
+//! per-slot state directly and panics on an index outside the pool.
+
 use std::{
     num::{NonZeroU64, NonZeroUsize},
     sync::{
@@ -210,23 +216,15 @@ fn nevec_fn<T>(items: NonZeroUsize, mut f: impl FnMut(usize) -> T) -> NEVec<T> {
 }
 
 impl<Spec> Pool<Spec> {
-    /// Get a worker sender by index.
+    /// Get the sender of the worker at the slot `idx`.
     ///
-    /// Returns a clone of the [`Arc`] for the sender at the given index.
+    /// Returns a clone of the [`Arc`] for the sender.
     pub async fn get_worker_sender(
         &self,
         idx: usize,
     ) -> Arc<waymark_worker_message_protocol::Sender> {
         let worker_processes = self.worker_processes.read().await;
-        Arc::clone(&worker_processes[idx % worker_processes.len()].sender)
-    }
-
-    /// Get the next worker index using round-robin selection.
-    ///
-    /// This is lock-free and O(1). Returns the index that can be used
-    /// with `get_worker` to fetch the actual worker.
-    pub fn next_worker_idx(&self) -> usize {
-        self.cursor.fetch_add(1, Ordering::Relaxed)
+        Arc::clone(&worker_processes[idx].sender)
     }
 
     /// Get the number of workers in the pool.
@@ -281,9 +279,7 @@ impl<Spec> Pool<Spec> {
     ///
     /// Returns `true` if the slot was acquired, `false` if the worker is at capacity.
     pub fn try_acquire_slot_for_worker(&self, worker_idx: usize) -> bool {
-        let Some(counter) = self.in_flight_counts.get(worker_idx % self.len()) else {
-            return false;
-        };
+        let counter = &self.in_flight_counts[worker_idx];
 
         // CAS loop to atomically increment if below limit
         loop {
@@ -311,23 +307,19 @@ impl<Spec> Pool<Spec> {
     ///
     /// Should be called when an action completes (via `record_completion`).
     pub fn release_slot(&self, worker_idx: usize) {
-        if let Some(counter) = self.in_flight_counts.get(worker_idx % self.len()) {
-            // Saturating sub to avoid underflow in case of bugs
-            let prev = counter.fetch_sub(1, Ordering::Release);
-            if prev == 0 {
-                warn!(worker_idx, "release_slot called with zero in-flight count");
-                counter.store(0, Ordering::Release);
-            }
-            metrics::counter!("waymark_worker_process_pool_actions_released_total").increment(1);
+        let counter = &self.in_flight_counts[worker_idx];
+        // Saturating sub to avoid underflow in case of bugs
+        let prev = counter.fetch_sub(1, Ordering::Release);
+        if prev == 0 {
+            warn!(worker_idx, "release_slot called with zero in-flight count");
+            counter.store(0, Ordering::Release);
         }
+        metrics::counter!("waymark_worker_process_pool_actions_released_total").increment(1);
     }
 
     /// Get in-flight count for a specific worker.
     pub fn in_flight_for_worker(&self, worker_idx: usize) -> usize {
-        self.in_flight_counts
-            .get(worker_idx % self.len())
-            .map(|c| c.load(Ordering::Relaxed))
-            .unwrap_or(0)
+        self.in_flight_counts[worker_idx].load(Ordering::Relaxed)
     }
 }
 
@@ -363,14 +355,10 @@ where
         // count the replaced worker ran up is never reported under the
         // replacement's generation. The increment itself is the slot's
         // either way; see the doc.
-        let generation = self
-            .slot_generations
-            .get(worker_idx)?
-            .load(Ordering::SeqCst);
+        let generation = self.slot_generations[worker_idx].load(Ordering::SeqCst);
 
         // Increment action count
-        let counter = self.action_counts.get(worker_idx)?;
-        let new_count = counter.fetch_add(1, Ordering::SeqCst) + 1;
+        let new_count = self.action_counts[worker_idx].fetch_add(1, Ordering::SeqCst) + 1;
 
         // Check if recycling is needed
         let max_lifecycle = self.max_action_lifecycle?;
@@ -410,18 +398,13 @@ where
             worker_idx,
             generation,
         } = due;
-        let slot = worker_idx % self.len();
 
         // Claim the slot for this worker's recycle, against the worker the
         // slot holds right now; the read lock keeps a swap from happening
         // in between.
         let claim = {
             let _swap_lock = self.worker_processes.read().await;
-            let held_generation = self
-                .slot_generations
-                .get(slot)
-                .expect("the slot index is within the pool")
-                .load(Ordering::SeqCst);
+            let held_generation = self.slot_generations[worker_idx].load(Ordering::SeqCst);
             if held_generation != generation {
                 tracing::debug!(
                     worker_idx,
@@ -432,11 +415,7 @@ where
                 return Ok(());
             }
 
-            let claim_slot = self
-                .recycle_claims
-                .get(slot)
-                .expect("the slot index is within the pool");
-            let Some(claim) = RecycleClaim::try_acquire(claim_slot) else {
+            let Some(claim) = RecycleClaim::try_acquire(&self.recycle_claims[worker_idx]) else {
                 tracing::debug!(
                     worker_idx,
                     generation,
@@ -472,16 +451,10 @@ where
         // `record_completion`.
         let old_worker = {
             let mut worker_processes = self.worker_processes.write().await;
-            let old_worker = std::mem::replace(&mut worker_processes[slot], new_worker);
+            let old_worker = std::mem::replace(&mut worker_processes[worker_idx], new_worker);
 
-            self.action_counts
-                .get(slot)
-                .expect("the slot index is within the pool")
-                .store(0, Ordering::SeqCst);
-            self.slot_generations
-                .get(slot)
-                .expect("the slot index is within the pool")
-                .store(new_generation, Ordering::SeqCst);
+            self.action_counts[worker_idx].store(0, Ordering::SeqCst);
+            self.slot_generations[worker_idx].store(new_generation, Ordering::SeqCst);
 
             old_worker
         };
@@ -647,12 +620,8 @@ mod tests {
         let recycle_due = pool.record_completion(1);
         assert!(recycle_due.is_none(), "no lifecycle limit");
 
-        let get_action_count = |worker_idx: usize| -> u64 {
-            pool.action_counts
-                .get(worker_idx)
-                .map(|c| c.load(Ordering::SeqCst))
-                .unwrap_or(0)
-        };
+        let get_action_count =
+            |worker_idx: usize| -> u64 { pool.action_counts[worker_idx].load(Ordering::SeqCst) };
 
         assert_eq!(get_action_count(0), 0);
         assert_eq!(get_action_count(1), 1);
