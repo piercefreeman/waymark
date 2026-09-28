@@ -36,12 +36,10 @@ pub struct HeldLock<VmId> {
 
 /// Error returned when [`run`] stops because the lock fence was breached.
 ///
-/// A held lock is the authorization to be executing its attempt.  Without
-/// a per-attempt termination primitive, the only instrument that honors
-/// "force-terminate attempts we can no longer authorize" is killing the
-/// whole process — drive this loop under a drop guard so a breach
-/// escalates to subsystem shutdown, taking the local pool (and every
-/// running attempt) with it.
+/// A held lock is the authorization to be executing its attempt.  The loop
+/// has no per-attempt termination primitive: an attempt whose lock it can
+/// no longer vouch for keeps running in the local pool, and this error is
+/// the only signal that it does.
 #[derive(Debug, thiserror::Error)]
 pub enum Error<VmId> {
     /// These locks passed their local fence deadline without a confirmed
@@ -86,9 +84,8 @@ where
 /// the database-authoritative expiry); a confirmed renewal pushes the
 /// deadline out, and a deadline passing without one is a fence breach —
 /// [`Error::FenceBreached`] — because the attempt keeps running in the
-/// local pool and there is no per-attempt termination primitive.  Drive
-/// this loop under a drop guard: the breach escalates to subsystem
-/// shutdown, force-terminating every local attempt with the process.
+/// local pool and there is no per-attempt termination primitive.  The loop
+/// ends with it, the attempts it authorized still running.
 ///
 /// Tracked locks leave peacefully only via
 /// [`RenewalStatus::Missing`] — the row is gone because its completion

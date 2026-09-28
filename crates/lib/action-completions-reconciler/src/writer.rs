@@ -23,10 +23,9 @@ const RETRY_MAX_BACKOFF: Duration = Duration::from_secs(1);
 
 /// Error returned when the writer stops.
 ///
-/// Every variant is critical: the caller should treat the writer's death
-/// as fatal for the execution subsystem (drop-guard escalation).
-/// Retryable backend failures are retried internally and never surface
-/// here.
+/// Every variant is critical: once the writer has stopped, no action-call
+/// completion reaches the store anymore.  Retryable backend failures are
+/// retried internally and never surface here.
 #[derive(Debug, thiserror::Error)]
 pub enum Error<ProviderError, EncodeError, RecordError> {
     /// The completions provider failed; no further completions can be
