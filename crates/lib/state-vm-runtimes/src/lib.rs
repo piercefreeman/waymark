@@ -215,19 +215,12 @@ where
         Send + 'static,
     HooksProvider: waymark_state_vm_runtimes_core::HooksProvider<VmId = Backend::VmId>,
     HooksProvider: Send + Sync + 'static,
-    HooksProvider::Hooks: waymark_vm_driver_hooks::VmStarted,
-    HooksProvider::Hooks: waymark_vm_driver_hooks::EffectEmitted<
-            Effect = <InterpreterProvider::Interpreter as waymark_vm_interpreter::Interpreter>::Effect,
-        >,
-    HooksProvider::Hooks: waymark_vm_driver_hooks::PromiseSettled<Value = Value::ReadyValue>,
-    HooksProvider::Hooks: waymark_vm_driver_hooks::SnapshotPersisted,
-    HooksProvider::Hooks: waymark_vm_driver_hooks::VmStopped<
-            Error = waymark_vm_driver::ErrorFor<
-                InterpreterProvider::Interpreter,
-                Arc<Codec>,
-                SnapshotAdapter<Backend::VmId>,
-                EffectorProvider::Effector,
-            >,
+    HooksProvider::Hooks: waymark_vm_driver::HooksFor<
+            InterpreterProvider::Interpreter,
+            Value,
+            EffectorProvider::Effector,
+            SnapshotAdapter<Backend::VmId>,
+            Arc<Codec>,
         >,
     HooksProvider::Hooks: Send + Sync + 'static,
 {
