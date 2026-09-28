@@ -34,6 +34,10 @@ waymark-extcall-reconciler-action-compat = { path = "crates/lib/extcall-reconcil
 waymark-extcall-reconciler-core = { path = "crates/lib/extcall-reconciler-core" }
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-fullset-effect-handler = { path = "crates/lib/fullset-effect-handler" }
+waymark-http-api = { path = "crates/lib/http-api" }
+waymark-http-bringup = { path = "crates/lib/http-bringup" }
+waymark-http-config = { path = "crates/lib/http-config" }
+waymark-http-healthz = { path = "crates/lib/http-healthz" }
 waymark-ids = { path = "crates/lib/ids" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
 waymark-managed-process = { path = "crates/lib/managed-process" }
@@ -157,8 +161,10 @@ waymark-workload-pinning-backend = { path = "crates/lib/workload-pinning-backend
 waymark-workload-pinning-core = { path = "crates/lib/workload-pinning-core" }
 waymark-workload-pinning-manager = { path = "crates/lib/workload-pinning-manager" }
 
+aide = { version = "0.16.0-alpha.4", features = ["axum"] }
 async-stream = "0.3"
 async-walkdir = "2"
+axum = "0.8"
 chrono = { version = "0.4", default-features = false }
 clap = "4.5"
 color-eyre = "0.6"
@@ -172,6 +178,7 @@ envfury = "0.2"
 function_name = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
+http-body-util = "0.1"
 index_type = "0.4"
 indexmap = "2"
 insta = "1"
@@ -206,6 +213,7 @@ tonic = { version = "0.14", default-features = false }
 tonic-health = "0.14"
 tonic-prost = "0.14"
 tonic-prost-build = "0.14"
+tower = "0.5"
 tracing = "0.1"
 tracing-chrome = "0.7"
 tracing-futures = "0.2"
