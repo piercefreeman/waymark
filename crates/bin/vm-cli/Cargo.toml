@@ -15,6 +15,7 @@ waymark-vm-ast-old = { workspace = true }
 waymark-vm-ast-old-helpers = { workspace = true }
 waymark-vm-bytecode = { workspace = true }
 waymark-vm-bytecode-core = { workspace = true }
+waymark-vm-driver-hooks-tracing = { workspace = true }
 waymark-vm-instructions-coreset = { workspace = true }
 waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-instructions-pureset = { workspace = true }
