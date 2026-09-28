@@ -197,6 +197,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             runtime,
             first_msg.skip_sleep,
             in_stream,
+            waymark_vm_driver_hooks_tracing::Tracing::new(),
         );
 
         Ok(Response::new(out_stream))

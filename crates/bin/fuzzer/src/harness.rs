@@ -93,6 +93,7 @@ pub async fn run_case(
             worker_pool_completions,
             false,
             cancel.clone(),
+            waymark_vm_driver_hooks_tracing::Tracing::new(),
         );
 
         let workflow_outcome =
