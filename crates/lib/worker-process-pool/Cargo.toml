@@ -13,10 +13,12 @@ waymark-worker-process-spec = { workspace = true }
 waymark-worker-reservation = { workspace = true }
 waymark-worker-status-core = { workspace = true }
 
+metrics = { workspace = true }
 nonempty-collections = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["process"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
+metrics-util = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }

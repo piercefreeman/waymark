@@ -44,6 +44,8 @@ where
 
     match result {
         Ok(metrics) => {
+            metrics::histogram!("waymark_worker_remote_pool_action_handling_seconds")
+                .record(metrics.worker_duration);
             pool.record_latency(metrics.ack_latency, metrics.worker_duration);
             pool.record_completion(worker_idx, Arc::clone(pool));
             ActionExecutionReport::Completed(proto::ActionResult {
@@ -148,6 +150,23 @@ impl<Spec> RemoteWorkerPool<Spec> {
     }
 }
 
+/// Publish the dispatch queue's slots in use: the action requests holding a
+/// slot in the queue between `queue` and the launch loop that hands them
+/// to workers. Read the same way on both sides of the queue — after a
+/// request is queued and after the loop takes one — so the series means
+/// one thing whichever side wrote last.
+fn record_dispatch_queue_slots_in_use(max_capacity: usize, capacity: usize) {
+    metrics::gauge!("waymark_worker_remote_pool_dispatch_queue_slots_in_use")
+        .set(max_capacity.saturating_sub(capacity) as f64);
+}
+
+/// Publish the action requests waiting in the dispatch queue as the launch
+/// loop sees them after taking the next one. Only the loop can count the
+/// waiting requests themselves, so this side alone writes it.
+fn record_dispatch_queue_backlog(queued: usize) {
+    metrics::gauge!("waymark_worker_remote_pool_dispatch_queue_backlog").set(queued as f64);
+}
+
 impl<Spec> waymark_worker_core::LaunchWorkerPool for RemoteWorkerPool<Spec>
 where
     Spec: waymark_worker_process_spec::Spec,
@@ -180,6 +199,11 @@ where
         // and, finally, send the completion over to the pool for polling.
         tokio::spawn(async move {
             while let Some(request) = request_rx.recv().await {
+                record_dispatch_queue_slots_in_use(
+                    request_rx.max_capacity(),
+                    request_rx.capacity(),
+                );
+                record_dispatch_queue_backlog(request_rx.len());
                 tokio::spawn({
                     let completion_tx = completion_tx.clone();
                     let pool = Arc::clone(&pool);
@@ -214,7 +238,12 @@ where
                 "RemoteWorkerPoolError",
                 format!("failed to enqueue action request: {err}"),
             )
-        })
+        })?;
+        record_dispatch_queue_slots_in_use(
+            self.request_tx.max_capacity(),
+            self.request_tx.capacity(),
+        );
+        Ok(())
     }
 }
 
