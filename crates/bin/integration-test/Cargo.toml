@@ -22,6 +22,7 @@ waymark-transient-execution-worker-pool-bringup = { workspace = true }
 waymark-vm-ast-old = { workspace = true }
 waymark-vm-ast-old-proto = { workspace = true }
 waymark-vm-codec-rmp = { workspace = true }
+waymark-vm-driver-hooks-tracing = { workspace = true }
 waymark-vm-runtime-builder = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-value-python-convert-proto = { workspace = true }

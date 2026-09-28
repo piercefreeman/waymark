@@ -108,6 +108,7 @@ async fn run_case_transient(
         worker_pool.completions,
         false,
         cancel.clone(),
+        waymark_vm_driver_hooks_tracing::Tracing::new(),
     );
 
     let workflow_outcome = match tokio::time::timeout(timeout, workflow_outcome_rx).await {

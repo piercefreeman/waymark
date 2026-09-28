@@ -127,6 +127,39 @@ pub type DriverHandleFor<ActionCallRequester, ActionCallCompletionsProvider> =
         EffectorFor<ActionCallRequester, ActionCallCompletionsProvider>,
     >;
 
+/// The hooks [`execute_with`] takes for the given action transport: the
+/// VM driver's, over the types the driver runs with here.
+///
+/// Implemented for every [`waymark_vm_driver::Hooks`] whose types match.
+pub trait DriverHooksFor<ActionCallRequester, ActionCallCompletionsProvider>:
+    waymark_vm_driver::HooksFor<
+        waymark_system_vm::Interpreter,
+        waymark_system_vm::Value,
+        EffectorFor<ActionCallRequester, ActionCallCompletionsProvider>,
+        NoopPersister,
+        waymark_vm_codec_rmp::RmpCodec,
+    >
+where
+    EffectorFor<ActionCallRequester, ActionCallCompletionsProvider>:
+        waymark_vm_driver_core::EffectHandler + waymark_vm_driver_core::PromiseSettler,
+{
+}
+
+impl<T, ActionCallRequester, ActionCallCompletionsProvider>
+    DriverHooksFor<ActionCallRequester, ActionCallCompletionsProvider> for T
+where
+    T: waymark_vm_driver::HooksFor<
+            waymark_system_vm::Interpreter,
+            waymark_system_vm::Value,
+            EffectorFor<ActionCallRequester, ActionCallCompletionsProvider>,
+            NoopPersister,
+            waymark_vm_codec_rmp::RmpCodec,
+        >,
+    EffectorFor<ActionCallRequester, ActionCallCompletionsProvider>:
+        waymark_vm_driver_core::EffectHandler + waymark_vm_driver_core::PromiseSettler,
+{
+}
+
 /// A launched transient workflow execution.
 pub struct Execution<DriverHandle> {
     /// Resolves with the workflow outcome when the workflow completes.
@@ -157,15 +190,19 @@ pub struct Execution<DriverHandle> {
 /// When `skip_sleep` is true, every sleep in the workflow resolves
 /// immediately instead of waiting for its deadline.
 ///
-/// Cancelling `cancel` requests the driver loop to stop.
-pub fn execute_with<ActionCallRequester, ActionCallCompletionsProvider>(
+/// Cancelling `cancel` requests the driver loop to stop; `hooks` observe
+/// the driver's run.
+pub fn execute_with<ActionCallRequester, ActionCallCompletionsProvider, Hooks>(
     runtime: waymark_system_vm::Runtime,
     action_call_requester: ActionCallRequester,
     action_call_completions_provider: ActionCallCompletionsProvider,
     skip_sleep: bool,
     cancel: tokio_util::sync::CancellationToken,
+    hooks: Hooks,
 ) -> Execution<DriverHandleFor<ActionCallRequester, ActionCallCompletionsProvider>>
 where
+    Hooks: DriverHooksFor<ActionCallRequester, ActionCallCompletionsProvider>,
+    Hooks: Send + Sync + 'static,
     ActionCallRequester: waymark_action_runtime_core::ActionCallRequester<
             Argument = waymark_system_vm::ReadyValue,
             Metadata = waymark_action_runtime_metadata::ActionCallCorrelation,
@@ -221,7 +258,7 @@ where
         persister: NoopPersister,
         codec,
         cancel,
-        hooks: waymark_vm_driver_hooks_tracing::Tracing::new(),
+        hooks,
     });
 
     Execution {
