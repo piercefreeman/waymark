@@ -97,6 +97,23 @@ pub fn setup_runtime(
 // Execution bringup
 // ---------------------------------------------------------------------------
 
+/// The action call requester [`execute`] instantiates: dispatches go out
+/// on the response stream.
+pub type ActionCallRequester = waymark_action_runtime_worker_stream::WorkerStreamActionRequester<
+    ActionCallCorrelation,
+    waymark_vm_value_python::ReadyValue,
+    waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
+>;
+
+/// The action call completions provider [`execute`] instantiates: the
+/// results come in from the request stream.
+pub type ActionCallCompletionsProvider =
+    waymark_action_runtime_worker_stream::WorkerStreamActionCallCompletionsProvider<
+        ActionCallCorrelation,
+        waymark_vm_value_python::ReadyValue,
+        waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
+    >;
+
 /// A workflow's execution as its gRPC response stream: the action
 /// dispatches, then the workflow outcome.
 ///
@@ -144,26 +161,26 @@ impl futures_core::Stream for ExecuteStream {
 /// [`waymark_action_runtime_worker_stream`] channels.
 ///
 /// When `skip_sleep` is true, every sleep in the workflow resolves
-/// immediately instead of waiting for its deadline.
-pub fn execute(
+/// immediately instead of waiting for its deadline. `hooks` observe the
+/// driver's run.
+pub fn execute<Hooks>(
     runtime: waymark_system_vm::Runtime,
     skip_sleep: bool,
     mut in_stream: tonic::Streaming<proto::WorkflowStreamRequest>,
-) -> ExecuteStream {
+    hooks: Hooks,
+) -> ExecuteStream
+where
+    Hooks: waymark_transient_execution_bringup::DriverHooksFor<
+            ActionCallRequester,
+            ActionCallCompletionsProvider,
+        >,
+    Hooks: Send + Sync + 'static,
+{
     let (out_tx, out_rx) = mpsc::channel::<Result<proto::WorkflowStreamResponse, Status>>(32);
     let (action_result_tx, action_result_rx) = mpsc::channel::<proto::ActionResult>(32);
 
-    let action_call_requester = waymark_action_runtime_worker_stream::WorkerStreamActionRequester::<
-        ActionCallCorrelation,
-        waymark_vm_value_python::ReadyValue,
-        waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
-    >::new(out_tx.clone());
-    let action_call_completions_provider =
-        waymark_action_runtime_worker_stream::WorkerStreamActionCallCompletionsProvider::<
-            ActionCallCorrelation,
-            waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
-        >::new(action_result_rx);
+    let action_call_requester = ActionCallRequester::new(out_tx.clone());
+    let action_call_completions_provider = ActionCallCompletionsProvider::new(action_result_rx);
 
     let cancellation = tokio_util::sync::CancellationToken::new();
 
@@ -176,6 +193,7 @@ pub fn execute(
         action_call_completions_provider,
         skip_sleep,
         cancellation.clone(),
+        hooks,
     );
 
     let mut tasks = tokio::task::JoinSet::new();

@@ -55,6 +55,7 @@ where
         worker_pool_completions,
         false,
         tokio_util::sync::CancellationToken::new(),
+        waymark_vm_driver_hooks_tracing::Tracing::new(),
     );
 
     let workflow_outcome = workflow_outcome_rx.await;
