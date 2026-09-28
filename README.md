@@ -163,8 +163,6 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 | `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently | `500` |
 | `WAYMARK_USER_MODULE` | Comma-separated Python modules preloaded in workers | unset |
 | `WAYMARK_MAX_ACTION_LIFECYCLE` | Max actions per worker before worker recycle | unset (no recycle limit) |
-| `WAYMARK_WEBAPP_ENABLED` | Enable embedded webapp | `false` |
-| `WAYMARK_WEBAPP_ADDR` | Webapp bind address | `0.0.0.0:24119` |
 
 #### Advanced tuning
 
