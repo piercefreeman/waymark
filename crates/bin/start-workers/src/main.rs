@@ -142,10 +142,12 @@ async fn main()
             ),
         );
 
-        // The tokio metrics reporters.
-        let _task_monitor = waymark_tokio_metrics_bringup::start(
+        // The tokio runtime metrics reporter; nothing instruments its tasks
+        // with a monitor yet, so no task metrics.
+        waymark_tokio_metrics_bringup::start(
             &mut supervisor,
             env!("CARGO_BIN_NAME"),
+            None,
             shutdown_token.child_token(),
         );
 
