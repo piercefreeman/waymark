@@ -13,15 +13,15 @@ fn make_metric_name_transformer(
     }
 }
 
-/// Spawn the runtime and task metrics reporters as tasks on `spawner`,
-/// each stopping when `shutdown_token` is cancelled; the returned task
-/// monitor is the one the task reporter reads.
+/// Spawn the runtime metrics reporter, and the task metrics reporter when
+/// `task_monitor` is given, as tasks on `spawner`; each stops when
+/// `shutdown_token` is cancelled.
 pub fn start<Spawner>(
     mut spawner: Spawner,
     executable_name: &'static str,
+    task_monitor: Option<tokio_metrics::TaskMonitor>,
     shutdown_token: tokio_util::sync::CancellationToken,
-) -> tokio_metrics::TaskMonitor
-where
+) where
     Spawner: waymark_managed_spawner::Spawner,
 {
     let metric_name_transformer = make_metric_name_transformer(executable_name);
@@ -39,19 +39,16 @@ where
         }
     });
 
-    let task_monitor = tokio_metrics::TaskMonitor::new();
-
-    spawner.spawn("tokio task metrics reporter", {
-        let task_monitor = task_monitor.clone();
-        async move {
+    // The task metrics are those of the tasks instrumented with the
+    // monitor; without one there is nothing to report on.
+    if let Some(task_monitor) = task_monitor {
+        spawner.spawn("tokio task metrics reporter", async move {
             shutdown_token
                 .run_until_cancelled(
                     tokio_metrics::TaskMetricsReporterBuilder::new(metric_name_transformer)
                         .describe_and_run(task_monitor),
                 )
                 .await;
-        }
-    });
-
-    task_monitor
+        });
+    }
 }
