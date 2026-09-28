@@ -79,6 +79,16 @@ pub async fn start_workers(
     cmd.stdout(Stdio::from(log_file));
     cmd.stderr(Stdio::from(log_file_err));
 
+    // The worker gets its own process group: the terminal's Ctrl+C then
+    // reaches the harness alone, and the harness is the one that stops the
+    // worker, so an interrupted run's diagnostics capture a worker that
+    // is still running, not one already draining on a signal of its own.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        cmd.as_std_mut().process_group(0);
+    }
+
     let child =
         waymark_managed_process::spawn(cmd).wrap_err("spawn waymark-start-workers process")?;
     info!(
