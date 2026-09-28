@@ -231,7 +231,7 @@ index_type = "0.4"
 indexmap = "2"
 insta = "1"
 metrics = "0.24"
-metrics-exporter-prometheus = "0.18"
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
 metrics-util = "0.20"
 mockall = "0.14"
 nix = "0.31"
