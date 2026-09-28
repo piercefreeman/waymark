@@ -9,7 +9,6 @@ waymark-blocking-future = { workspace = true }
 waymark-vm-codec-core = { workspace = true }
 waymark-vm-driver = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
-waymark-vm-driver-hooks = { workspace = true }
 waymark-vm-executable = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
 waymark-vm-runtime = { workspace = true }

@@ -6,7 +6,10 @@
 
 #![warn(missing_docs)]
 
+mod hooks;
 mod snapshot;
+
+pub use self::hooks::{Hooks, HooksFor};
 
 use nonempty_collections::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use tokio_util::sync::CancellationToken;
@@ -118,13 +121,7 @@ where
     Effector: waymark_vm_driver_core::PromiseSettler<Value = Value::ReadyValue>,
     Persister: waymark_vm_driver_core::SnapshotPersister,
     Codec: waymark_vm_codec_core::SerializerProvider<Ok = ()>,
-    Hooks: waymark_vm_driver_hooks::VmStarted,
-    Hooks: waymark_vm_driver_hooks::EffectEmitted<Effect = Interpreter::Effect>,
-    Hooks: waymark_vm_driver_hooks::PromiseSettled<Value = Value::ReadyValue>,
-    Hooks: waymark_vm_driver_hooks::SnapshotPersisted,
-    Hooks: waymark_vm_driver_hooks::VmStopped<
-            Error = ErrorFor<Interpreter, Codec, Persister, Effector>,
-        >,
+    Hooks: crate::HooksFor<Interpreter, Value, Effector, Persister, Codec>,
     // Debug
     Interpreter::Instruction: core::fmt::Debug,
     Interpreter::Effect: core::fmt::Debug,
