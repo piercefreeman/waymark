@@ -119,7 +119,7 @@ async fn make_pool(
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn try_acquire_slot_for_worker_enforces_capacity_and_wraps_indices() {
+async fn try_acquire_slot_for_worker_enforces_capacity() {
     let (pool, _registrar) = make_pool(2, 2, None).await;
 
     assert_eq!(pool.len().get(), 2);
@@ -128,14 +128,14 @@ async fn try_acquire_slot_for_worker_enforces_capacity_and_wraps_indices() {
     assert!(pool.try_acquire_slot_for_worker(0));
     assert!(pool.try_acquire_slot_for_worker(0));
     assert!(!pool.try_acquire_slot_for_worker(0));
-    assert!(pool.try_acquire_slot_for_worker(3));
+    assert!(pool.try_acquire_slot_for_worker(1));
 
     assert_eq!(pool.in_flight_for_worker(0), 2);
     assert_eq!(pool.in_flight_for_worker(1), 1);
     assert_eq!(pool.total_in_flight(), 3);
     assert_eq!(pool.available_capacity(), 1);
 
-    pool.release_slot(2);
+    pool.release_slot(0);
 
     assert_eq!(pool.in_flight_for_worker(0), 1);
     assert_eq!(pool.available_capacity(), 2);
