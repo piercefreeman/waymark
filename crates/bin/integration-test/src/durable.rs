@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use color_eyre::eyre::{WrapErr as _, eyre};
+use color_eyre::eyre::{WrapErr as _, bail, eyre};
 use waymark_secret_string::SecretString;
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
 
@@ -84,8 +84,20 @@ pub async fn run_durable_mode(
         .await;
 
         let mut failures = Vec::new();
-        for prepared in prepared_cases {
-            let actual = run_case_durable(prepared, &stack, timeout).await;
+        for (cases_run, prepared) in prepared_cases.iter().enumerate() {
+            // A task that ended early cancelled the shutdown token: the
+            // stack is shutting down. The cases not started are skipped
+            // here; the one in flight is cut at its outcome wait and lands
+            // in `failures`, which this bail discards — or, for the last
+            // case, the drain's `?` below does. The drain reports the early
+            // end over this error either way.
+            if shutdown_token.is_cancelled() {
+                bail!(
+                    "the run shut down after {cases_run} of {} cases",
+                    prepared_cases.len()
+                );
+            }
+            let actual = run_case_durable(prepared, &stack, timeout, &shutdown_token).await;
             if let Some(mismatch) = check_case_outcome(prepared, actual) {
                 failures.push(mismatch);
             }
@@ -185,6 +197,7 @@ async fn run_case_durable(
     prepared: &PreparedCase,
     stack: &DurableStack,
     timeout: Duration,
+    shutdown_token: &tokio_util::sync::CancellationToken,
 ) -> Result<CaseOutcome, color_eyre::eyre::Report> {
     let (executable_id, executable, metadata) = stack
         .executables
@@ -233,21 +246,27 @@ async fn run_case_durable(
         .await
         .map_err(|err| eyre!("register VM for case '{}': {err}", prepared.case.id))?;
 
-    let workflow_outcome = tokio::time::timeout(
-        timeout,
-        stack
-            .outcome_polling
-            .wait_for_outcome(&vm_id, Duration::from_millis(100)),
-    )
-    .await
-    .map_err(|_elapsed| {
-        eyre!(
-            "case '{}' timed out after {}s",
-            prepared.case.id,
-            timeout.as_secs()
-        )
-    })?
-    .map_err(|err| eyre!("wait for outcome of case '{}': {err}", prepared.case.id))?;
+    // The wait is a read-only poll, so it is the one step of the case
+    // that a shutdown cuts.
+    let workflow_outcome = tokio::select! {
+        () = shutdown_token.cancelled() => {
+            bail!("case '{}' cut short by the shutdown", prepared.case.id)
+        }
+        waited = tokio::time::timeout(
+            timeout,
+            stack
+                .outcome_polling
+                .wait_for_outcome(&vm_id, Duration::from_millis(100)),
+        ) => waited
+            .map_err(|_elapsed| {
+                eyre!(
+                    "case '{}' timed out after {}s",
+                    prepared.case.id,
+                    timeout.as_secs()
+                )
+            })?
+            .map_err(|err| eyre!("wait for outcome of case '{}': {err}", prepared.case.id))?,
+    };
 
     Ok(outcome_from_vm(workflow_outcome))
 }
