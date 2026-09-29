@@ -54,4 +54,8 @@ pub struct NodeSample<NodeId> {
     /// Samples the essential-metrics pipeline itself dropped on its own
     /// lossy path since node start.
     pub essential_metrics_dropped_total: u64,
+
+    /// Observability events the node's observability-events pipeline
+    /// dropped on its lossy path since node start.
+    pub observability_events_dropped_total: u64,
 }

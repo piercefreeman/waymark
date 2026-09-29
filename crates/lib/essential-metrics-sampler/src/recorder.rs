@@ -52,7 +52,8 @@ pub(crate) fn sample<NodeId>(
         last_action_completed_at: last_action_completed_at(cells.last_action_completed.get()),
         action_dequeue_seconds: cells.action_dequeue_seconds.drain(),
         action_handling_seconds: cells.action_handling_seconds.drain(),
-        essential_metrics_dropped_total: cells.dropped.get(),
+        essential_metrics_dropped_total: cells.essential_metrics_dropped.get(),
+        observability_events_dropped_total: cells.observability_events_dropped.get(),
     }
 }
 
@@ -63,6 +64,13 @@ fn last_action_completed_at(unix_seconds: f64) -> Option<chrono::DateTime<chrono
         return None;
     }
     chrono::DateTime::from_timestamp_micros((unix_seconds * 1e6) as i64)
+}
+
+/// The `batcher` label of a lossy batcher's metric key, if it has one.
+fn batcher_label(key: &metrics::Key) -> Option<&str> {
+    key.labels()
+        .find(|label| label.key() == "batcher")
+        .map(|label| label.value())
 }
 
 /// Create a linked [`Recorder`]/[`Handle`] pair over one set of cells:
@@ -112,13 +120,15 @@ impl metrics::Recorder for Recorder {
             bindings::INSTANCES_REVIVED => &self.cells.instances_revived,
             bindings::INSTANCES_EVICTED => &self.cells.instances_evicted,
             bindings::ACTIONS_COMPLETED => &self.cells.actions_completed,
-            bindings::LOSSY_BATCHER_DROPPED
-                if key.labels().any(|label| {
-                    label.key() == "batcher" && label.value() == bindings::BATCHER_NAME
-                }) =>
-            {
-                &self.cells.dropped
-            }
+            bindings::LOSSY_BATCHER_DROPPED => match batcher_label(key) {
+                Some(bindings::BATCHER_NAME_ESSENTIAL_METRICS) => {
+                    &self.cells.essential_metrics_dropped
+                }
+                Some(bindings::BATCHER_NAME_OBSERVABILITY_EVENTS) => {
+                    &self.cells.observability_events_dropped
+                }
+                _ => return metrics::Counter::noop(),
+            },
             _ => return metrics::Counter::noop(),
         };
         metrics::Counter::from_arc(Arc::clone(cell))

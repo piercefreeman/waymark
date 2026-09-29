@@ -59,6 +59,7 @@ pub struct NodeSampleReport {
     pub action_dequeue_seconds_sum: f64,
     pub action_handling_seconds_sum: f64,
     pub essential_metrics_dropped_total: u64,
+    pub observability_events_dropped_total: u64,
 }
 
 fn node_sample_report(
@@ -85,6 +86,7 @@ fn node_sample_report(
         action_dequeue_seconds_sum: sample.action_dequeue_seconds.sum,
         action_handling_seconds_sum: sample.action_handling_seconds.sum,
         essential_metrics_dropped_total: sample.essential_metrics_dropped_total,
+        observability_events_dropped_total: sample.observability_events_dropped_total,
     }
 }
 
