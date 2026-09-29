@@ -1,14 +1,22 @@
+//! Bringup of the remote worker pool: the worker bridge server and the
+//! worker process pool behind it.
+
+#![warn(missing_docs)]
+
 use std::{
     net::SocketAddr,
     num::{NonZeroU64, NonZeroUsize},
     sync::Arc,
 };
 
+/// Error from [`start`].
 #[derive(Debug, thiserror::Error)]
 pub enum StartError {
+    /// The bridge server could not be started.
     #[error("bridge: {0}")]
     Bridge(#[source] std::io::Error),
 
+    /// The worker process pool could not be built.
     #[error("pool: {0}")]
     Pool(#[source] waymark_worker_process_pool::InitError),
 }
