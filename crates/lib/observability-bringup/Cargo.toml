@@ -5,6 +5,7 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+waymark-api-observability-state-http = { workspace = true }
 waymark-essential-metrics-bringup = { workspace = true }
 waymark-essential-metrics-sampler = { workspace = true }
 waymark-ids = { workspace = true }
