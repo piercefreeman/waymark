@@ -85,6 +85,7 @@ async fn run_benchmark(
         execution::durable_execution_config(max_pinned)?,
         Arc::new(backend.clone()),
         InlineWorkerPool::new(actions::action_registry()),
+        None,
         subsystem_token.clone(),
         force_shutdown_token.child_token(),
     )
