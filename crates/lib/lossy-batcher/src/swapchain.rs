@@ -6,9 +6,9 @@
 //! The invariants live behind this module boundary: buffers are allocated
 //! at construction only and never grow; only non-empty buffers are sent;
 //! a swap always finds a channel slot; once closed — by
-//! [`Swapchain::close`], or by a swap that found the receiver gone — no
-//! item enters a buffer unreported, and a `push_many` whose swap closes
-//! the intake refuses the rest of its items.
+//! [`Swapchain::close`], by [`Swapchain::try_close`], or by a swap that
+//! found the receiver gone — no item enters a buffer unreported, and a
+//! `push_many` whose swap closes the intake refuses the rest of its items.
 
 use std::num::NonZeroUsize;
 

@@ -183,10 +183,12 @@ struct Counters {
     pub flushed: metrics::Counter,
 }
 
-/// What the handles and the batcher task share — tied together by the
-/// `record_*` methods, which map what the mechanism reports onto the
-/// counters and the signals.
+/// What the handles and the batcher task share: the swapchain, the
+/// counters and the signals. The push, swap and recycle outcomes go
+/// through the `record_*` methods; the flush loops count their flushes
+/// directly; the handle count moves with `Clone` and `Drop`.
 struct Shared<T> {
+    /// The buffers.
     pub swapchain: swapchain::Swapchain<T>,
 
     /// Wakes the delay timer when a first item enters an empty buffer.
@@ -202,6 +204,7 @@ struct Shared<T> {
     /// Wakes the task when the last handle is dropped.
     pub handles_gone: tokio::sync::Notify,
 
+    /// The metrics.
     pub counters: Counters,
 }
 
