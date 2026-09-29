@@ -221,7 +221,7 @@ where
         persister: NoopPersister,
         codec,
         cancel,
-        hooks: waymark_vm_driver_hooks_noop::Noop::new(),
+        hooks: waymark_vm_driver_hooks_tracing::Tracing::new(),
     });
 
     Execution {
