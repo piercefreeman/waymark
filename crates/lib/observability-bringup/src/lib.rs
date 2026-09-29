@@ -58,8 +58,9 @@ pub async fn start(
 ) -> Result<(Handles, aide::axum::ApiRouter, Emitter), StartError> {
     let Db::Postgres(postgres_config) = &config.db;
 
-    // The write pool first, and the migrations through it. The read pool
-    // requires the schema and never creates it: it may point at a
+    // The write pool first, and the migrations through it: each migration
+    // statement runs under the write pool's statement timeout. The read
+    // pool requires the schema and never creates it: it may point at a
     // replica, where nothing can be created, and which only sees the
     // schema once the primary has it and it has caught up.
     let write_pool =
