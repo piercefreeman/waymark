@@ -9,6 +9,7 @@
 //!
 //! Configuration is via environment variables:
 //! - WAYMARK_DATABASE_URL: PostgreSQL connection string (required)
+//! - WAYMARK_DATABASE_MAX_CONNECTIONS: Connection cap for the main database pool (default: 25)
 //! - WAYMARK_WORKER_GRPC_ADDR: gRPC server for worker connections (default: 127.0.0.1:24118)
 //! - WAYMARK_USER_MODULE: Python module(s) to preload (comma-separated)
 //! - WAYMARK_WORKER_COUNT: Number of workers (default: num_cpus)
@@ -36,7 +37,6 @@
 use std::sync::{Arc, atomic::AtomicUsize};
 use std::time::Duration;
 
-use sqlx::PgPool;
 use tokio::signal;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -93,7 +93,10 @@ async fn main() -> Result<(), waymark_fn_main_common::Error> {
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
 
     // Initialize the database and backend.
-    let pool = PgPool::connect(config.database_url.expose_secret()).await?;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(config.database_max_connections.get())
+        .connect(config.database_url.expose_secret())
+        .await?;
     waymark_backend_postgres_migrations::run(&pool).await?;
     let backend = PostgresBackend::new(pool);
 
