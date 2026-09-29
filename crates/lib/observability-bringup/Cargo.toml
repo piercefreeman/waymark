@@ -9,6 +9,7 @@ waymark-essential-metrics-bringup = { workspace = true }
 waymark-essential-metrics-sampler = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-observability-config = { workspace = true }
+waymark-observability-events-bringup = { workspace = true }
 waymark-observability-store-postgres = { workspace = true }
 waymark-observability-store-postgres-bringup = { workspace = true }
 waymark-observability-store-postgres-migrations = { workspace = true }
