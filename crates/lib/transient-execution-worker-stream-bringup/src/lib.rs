@@ -221,8 +221,8 @@ pub fn execute(
 
             cancellation.cancel();
 
-            let Err(err) = driver_handle.await;
-            tracing::warn!(?err, "vm driver exited");
+            let Err(driver_exit) = driver_handle.await;
+            tracing::debug!(?driver_exit, "vm driver exited");
         }
     });
 
