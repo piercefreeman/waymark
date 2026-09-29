@@ -29,7 +29,18 @@ pub type Emitter = waymark_observability_events_emitter::Emitter<
     waymark_observability_events_payload::Payload,
 >;
 
-/// The VM driver hooks of one VM's run, emitting one event per hook call.
+/// Which of the run's optional observations the hooks record as events.
+/// Every other observation is always recorded; the ones here are volume
+/// without a consumer unless someone asks.
+#[derive(Debug, Clone, Copy)]
+pub struct Policy {
+    /// Record a `snapshot_persisted` event per persisted snapshot — about
+    /// one event in two of a run.
+    pub snapshot_persisted: bool,
+}
+
+/// The VM driver hooks of one VM's run, emitting one event per hook call
+/// it records.
 ///
 /// Generic over the summarizer of the run's effects, the run's value and
 /// its VM driver error, which it only ever summarizes.
@@ -37,6 +48,7 @@ pub struct Hooks<EffectSummarizer, Value, DriverError> {
     vm_id: waymark_ids::InstanceId,
     run_sequence: AtomicU64,
     emitter: Arc<Emitter>,
+    policy: Policy,
     parameters: PhantomData<Parameters<EffectSummarizer, Value, DriverError>>,
 }
 
@@ -46,13 +58,14 @@ type Parameters<EffectSummarizer, Value, DriverError> =
     fn() -> (EffectSummarizer, Value, DriverError);
 
 impl<EffectSummarizer, Value, DriverError> Hooks<EffectSummarizer, Value, DriverError> {
-    /// The hooks for one run of `vm_id`, emitting through `emitter`; the
-    /// run's positions start at zero.
-    pub fn new(vm_id: waymark_ids::InstanceId, emitter: Arc<Emitter>) -> Self {
+    /// The hooks for one run of `vm_id`, emitting through `emitter` what
+    /// `policy` asks for; the run's positions start at zero.
+    pub fn new(vm_id: waymark_ids::InstanceId, emitter: Arc<Emitter>, policy: Policy) -> Self {
         Self {
             vm_id,
             run_sequence: AtomicU64::new(0),
             emitter,
+            policy,
             parameters: PhantomData,
         }
     }
@@ -173,6 +186,10 @@ impl<EffectSummarizer, Value, DriverError> waymark_vm_driver_hooks::SnapshotPers
     for Hooks<EffectSummarizer, Value, DriverError>
 {
     fn snapshot_persisted(&self, size_in_bytes: usize) {
+        if !self.policy.snapshot_persisted {
+            return;
+        }
+
         self.emit(
             waymark_observability_events_payload::vm_driver::Observation::SnapshotPersisted {
                 size_in_bytes,
