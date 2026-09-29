@@ -7,13 +7,13 @@ publish.workspace = true
 [dependencies]
 waymark-nonzero-duration = { workspace = true }
 
-futures-util = { workspace = true }
 metrics = { workspace = true }
 nonempty-collections = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
+futures-util = { workspace = true }
 metrics-util = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util", "time"] }

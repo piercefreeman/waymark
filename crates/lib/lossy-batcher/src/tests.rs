@@ -690,13 +690,16 @@ async fn a_dropped_task_closes_the_intake_at_the_next_swap_without_panicking() {
     let task = tokio::spawn(task);
     settle().await;
 
-    // The task goes away before its `shutdown` future resolves, taking the
-    // receiver with it.
+    // The task goes away before its `shutdown` future resolves.
     task.abort();
     let joined = task.await;
     assert!(joined.is_err_and(|error| error.is_cancelled()));
+    // The flushers are aborted with the task and are gone once the
+    // scheduler has dropped them; until then the receiver they hold is
+    // still open.
+    settle().await;
 
-    // The first swap finds the receiver gone: its batch is counted closed,
+    // The first swap finds the flushers gone: its batch is counted closed,
     // the intake closes itself, and the rest of that push_many is refused
     // instead of filling the next buffer; every later push is refused too.
     handle.push_many([0, 1, 2, 3]);
@@ -710,6 +713,219 @@ async fn a_dropped_task_closes_the_intake_at_the_next_swap_without_panicking() {
         }
     );
     assert!(seen.lock().unwrap().is_empty());
+}
+
+/// A task dropped with no buffer free never closes the intake: the buffer
+/// out in the aborted flush never comes back, so every later full batch is
+/// discarded and counted `full`, not `closed`.
+#[tokio::test(start_paused = true)]
+async fn a_dropped_task_with_no_free_buffer_counts_every_later_batch_full() {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let (handle, task) = metrics::with_local_recorder(&recorder, || {
+        lossy_batcher(
+            "test",
+            valid_policy(2, 2, Duration::from_secs(60), 1),
+            PendingFlusher,
+            std::future::pending(),
+        )
+    });
+    let task = tokio::spawn(task);
+
+    // The one standby buffer goes out to the flusher, which holds it.
+    handle.push_many([1, 2]);
+    settle().await;
+
+    // The task goes away with that flush still held: the flusher is
+    // aborted with it and the buffer is gone for good.
+    task.abort();
+    let joined = task.await;
+    assert!(joined.is_err_and(|error| error.is_cancelled()));
+    settle().await;
+
+    // Each full batch finds no buffer free and is discarded as `full`; the
+    // intake stays open, so the next push fills again instead of being
+    // refused.
+    handle.push_many([3, 4]);
+    handle.push_many([5, 6]);
+    assert_eq!(
+        counters(&snapshotter),
+        CountersSnapshot {
+            dropped_full: 4,
+            ..Default::default()
+        }
+    );
+}
+
+/// A flush that holds its batch until the test hands it a permit through
+/// `release`, then panics instead of completing.
+struct GatedPanickingFlusher {
+    release: Arc<tokio::sync::Semaphore>,
+}
+
+impl Flusher<u32> for GatedPanickingFlusher {
+    type Error = String;
+
+    async fn flush(&self, _batch: NESlice<'_, u32>) -> Result<(), String> {
+        let permit = self
+            .release
+            .acquire()
+            .await
+            .expect("semaphore is never closed");
+        permit.forget();
+        panic!("the flusher's own panic");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_flushers_progress_while_the_batcher_task_is_not_polled() {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (handle, task) = metrics::with_local_recorder(&recorder, || {
+        lossy_batcher(
+            "test",
+            valid_policy(2, 2, Duration::from_secs(60), 1),
+            recording_flusher(&seen, Vec::new()),
+            std::future::pending(),
+        )
+    });
+    // One poll starts the flushers' tasks; the batcher task is then left
+    // unpolled, pinned but never awaited.
+    let mut task = std::pin::pin!(task);
+    assert!(
+        futures_util::poll!(task.as_mut()).is_pending(),
+        "a live handle and a pending shutdown keep the batcher task running"
+    );
+
+    handle.push_many([1, 2]);
+    settle().await;
+
+    assert_eq!(*seen.lock().unwrap(), vec![vec![1, 2]]);
+    assert_eq!(
+        counters(&snapshotter),
+        CountersSnapshot {
+            flushed: 2,
+            ..Default::default()
+        }
+    );
+}
+
+/// A flusher's panic while the close waits for its buffer ends the batcher
+/// task with that panic: the dead flusher never returns the buffer, so the
+/// close would otherwise wait forever.
+#[tokio::test(start_paused = true)]
+async fn a_flushers_panic_is_the_batcher_tasks_panic() {
+    let recorder = DebuggingRecorder::new();
+    let release = Arc::new(tokio::sync::Semaphore::new(0));
+    let (handle, task) = metrics::with_local_recorder(&recorder, || {
+        lossy_batcher(
+            "test",
+            valid_policy(2, 2, Duration::from_secs(60), 1),
+            GatedPanickingFlusher {
+                release: Arc::clone(&release),
+            },
+            std::future::pending(),
+        )
+    });
+    let task = tokio::spawn(task);
+
+    // The first two fill a batch the flusher takes and holds; the third
+    // sits in the filling buffer, short of a batch, with no buffer free
+    // for the close to swap it out into: the close waits.
+    handle.push_many([1, 2]);
+    settle().await;
+    handle.push(3);
+    drop(handle);
+    settle().await;
+    assert!(!task.is_finished(), "the close waits for the held buffer");
+
+    // The held flush panics instead of returning its buffer.
+    release.add_permits(1);
+    let joined = tokio::time::timeout(Duration::from_secs(5), task)
+        .await
+        .expect("the panic ends the task without waiting for a buffer");
+    assert_the_flushers_own_panic(joined);
+}
+
+/// The join is the [`GatedPanickingFlusher`]'s own panic, re-raised with
+/// its payload rather than a panic of the batcher's own.
+fn assert_the_flushers_own_panic<T: std::fmt::Debug>(joined: Result<T, tokio::task::JoinError>) {
+    let Err(join_error) = joined else {
+        panic!("the batcher task must end with the flusher's panic, got {joined:?}");
+    };
+    assert!(join_error.is_panic(), "{join_error:?}");
+    let payload = join_error.into_panic();
+    assert_eq!(
+        payload.downcast_ref::<&str>(),
+        Some(&"the flusher's own panic")
+    );
+}
+
+/// A flusher's panic while the batcher waits for a swap, a handle drop or
+/// the shutdown, with handles alive, ends the batcher task with that panic.
+#[tokio::test(start_paused = true)]
+async fn a_flushers_panic_while_the_batcher_is_idle_is_the_batcher_tasks_panic() {
+    let recorder = DebuggingRecorder::new();
+    let release = Arc::new(tokio::sync::Semaphore::new(0));
+    let (handle, task) = metrics::with_local_recorder(&recorder, || {
+        lossy_batcher(
+            "test",
+            valid_policy(2, 2, Duration::from_secs(60), 1),
+            GatedPanickingFlusher {
+                release: Arc::clone(&release),
+            },
+            std::future::pending(),
+        )
+    });
+    let task = tokio::spawn(task);
+
+    // A full batch goes out to the flusher, which holds it; the batcher
+    // task has nothing to do and waits.
+    handle.push_many([1, 2]);
+    settle().await;
+    assert!(!task.is_finished(), "nothing has ended the batcher task");
+
+    release.add_permits(1);
+    let joined = tokio::time::timeout(Duration::from_secs(5), task)
+        .await
+        .expect("the panic ends the task while the handle is alive");
+    assert_the_flushers_own_panic(joined);
+    drop(handle);
+}
+
+/// A flusher's panic while the batcher drains the flushers after the
+/// close ends the batcher task with that panic.
+#[tokio::test(start_paused = true)]
+async fn a_flushers_panic_during_the_drain_is_the_batcher_tasks_panic() {
+    let recorder = DebuggingRecorder::new();
+    let release = Arc::new(tokio::sync::Semaphore::new(0));
+    let (handle, task) = metrics::with_local_recorder(&recorder, || {
+        lossy_batcher(
+            "test",
+            valid_policy(2, 2, Duration::from_secs(60), 1),
+            GatedPanickingFlusher {
+                release: Arc::clone(&release),
+            },
+            std::future::pending(),
+        )
+    });
+    let task = tokio::spawn(task);
+
+    // A full batch goes out to the flusher, which holds it; the filling
+    // buffer is empty, so the close on the last handle completes at once
+    // and the batcher task is left waiting for the held flush to finish.
+    handle.push_many([1, 2]);
+    settle().await;
+    drop(handle);
+    settle().await;
+    assert!(!task.is_finished(), "the drain waits for the held flush");
+
+    release.add_permits(1);
+    let joined = tokio::time::timeout(Duration::from_secs(5), task)
+        .await
+        .expect("the panic ends the drain");
+    assert_the_flushers_own_panic(joined);
 }
 
 #[test]

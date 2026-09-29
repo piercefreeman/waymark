@@ -34,9 +34,21 @@
 //! out once a buffer is free, since no push can come any more; on
 //! `shutdown` it goes out best effort (discarded and counted `full` when
 //! no buffer is free). Pending flushes finish, and every later push counts
-//! as `closed`. Dropping the task while handles are alive closes the
-//! intake at the next swap that finds a free buffer: that batch and every
-//! later push count as `closed`.
+//! as `closed`. Dropping the task while handles are alive, before the
+//! intake closes, loses, uncounted, what is queued and every flush the
+//! abort interrupts, and those buffers never come back; a flush already
+//! running on another worker may still complete, counted `flushed` or
+//! `flush_failed`, and return its buffer. Once the aborted flushers have
+//! been dropped — they are tasks, so that waits for the scheduler — a
+//! later swap that finds a buffer free finds them gone: the intake
+//! closes, and that batch and every later push count as `closed`. Until
+//! then a swap can still send into the open channel, and that batch is
+//! lost with what is queued. With no buffer free, every full batch counts
+//! `full` and the intake stays open. The buffer filling at the drop is
+//! counted with the swap that next fills it; it goes uncounted only if it
+//! never fills, since the delay timer died with the task. Dropped after
+//! the `shutdown` close, the task loses only what is queued and the
+//! flushes the abort interrupts: every push already counts `closed`.
 
 #![warn(missing_docs)]
 
@@ -130,9 +142,9 @@ pub enum ValidateError {
 /// The consumer of a batcher's batches.
 ///
 /// The batch is lent: the buffer behind it is cleared and reused after the
-/// call, so a flusher that needs owned data clones explicitly. The future
-/// is `Send` so the batcher task can be spawned; `flush` takes `&self` so
-/// one flusher serves all [`Policy::flushers`] loops.
+/// call, so a flusher that needs owned data clones explicitly. `flush`
+/// takes `&self` so one flusher serves all [`Policy::flushers`] loops, and
+/// its future is `Send` so those loops can run as tasks of their own.
 pub trait Flusher<T> {
     /// A failure drops the batch: counted, warned, never retried.
     type Error: std::fmt::Display;
@@ -267,7 +279,9 @@ impl<T> Drop for BatcherHandle<T> {
 
 impl<T> BatcherHandle<T> {
     /// Hand one item to the batcher: synchronous, never waits, never fails.
-    /// The item is either flushed later or dropped and counted.
+    /// While the batcher task runs, the item is either flushed later or
+    /// dropped and counted; for a dropped task see the crate's Lifecycle
+    /// section.
     pub fn push(&self, item: T) {
         let outcome = self.shared.swapchain.push(item);
         self.shared.record_push(outcome);
@@ -291,9 +305,9 @@ impl<T> BatcherHandle<T> {
 /// Create a lossy batcher: a handle to push items through, and the batcher
 /// task future for the caller to spawn.
 ///
-/// The [`Policy::flushers`] loops share `flusher`. `name` labels this
-/// instance's metrics, which are registered here against the recorder
-/// installed at call time.
+/// The [`Policy::flushers`] loops share `flusher`, each from a task of its
+/// own. `name` labels this instance's metrics, which are registered here
+/// against the recorder installed at call time.
 pub fn lossy_batcher<T, Flusher, Shutdown>(
     name: &'static str,
     policy: ValidPolicy,
@@ -301,7 +315,8 @@ pub fn lossy_batcher<T, Flusher, Shutdown>(
     shutdown: Shutdown,
 ) -> (BatcherHandle<T>, impl Future<Output = ()>)
 where
-    Flusher: self::Flusher<T>,
+    T: Send + 'static,
+    Flusher: self::Flusher<T> + Send + Sync + 'static,
     Shutdown: Future<Output = ()>,
 {
     let ValidPolicy(policy) = policy;
@@ -338,8 +353,8 @@ where
     (handle, task)
 }
 
-/// The batcher task: the delay timer, the flush loops, and the close
-/// sequence.
+/// The batcher task: the delay timer and the close sequence, with the
+/// flush loops as tasks of its own.
 async fn run<T, Flusher, Shutdown>(
     shared: Arc<Shared<T>>,
     full_rx: mpsc::Receiver<NEVec<T>>,
@@ -348,16 +363,28 @@ async fn run<T, Flusher, Shutdown>(
     flusher: Flusher,
     shutdown: Shutdown,
 ) where
-    Flusher: self::Flusher<T>,
+    T: Send + 'static,
+    Flusher: self::Flusher<T> + Send + Sync + 'static,
     Shutdown: Future<Output = ()>,
 {
-    // The flush loops share the receiver through an async mutex, locked
-    // only while waiting for a buffer — never across a flush — so multiple
-    // flushers genuinely overlap.
-    let full_rx = tokio::sync::Mutex::new(full_rx);
-    let mut flushers = std::pin::pin!(futures_util::future::join_all(
-        (0..policy.flushers.get()).map(|_| flush_loop(&shared, &full_rx, name, &flusher)),
-    ));
+    // The flush loops are tasks of their own, so they run on while this
+    // task waits, or is not polled at all, and share the receiver through
+    // an async mutex, locked only while waiting for a buffer — never
+    // across a flush — so multiple flushers genuinely overlap.
+    let mut flushers = {
+        let full_rx = Arc::new(tokio::sync::Mutex::new(full_rx));
+        let flusher = Arc::new(flusher);
+        let mut flushers = tokio::task::JoinSet::new();
+        for _ in 0..policy.flushers.get() {
+            flushers.spawn({
+                let shared = Arc::clone(&shared);
+                let full_rx = Arc::clone(&full_rx);
+                let flusher = Arc::clone(&flusher);
+                async move { flush_loop(&shared, &full_rx, name, &flusher).await }
+            });
+        }
+        flushers
+    };
     let mut shutdown = std::pin::pin!(shutdown);
     // The timer lives only for the select: its block ends, it drops.
     let by_shutdown = {
@@ -367,8 +394,10 @@ async fn run<T, Flusher, Shutdown>(
             () = &mut shutdown => true,
             () = shared.handles_gone.notified() => false,
             never = timer => match never {},
-            _ = &mut flushers => {
-                unreachable!("the sender is dropped only by close, which runs after this select")
+            // A flush loop ends only after the close, so a join before it
+            // is a panic, re-raised here rather than at the end.
+            Some(Err(join_error)) = flushers.join_next() => {
+                std::panic::resume_unwind(join_error.into_panic())
             }
         }
     };
@@ -379,7 +408,7 @@ async fn run<T, Flusher, Shutdown>(
     // from the start or while that wait is on, closes best effort (the
     // buffer is discarded and counted `full` when no buffer is free).
     // Closing drops the sender, so the flushers drain what is buffered and
-    // end on their own; they are polled while the close waits.
+    // end on their own.
     let outcome = if by_shutdown {
         shared.swapchain.close()
     } else {
@@ -391,8 +420,8 @@ async fn run<T, Flusher, Shutdown>(
                 biased;
                 () = &mut shutdown => break shared.swapchain.close(),
                 () = shared.buffer_freed.notified() => {}
-                _ = &mut flushers => {
-                    unreachable!("the sender is dropped only by close, which runs after this select")
+                Some(Err(join_error)) = flushers.join_next() => {
+                    std::panic::resume_unwind(join_error.into_panic())
                 }
             }
         }
@@ -400,7 +429,13 @@ async fn run<T, Flusher, Shutdown>(
     if let Some(outcome) = outcome {
         shared.record_swap(outcome);
     }
-    flushers.await;
+    // A flusher is aborted only with this task, which is then not polled
+    // again, so a join error seen here is its panic.
+    while let Some(joined) = flushers.join_next().await {
+        if let Err(join_error) = joined {
+            std::panic::resume_unwind(join_error.into_panic());
+        }
+    }
 }
 
 /// Swaps out a non-empty filling buffer once its first item is `max_delay`
