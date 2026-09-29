@@ -3866,6 +3866,7 @@ dependencies = [
 name = "waymark-action-runtime-metadata"
 version = "0.1.0"
 dependencies = [
+ "thiserror",
  "waymark-action-runtime-metadata-codec",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
