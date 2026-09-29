@@ -39,7 +39,7 @@ These are the variables you'll touch most often when running
 | `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the main database pool. | `25` |
 | `WAYMARK_WORKER_COUNT` | Number of Python worker processes. | Host CPU count |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per worker. | `10` |
-| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max in-memory instances across runloop shards. | `500` |
+| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently. | `500` |
 | `WAYMARK_USER_MODULE` | Comma-separated Python modules preloaded in workers. | Unset |
 | `WAYMARK_MAX_ACTION_LIFECYCLE` | Actions per worker before recycle (memory mitigation). | Unset (no limit) |
 | `WAYMARK_WEBAPP_ENABLED` | Enable embedded web UI. | `false` |
