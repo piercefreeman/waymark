@@ -27,6 +27,7 @@ waymark-blanket-impl-macros = { path = "crates/lib/blanket-impl-macros" }
 waymark-blocking-future = { path = "crates/lib/blocking-future" }
 waymark-config = { path = "crates/lib/config" }
 waymark-convert-core = { path = "crates/lib/convert-core" }
+waymark-counter-rate = { path = "crates/lib/counter-rate" }
 waymark-essential-metrics-bringup = { path = "crates/lib/essential-metrics-bringup" }
 waymark-essential-metrics-compat = { path = "crates/lib/essential-metrics-compat" }
 waymark-essential-metrics-config = { path = "crates/lib/essential-metrics-config" }
