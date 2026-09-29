@@ -5,6 +5,7 @@ mod actions;
 mod cases;
 mod cli;
 mod execution;
+mod observability;
 mod registration;
 mod report;
 
@@ -29,6 +30,8 @@ const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// result before the benchmark declares a stall and aborts.
 const DRAIN_STALL_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Run the benchmark: its stats, and — with observability — the events
+/// the run left in the store, or why they could not be counted.
 #[obs]
 async fn run_benchmark(
     count_per_case: NonZeroUsize,
@@ -37,7 +40,14 @@ async fn run_benchmark(
     max_pinned: NonZeroUsize,
     pool_size: NonZeroU32,
     registration_batch_max: NonZeroUsize,
-) -> Result<BenchmarkStats, color_eyre::eyre::Report> {
+    observability_dsn: Option<&SecretStr>,
+) -> Result<
+    (
+        BenchmarkStats,
+        Option<Result<observability::EventCounts, color_eyre::eyre::Report>>,
+    ),
+    color_eyre::eyre::Report,
+> {
     let cases = cases::build_cases(base)?;
     if dsn.expose_secret() == LOCAL_POSTGRES_DSN.expose_secret() {
         ensure_local_postgres()
@@ -76,16 +86,41 @@ async fn run_benchmark(
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let force_shutdown_token = tokio_util::sync::CancellationToken::new();
+
+    // One identity for the node, whatever it reports under: the
+    // observability events and the execution's pinnings and locks name
+    // the same node.
+    let node_id = waymark_ids::NodeId::new_uuid_v4();
+    let observability = if let Some(observability_dsn) = observability_dsn {
+        let observability =
+            observability::start(observability_dsn, node_id, shutdown_token.child_token()).await?;
+        // Echoed here, apart from the other parameters: it is the
+        // policy the bringup built, known only once it has started.
+        println!(
+            "observability_record_snapshot_persisted = {}",
+            observability.vm_driver_hooks_policy.snapshot_persisted,
+        );
+        Some(observability)
+    } else {
+        None
+    };
+    let observability_events = observability.as_ref().map(|observability| {
+        waymark_execution_bringup::ObservabilityEvents {
+            emitter: Arc::clone(&observability.emitter),
+            vm_driver_hooks_policy: observability.vm_driver_hooks_policy,
+        }
+    });
+
     // The subsystem's internal loops cancel this token when any of them
     // fails (e.g. a lock fence breach) — watched below so the drain loop
     // fails loudly instead of waiting forever on a dead subsystem.
     let subsystem_token = shutdown_token.child_token();
     let start = Instant::now();
     let execution_handles = waymark_execution_bringup::start(
-        execution::durable_execution_config(max_pinned)?,
+        execution::durable_execution_config(max_pinned, node_id)?,
         Arc::new(backend.clone()),
         InlineWorkerPool::new(actions::action_registry()),
-        None,
+        observability_events,
         subsystem_token.clone(),
         force_shutdown_token.child_token(),
     )
@@ -121,13 +156,19 @@ async fn run_benchmark(
     shutdown_token.cancel();
     force_shutdown_token.cancel();
     execution::shutdown_execution(execution_handles).await;
+    let event_counts = match observability {
+        Some(observability) => Some(observability::shutdown(observability).await),
+        None => None,
+    };
 
-    Ok(BenchmarkStats {
+    let stats = BenchmarkStats {
         total,
         elapsed,
         query_counts: backend.query_counts(),
         batch_counts: backend.batch_size_counts(),
-    })
+    };
+
+    Ok((stats, event_counts))
 }
 
 fn main() -> Result<(), waymark_fn_main_common::Error> {
@@ -156,17 +197,43 @@ fn main() -> Result<(), waymark_fn_main_common::Error> {
     println!("max_pinned = {max_pinned}");
     println!("db_pool_size = {pool_size}");
     println!("registration_batch_max = {registration_batch_max}");
-    let stats = runtime.block_on(run_benchmark(
+    println!("observability = {}", args.observability);
+    let observability_dsn = args
+        .observability
+        .then(|| args.observability_dsn.as_deref().unwrap_or(&args.dsn));
+    let (stats, event_counts) = runtime.block_on(run_benchmark(
         args.count,
         args.base,
         &args.dsn,
         max_pinned,
         pool_size,
         registration_batch_max,
+        observability_dsn,
     ))?;
     println!("Benchmark completed in {:.2?}", stats.elapsed);
     println!("{}", report::format_query_counts(&stats.query_counts));
     println!("{}", report::format_batch_size_counts(&stats.batch_counts));
+    // A failed count fails the run, but only once every measured number is
+    // out.
+    let event_counts_error = match event_counts {
+        None => None,
+        Some(Ok(counts)) => {
+            println!("Observability events stored: {}", counts.stored);
+            match counts.max_node_sequence {
+                Some(max) => {
+                    println!("Observability events highest node_sequence (0-based): {max}")
+                }
+                None => println!("Observability events highest node_sequence (0-based): none"),
+            }
+            None
+        }
+        Some(Err(error)) => {
+            // The detail goes out here: what fails after this must not
+            // take it along.
+            println!("Observability events: unavailable, the count failed: {error:#}");
+            Some(error)
+        }
+    };
     if let Some(json) = &args.json {
         let report = report::format_json(&stats, args.count, args.base);
         if json == "-" {
@@ -175,6 +242,9 @@ fn main() -> Result<(), waymark_fn_main_common::Error> {
             std::fs::write(json, format!("{report}\n"))
                 .wrap_err_with(|| format!("write the JSON report to {json}"))?;
         }
+    }
+    if let Some(error) = event_counts_error {
+        return Err(error);
     }
     Ok(())
 }
