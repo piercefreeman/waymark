@@ -104,16 +104,9 @@ impl Encode for ActionCallCorrelation {
 
 /// Error returned when decoding an [`ActionCallCorrelation`] fails because
 /// the input bytes are too short.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
+#[error("not enough bytes to decode ActionCallCorrelation")]
 pub struct ActionCallCorrelationDecodeError;
-
-impl core::fmt::Display for ActionCallCorrelationDecodeError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "not enough bytes to decode ActionCallCorrelation")
-    }
-}
-
-impl std::error::Error for ActionCallCorrelationDecodeError {}
 
 impl Decode for ActionCallCorrelation {
     type Error = ActionCallCorrelationDecodeError;
@@ -146,26 +139,14 @@ impl<VmId: Encode, Metadata: Encode> Encode for WithVmId<VmId, Metadata> {
 }
 
 /// Error returned when decoding a [`WithVmId`] fails.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum WithVmIdDecodeError<VmIdError> {
     /// The VM identifier could not be decoded.
-    VmId(VmIdError),
+    #[error("vm id: {0}")]
+    VmId(#[source] VmIdError),
     /// The inner correlation metadata could not be decoded.
-    Correlation(ActionCallCorrelationDecodeError),
-}
-
-impl<VmIdError: core::fmt::Display> core::fmt::Display for WithVmIdDecodeError<VmIdError> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::VmId(e) => write!(f, "vm id: {e}"),
-            Self::Correlation(e) => write!(f, "correlation: {e}"),
-        }
-    }
-}
-
-impl<VmIdError: core::fmt::Debug + core::fmt::Display> std::error::Error
-    for WithVmIdDecodeError<VmIdError>
-{
+    #[error("correlation: {0}")]
+    Correlation(#[source] ActionCallCorrelationDecodeError),
 }
 
 impl<VmId: Decode, Metadata: Decode<Error = ActionCallCorrelationDecodeError>> Decode
