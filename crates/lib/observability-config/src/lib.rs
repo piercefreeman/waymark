@@ -3,7 +3,7 @@
 //!
 //! By default the observability store lives in the main database
 //! (`WAYMARK_DATABASE_URL`) — same URL, namespace-separated into its own
-//! schemas and accessed through its own pools. Pointing
+//! schema and accessed through its own pools. Pointing
 //! `WAYMARK_OBSERVABILITY_DATABASE_URL` elsewhere moves it to a separate
 //! server; `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` is where the reads
 //! go — the same database by default, or a replica of it.
