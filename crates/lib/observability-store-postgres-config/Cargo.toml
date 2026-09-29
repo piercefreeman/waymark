@@ -1,18 +1,11 @@
 [package]
-name = "waymark-config"
+name = "waymark-observability-store-postgres-config"
 edition = "2024"
 version.workspace = true
 publish.workspace = true
 
 [dependencies]
-waymark-http-config = { workspace = true }
-waymark-nonzero-duration = { workspace = true }
-waymark-observability-config = { workspace = true }
 waymark-secret-string = { workspace = true }
 
 envfury = { workspace = true }
 thiserror = { workspace = true }
-
-[lib]
-test = false
-doctest = false
