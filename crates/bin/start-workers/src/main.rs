@@ -328,16 +328,15 @@ async fn shutdown_signal_listener(
 ) -> Result<(), std::convert::Infallible> {
     tokio::select! {
         () = ctrl_c.recv() => {
-            info!("Ctrl+C received");
+            info!("Ctrl+C received; shutting down");
         }
         () = termination.recv() => {
-            info!("termination requested");
+            info!("termination requested; shutting down");
         }
         () = shutdown_token.cancelled() => {
             return Ok(());
         }
     }
-    info!("shutdown signal received");
     stop_startup_then_shutdown_token.cancel();
 
     // The lifecycle cancels the shutdown token at the startup's next
