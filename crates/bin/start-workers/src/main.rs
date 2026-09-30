@@ -31,7 +31,7 @@
 //! - WAYMARK_VM_RETENTION_MS / WAYMARK_VM_SWEEP_INTERVAL_MS: Cached VM eviction
 //! - WAYMARK_EXECUTABLE_RETENTION_MS / WAYMARK_EXECUTABLE_SWEEP_INTERVAL_MS: Cached executable eviction
 //! - WAYMARK_OBSERVABILITY_DATABASE_URL: DSN for the observability store (default: WAYMARK_DATABASE_URL)
-//! - WAYMARK_OBSERVABILITY_READ_DATABASE_URL: DSN the observability reads go through (default: WAYMARK_OBSERVABILITY_DATABASE_URL)
+//! - WAYMARK_OBSERVABILITY_READ_DATABASE_URL: DSN the observability API reads through (default: WAYMARK_OBSERVABILITY_DATABASE_URL)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS: Connection cap for the observability write pool (default: 4)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS: Connection cap for the observability read pool (default: 4)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS: Statement timeout on the observability write pool (default: 600000)
