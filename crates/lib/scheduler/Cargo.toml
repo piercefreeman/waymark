@@ -20,8 +20,9 @@ tracing = { workspace = true }
 [dev-dependencies]
 waymark-vm-codec-rmp = { workspace = true }
 
+mockall = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "test-util", "time"] }
 
 [lib]
 doctest = false
