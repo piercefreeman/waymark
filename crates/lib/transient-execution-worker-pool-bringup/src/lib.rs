@@ -33,8 +33,7 @@ pub type ExecutionFor<Pool> = waymark_transient_execution_bringup::Execution<
 /// Action calls are dispatched to `worker_pool` and action call completions
 /// are polled directly from it, with the correlation metadata round-tripped
 /// verbatim — there is no per-VM demultiplexing, so this is suitable for
-/// running a single VM at a time. Launching the pool is the caller's
-/// responsibility.
+/// running a single VM at a time.
 ///
 /// When `skip_sleep` is true, every sleep in the workflow resolves
 /// immediately instead of waiting for its deadline.
