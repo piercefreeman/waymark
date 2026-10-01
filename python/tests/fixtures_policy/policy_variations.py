@@ -48,6 +48,12 @@ async def action_with_timeout_days(value: str) -> str:
     return f"done({value})"
 
 
+@action
+async def action_with_timeout_fractional_minutes(value: str) -> str:
+    """Action with a timedelta of a fractional number of minutes."""
+    return f"done({value})"
+
+
 @workflow
 class PolicyVariationsWorkflow(Workflow):
     """Workflow with various policy configurations."""
@@ -87,4 +93,9 @@ class PolicyVariationsWorkflow(Workflow):
         # Test timeout with timedelta days
         f = await self.run_action(action_with_timeout_days(value=e), timeout=timedelta(days=1))
 
-        return f
+        # Test timeout with a fractional timedelta: what timedelta says, in whole seconds
+        g = await self.run_action(
+            action_with_timeout_fractional_minutes(value=f), timeout=timedelta(minutes=4.1)
+        )
+
+        return g

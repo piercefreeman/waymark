@@ -22,6 +22,7 @@ import copy
 import inspect
 import textwrap
 from dataclasses import dataclass
+from datetime import timedelta
 from enum import EnumMeta
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Set, Union
 
@@ -3029,19 +3030,17 @@ class IRBuilder(ast.NodeVisitor):
                 func_name = node.func.attr
 
             if func_name == "timedelta":
-                total_seconds = 0
-                for kw in node.keywords:
-                    if isinstance(kw.value, ast.Constant):
-                        val = kw.value.value
-                        if kw.arg == "seconds":
-                            total_seconds += int(val)
-                        elif kw.arg == "minutes":
-                            total_seconds += int(val) * 60
-                        elif kw.arg == "hours":
-                            total_seconds += int(val) * 3600
-                        elif kw.arg == "days":
-                            total_seconds += int(val) * 86400
-                policy.timeout.seconds = total_seconds
+                # Python's own timedelta arithmetic over the accepted keywords,
+                # truncated once to whole seconds: minutes=4.1 is 246 seconds,
+                # as timedelta says, not 240 (per-keyword truncation) or 245
+                # (float summation).
+                keywords = {
+                    kw.arg: kw.value.value
+                    for kw in node.keywords
+                    if kw.arg in ("seconds", "minutes", "hours", "days")
+                    and isinstance(kw.value, ast.Constant)
+                }
+                policy.timeout.seconds = timedelta(**keywords) // timedelta(seconds=1)
                 return policy
 
         return None

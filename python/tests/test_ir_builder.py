@@ -2916,6 +2916,23 @@ class TestPolicyVariations:
         assert policy.HasField("timeout"), "Should be timeout policy"
         assert policy.timeout.timeout.seconds == 86400  # 1 day
 
+    def test_timeout_with_fractional_timedelta_matches_timedelta(self) -> None:
+        """Test: timeout=timedelta(minutes=4.1) is 246 seconds, as timedelta says.
+
+        Per-keyword truncation gave 240; a float sum truncated once gives 245.
+        """
+        from tests.fixtures_policy.policy_variations import PolicyVariationsWorkflow
+
+        program = PolicyVariationsWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_timeout_fractional_minutes")
+        assert action is not None, "Should find action_with_timeout_fractional_minutes"
+        assert len(action.policies) == 1, "Should have 1 policy"
+
+        policy = action.policies[0]
+        assert policy.HasField("timeout"), "Should be timeout policy"
+        assert policy.timeout.timeout.seconds == 246
+
 
 class TestInstanceAttrPolicies:
     """Test policies stored as instance attributes and referenced via self.attr."""
