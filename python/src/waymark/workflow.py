@@ -50,9 +50,24 @@ class RetryPolicy:
     Maps to IR RetryPolicy: [ExceptionType -> retry: N, backoff: Xs]
 
     Args:
-        attempts: Maximum number of retry attempts.
-        exception_types: List of exception type names to retry on. Empty = catch all.
-        backoff_seconds: Constant backoff duration between retries in seconds.
+        attempts: Total executions, the first try included: ``attempts=1`` never
+            retries. Omitted, the policy compiles to a budget of 100 retries.
+        exception_types: Exception class names to retry on, matched by exact class
+            name: base classes never match, so ``"OSError"`` does not cover a
+            ``ConnectionError``. Empty, or ``["Exception"]`` alone, retries every
+            exception the attempt raises except ``ActionTimeout``, which has to be
+            listed to be retried; listed beside ``"Exception"`` it makes the list
+            literal, so a catch-all that also retries timeouts is deliberately not
+            expressible: a timed-out attempt may still be running, and is retried
+            only by name. The runtime's own ``ActionExecutionNotStarted`` and
+            ``ActionExecutionLost`` are retried like any other exception, and a lost
+            attempt may have run to completion.
+        backoff_seconds: A fixed sleep before each retry, in whole seconds: a
+            fractional value is truncated, and under one second means no backoff.
+
+    Every field must be a literal in the workflow body: the workflow compiler reads
+    them from the AST at registration. The whole policy may instead be a ``self.``
+    attribute assigned a literal ``RetryPolicy(...)`` in ``__init__``.
     """
 
     attempts: Optional[int] = None
@@ -117,8 +132,12 @@ class Workflow:
 
         Args:
             awaitable: The action coroutine to execute.
-            retry: Retry policy including max attempts, exception types, and backoff.
-            timeout: Timeout duration in seconds (or timedelta).
+            retry: Retry policy: total attempts, exception types, and backoff.
+            timeout: Per-attempt timeout as a number of seconds or a ``timedelta``
+                built from ``seconds``, ``minutes``, ``hours`` or ``days`` keywords;
+                whole seconds only (fractions are truncated), and under one second
+                means no timeout. Raced against each attempt; expiry raises
+                ``ActionTimeout``, which a catch-all retry policy does not retry.
         """
         # Parameters are intentionally unused at runtime; the workflow compiler
         # inspects the AST to record them.
