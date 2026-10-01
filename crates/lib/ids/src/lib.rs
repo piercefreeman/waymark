@@ -138,24 +138,15 @@ uuid_types![InstanceId, ExecutionId, WorkflowVersionId, NodeId];
 // ---------------------------------------------------------------------------
 
 /// Error returned when decoding a UUID-based id from bytes fails.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
 pub enum IdDecodeError {
     /// The input bytes are not long enough (need exactly 16 bytes).
+    #[error("not enough bytes to decode id")]
     TooShort,
     /// The decoded UUID is nil, which is disallowed.
+    #[error("nil uuid is not a valid id")]
     NilUuid,
 }
-
-impl core::fmt::Display for IdDecodeError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::TooShort => write!(f, "not enough bytes to decode id"),
-            Self::NilUuid => write!(f, "nil uuid is not a valid id"),
-        }
-    }
-}
-
-impl std::error::Error for IdDecodeError {}
 
 macro_rules! impl_encode_decode_for_id {
     ($name:ident) => {
