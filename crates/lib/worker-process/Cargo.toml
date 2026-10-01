@@ -10,7 +10,7 @@ waymark-worker-message-protocol = { workspace = true }
 waymark-worker-reservation = { workspace = true }
 
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt"] }
+tokio = { workspace = true, features = ["process", "rt", "time"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 
