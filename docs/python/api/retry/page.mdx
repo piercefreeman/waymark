@@ -11,9 +11,10 @@ Semantics to know:
   plus up to four retries, and `attempts=1` means fail immediately.
 - Omitting `attempts` compiles to a budget of 100 retries. Set it
   explicitly unless you want that.
-- `backoff_seconds` is parsed and persisted, but the runtime currently
-  dispatches retries immediately. Don't rely on it for pacing yet; put
-  an `await asyncio.sleep(...)` inside the action instead.
+- `backoff_seconds` is a fixed sleep before each retry; a fractional
+  value is truncated to whole seconds, so under one second means no
+  backoff. Don't add a sleep inside the action for it: that adds to the
+  wait and counts against the timeout.
 - Field values must be literal constants in the workflow body. The
   compiler reads them from the AST at registration, so a policy built
   from a runtime variable won't be picked up. The exception:
