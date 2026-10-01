@@ -93,7 +93,7 @@ services:
     environment:
       WAYMARK_DATABASE_URL: postgresql://app:app@postgres:5432/app
       WAYMARK_USER_MODULE: yourapp.workflows
-      WAYMARK_WEBAPP_ENABLED: "true"
+      WAYMARK_HTTP_ENABLED: "true"
     ports:
       - "24119:24119"
 
@@ -129,10 +129,9 @@ them, are documented in [Configuration](/guides/configuration).
 
 ## The webapp {{ id: 'webapp' }}
 
-Setting `WAYMARK_WEBAPP_ENABLED=true` on the worker pool serves the
-built-in webapp on port `24119`: live workflow progress, run history,
-and per-action inputs, retries, and outputs. The
-[Webapp guide](/guides/webapp) covers everything it can do.
+Setting `WAYMARK_HTTP_ENABLED=true` on the worker pool serves the HTTP
+API and `/healthz` on port `24119`. The [Webapp guide](/guides/webapp)
+covers everything it can do.
 
 <Note>
 The webapp binds to `0.0.0.0` by default and has no built-in auth.
