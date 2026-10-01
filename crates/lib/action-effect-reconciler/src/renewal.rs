@@ -149,6 +149,8 @@ where
     let time_to_live = lock_time_to_live.get();
 
     let mut interval = tokio::time::interval(heartbeat.get());
+    // A heartbeat held up by a slow renewal is not made up for in a burst.
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // Tracked locks: key → fence deadline on the local monotonic clock.
     let mut tracked: HashMap<ActionCallRequestKey<Backend::VmId>, Instant> = HashMap::new();
     let mut channel_closed = false;
