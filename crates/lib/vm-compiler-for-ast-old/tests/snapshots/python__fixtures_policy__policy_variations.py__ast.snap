@@ -410,25 +410,79 @@ Program {
                                 },
                             },
                             Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "g",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "action_with_timeout_fractional_minutes",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "value",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "f",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 38,
+                                                                start_col: 53,
+                                                                end_line: 38,
+                                                                end_col: 54,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [
+                                                    Timeout(
+                                                        TimeoutPolicy {
+                                                            timeout: DurationLiteral {
+                                                                seconds: 246,
+                                                            },
+                                                        },
+                                                    ),
+                                                ],
+                                                module_name: Some(
+                                                    "policy_variations",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 37,
+                                            start_col: 4,
+                                            end_line: 39,
+                                            end_col: 5,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 37,
+                                    start_col: 4,
+                                    end_line: 39,
+                                    end_col: 5,
+                                },
+                            },
+                            Spanned {
                                 value: Return {
                                     value: Some(
                                         Spanned {
                                             value: Variable {
-                                                name: "f",
+                                                name: "g",
                                             },
                                             span: Span {
-                                                start_line: 36,
+                                                start_line: 41,
                                                 start_col: 11,
-                                                end_line: 36,
+                                                end_line: 41,
                                                 end_col: 12,
                                             },
                                         },
                                     ),
                                 },
                                 span: Span {
-                                    start_line: 36,
+                                    start_line: 41,
                                     start_col: 4,
-                                    end_line: 36,
+                                    end_line: 41,
                                     end_col: 12,
                                 },
                             },
@@ -445,7 +499,7 @@ Program {
             span: Span {
                 start_line: 1,
                 start_col: 0,
-                end_line: 36,
+                end_line: 41,
                 end_col: 12,
             },
         },
