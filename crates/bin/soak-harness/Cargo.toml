@@ -8,6 +8,7 @@ edition = "2024"
 waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-counter-rate = { workspace = true, features = ["chrono"] }
+waymark-error-fmt = { workspace = true }
 waymark-essential-metrics-core = { workspace = true }
 waymark-essential-metrics-query-backend = { workspace = true }
 waymark-fn-main-common = { workspace = true }
