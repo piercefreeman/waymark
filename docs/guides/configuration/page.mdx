@@ -39,11 +39,11 @@ These are the variables you'll touch most often when running
 | `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the main database pool. | `25` |
 | `WAYMARK_WORKER_COUNT` | Number of Python worker processes. | Host CPU count |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per worker. | `10` |
-| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently. | `500` |
+| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently, per `waymark-start-workers` process. | `500` |
 | `WAYMARK_USER_MODULE` | Comma-separated Python modules preloaded in workers. | Unset |
 | `WAYMARK_MAX_ACTION_LIFECYCLE` | Actions per worker before recycle (memory mitigation). | Unset (no limit) |
-| `WAYMARK_WEBAPP_ENABLED` | Enable embedded web UI. | `false` |
-| `WAYMARK_WEBAPP_ADDR` | Web UI bind address. | `0.0.0.0:24119` |
+| `WAYMARK_HTTP_ENABLED` | Enable the HTTP interface. | `false` |
+| `WAYMARK_HTTP_ADDR` | HTTP server bind address. The HTTP API has no authentication: keep it private with the bind address or the network in front of it. | `0.0.0.0:24119` |
 
 <Note>
 `WAYMARK_USER_MODULE` is the one most people miss on first setup. The
@@ -54,7 +54,8 @@ queue rows arrive - and it won't fail loudly, it will just idle.
 
 ## Worker pool advanced {{ id: 'worker-pool-advanced' }}
 
-These tune the runloop scheduler. The defaults are well-chosen for a
+These tune the worker pool: its worker bridge bind, the workload pinning lease
+and the schedule poll. The defaults are well-chosen for a
 single-host deployment; you usually only reach for them once you're
 running multiple hosts and have a measured reason.
 
