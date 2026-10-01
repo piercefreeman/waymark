@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use nonempty_collections::{NESlice, NEVec};
@@ -47,6 +48,9 @@ pub(crate) struct MockBackend {
     pub fail_renewals: Mutex<bool>,
     /// Report every present row as [`RenewalStatus::Unconfirmed`] when set.
     pub report_unconfirmed_renewals: Mutex<bool>,
+    /// Hold the next renew call that does not fail for this long before it
+    /// answers; taken by that call, so only one call is slow.
+    pub renew_delay: Mutex<Option<Duration>>,
     pub renew_calls: Mutex<u32>,
 }
 
@@ -219,6 +223,12 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for M
         *self.renew_calls.lock().unwrap() += 1;
         if *self.fail_renewals.lock().unwrap() {
             return Err(MockRenewError);
+        }
+        // Taken out of its guard before the sleep: no std guard is held
+        // across the await.
+        let delay = self.renew_delay.lock().unwrap().take();
+        if let Some(delay) = delay {
+            tokio::time::sleep(delay).await;
         }
 
         let report_unconfirmed = *self.report_unconfirmed_renewals.lock().unwrap();

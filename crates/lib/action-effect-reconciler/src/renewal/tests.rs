@@ -300,6 +300,45 @@ async fn the_heartbeat_that_empties_the_tracked_set_stops_at_once() {
     assert_eq!(*backend.renew_calls.lock().unwrap(), 2);
 }
 
+/// A renewal slower than the heartbeat leaves no backlog of ticks behind
+/// it: one renewal follows the stalled one at once, and the next waits for
+/// the grid point. `Burst` would fire the missed ticks back to back;
+/// `Delay` would put the next renewal a full heartbeat after the stall.
+#[tokio::test(start_paused = true)]
+async fn a_slow_renewal_skips_the_heartbeats_it_held_up() {
+    let backend = Arc::new(MockBackend::default());
+    seed_locked_row(&backend, key(1), 7);
+    // The first renewal stalls for two and a half heartbeats.
+    *backend.renew_delay.lock().unwrap() = Some(Duration::from_secs(150));
+    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
+    held_locks_tx.send(held(key(1))).unwrap();
+
+    let renewal = tokio::spawn(run(
+        slow_params(&backend, held_locks_rx),
+        std::future::pending(),
+    ));
+
+    // Just past the stall: the stalled renewal, then the one immediate
+    // post-stall renewal; the two grid points the stall swallowed fire
+    // once between them.
+    tokio::time::sleep(Duration::from_secs(151)).await;
+    assert_eq!(*backend.renew_calls.lock().unwrap(), 2);
+
+    // Nothing until the next grid point, at 180 s.
+    tokio::time::sleep(Duration::from_secs(28)).await;
+    assert_eq!(*backend.renew_calls.lock().unwrap(), 2);
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(*backend.renew_calls.lock().unwrap(), 3);
+
+    drop(held_locks_tx);
+    backend.rows.lock().unwrap().remove(&key(1));
+    tokio::time::timeout(Duration::from_secs(90), renewal)
+        .await
+        .expect("the loop stops on the heartbeat that finds the row gone")
+        .expect("renewal loop task")
+        .expect("drain is a peaceful stop");
+}
+
 /// The shutdown future resolving after the rows are gone, but before a
 /// heartbeat noticed, is still a peaceful stop: the last heartbeat lets
 /// them leave.
