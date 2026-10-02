@@ -126,7 +126,7 @@ pub async fn run<
     loop {
         tokio::select! {
             _ = &mut shutdown, if intake_open => {
-                tracing::info!("execution driver shutting down: no more workloads taken");
+                tracing::debug!("execution driver shutting down: no more workloads taken");
                 intake_open = false;
             }
             batch = pinned_rx.recv(), if pinned_rx_open => match batch {
@@ -143,14 +143,14 @@ pub async fn run<
                 // released on the spot rather than held pinned for the
                 // whole drain.
                 Some(batch) => {
-                    tracing::info!(
+                    tracing::debug!(
                         count = batch.len(),
                         "pinned workloads received after the intake closed; releasing"
                     );
                     drop(batch);
                 }
                 None => {
-                    tracing::info!("pinned channel closed");
+                    tracing::debug!("pinned channel closed");
                     intake_open = false;
                     pinned_rx_open = false;
                 }
