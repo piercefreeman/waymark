@@ -15,6 +15,8 @@ use waymark_vm_value_python::ReadyValue;
 use super::{Ack, DemandRegistrar, Params, PollSleepSettlementsError, SettlementsHandle};
 use crate::test_support::{MockBackend, key};
 
+const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
 fn demand(ids: &[usize]) -> NEVec<PromiseStateId> {
     NEVec::try_from_vec(ids.iter().map(|id| PromiseStateId(*id)).collect())
         .expect("test demand is non-empty")
@@ -50,10 +52,7 @@ fn poller(
     let params = Params {
         backend: Arc::new(backend.clone()),
         state,
-        poll_interval: waymark_nonzero_duration::NonZeroDuration::try_from(
-            std::time::Duration::from_millis(250),
-        )
-        .unwrap(),
+        poll_interval: waymark_nonzero_duration::NonZeroDuration::try_from(POLL_INTERVAL).unwrap(),
     };
     (registrar, params, ack_rx)
 }
@@ -176,6 +175,81 @@ async fn stale_handle_drop_leaves_resubscribed_entry_intact() {
     assert_eq!(settlements.len().get(), 1);
 
     poll_loop.abort();
+}
+
+#[tokio::test]
+async fn ends_once_every_registrar_and_handle_is_gone() {
+    let backend = MockBackend::default();
+    let (registrar, params, _ack_rx) = poller(&backend);
+    let handle = registrar.subscribe::<ReadyValueSleepProvider>(InstanceId::new_uuid_v4());
+
+    let mut run = pin!(super::run(params));
+    assert!(poll_once(run.as_mut()).is_pending());
+
+    // A handle outliving its registrar keeps the loop parked.
+    drop(registrar);
+    assert!(poll_once(run.as_mut()).is_pending());
+
+    drop(handle);
+    assert!(matches!(poll_once(run.as_mut()), Poll::Ready(Ok(()))));
+    assert_eq!(backend.inner.poll_calls.load(Ordering::SeqCst), 0);
+}
+
+/// The loop in its poll-interval wait ends once everything is gone: from
+/// that wait, not from the parked one.
+#[tokio::test(start_paused = true)]
+async fn ends_from_the_poll_interval_wait_once_everything_is_gone() {
+    let vm_id = InstanceId::new_uuid_v4();
+    let backend = MockBackend::default();
+    // The first poll delivers one of the two demanded sleeps; the second
+    // finds nothing due.
+    backend
+        .inner
+        .poll_batches
+        .lock()
+        .unwrap()
+        .push_back(vec![key(vm_id, 3)]);
+    backend
+        .inner
+        .poll_batches
+        .lock()
+        .unwrap()
+        .push_back(Vec::new());
+
+    let (registrar, params, _ack_rx) = poller(&backend);
+    // The clone outlives the original.
+    let registrar_clone = registrar.clone();
+    let mut handle = registrar.subscribe::<ReadyValueSleepProvider>(vm_id);
+    drop(registrar);
+
+    // Parked with no demand first, so the registration below is seen as
+    // a wakeup there, not stored to cut the interval wait short.
+    let mut run = pin!(super::run(params));
+    assert!(poll_once(run.as_mut()).is_pending());
+    assert_eq!(backend.inner.poll_calls.load(Ordering::SeqCst), 0);
+
+    {
+        // Register demand, then cancel the wait before delivery.
+        let mut wait = pin!(poll_settlements(&mut handle, &[3, 4]));
+        assert!(poll_once(wait.as_mut()).is_pending());
+    }
+
+    // The wakeup, the poll delivering sleep 3, then the interval wait
+    // with sleep 4 still demanded.
+    assert!(poll_once(run.as_mut()).is_pending());
+    assert_eq!(backend.inner.poll_calls.load(Ordering::SeqCst), 1);
+
+    // It is the interval wait: the interval elapsing polls again.
+    tokio::time::advance(POLL_INTERVAL).await;
+    assert!(poll_once(run.as_mut()).is_pending());
+    assert_eq!(backend.inner.poll_calls.load(Ordering::SeqCst), 2);
+
+    // No new demand and the interval far from over: the gone arm is the
+    // only way out of that wait, and it is taken.
+    drop(handle);
+    drop(registrar_clone);
+    assert!(matches!(poll_once(run.as_mut()), Poll::Ready(Ok(()))));
+    assert_eq!(backend.inner.poll_calls.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]
