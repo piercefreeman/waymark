@@ -26,12 +26,12 @@ pub type ReceiveErrorFor<Metadata, Value, ValueConverter> =
 pub enum ReceiveError<DecodeError, PayloadError> {
     /// A result carried correlation metadata that could not be decoded, so it
     /// cannot be routed back to the promise that awaits it.
-    #[error("unable to decode correlation metadata for an action completion")]
-    Decode(DecodeError),
+    #[error("unable to decode correlation metadata for an action completion: {0}")]
+    Decode(#[source] DecodeError),
 
     /// A result carried a payload that could not be converted, so there
     /// is nothing valid to settle the promise with.
-    #[error("unable to convert an action-completion payload")]
+    #[error("unable to convert an action-completion payload: {0}")]
     Payload(#[source] PayloadError),
 }
 
