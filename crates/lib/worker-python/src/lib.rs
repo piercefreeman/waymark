@@ -11,7 +11,7 @@ pub use config::{Config, Runner};
 
 /// Prepare the Python worker process spec from the config, detecting the
 /// runner if the config has none.
-pub async fn prepare(config: Config) -> PreparedSpec {
+pub async fn prepare(config: Config) -> Result<PreparedSpec, std::env::JoinPathsError> {
     let Config {
         runner,
         user_modules,
@@ -29,29 +29,28 @@ pub async fn prepare(config: Config) -> PreparedSpec {
         }
     };
 
-    let joined_python_path = extra_python_paths
-        .iter()
-        .map(|path| path.display().to_string())
-        .collect::<Vec<_>>()
-        .join(":");
+    let mut python_paths = Vec::new();
+    if let Some(existing) = std::env::var_os("PYTHONPATH")
+        && !existing.is_empty()
+    {
+        python_paths.extend(std::env::split_paths(&existing));
+    }
+    python_paths.extend(extra_python_paths);
 
-    let python_path = match std::env::var("PYTHONPATH") {
-        Ok(existing) if !existing.is_empty() => format!("{existing}:{joined_python_path}"),
-        _ => joined_python_path,
-    };
+    let python_path = std::env::join_paths(python_paths)?;
 
     tracing::info!(
         script_path = ?runner.script_path,
         script_args = ?runner.script_args,
-        python_path = %python_path,
+        ?python_path,
         "prepared python worker spec"
     );
 
-    PreparedSpec {
+    Ok(PreparedSpec {
         runner,
         user_modules,
         python_path,
-    }
+    })
 }
 
 /// Python worker process spec, prepared and not yet bound to a bridge server.
@@ -60,7 +59,7 @@ pub struct PreparedSpec {
 
     user_modules: Vec<String>,
 
-    python_path: String,
+    python_path: std::ffi::OsString,
 }
 
 impl PreparedSpec {
