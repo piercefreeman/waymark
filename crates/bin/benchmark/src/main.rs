@@ -133,7 +133,17 @@ async fn run_benchmark(
 
         let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
             waymark_worker_inline::run(actions::action_registry());
-        supervisor.spawn("inline worker pool loop", worker_pool_loop);
+        // Cancelled when the worker pool loop stops, however it stops. A
+        // child of the force shutdown token: a forced stop stops the
+        // renewal without waiting for the pool.
+        let worker_pool_stopped = force_shutdown_token.child_token();
+        supervisor.spawn("inline worker pool loop", {
+            let cancel_on_end = worker_pool_stopped.clone().drop_guard();
+            async move {
+                let _cancel_on_end = cancel_on_end;
+                worker_pool_loop.await
+            }
+        });
 
         let start = Instant::now();
         waymark_execution_bringup::start(
@@ -142,6 +152,7 @@ async fn run_benchmark(
             Arc::new(backend.clone()),
             Arc::new(worker_pool_requests),
             worker_pool_completions,
+            worker_pool_stopped.cancelled_owned(),
             observability_events,
             shutdown_token.child_token(),
             force_shutdown_token.child_token(),

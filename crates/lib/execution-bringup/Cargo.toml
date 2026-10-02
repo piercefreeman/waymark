@@ -45,7 +45,6 @@ waymark-workload-pinning-manager = { workspace = true }
 chrono = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 tokio-util = { workspace = true }
-tracing = { workspace = true }
 
 [lib]
 doctest = false

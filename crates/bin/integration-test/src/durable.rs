@@ -75,6 +75,7 @@ pub async fn run_durable_mode(
             Arc::new(stack.backend.clone()),
             worker_pool.requests,
             worker_pool.completions,
+            worker_pool.stopped.cancelled_owned(),
             None,
             shutdown_token.child_token(),
             force_shutdown_token.child_token(),
