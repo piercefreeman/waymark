@@ -33,7 +33,8 @@ pub enum StartError {
 
 /// Bring up the observability store — a write pool with the migrations,
 /// a read pool — and every observability subsystem's pipeline over the
-/// write side, as tasks of `spawner` all ending on `shutdown_token`;
+/// write side, as tasks of `spawner` ending on `shutdown_token` — the
+/// lossy batchers on their last handle or on `force_shutdown_token`;
 /// returns the observability API router over the read side, and the
 /// node's event emitter for producers to share, with what the VM driver
 /// hooks record through it.
@@ -47,6 +48,7 @@ pub async fn start<Spawner>(
     node_id: waymark_ids::NodeId,
     handle: waymark_essential_metrics_sampler::recorder::Handle,
     shutdown_token: tokio_util::sync::CancellationToken,
+    force_shutdown_token: tokio_util::sync::CancellationToken,
 ) -> Result<
     (
         aide::axum::ApiRouter,
@@ -92,6 +94,7 @@ where
         Arc::clone(&write_store),
         Arc::clone(&read_store),
         shutdown_token.clone(),
+        force_shutdown_token.clone(),
     );
 
     let (observability_events_api_router, emitter, vm_driver_hooks_policy) =
@@ -102,6 +105,7 @@ where
             write_store,
             Arc::clone(&read_store),
             shutdown_token,
+            force_shutdown_token,
         );
 
     let observability_state_api_router = waymark_api_observability_state_http::router(read_store);
