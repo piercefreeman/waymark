@@ -12,7 +12,7 @@ use waymark_convert_core::TryConvert;
 /// instantiated with the same `Metadata` recovers exactly what was attached
 /// here.  Deployments that need to route completions back to a VM inject the
 /// VM id into the metadata before it reaches this requester (e.g. via
-/// [`waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester`]).
+/// `waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester`).
 pub struct WorkerPoolActionRequester<Pool, Metadata, Argument, ValueConverter> {
     /// The worker pool to submit action requests to.
     pub pool: Pool,

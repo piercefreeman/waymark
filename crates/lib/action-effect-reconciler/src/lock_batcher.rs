@@ -17,7 +17,7 @@
 //! dropped mid-submit strands its item, and the state manager's retry
 //! submits the same vm again.  Submission order then guarantees the
 //! earlier occurrence's waiter is dead — the state manager's per-key
-//! single-flight admits no concurrent producers — so [`LastSubmissionWins`]
+//! single-flight admits no concurrent producers — so `LastSubmissionWins`
 //! folds it out and only the live submission reaches the statement.
 //!
 //! One lock is built per batch, at flush.  Each waiter's local fence
