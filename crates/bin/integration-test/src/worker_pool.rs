@@ -46,7 +46,9 @@ where
             repo_root.join("tests"),
             repo_root.join("tests/integration_tests"),
         ]);
-    let prepared_spec = waymark_worker_python::prepare(config).await;
+    let prepared_spec = waymark_worker_python::prepare(config)
+        .await
+        .wrap_err("prepare python worker spec")?;
 
     let process_pool = waymark_worker_remote_bringup::start(
         &mut spawner,

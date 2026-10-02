@@ -96,7 +96,9 @@ async fn run_smoke(base: i64) -> i32 {
         let worker_config = waymark_worker_python::Config::new()
             .with_user_module("tests.fixtures.test_actions")
             .with_python_paths(vec![repo_root().join("python")]);
-        let prepared_spec = waymark_worker_python::prepare(worker_config).await;
+        let prepared_spec = waymark_worker_python::prepare(worker_config)
+            .await
+            .wrap_err("prepare python worker spec")?;
 
         let process_pool = waymark_worker_remote_bringup::start(
             &mut supervisor,
