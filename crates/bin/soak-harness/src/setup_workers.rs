@@ -34,15 +34,15 @@ impl WorkerProcess {
     }
 }
 
-pub async fn start_workers(
+pub async fn start_node(
     args: &crate::cli::SoakArgs,
     run_dir: &Path,
 ) -> Result<WorkerProcess, color_eyre::eyre::Report> {
     let http_enabled = !args.disable_http;
-    let log_path = run_dir.join("start-workers.log");
+    let log_path = run_dir.join("node.log");
     // `CARGO_MANIFEST_DIR` here is `crates/bin/soak-harness`, while the soak action module lives at
     // `<workspace>/python/tests/fixtures_actions/soak_actions.py` and the child binary is resolved from
-    // `<workspace>/target/debug/waymark-start-workers`. Run the child from the workspace root and seed
+    // `<workspace>/target/debug/waymark-node`. Run the child from the workspace root and seed
     // `PYTHONPATH` with the workspace Python directories so `tests.fixtures_actions.soak_actions`
     // remains importable even if worker-remote falls back to the caller's current directory.
     let repo_root = repo_root();
@@ -52,7 +52,7 @@ pub async fn start_workers(
         .try_clone()
         .wrap_err_with(|| format!("clone worker log handle {}", log_path.display()))?;
 
-    let mut cmd = start_workers_command();
+    let mut cmd = node_command();
     cmd.current_dir(&repo_root);
     cmd.env("WAYMARK_DATABASE_URL", args.dsn.expose_secret());
     cmd.env("WAYMARK_USER_MODULE", &args.user_module);
@@ -80,8 +80,7 @@ pub async fn start_workers(
     cmd.stdout(Stdio::from(log_file));
     cmd.stderr(Stdio::from(log_file_err));
 
-    let child =
-        waymark_managed_process::spawn(cmd).wrap_err("spawn waymark-start-workers process")?;
+    let child = waymark_managed_process::spawn(cmd).wrap_err("spawn waymark-node process")?;
     info!(
         log_path = %log_path.display(),
         http_enabled,
@@ -95,29 +94,29 @@ pub async fn start_workers(
     })
 }
 
-fn start_workers_command() -> Command {
+fn node_command() -> Command {
     let repo_root = repo_root();
     let local_debug_bin = repo_root
         .join("target")
         .join("debug")
         .join(if cfg!(windows) {
-            "waymark-start-workers.exe"
+            "waymark-node.exe"
         } else {
-            "waymark-start-workers"
+            "waymark-node"
         });
     if local_debug_bin.is_file() {
         return Command::new(local_debug_bin);
     }
 
-    if let Some(start_workers_bin) = find_executable("waymark-start-workers") {
-        return Command::new(start_workers_bin);
+    if let Some(node_bin) = find_executable("waymark-node") {
+        return Command::new(node_bin);
     }
 
     let mut command = Command::new("cargo");
     command
         .arg("run")
         .arg("--bin")
-        .arg("waymark-start-workers")
+        .arg("waymark-node")
         .arg("--");
     command
 }

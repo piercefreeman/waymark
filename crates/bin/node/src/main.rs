@@ -1,4 +1,4 @@
-//! Start Workers - Runs the durable VM execution subsystem with a Python worker pool.
+//! Node - Runs the durable VM execution subsystem with a Python worker pool.
 //!
 //! This binary starts the worker infrastructure:
 //! - Connects to the database
@@ -87,7 +87,7 @@ async fn main()
     );
 
     metrics::gauge!(
-        "waymark_start_workers_up",
+        "waymark_node_up",
         "node_id" => node_id.to_string(),
         "worker_count" => config.worker_count.to_string(),
         "concurrent_per_worker" => config.concurrent_per_worker.to_string(),
