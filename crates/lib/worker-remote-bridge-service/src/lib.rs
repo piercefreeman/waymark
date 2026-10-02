@@ -55,7 +55,7 @@ impl proto::worker_bridge_server::WorkerBridge for WorkerBridgeService {
         })?;
 
         let worker_id = hello.worker_id;
-        tracing::info!(worker_id, "worker connected and sent hello");
+        tracing::debug!(worker_id, "worker connected and sent hello");
 
         // Create channels for bidirectional communication.
         let (to_worker_tx, to_worker_rx) = mpsc::channel(MESSAGE_PROTOCOL_CHANNEL_SIZE);
@@ -97,7 +97,7 @@ async fn pipe_inbound_messages(
         };
 
         let Some(envelope) = maybe_envelope else {
-            tracing::info!("worker stream closed");
+            tracing::debug!("worker stream closed");
             break;
         };
 

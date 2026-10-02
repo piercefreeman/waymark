@@ -92,7 +92,7 @@ pub async fn spawn(
         }
     };
 
-    tracing::info!("worker process connected");
+    tracing::debug!("worker process connected");
 
     // Prepare the join set for all worker-associated tasks and a cancellation
     // token for graceful task termination.
