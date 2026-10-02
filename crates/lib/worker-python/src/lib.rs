@@ -57,7 +57,7 @@ impl waymark_worker_process_spec::Spec for Spec {
             _ => joined_python_path,
         };
 
-        tracing::info!(python_path = %python_path, ?reservation_id, "configured python path for worker");
+        tracing::debug!(python_path = %python_path, ?reservation_id, "configured python path for worker");
 
         // Build the command
         let mut command = tokio::process::Command::new(&self.config.script_path);
@@ -76,12 +76,12 @@ impl waymark_worker_process_spec::Spec for Spec {
         command.env("PYTHONPATH", python_path);
 
         if let Some(dir) = working_dir {
-            tracing::info!(?dir, "using package root for worker process");
+            tracing::debug!(?dir, "using package root for worker process");
             command.current_dir(dir);
         } else {
             // TODO: move this fallible initialization outside of this impl.
             let cwd = std::env::current_dir().expect("failed to resolve current directory");
-            tracing::info!(
+            tracing::debug!(
                 ?cwd,
                 "package root missing, using current directory for worker process"
             );
