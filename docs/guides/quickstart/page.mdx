@@ -32,7 +32,7 @@ uv add waymark
 ```
 
 This wheel ships with our Python library, which lets you write your workflows. It also ships with
-our rust backend which allows you to run your code: you can call this with `uv run waymark-start-workers`.
+our rust backend which allows you to run your code: you can call this with `uv run waymark-node`.
 
 ## Define a workflow {{ id: 'define-a-workflow' }}
 
@@ -134,7 +134,7 @@ the action handlers registered before it starts pulling from the queue.
 With the environment in place, the worker pool is one command:
 
 ```bash
-source .env && uv run waymark-start-workers
+source .env && uv run waymark-node
 ```
 
 ## Kick off a run {{ id: 'kick-off-a-run' }}
