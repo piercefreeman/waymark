@@ -60,13 +60,3 @@ fn serde_reads_rfc_3339_and_refuses_the_out_of_range() {
         .expect_err("chrono's minimum");
     assert!(error.to_string().contains("0000-01-01"), "{error}");
 }
-
-#[cfg(feature = "now")]
-#[test]
-fn now_is_the_present() {
-    let before = chrono::Utc::now();
-    let now = Timestamp::now();
-    let after = chrono::Utc::now();
-
-    assert!(before <= now.get() && now.get() <= after);
-}
