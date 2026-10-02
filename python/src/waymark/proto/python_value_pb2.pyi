@@ -409,7 +409,8 @@ class ExceptionValue(google.protobuf.message.Message):
 
     The details are an ordinary value — in practice a dict carrying the
     language-specific particulars (module, message, traceback, the
-    exception's own values, the class hierarchy for `except` matching).
+    exception's own values, the class hierarchy for the planned base-class
+    `except` matching).
     Nothing about those particulars is wire-level structure: they are just
     what this language chose to put in the details.
     """
