@@ -61,11 +61,11 @@ where
     ) -> Result<(), Self::Error> {
         let outcome = match emitted_effect.effect {
             CoreSetEffect::Complete(value) => {
-                tracing::info!("workflow completed successfully");
+                tracing::debug!("workflow completed successfully");
                 Outcome::Completion(value)
             }
             CoreSetEffect::UnhandledException(exception) => {
-                tracing::info!(
+                tracing::debug!(
                     exception_type = %exception.type_id,
                     "workflow terminated with unhandled exception",
                 );

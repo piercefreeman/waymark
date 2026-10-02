@@ -76,7 +76,7 @@ where
     ) -> Result<(), Self::Error> {
         let outcome = match emitted_effect.effect {
             CoreSetEffect::Complete(value) => {
-                tracing::info!("workflow completed successfully");
+                tracing::debug!("workflow completed successfully");
                 let mut buf = Vec::new();
                 self.codec
                     .with_serializer(&mut buf, |ser| serde::Serialize::serialize(&value, ser))
@@ -84,7 +84,7 @@ where
                 waymark_workflow_completion_backend::Outcome::Completion(buf)
             }
             CoreSetEffect::UnhandledException(exception) => {
-                tracing::info!(
+                tracing::debug!(
                     exception_type = %exception.type_id,
                     "workflow terminated with unhandled exception",
                 );
