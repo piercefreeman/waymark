@@ -16,7 +16,7 @@ export const sections = [
 # Webapp
 
 Waymark ships a webapp inside the worker pool. There's nothing to
-install and nothing to wire up: the same `waymark-start-workers` process
+install and nothing to wire up: the same `waymark-node` process
 that executes your actions serves the webapp, reading from the same Postgres.
 Use it to watch runs progress, debug a failed action down to its inputs
 and logs, and manage schedules without touching a Python shell.
@@ -32,7 +32,7 @@ export WAYMARK_HTTP_ENABLED=true
 export WAYMARK_HTTP_ADDR=0.0.0.0:24119  # the default
 ```
 
-Restart `waymark-start-workers` and the webapp is live on port
+Restart `waymark-node` and the webapp is live on port
 `24119`. A `/healthz` endpoint is included for load balancer checks.
 
 <Note>
