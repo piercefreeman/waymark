@@ -44,7 +44,7 @@ pub async fn start_node(
     // `<workspace>/python/tests/fixtures_actions/soak_actions.py` and the child binary is resolved from
     // `<workspace>/target/debug/waymark-node`. Run the child from the workspace root and seed
     // `PYTHONPATH` with the workspace Python directories so `tests.fixtures_actions.soak_actions`
-    // remains importable even if worker-remote falls back to the caller's current directory.
+    // remains importable.
     let repo_root = repo_root();
     let log_file = File::create(&log_path)
         .wrap_err_with(|| format!("create node log file {}", log_path.display()))?;
