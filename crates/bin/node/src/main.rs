@@ -195,7 +195,7 @@ async fn main()
             worker_config = worker_config.with_user_modules(config.user_modules.clone());
         }
 
-        let prepared_spec = waymark_worker_python::prepare(worker_config).await;
+        let prepared_spec = waymark_worker_python::prepare(worker_config).await?;
 
         let process_pool = waymark_worker_remote_bringup::start(
             &mut supervisor,
