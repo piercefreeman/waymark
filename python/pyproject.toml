@@ -4,14 +4,7 @@ version = "0.1.0"
 description = "Distributed & durable background events in Python"
 readme = "../README.md"
 requires-python = ">=3.10"
-dependencies = [
-  "googleapis-common-protos>=1.72.0",
-  "grpcio>=1.66,<2",
-  "mountaineer-di",
-  "protobuf>=5.29,<6",
-  "pydantic>=2,<3",
-  "typing-extensions>=4.5,<5",
-]
+dependencies = ["grpcio>=1.66,<2", "mountaineer-di", "protobuf>=5.29,<6", "pydantic>=2,<3", "typing-extensions>=4.5,<5"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
