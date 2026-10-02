@@ -4769,6 +4769,7 @@ dependencies = [
  "waymark-execution-bringup",
  "waymark-fn-main-common",
  "waymark-ids",
+ "waymark-managed-process",
  "waymark-proto",
  "waymark-secret-string",
  "waymark-support-integration",
@@ -4781,7 +4782,6 @@ dependencies = [
  "waymark-vm-runtime-builder",
  "waymark-vm-runtime-exception",
  "waymark-vm-value-python-convert-proto",
- "waymark-worker-core",
  "waymark-worker-python",
  "waymark-worker-remote-bringup",
  "waymark-worker-remote-pool",
@@ -5787,7 +5787,6 @@ dependencies = [
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
  "waymark-vm-runtime-core",
- "waymark-worker-core",
  "waymark-worker-python",
  "waymark-worker-remote-bringup",
  "waymark-worker-remote-pool",
@@ -6379,6 +6378,7 @@ name = "waymark-worker-inline"
 version = "0.1.0"
 dependencies = [
  "nonempty-collections",
+ "thiserror",
  "tokio",
  "waymark-observability",
  "waymark-proto",
@@ -6510,8 +6510,10 @@ dependencies = [
 name = "waymark-worker-remote-pool"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "metrics",
  "nonempty-collections",
+ "thiserror",
  "tokio",
  "tracing",
  "waymark-managed-process",

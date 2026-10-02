@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use color_eyre::eyre::{WrapErr as _, bail, eyre};
-use waymark_worker_core::LaunchWorkerPool as _;
 
 use crate::ground_truth::PreparedCase;
 use crate::outcome::{CaseOutcome, check_case_outcome, outcome_from_vm};
@@ -27,7 +26,7 @@ pub async fn run_transient_mode(
         // its completion into whatever case polls the pool next. Bound every
         // completion's lifetime by its case: each case gets its own pool.
         let shutdown_token = tokio_util::sync::CancellationToken::new();
-        let (worker_pool, bridge_server_task) = setup_worker_pool(
+        let (worker_pool, bridge_server_task, pool_loop) = setup_worker_pool(
             shutdown_token.clone(),
             repo_root,
             std::slice::from_ref(prepared),
@@ -40,15 +39,9 @@ pub async fn run_transient_mode(
                 prepared.case.id
             )
         })?;
-        worker_pool.launch().await.wrap_err_with(|| {
-            format!(
-                "launch transient worker pool for case '{}'",
-                prepared.case.id
-            )
-        })?;
 
         let actual = run_case_transient(prepared, Arc::clone(&worker_pool), timeout).await;
-        teardown_worker_pool(shutdown_token, bridge_server_task, worker_pool).await;
+        teardown_worker_pool(shutdown_token, bridge_server_task, pool_loop, worker_pool).await;
 
         if let Some(mismatch) = check_case_outcome(prepared, actual) {
             failures.push(mismatch);
