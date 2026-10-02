@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
-use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 use waymark_convert_core::{Convert as _, TryConvert as _};
 use waymark_ids::InstanceId;
@@ -21,13 +20,7 @@ pub struct BridgeService {
 
 #[tonic::async_trait]
 impl proto::workflow_service_server::WorkflowService for BridgeService {
-    type ExecuteWorkflowStream = std::pin::Pin<
-        Box<
-            dyn futures_core::Stream<Item = Result<proto::WorkflowStreamResponse, Status>>
-                + Send
-                + 'static,
-        >,
-    >;
+    type ExecuteWorkflowStream = waymark_transient_execution_worker_stream_bringup::ExecuteStream;
 
     async fn register_workflow(
         &self,
@@ -200,38 +193,13 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             waymark_transient_execution_worker_stream_bringup::setup_runtime(&registration)
                 .map_err(|err| Status::internal(format!("setup runtime: {err}")))?;
 
-        let waymark_transient_execution_worker_stream_bringup::ExecuteChannels {
-            out_rx,
-            action_result_tx,
-        } = waymark_transient_execution_worker_stream_bringup::execute(
+        let out_stream = waymark_transient_execution_worker_stream_bringup::execute(
             runtime,
             first_msg.skip_sleep,
+            in_stream,
         );
 
-        // Feed ActionResult messages from the gRPC input stream into the
-        // execution's action-result channel.
-        tokio::spawn(async move {
-            loop {
-                match in_stream.message().await {
-                    Ok(Some(msg)) => {
-                        if let Some(proto::workflow_stream_request::Kind::ActionResult(result)) =
-                            msg.kind
-                            && action_result_tx.send(result).await.is_err()
-                        {
-                            break;
-                        }
-                    }
-                    Ok(None) => break,
-                    Err(err) => {
-                        tracing::warn!(?err, "gRPC input stream error");
-                        break;
-                    }
-                }
-            }
-        });
-
-        let out_stream = ReceiverStream::new(out_rx);
-        Ok(Response::new(Box::pin(out_stream)))
+        Ok(Response::new(out_stream))
     }
 
     async fn register_schedule(
