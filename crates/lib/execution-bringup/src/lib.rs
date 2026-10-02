@@ -128,6 +128,11 @@ pub struct ObservabilityEvents {
 /// loop, and the execution driver and pinning manager tasks finish only
 /// once those drives have drained, at once when there are none; that is
 /// the task end `spawner` acts on — fatal, but deferred.
+///
+/// `spawner` must treat a task ending before the shutdown was requested as
+/// fatal for the whole subsystem: nothing here reacts to such an end.
+/// Without that, the other loops keep running while that loop's work is
+/// no longer done.
 pub async fn start<Spawner, Backend, WorkerPool>(
     mut spawner: Spawner,
     config: Config<Backend::NodeId>,
@@ -274,11 +279,8 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     // Durable action-call completions pipeline (not to be confused with
     // workflow completions) — action-call completions are recorded durably
     // as they arrive from the worker pool and removed only once their
-    // promise settlements have been durably applied.  Three background loops, each
-    // holding a drop guard on the subsystem shutdown token: these are the
-    // only path completions take to reach VMs, so any loop dying escalates
-    // to a subsystem-wide shutdown instead of stranding in-flight promises
-    // silently.
+    // promise settlements have been durably applied.  Three background loops
+    // carry them.
     let writer_params = waymark_action_completions_reconciler::writer::Params {
         provider: waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::<
             _,
@@ -294,15 +296,15 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     };
     spawner.spawn("durable action completions writer", {
         let shutdown = shutdown_token.child_token();
-        let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
-            let _shutdown_guard = shutdown_guard;
-            tokio::select! {
-                _ = shutdown.cancelled() => Ok(()),
-                result = waymark_action_completions_reconciler::writer::run(writer_params) => {
-                    let Err(error) = result;
-                    Err(error)
-                }
+            match shutdown
+                .run_until_cancelled(waymark_action_completions_reconciler::writer::run(
+                    writer_params,
+                ))
+                .await
+            {
+                None => Ok(()),
+                Some(Err(error)) => Err(error),
             }
         }
     });
@@ -314,13 +316,12 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     };
     spawner.spawn("durable action completions acker", {
         let shutdown = shutdown_token.child_token();
-        let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
-            let _shutdown_guard = shutdown_guard;
-            tokio::select! {
-                _ = shutdown.cancelled() => {}
-                () = waymark_action_completions_reconciler::acker::run(acker_params) => {}
-            }
+            shutdown
+                .run_until_cancelled(waymark_action_completions_reconciler::acker::run(
+                    acker_params,
+                ))
+                .await;
         }
     });
 
@@ -336,15 +337,15 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     };
     spawner.spawn("durable action completions poller", {
         let shutdown = shutdown_token.child_token();
-        let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
-            let _shutdown_guard = shutdown_guard;
-            tokio::select! {
-                _ = shutdown.cancelled() => Ok(()),
-                result = waymark_action_completions_reconciler::poller::run(poller_params) => {
-                    let Err(error) = result;
-                    Err(error)
-                }
+            match shutdown
+                .run_until_cancelled(waymark_action_completions_reconciler::poller::run(
+                    poller_params,
+                ))
+                .await
+            {
+                None => Ok(()),
+                Some(Err(error)) => Err(error),
             }
         }
     });
@@ -352,9 +353,8 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     // Durable sleeps pipeline — sleep requests are recorded durably as the
     // VMs emit them (inline in the per-VM effect handler, so there is no
     // writer loop) and removed only once their settlements have been
-    // durably applied.  Two background loops, each holding a drop guard on
-    // the subsystem shutdown token, mirroring the completions pipeline
-    // above.
+    // durably applied.  Two background loops, mirroring the completions
+    // pipeline above.
     let (sleep_ack_tx, sleep_ack_rx) = tokio::sync::mpsc::unbounded_channel();
     let sleep_acker_params = waymark_sleep_reconciler::acker::Params {
         backend: Arc::clone(&backend),
@@ -362,13 +362,10 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     };
     spawner.spawn("durable sleeps acker", {
         let shutdown = shutdown_token.child_token();
-        let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
-            let _shutdown_guard = shutdown_guard;
-            tokio::select! {
-                _ = shutdown.cancelled() => {}
-                () = waymark_sleep_reconciler::acker::run(sleep_acker_params) => {}
-            }
+            shutdown
+                .run_until_cancelled(waymark_sleep_reconciler::acker::run(sleep_acker_params))
+                .await;
         }
     });
 
@@ -381,15 +378,13 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     };
     spawner.spawn("durable sleeps poller", {
         let shutdown = shutdown_token.child_token();
-        let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
-            let _shutdown_guard = shutdown_guard;
-            tokio::select! {
-                _ = shutdown.cancelled() => Ok(()),
-                result = waymark_sleep_reconciler::poller::run(sleep_poller_params) => {
-                    let Err(error) = result;
-                    Err(error)
-                }
+            match shutdown
+                .run_until_cancelled(waymark_sleep_reconciler::poller::run(sleep_poller_params))
+                .await
+            {
+                None => Ok(()),
+                Some(Err(error)) => Err(error),
             }
         }
     });
@@ -399,8 +394,8 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     // renewal heartbeat keeps the held locks alive while the attempts run.
     // A held lock is the authorization to execute its attempt; a lock that
     // cannot be renewed in time is a fence breach, and with no per-attempt
-    // termination primitive the drop guard escalates to subsystem shutdown,
-    // force-terminating every local attempt with the process.
+    // termination primitive the attempt keeps running in the local pool
+    // unauthorized: the renewal stops with an error, its only signal.
     let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
     let renewal_params = waymark_action_effect_reconciler::renewal::Params {
         backend: Arc::clone(&backend),
@@ -411,12 +406,15 @@ pub async fn start<Spawner, Backend, WorkerPool>(
     };
     spawner.spawn("action effect reconciler lock renewal", {
         let shutdown = shutdown_token.child_token();
-        let shutdown_guard = shutdown_token.clone().drop_guard();
         async move {
-            let _shutdown_guard = shutdown_guard;
-            tokio::select! {
-                _ = shutdown.cancelled() => Ok(()),
-                result = waymark_action_effect_reconciler::renewal::run(renewal_params) => {
+            match shutdown
+                .run_until_cancelled(waymark_action_effect_reconciler::renewal::run(
+                    renewal_params,
+                ))
+                .await
+            {
+                None => Ok(()),
+                Some(result) => {
                     if result.is_ok() {
                         tracing::info!("action-call request lock renewal drained");
                     }
