@@ -163,13 +163,8 @@ where
     Persister::Error: Send,
     <Effector as waymark_vm_driver_core::EffectHandler>::Error: Send,
     <Effector as waymark_vm_driver_core::PromiseSettler>::Error: Send,
-    Hooks: waymark_vm_driver_hooks::VmStarted + Send + Sync + 'static,
-    Hooks: waymark_vm_driver_hooks::EffectEmitted<Effect = Interpreter::Effect>,
-    Hooks: waymark_vm_driver_hooks::PromiseSettled<Value = Value::ReadyValue>,
-    Hooks: waymark_vm_driver_hooks::SnapshotPersisted,
-    Hooks: waymark_vm_driver_hooks::VmStopped<
-            Error = waymark_vm_driver::ErrorFor<Interpreter, Arc<Codec>, Persister, Effector>,
-        >,
+    Hooks: waymark_vm_driver::HooksFor<Interpreter, Value, Effector, Persister, Arc<Codec>>,
+    Hooks: Send + Sync + 'static,
 {
     let cancel = CancellationToken::new();
     let (error_tx, error_rx) = tokio::sync::oneshot::channel();

@@ -9,23 +9,33 @@
 
 #![warn(missing_docs)]
 
+/// The action call requester [`execute`] instantiates over the given
+/// worker pool requests handle.
+pub type ActionCallRequesterFor<WorkerPoolRequests> =
+    waymark_action_runtime_worker_pool::WorkerPoolActionRequester<
+        WorkerPoolRequests,
+        waymark_action_runtime_metadata::ActionCallCorrelation,
+        waymark_vm_value_python::ReadyValue,
+        waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
+    >;
+
+/// The action call completions provider [`execute`] instantiates over the
+/// given worker pool completions handle.
+pub type ActionCallCompletionsProviderFor<WorkerPoolCompletions> =
+    waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider<
+        WorkerPoolCompletions,
+        waymark_action_runtime_metadata::ActionCallCorrelation,
+        waymark_vm_value_python::ReadyValue,
+        waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
+    >;
+
 /// The [`waymark_transient_execution_bringup::Execution`] type produced by
 /// [`execute`] for the given worker pool.
 pub type ExecutionFor<WorkerPoolRequests, WorkerPoolCompletions> =
     waymark_transient_execution_bringup::Execution<
         waymark_transient_execution_bringup::DriverHandleFor<
-            waymark_action_runtime_worker_pool::WorkerPoolActionRequester<
-                WorkerPoolRequests,
-                waymark_action_runtime_metadata::ActionCallCorrelation,
-                waymark_vm_value_python::ReadyValue,
-                waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
-            >,
-            waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider<
-                WorkerPoolCompletions,
-                waymark_action_runtime_metadata::ActionCallCorrelation,
-                waymark_vm_value_python::ReadyValue,
-                waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
-            >,
+            ActionCallRequesterFor<WorkerPoolRequests>,
+            ActionCallCompletionsProviderFor<WorkerPoolCompletions>,
         >,
     >;
 
@@ -40,33 +50,30 @@ pub type ExecutionFor<WorkerPoolRequests, WorkerPoolCompletions> =
 /// When `skip_sleep` is true, every sleep in the workflow resolves
 /// immediately instead of waiting for its deadline.
 ///
-/// Cancelling `cancel` requests the driver loop to stop.
-pub fn execute<WorkerPoolRequests, WorkerPoolCompletions>(
+/// Cancelling `cancel` requests the driver loop to stop; `hooks` observe
+/// the driver's run.
+pub fn execute<WorkerPoolRequests, WorkerPoolCompletions, Hooks>(
     runtime: waymark_system_vm::Runtime,
     worker_pool_requests: WorkerPoolRequests,
     worker_pool_completions: WorkerPoolCompletions,
     skip_sleep: bool,
     cancel: tokio_util::sync::CancellationToken,
+    hooks: Hooks,
 ) -> ExecutionFor<WorkerPoolRequests, WorkerPoolCompletions>
 where
     WorkerPoolRequests: waymark_worker_core::QueueActionDispatch + Send + Sync + 'static,
     WorkerPoolRequests::Error: core::fmt::Debug + Send + 'static,
     WorkerPoolCompletions: waymark_worker_core::PollActionResults + Send + Sync + 'static,
     WorkerPoolCompletions::Error: core::fmt::Debug + Send + 'static,
+    Hooks: waymark_transient_execution_bringup::DriverHooksFor<
+            ActionCallRequesterFor<WorkerPoolRequests>,
+            ActionCallCompletionsProviderFor<WorkerPoolCompletions>,
+        >,
+    Hooks: Send + Sync + 'static,
 {
-    let action_call_requester = waymark_action_runtime_worker_pool::WorkerPoolActionRequester::<
-        _,
-        _,
-        waymark_vm_value_python::ReadyValue,
-        waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
-    >::new(worker_pool_requests);
+    let action_call_requester = ActionCallRequesterFor::new(worker_pool_requests);
     let action_call_completions_provider =
-        waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::<
-            _,
-            _,
-            waymark_vm_value_python::ReadyValue,
-            waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
-        >::new(worker_pool_completions);
+        ActionCallCompletionsProviderFor::new(worker_pool_completions);
 
     waymark_transient_execution_bringup::execute_with(
         runtime,
@@ -74,5 +81,6 @@ where
         action_call_completions_provider,
         skip_sleep,
         cancel,
+        hooks,
     )
 }
