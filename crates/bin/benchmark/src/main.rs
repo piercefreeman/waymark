@@ -127,19 +127,21 @@ async fn run_benchmark(
 
         // Read before the inline worker pool is up: a `?` between the pool's
         // start and its handover to `execution_bringup::start` drops the
-        // worker pool handle and ends the pool loop early, and the drain
-        // reports that end over the error itself.
+        // worker pool requests handle and makes the worker pool loop return
+        // early, and the drain reports that return over the error itself.
         let durable_execution_config = execution::durable_execution_config(max_pinned, node_id)?;
 
-        let (worker_pool, pool_loop) = waymark_worker_inline::run(actions::action_registry());
-        supervisor.spawn("inline worker pool loop", pool_loop);
+        let (worker_pool_requests, worker_pool_completions, worker_pool_loop) =
+            waymark_worker_inline::run(actions::action_registry());
+        supervisor.spawn("inline worker pool loop", worker_pool_loop);
 
         let start = Instant::now();
         waymark_execution_bringup::start(
             &mut supervisor,
             durable_execution_config,
             Arc::new(backend.clone()),
-            Arc::new(worker_pool),
+            Arc::new(worker_pool_requests),
+            worker_pool_completions,
             observability_events,
             shutdown_token.child_token(),
             force_shutdown_token.child_token(),
