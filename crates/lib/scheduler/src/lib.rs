@@ -200,7 +200,7 @@ where
         let schedule_name = item.schedule_name.as_ref();
         match outcome {
             waymark_scheduler_backend::register_scheduled_vm_runtimes::Outcome::Registered => {
-                tracing::info!(schedule_name, "spawned a scheduled VM runtime");
+                tracing::debug!(schedule_name, "spawned a scheduled VM runtime");
             }
             waymark_scheduler_backend::register_scheduled_vm_runtimes::Outcome::SkippedOverlap => {
                 tracing::info!(
