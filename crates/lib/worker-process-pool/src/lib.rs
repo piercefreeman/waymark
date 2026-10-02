@@ -366,7 +366,7 @@ where
             return None;
         }
 
-        info!(
+        tracing::debug!(
             worker_idx,
             generation,
             action_count = new_count,
@@ -464,7 +464,7 @@ where
 
         // The claim made the swap ours, so the worker swapped out is the
         // one the report named.
-        info!(
+        tracing::debug!(
             worker_idx,
             old_generation = generation,
             new_generation,
