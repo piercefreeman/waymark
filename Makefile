@@ -86,8 +86,10 @@ python-coverage:
 # All features, like the lint gates: a gated test runs even when no member
 # asks for its feature.
 rust-coverage:
-	cargo llvm-cov --all-features --lcov --output-path target/rust-coverage.lcov
-	cargo llvm-cov --all-features --html --output-dir target/rust-htmlcov
+	cargo llvm-cov clean --workspace
+	cargo llvm-cov --all-features --no-report
+	cargo llvm-cov report --lcov --output-path target/rust-coverage.lcov
+	cargo llvm-cov report --html --output-dir target/rust-htmlcov
 
 BENCH_ARGS ?= --count 1000
 BENCH_TRACE ?= target/benchmark-trace.json
