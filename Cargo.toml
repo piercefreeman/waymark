@@ -33,6 +33,7 @@ waymark-config = { path = "crates/lib/config" }
 waymark-convert-core = { path = "crates/lib/convert-core" }
 waymark-counter-rate = { path = "crates/lib/counter-rate" }
 waymark-cursor-core = { path = "crates/lib/cursor-core" }
+waymark-error-coercion = { path = "crates/lib/error-coercion" }
 waymark-essential-metrics-bringup = { path = "crates/lib/essential-metrics-bringup" }
 waymark-essential-metrics-compat = { path = "crates/lib/essential-metrics-compat" }
 waymark-essential-metrics-config = { path = "crates/lib/essential-metrics-config" }
@@ -46,6 +47,7 @@ waymark-execution-driver = { path = "crates/lib/execution-driver" }
 waymark-extcall-reconciler = { path = "crates/lib/extcall-reconciler" }
 waymark-extcall-reconciler-action-compat = { path = "crates/lib/extcall-reconciler-action-compat" }
 waymark-extcall-reconciler-core = { path = "crates/lib/extcall-reconciler-core" }
+waymark-eyre-error = { path = "crates/lib/eyre-error" }
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-fullset-effect-handler = { path = "crates/lib/fullset-effect-handler" }
 waymark-http-api = { path = "crates/lib/http-api" }

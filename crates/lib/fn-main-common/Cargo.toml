@@ -5,6 +5,8 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+waymark-error-coercion = { workspace = true, features = ["eyre"] }
+waymark-eyre-error = { workspace = true }
 waymark-managed-spawner-supervised = { workspace = true }
 
 color-eyre = { workspace = true }

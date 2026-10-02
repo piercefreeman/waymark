@@ -4431,6 +4431,15 @@ name = "waymark-cursor-core"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-error-coercion"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "thiserror",
+ "waymark-eyre-error",
+]
+
+[[package]]
 name = "waymark-essential-metrics-bringup"
 version = "0.1.0"
 dependencies = [
@@ -4634,6 +4643,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-eyre-error"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "thiserror",
+]
+
+[[package]]
 name = "waymark-fn-main-common"
 version = "0.1.0"
 dependencies = [
@@ -4642,6 +4659,8 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-subscriber",
+ "waymark-error-coercion",
+ "waymark-eyre-error",
  "waymark-managed-spawner-supervised",
 ]
 
