@@ -28,7 +28,7 @@ kill and restart at will.
   `waymark-bridge` inside the container on first use, so the app needs
   nothing beyond a connection to the database.
 - **The worker pool** is one container running
-  `waymark-start-workers`. It pulls queued actions from Postgres,
+  `waymark-node`. It pulls queued actions from Postgres,
   executes them across a pool of Python processes, and persists results.
 - **Postgres** is the only stateful piece. Anything 14+ works, including
   the managed instance you already have.
@@ -45,7 +45,7 @@ code, so it makes sense for the image to have parity. The app service and the wo
 service only need different commands in the entrypoint.
 
 If you already have Dockerfile, you just need a new service that mounts
-with `waymark-start-workers`. If you don't already have one, this basic one should
+with `waymark-node`. If you don't already have one, this basic one should
 get you started.
 
 ```dockerfile
@@ -61,7 +61,7 @@ COPY src ./src
 ENV PATH="/app/.venv/bin:${PATH}"
 
 # The default command serves the app; the worker service
-# overrides it with `waymark-start-workers`.
+# overrides it with `waymark-node`.
 CMD ["uvicorn", "yourapp.web:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
@@ -86,7 +86,7 @@ services:
 
   workers:
     build: .
-    command: ["waymark-start-workers"]
+    command: ["waymark-node"]
     depends_on:
       postgres:
         condition: service_healthy

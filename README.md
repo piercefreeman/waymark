@@ -12,12 +12,12 @@ We ship all client and server wheels as a python package. Install it via your pa
 uv add waymark
 ```
 
-Once installed, Waymark exposes `waymark-start-workers` as a runnable bin entrypoint in your environment.
+Once installed, Waymark exposes `waymark-node` as a runnable bin entrypoint in your environment.
 You can boot the worker pool directly with `uv run`:
 
 ```bash
 export WAYMARK_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/waymark
-uv run waymark-start-workers
+uv run waymark-node
 ```
 
 Let's say you need to send welcome emails to a batch of users, but only the active ones. You want to fetch them all, filter out inactive accounts, then fan out emails in parallel. This is how you write that workflow in waymark:
@@ -150,7 +150,7 @@ By default an action runs once: an exception fails the workflow, and there is no
 Waymark runtime configuration is environment-variable driven.
 Waymark reads the process environment directly; it does not auto-load `.env` files.
 
-### `waymark-start-workers` runtime
+### `waymark-node` runtime
 
 #### Commonly customized
 
@@ -160,7 +160,7 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 | `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the main database pool | `25` |
 | `WAYMARK_WORKER_COUNT` | Number of Python worker processes | host CPU count (`available_parallelism`) |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per Python worker | `10` |
-| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently, per `waymark-start-workers` process | `500` |
+| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently, per `waymark-node` process | `500` |
 | `WAYMARK_USER_MODULE` | Comma-separated Python modules preloaded in workers | unset |
 | `WAYMARK_MAX_ACTION_LIFECYCLE` | Max actions per worker before worker recycle | unset (no recycle limit) |
 | `WAYMARK_HTTP_ENABLED` | Enable the HTTP interface | `false` |
