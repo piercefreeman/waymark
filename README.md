@@ -85,19 +85,18 @@ Workflows can get much more complex than the example above:
 
 1. Customizable retry policy
 
-    By default your Python code will execute like native logic would: any exceptions will throw and immediately fail. Actions are set to timeout after ~5min to keep the queues from backing up - although we will continuously retry timed out actions in case they were caused by a failed node in your cluster. If you want to control this logic to be more robust, you can set retry policies and backoff intervals so you can attempt the action multiple times until it succeeds.
+    By default your Python code will execute like native logic would: an action runs once, and an exception it raises fails the workflow. There is no default timeout. Both are per call: `self.run_action(...)` takes a retry policy (total attempts, the exception types to retry, a fixed backoff between retries) and a per-attempt timeout, which raises `ActionTimeout` and is retried only when listed by name.
 
     ```python
-    from waymark import RetryPolicy, BackoffPolicy
+    from waymark import RetryPolicy
     from datetime import timedelta
 
     async def run(self):
         await self.run_action(
             inconsistent_action(0.5),
             # control handling of failures
-            retry=RetryPolicy(attempts=50),
-            backoff=BackoffPolicy(base_delay=5),
-            timeout=timedelta(minutes=10)
+            retry=RetryPolicy(attempts=50, backoff_seconds=5),
+            timeout=timedelta(minutes=10),
         )
     ```
 
@@ -142,9 +141,9 @@ Workflows can get much more complex than the example above:
 To build truly robust background tasks, you need to consider how things can go wrong. Actions can 'fail' in a couple ways. This is supported by our `.run_action` syntax that allows users to provide additional parameters to modify the execution bounds on each action.
 
 1. Action explicitly throws an error and we want to retry it. Caused by intermittent database connectivity / overloaded webservers / or simply buggy code will throw an error. This comes from a standard python `raise Exception()`
-1. Actions raise an error that is a really a WaymarkTimeout. This indicates that we dequeued the task but weren't able to complete it in the time allocated. This could be because we dequeued the task, started work on it, then the server crashed. Or it could still be running in the background but simply took too much time. Either way we will raise a synthetic error that is representative of this execution.
+1. An attempt outruns its `timeout=`. The attempt fails with a synthetic `ActionTimeout`, whether the worker crashed mid-way or the work is simply still running in the background.
 
-By default we will only try explicit actions one time if there is an explicit exception raised. We will try them infinite times in the case of a timeout since this is usually caused by cross device coordination issues.
+By default an action runs once: an exception fails the workflow, and there is no timeout. A `RetryPolicy` retries the exceptions the action raises; `ActionTimeout` is retried only when the policy lists it by name, because the timed-out attempt may still be running.
 
 ### Configuration
 

@@ -252,8 +252,8 @@ Any time we interact with the remote model we'll want it to be one of these thre
 
 Tools are regular functions. They're basically the capabilities the model can ask for. Here we implement
 them as
-ordinary Waymark actions, so each invocation is retried, persisted, and
-visible to the runtime.
+ordinary Waymark actions, so each invocation is persisted, visible to the
+runtime, and retried when you ask for it with a `RetryPolicy`.
 
 ```python
 from waymark import action
@@ -296,8 +296,9 @@ we just did is what makes the individual agent unique.
 ## Round trip the model {{ id: 'round-trip-the-model' }}
 
 We implement the model call lives in a separate action because it can fail in a myriad
-of ways: the API might be down, it might timeout, you might hit token pressure, etc. By wrapping
-it in an action, it will backoff until it eventually succeeds.
+of ways: the API might be down, it might timeout, you might hit token pressure, etc. To have it
+retried with a backoff instead of failing the run, call the action through
+`self.run_action(..., retry=RetryPolicy(attempts=5, backoff_seconds=10))`.
 
 We first need to translate our local items into the message dictionaries the
 OpenAI client expects. This is provider-specific, so we waited until now to add

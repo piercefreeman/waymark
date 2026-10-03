@@ -9,7 +9,7 @@ export const sections = [
   { title: 'Configuring with run_action', id: 'configuring-with-run-action' },
   { title: 'Filtering by exception', id: 'filtering-by-exception' },
   { title: 'Timeouts', id: 'timeouts' },
-  { title: 'What is enforced today', id: 'what-is-enforced-today' },
+  { title: 'How retries and timeouts combine', id: 'what-is-enforced-today' },
 ]
 
 # Retries & Timeouts
@@ -81,10 +81,16 @@ actions with their own policies.
 
 ## Timeouts {{ id: 'timeouts' }}
 
-A per-call `timeout` caps how long an individual action attempt is
-allowed to run. The runtime stamps a deadline when the action is
-dispatched; if the deadline passes without a result, the attempt fails
-with an `ActionTimeout` exception:
+A per-call `timeout` caps how long an individual action attempt may
+take. The clock starts once the call has been issued, before any worker
+picks it up, so time spent waiting for a worker counts; a sleep of that
+length is raced against the attempt, and when it wins the attempt fails
+with an `ActionTimeout` exception. The timed-out attempt itself is not
+cancelled: it may still be running on its worker, which is why retrying
+timeouts is an explicit opt-in (below). The value is a number of seconds
+or a `timedelta` built from `seconds`, `minutes`, `hours` or `days`
+keywords, in whole seconds: a fraction is truncated, and under one second
+means no timeout at all.
 
 ```python
 from datetime import timedelta
@@ -114,24 +120,15 @@ await self.run_action(
 This keeps a hung downstream system from silently consuming your whole
 retry budget unless you've decided that's what you want.
 
-## What is enforced today {{ id: 'what-is-enforced-today' }}
+## How retries and timeouts combine {{ id: 'what-is-enforced-today' }}
 
-Waymark is alpha. The retry-policy surface is slightly broader than what
-the runtime currently honors, and we want to be precise about the
-difference:
-
-| Field | Parsed | Enforced today |
-| --- | --- | --- |
-| `attempts` | ✓ | ✓ |
-| `exception_types` | ✓ | ✓ |
-| `timeout` | ✓ | ✓ - deadline at dispatch, fails as `ActionTimeout` |
-| `backoff_seconds` | ✓ | ✗ - retries are immediate |
-
-Retry counts, exception filtering, and timeouts work as documented.
-`backoff_seconds` is accepted by the API and persisted in IR, but the
-runloop dispatches retries immediately; delay between attempts is next on
-the enforcement path. Until it lands, encode the wait into the action
-itself with an explicit `await asyncio.sleep(...)` before the work.
+The timeout is raced against each attempt separately, and
+`backoff_seconds` is slept before each retry, so a retried action waits
+the backoff and then runs again with a fresh timeout. Do not add your
+own sleep inside the action for the backoff: it would add to the wait
+and count against the timeout. Only a literal `backoff_seconds=` value is
+picked up, and a fractional value is truncated to whole seconds, so a
+value under one second means no backoff.
 
 ## API reference
 
