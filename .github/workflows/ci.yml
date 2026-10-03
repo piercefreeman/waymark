@@ -546,7 +546,7 @@ jobs:
           WAYMARK_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
           WAYMARK_SKIP_UV_SYNC: "1"
         run: |
-          cargo build --bin waymark-start-workers --bin waymark-soak-harness
+          cargo build --bin waymark-node --bin waymark-soak-harness
           cargo run --bin waymark-soak-harness -- \
             --skip-postgres-boot \
             --disable-http \

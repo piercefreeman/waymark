@@ -22,7 +22,7 @@ deployment.
 
 Configuration is entirely through environment variables. The runtime
 reads them directly from the process environment - there's no auto-loading
-of `.env` files, so set them before launching `waymark-start-workers` (or
+of `.env` files, so set them before launching `waymark-node` (or
 import `python-dotenv` yourself if that's your preference).
 
 The variables are grouped by which process reads them: the worker pool,
@@ -31,7 +31,7 @@ the bridge, and the Python SDK / boot helpers.
 ## Worker pool {{ id: 'worker-pool' }}
 
 These are the variables you'll touch most often when running
-`waymark-start-workers`.
+`waymark-node`.
 
 | Variable | Description | Default |
 | --- | --- | --- |
@@ -39,7 +39,7 @@ These are the variables you'll touch most often when running
 | `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the main database pool. | `25` |
 | `WAYMARK_WORKER_COUNT` | Number of Python worker processes. | Host CPU count |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per worker. | `10` |
-| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently, per `waymark-start-workers` process. | `500` |
+| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently, per `waymark-node` process. | `500` |
 | `WAYMARK_USER_MODULE` | Comma-separated Python modules preloaded in workers. | Unset |
 | `WAYMARK_MAX_ACTION_LIFECYCLE` | Actions per worker before recycle (memory mitigation). | Unset (no limit) |
 | `WAYMARK_HTTP_ENABLED` | Enable the HTTP interface. | `false` |

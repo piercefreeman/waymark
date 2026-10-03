@@ -2,7 +2,7 @@
 //!
 //! The harness can:
 //! - Boot local Postgres via docker compose
-//! - Start the standard `waymark-start-workers` runtime as a child process
+//! - Start the standard `waymark-node` runtime as a child process
 //! - Continuously queue synthetic workloads with configurable timeout/failure mix
 //! - Detect sustained stall conditions (near-zero actions/sec with large ready queue)
 //! - Capture diagnostics (DB snapshots + worker log tail) on exit/issue
@@ -122,7 +122,7 @@ async fn run(
             common::run_unless_cancelled(
                 &stop_token,
                 "starting the worker",
-                setup_workers::start_workers(&args, &run_dir),
+                setup_workers::start_node(&args, &run_dir),
             )
             .await?,
         )
