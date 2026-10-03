@@ -195,16 +195,13 @@ async fn main()
             worker_config = worker_config.with_user_modules(config.user_modules.clone());
         }
 
-        let worker_process_spec_builder = |bridge_server_addr| waymark_worker_python::Spec {
-            bridge_server_addr,
-            config: worker_config,
-        };
+        let prepared_spec = waymark_worker_python::prepare(worker_config).await?;
 
         let process_pool = waymark_worker_remote_bringup::start(
             &mut supervisor,
             shutdown_token.clone(),
             Some(config.worker_grpc_addr),
-            worker_process_spec_builder,
+            prepared_spec.into_binder(),
             config.worker_count,
             config.max_action_lifecycle,
             config.concurrent_per_worker,
