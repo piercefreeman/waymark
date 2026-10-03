@@ -60,7 +60,6 @@ pub enum WaitForDatabaseAttemptError<Retry, Stop> {
 #[derive(Debug, thiserror::Error)]
 pub enum WaitForDatabaseError<Retry, Stop> {
     /// The deadline passed; the last attempt's error, when there was one.
-    #[error("timed out waiting for {what}")]
     TimedOut {
         /// The database waited for.
         what: String,
@@ -71,8 +70,28 @@ pub enum WaitForDatabaseError<Retry, Stop> {
     },
 
     /// An attempt failed in a way that is not worth retrying.
-    #[error("stopped: {0}")]
     Stopped(#[source] Stop),
+}
+
+// By hand: the optional source's rendering is not a field interpolation,
+// so thiserror would not infer the `Display` bounds for it.
+impl<Retry, Stop> std::fmt::Display for WaitForDatabaseError<Retry, Stop>
+where
+    Retry: std::fmt::Display,
+    Stop: std::fmt::Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TimedOut { what, last_error } => {
+                write!(
+                    f,
+                    "timed out waiting for {what}{}",
+                    waymark_error_fmt::option::suffix(last_error)
+                )
+            }
+            Self::Stopped(error) => write!(f, "stopped: {error}"),
+        }
+    }
 }
 
 /// Wait for a database: `attempt_fn` is retried until it connects or

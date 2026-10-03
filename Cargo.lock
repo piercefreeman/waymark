@@ -5255,6 +5255,7 @@ dependencies = [
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
  "waymark-counter-rate",
+ "waymark-error-fmt",
  "waymark-essential-metrics-core",
  "waymark-essential-metrics-query-backend",
  "waymark-fn-main-common",
