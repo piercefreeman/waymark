@@ -1,0 +1,15 @@
+{
+  "name": "waymark-webapp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "lint": "tsc --noEmit && prettier --check --ignore-path ../../../.prettierignore .",
+    "lint:fix": "prettier --write --ignore-path ../../../.prettierignore . && tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vite": "8.3.0"
+  }
+}
