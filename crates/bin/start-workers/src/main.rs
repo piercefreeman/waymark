@@ -14,7 +14,7 @@
 //! - WAYMARK_USER_MODULE: Python module(s) to preload (comma-separated)
 //! - WAYMARK_WORKER_COUNT: Number of workers (default: num_cpus)
 //! - WAYMARK_CONCURRENT_PER_WORKER: Max concurrent actions per worker (default: 10)
-//! - WAYMARK_MAX_CONCURRENT_INSTANCES: Max workflow instances held concurrently (default: 500)
+//! - WAYMARK_MAX_CONCURRENT_INSTANCES: Max workflow instances held concurrently, per process (default: 500)
 //! - WAYMARK_MAX_ACTION_LIFECYCLE: Max actions per worker before recycling
 //! - WAYMARK_LOCK_TTL_MS: Workload pinning TTL (default: 15000)
 //! - WAYMARK_LOCK_HEARTBEAT_MS: Pinning refresh heartbeat interval (default: 5000)
