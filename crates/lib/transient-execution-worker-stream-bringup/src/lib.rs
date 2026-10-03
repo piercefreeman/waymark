@@ -230,7 +230,7 @@ where
                         "workflow completion sender dropped without sending the workflow outcome"
                     );
                     Err(Status::internal(
-                        "workflow driver exited without recording a result",
+                        "vm driver exited without delivering the workflow outcome",
                     ))
                 }
             };
