@@ -10,7 +10,7 @@ impl waymark_observability_events_retention_backend::ApplyRetention for Store {
         &self,
         cutoff: chrono::DateTime<chrono::Utc>,
     ) -> Result<u64, sqlx::Error> {
-        let events = delete_before_in_chunks(
+        let events = delete_before_in_chunks!(
             &self.pool,
             "observability_events",
             "at",
@@ -23,7 +23,7 @@ impl waymark_observability_events_retention_backend::ApplyRetention for Store {
         // count stays the events'. The absorb trigger upserts these rows in
         // a different order than the sweep deletes them in; the sweep
         // skips the rows it finds locked, so the two can not deadlock.
-        delete_before_in_chunks(
+        delete_before_in_chunks!(
             &self.pool,
             "observability_vm_instances",
             "last_at",

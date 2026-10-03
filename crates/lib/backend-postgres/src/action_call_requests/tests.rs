@@ -619,7 +619,7 @@ async fn undisciplined_writers_still_deadlock_premise_canary() {
     let undisciplined_update = |tag: &'static str, order: [i64; 2]| {
         let pool = backend.pool().clone();
         tokio::spawn(async move {
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 r#"
                 /* premise canary {tag} */
                 UPDATE action_call_requests r
@@ -627,7 +627,7 @@ async fn undisciplined_writers_still_deadlock_premise_canary() {
                 FROM UNNEST($1::uuid[], $2::bigint[]) AS i(vm_id, promise_state_id)
                 WHERE r.vm_id = i.vm_id AND r.promise_state_id = i.promise_state_id
                 "#
-            ))
+            )))
             .bind(vec![vm, vm])
             .bind(order.to_vec())
             .execute(&pool)

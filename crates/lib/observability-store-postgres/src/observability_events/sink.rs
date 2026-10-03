@@ -9,9 +9,9 @@ use crate::common::to_bigint_saturating;
 /// Bind one event's columns, in [`EVENT_COLUMNS`] order.
 ///
 /// Generic over the payload — the binding does not depend on it.
-fn push_event<'args, Payload>(
-    row: &mut sqlx::query_builder::Separated<'_, 'args, sqlx::Postgres, &'static str>,
-    event: &'args waymark_observability_events_core::Event<waymark_ids::NodeId, Payload>,
+fn push_event<Payload>(
+    row: &mut sqlx::query_builder::Separated<'_, sqlx::Postgres, &'static str>,
+    event: &waymark_observability_events_core::Event<waymark_ids::NodeId, Payload>,
 ) where
     Payload: waymark_observability_events_core::Kinded + serde::Serialize,
 {

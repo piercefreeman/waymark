@@ -16,4 +16,5 @@ waymark-nonzero-duration = { workspace = true }
 waymark-support-integration = { workspace = true }
 waymark-support-test = { workspace = true }
 
+const_format = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

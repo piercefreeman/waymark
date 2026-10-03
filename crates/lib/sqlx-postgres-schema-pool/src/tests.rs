@@ -2,13 +2,17 @@ use super::*;
 
 const TEST_SCHEMA: &str = "postgres_schema_pool_test";
 
+const EXISTING_TEST_SCHEMA: &str = "schema_pool_test_existing";
+
 #[tokio::test]
 async fn search_path_scoping_and_schema_creation() {
     let bootstrap = waymark_support_test::postgres_setup().await;
-    sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE"#))
-        .execute(&bootstrap)
-        .await
-        .expect("drop leftover test schema");
+    sqlx::query(const_format::formatcp!(
+        r#"DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE"#
+    ))
+    .execute(&bootstrap)
+    .await
+    .expect("drop leftover test schema");
 
     let pool = connect(
         waymark_support_integration::LOCAL_POSTGRES_DSN.expose_secret(),
@@ -36,10 +40,12 @@ async fn search_path_scoping_and_schema_creation() {
     .expect("locate probe table");
     assert_eq!(probe_schema, TEST_SCHEMA);
 
-    sqlx::query(&format!(r#"DROP SCHEMA "{TEST_SCHEMA}" CASCADE"#))
-        .execute(&bootstrap)
-        .await
-        .expect("drop test schema");
+    sqlx::query(const_format::formatcp!(
+        r#"DROP SCHEMA "{TEST_SCHEMA}" CASCADE"#
+    ))
+    .execute(&bootstrap)
+    .await
+    .expect("drop test schema");
 }
 
 #[tokio::test]
@@ -95,11 +101,12 @@ async fn existing_schema_needs_no_create_privilege() {
 #[tokio::test]
 async fn connecting_to_an_existing_schema_scopes_and_creates_nothing() {
     let bootstrap = waymark_support_test::postgres_setup().await;
-    let schema = "schema_pool_test_existing";
-    sqlx::query(&format!(r#"DROP SCHEMA IF EXISTS "{schema}" CASCADE"#))
-        .execute(&bootstrap)
-        .await
-        .expect("drop leftover test schema");
+    sqlx::query(const_format::formatcp!(
+        r#"DROP SCHEMA IF EXISTS "{EXISTING_TEST_SCHEMA}" CASCADE"#
+    ))
+    .execute(&bootstrap)
+    .await
+    .expect("drop leftover test schema");
     let options = waymark_support_integration::LOCAL_POSTGRES_DSN
         .expose_secret()
         .parse::<sqlx::postgres::PgConnectOptions>()
@@ -107,32 +114,40 @@ async fn connecting_to_an_existing_schema_scopes_and_creates_nothing() {
 
     // Missing: refused, and still missing afterwards.
     let error = sqlx::postgres::PgPoolOptions::new()
-        .connect_requiring_schema(options.clone(), schema)
+        .connect_requiring_schema(options.clone(), EXISTING_TEST_SCHEMA)
         .await
         .expect_err("the schema does not exist yet");
     assert!(
         matches!(error, ExistingSchemaError::Missing { .. }),
         "{error}"
     );
-    assert!(!schema_exists(&bootstrap, schema).await.expect("catalog"));
+    assert!(
+        !schema_exists(&bootstrap, EXISTING_TEST_SCHEMA)
+            .await
+            .expect("catalog")
+    );
 
     // Present: connected, and scoped to it.
-    sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#))
-        .execute(&bootstrap)
-        .await
-        .expect("create the schema");
+    sqlx::query(const_format::formatcp!(
+        r#"CREATE SCHEMA "{EXISTING_TEST_SCHEMA}""#
+    ))
+    .execute(&bootstrap)
+    .await
+    .expect("create the schema");
     let pool = sqlx::postgres::PgPoolOptions::new()
-        .connect_requiring_schema(options, schema)
+        .connect_requiring_schema(options, EXISTING_TEST_SCHEMA)
         .await
         .expect("the schema exists now");
     let (current_schema,): (String,) = sqlx::query_as("SELECT current_schema()")
         .fetch_one(&pool)
         .await
         .expect("read current schema");
-    assert_eq!(current_schema, schema);
+    assert_eq!(current_schema, EXISTING_TEST_SCHEMA);
 
-    sqlx::query(&format!(r#"DROP SCHEMA "{schema}" CASCADE"#))
-        .execute(&bootstrap)
-        .await
-        .expect("drop test schema");
+    sqlx::query(const_format::formatcp!(
+        r#"DROP SCHEMA "{EXISTING_TEST_SCHEMA}" CASCADE"#
+    ))
+    .execute(&bootstrap)
+    .await
+    .expect("drop test schema");
 }

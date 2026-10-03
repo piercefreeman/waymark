@@ -22,6 +22,7 @@ waymark-observability-state-query-backend = { workspace = true }
 waymark-query-limit = { workspace = true }
 
 chrono = { workspace = true }
+const_format = { workspace = true, features = ["fmt"] }
 nonempty-collections = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio", "uuid", "chrono", "json"] }

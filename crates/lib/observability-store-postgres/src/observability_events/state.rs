@@ -147,7 +147,7 @@ fn decode_instance(row: &sqlx::postgres::PgRow) -> Result<InstanceState, sqlx::E
 /// in the range, most recent first, past the cursor, one page — an index
 /// walk whatever the tables hold.
 pub(super) fn push_list_query(
-    query: &mut sqlx::QueryBuilder<'_, sqlx::Postgres>,
+    query: &mut sqlx::QueryBuilder<sqlx::Postgres>,
     params: &list_instances::Params<InstanceCursor>,
 ) {
     query.push(format!(
@@ -213,7 +213,7 @@ impl waymark_observability_state_query_backend::GetInstance for Store {
         &self,
         vm_id: waymark_ids::InstanceId,
     ) -> Result<Option<InstanceState>, sqlx::Error> {
-        let row = sqlx::query(&format!(
+        let row = sqlx::query(const_format::formatcp!(
             r#"
             SELECT {INSTANCE_COLUMNS}
             FROM observability_vm_instances
