@@ -49,7 +49,7 @@ rust-lint-base:
 
 rust-lint-base-verify:
 	cargo fmt -- --check
-	cargo clippy --all-targets --all-features -- -D warnings
+	cargo clippy --locked --all-targets --all-features -- -D warnings
 
 lint-extended: lint rust-lint-extended
 
