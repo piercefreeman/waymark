@@ -1,3 +1,7 @@
+//! Bringup of the worker bridge server.
+
+#![warn(missing_docs)]
+
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
