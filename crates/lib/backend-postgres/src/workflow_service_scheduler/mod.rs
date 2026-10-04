@@ -79,7 +79,7 @@ impl waymark_workflow_service_scheduler_backend::GetSchedule for PostgresBackend
     ) -> Result<Option<ScheduleRecord<InstanceId, chrono::DateTime<chrono::Utc>>>, Self::Error>
     {
         Self::count_query(&self.query_counts, "select:schedules_get");
-        let row = sqlx::query(&format!(
+        let row = sqlx::query(const_format::formatcp!(
             "{SCHEDULE_RECORD_SELECT} WHERE schedules.schedule_name = $1"
         ))
         .bind(schedule_name)
@@ -105,7 +105,7 @@ impl waymark_workflow_service_scheduler_backend::ListSchedules for PostgresBacke
         status: Option<ScheduleStatus>,
     ) -> Result<Vec<ScheduleRecord<InstanceId, chrono::DateTime<chrono::Utc>>>, Self::Error> {
         Self::count_query(&self.query_counts, "select:schedules_list");
-        let rows = sqlx::query(&format!(
+        let rows = sqlx::query(const_format::formatcp!(
             "{SCHEDULE_RECORD_SELECT}
             WHERE $1::text IS NULL OR schedules.status = $1
             ORDER BY schedules.schedule_name"

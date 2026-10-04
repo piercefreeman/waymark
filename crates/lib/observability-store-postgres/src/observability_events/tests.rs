@@ -394,7 +394,7 @@ async fn vm_timeline_read_uses_its_index() {
         .execute(&mut *connection)
         .await
         .expect("planner setting");
-    let plan: Vec<String> = sqlx::query_scalar(&format!(
+    let plan: Vec<String> = sqlx::query_scalar(const_format::formatcp!(
         r#"
         EXPLAIN SELECT {}
         FROM observability_events
@@ -451,7 +451,7 @@ async fn retention_deletes_in_chunks() {
     .await
     .expect("append events");
 
-    let deleted = crate::common::delete_before_in_chunks(
+    let deleted = crate::common::delete_before_in_chunks!(
         &store.pool,
         "observability_events",
         "at",
@@ -557,7 +557,7 @@ async fn retention_chunks_split_rows_sharing_a_timestamp() {
     .await
     .expect("append events");
 
-    let deleted = crate::common::delete_before_in_chunks(
+    let deleted = crate::common::delete_before_in_chunks!(
         &store.pool,
         "observability_events",
         "at",

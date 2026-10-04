@@ -184,11 +184,13 @@ async fn latest_read_walks_the_samples_key() {
         .execute(&mut *connection)
         .await
         .expect("planner setting");
-    let plan: Vec<String> =
-        sqlx::query_scalar(&format!("EXPLAIN {}", super::query::latest_statement()))
-            .fetch_all(&mut *connection)
-            .await
-            .expect("explain");
+    let plan: Vec<String> = sqlx::query_scalar(const_format::formatcp!(
+        "EXPLAIN {}",
+        super::query::LATEST_STATEMENT
+    ))
+    .fetch_all(&mut *connection)
+    .await
+    .expect("explain");
 
     let plan = plan.join("\n");
     assert!(
@@ -203,4 +205,18 @@ async fn latest_read_walks_the_samples_key() {
         !plan.contains("essential_metrics_node_samples_sampled_at_idx"),
         "the read must not walk the time index, plan was:\n{plan}"
     );
+}
+
+#[test]
+fn elementwise_sum_spells_out_every_position() {
+    const ONE: &str = super::common::elementwise_sum!("counts", 1);
+    const ELEVEN: &str = super::common::elementwise_sum!("counts", 11);
+
+    let positions: Vec<String> = (1..=11)
+        .map(|position| format!("sum(counts[{position}])::bigint"))
+        .collect();
+    let eleven = format!("ARRAY[{}]", positions.join(", "));
+
+    assert_eq!(ONE, "ARRAY[sum(counts[1])::bigint]");
+    assert_eq!(ELEVEN, eleven);
 }

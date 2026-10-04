@@ -143,9 +143,11 @@ pub async fn create_schema_if_not_exists(
         return Ok(());
     }
 
-    let created = sqlx::query(&format!(r#"CREATE SCHEMA IF NOT EXISTS "{schema}""#))
-        .execute(pool)
-        .await;
+    let created = sqlx::query(sqlx::AssertSqlSafe(format!(
+        r#"CREATE SCHEMA IF NOT EXISTS "{schema}""#
+    )))
+    .execute(pool)
+    .await;
     let Err(error) = created else {
         return Ok(());
     };

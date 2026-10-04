@@ -122,41 +122,37 @@ impl waymark_essential_metrics_query_backend::HasNodeId for Store {
 /// node id ordered by both key columns, so the planner cannot take the
 /// time index and walk back through every newer sample of the other
 /// nodes to reach a quiet node's newest one.
-pub(crate) fn latest_statement() -> String {
-    format!(
-        r#"
-        WITH RECURSIVE newest AS (
-            (
-                SELECT {NODE_SAMPLE_COLUMNS}
-                FROM essential_metrics_node_samples
-                ORDER BY node_id DESC, sampled_at DESC
-                LIMIT 1
-            )
-            UNION ALL
-            SELECT next.*
-            FROM newest
-            CROSS JOIN LATERAL (
-                SELECT {NODE_SAMPLE_COLUMNS}
-                FROM essential_metrics_node_samples
-                WHERE node_id < newest.node_id
-                ORDER BY node_id DESC, sampled_at DESC
-                LIMIT 1
-            ) AS next
+pub(crate) const LATEST_STATEMENT: &str = const_format::formatcp!(
+    r#"
+    WITH RECURSIVE newest AS (
+        (
+            SELECT {NODE_SAMPLE_COLUMNS}
+            FROM essential_metrics_node_samples
+            ORDER BY node_id DESC, sampled_at DESC
+            LIMIT 1
         )
-        SELECT {NODE_SAMPLE_COLUMNS}
+        UNION ALL
+        SELECT next.*
         FROM newest
-        ORDER BY node_id
-        "#
+        CROSS JOIN LATERAL (
+            SELECT {NODE_SAMPLE_COLUMNS}
+            FROM essential_metrics_node_samples
+            WHERE node_id < newest.node_id
+            ORDER BY node_id DESC, sampled_at DESC
+            LIMIT 1
+        ) AS next
     )
-}
+    SELECT {NODE_SAMPLE_COLUMNS}
+    FROM newest
+    ORDER BY node_id
+    "#
+);
 
 impl waymark_essential_metrics_query_backend::Latest for Store {
     type Error = sqlx::Error;
 
     async fn latest(&self) -> Result<Vec<NodeSample<waymark_ids::NodeId>>, sqlx::Error> {
-        let rows = sqlx::query(&latest_statement())
-            .fetch_all(&self.pool)
-            .await?;
+        let rows = sqlx::query(LATEST_STATEMENT).fetch_all(&self.pool).await?;
         rows.iter().map(decode_sample).collect()
     }
 }
@@ -171,15 +167,16 @@ impl waymark_essential_metrics_query_backend::Series for Store {
         // Counts and their sums add across the rows of a bucket, which is
         // exactly what makes them roll up: a quantile in their place
         // could only be averaged, which means nothing.
-        let dequeue_counts = elementwise_sum(
+        const DEQUEUE_COUNTS: &str = elementwise_sum!(
             "action_dequeue_seconds_counts",
             waymark_essential_metrics_core::ACTION_DEQUEUE_SECONDS_BOUNDS.len() + 1,
         );
-        let handling_counts = elementwise_sum(
+        const HANDLING_COUNTS: &str = elementwise_sum!(
             "action_handling_seconds_counts",
             waymark_essential_metrics_core::ACTION_HANDLING_SECONDS_BOUNDS.len() + 1,
         );
-        let rows = sqlx::query(&format!(
+
+        let rows = sqlx::query(const_format::formatcp!(
             r#"
             SELECT
                 node_id,
@@ -191,9 +188,9 @@ impl waymark_essential_metrics_query_backend::Series for Store {
                 avg(driven_vm_runtimes)::bigint AS driven_vm_runtimes,
                 max(actions_completed_total) AS actions_completed_total,
                 max(last_action_completed_at) AS last_action_completed_at,
-                {dequeue_counts} AS action_dequeue_seconds_counts,
+                {DEQUEUE_COUNTS} AS action_dequeue_seconds_counts,
                 sum(action_dequeue_seconds_sum) AS action_dequeue_seconds_sum,
-                {handling_counts} AS action_handling_seconds_counts,
+                {HANDLING_COUNTS} AS action_handling_seconds_counts,
                 sum(action_handling_seconds_sum) AS action_handling_seconds_sum,
                 max(essential_metrics_dropped_total) AS essential_metrics_dropped_total,
                 max(observability_events_dropped_total) AS observability_events_dropped_total

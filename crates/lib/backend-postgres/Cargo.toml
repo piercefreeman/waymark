@@ -29,6 +29,7 @@ waymark-workload-pinning-backend = { workspace = true }
 waymark-workload-pinning-core = { workspace = true }
 
 chrono = { workspace = true }
+const_format = { workspace = true }
 function_name = { workspace = true }
 metrics = { workspace = true }
 nonempty-collections = { workspace = true }

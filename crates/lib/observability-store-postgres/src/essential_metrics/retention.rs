@@ -10,7 +10,7 @@ impl waymark_essential_metrics_retention_backend::ApplyRetention for Store {
         &self,
         cutoff: chrono::DateTime<chrono::Utc>,
     ) -> Result<u64, sqlx::Error> {
-        delete_before_in_chunks(
+        delete_before_in_chunks!(
             &self.pool,
             "essential_metrics_node_samples",
             "sampled_at",
