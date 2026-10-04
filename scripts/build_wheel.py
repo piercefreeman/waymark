@@ -38,9 +38,9 @@ SCRIPT_ALIASES: dict[str, tuple[str, ...]] = {}
 console = Console()
 
 
-def run(cmd: list[str], cwd: Path) -> None:
+def run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:
     console.log(f"[bold cyan]$ {' '.join(cmd)}")
-    subprocess.run(cmd, cwd=cwd, check=True)
+    subprocess.run(cmd, cwd=cwd, check=True, env=env)
 
 
 def copy_binaries(repo_root: Path, stage_dir: Path) -> list[Path]:
@@ -258,7 +258,12 @@ def main(out_dir: str) -> None:
     out_path.mkdir(parents=True, exist_ok=True)
 
     console.log("[green]Building Rust binaries via cargo ...")
-    run(["cargo", "build", "--release", "--bins"], cwd=repo_root)
+    # Wheels ship the webapp: fail the build rather than embed the placeholder.
+    run(
+        ["cargo", "build", "--release", "--bins"],
+        cwd=repo_root,
+        env={**os.environ, "WAYMARK_BUILD_WEBAPP_ENABLE": "required"},
+    )
 
     stage_dir = repo_root / "python" / "src" / "waymark" / "bin"
     console.log(f"[green]Staging binaries in {stage_dir} ...")
