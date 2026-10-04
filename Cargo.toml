@@ -272,3 +272,7 @@ typed_floats = "1"
 typle = "0.13"
 uuid = "1.23"
 zeroize = "1"
+
+[patch.crates-io]
+# FIXME: drop once a release includes transact-rs/sqlx#4289 (num_idle underflow pins the pool maintenance task).
+sqlx = { git = "https://github.com/transact-rs/sqlx", rev = "5d3787ef9d69947065085f46b58767a50b3d8e25" }
