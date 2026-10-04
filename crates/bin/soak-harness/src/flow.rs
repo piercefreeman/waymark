@@ -26,12 +26,12 @@ pub enum TerminationReason {
     DurationReached,
     Interrupted,
     IssueDetected(String),
-    WorkerExited(String),
+    NodeExited(String),
 }
 
 impl TerminationReason {
     pub fn is_error_exit(&self) -> bool {
-        matches!(self, Self::IssueDetected(_) | Self::WorkerExited(_))
+        matches!(self, Self::IssueDetected(_) | Self::NodeExited(_))
     }
 }
 
@@ -60,7 +60,7 @@ pub async fn run_soak_loop(
     pool: &PgPool,
     store: &waymark_observability_store_postgres::Store,
     workflow: &RegisteredWorkflow,
-    worker: &mut Option<crate::setup_workers::WorkerProcess>,
+    node: &mut Option<crate::setup_node::NodeProcess>,
     stop_token: &tokio_util::sync::CancellationToken,
 ) -> Result<(TerminationReason, VecDeque<HealthSample>), color_eyre::eyre::Report> {
     let seed = args.seed.unwrap_or_else(rand::random);
@@ -92,13 +92,13 @@ pub async fn run_soak_loop(
             instant = ticker.tick() => tick_delta.tick(instant),
         };
 
-        // An observed exit takes the worker's handle with it: there is
+        // An observed exit takes the node's handle with it: there is
         // nothing left to stop, and nothing is shut down later.
-        if let Some(worker_process) = worker.as_mut()
-            && let Some(status) = worker_process.poll_exit().wrap_err("poll worker process")?
+        if let Some(node_process) = node.as_mut()
+            && let Some(status) = node_process.poll_exit().wrap_err("poll node process")?
         {
             return Ok((
-                TerminationReason::WorkerExited(format!("worker process exited: {status}")),
+                TerminationReason::NodeExited(format!("node process exited: {status}")),
                 samples,
             ));
         }

@@ -25,7 +25,7 @@ struct DiagnosticBundle {
     stale_action_call_request_locks: QueryCapture<data::StaleActionCallRequestRow>,
     pg_stat_activity: QueryCapture<data::ActivityRow>,
     pg_stat_statements: QueryCapture<data::PgStatStatementRow>,
-    worker_log_tail: QueryCapture<String>,
+    node_log_tail: QueryCapture<String>,
     recent_samples: Vec<HealthSample>,
     config: crate::cli::SoakArgs,
 }
@@ -59,7 +59,7 @@ pub async fn capture_diagnostics(
     workflow: &crate::setup_workflows::RegisteredWorkflow,
     reason: &crate::flow::TerminationReason,
     samples: &VecDeque<HealthSample>,
-    worker_log_path: Option<&Path>,
+    node_log_path: Option<&Path>,
     run_dir: &Path,
 ) -> Result<PathBuf, color_eyre::eyre::Report> {
     let workload_snapshot = data::fetch_workload_snapshot(pool).await?;
@@ -77,14 +77,14 @@ pub async fn capture_diagnostics(
     let pg_stat_statements =
         capture_query(data::fetch_pg_stat_statements(pool, args.pg_stat_limit).await);
 
-    let worker_log_tail = match worker_log_path {
+    let node_log_tail = match node_log_path {
         Some(path) => capture_query(crate::common::read_tail_lines(
             path,
             args.max_diagnostic_tail_lines,
         )),
         None => QueryCapture {
             rows: Vec::new(),
-            error: Some("worker log unavailable (worker launch skipped)".to_string()),
+            error: Some("node log unavailable (node launch skipped)".to_string()),
         },
     };
 
@@ -106,7 +106,7 @@ pub async fn capture_diagnostics(
         stale_action_call_request_locks,
         pg_stat_activity,
         pg_stat_statements,
-        worker_log_tail,
+        node_log_tail,
         recent_samples,
         config: args.clone(),
     };
