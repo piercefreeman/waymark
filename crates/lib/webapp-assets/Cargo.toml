@@ -1,0 +1,21 @@
+[package]
+name = "waymark-webapp-assets"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+rust-embed = { workspace = true, features = [
+  "debug-embed",
+  "deterministic-timestamps",
+  "interpolate-folder-path",
+] }
+
+[build-dependencies]
+waymark-webapp-build = { workspace = true }
+
+envfury = { workspace = true }
+thiserror = { workspace = true }
+
+[lib]
+doctest = false

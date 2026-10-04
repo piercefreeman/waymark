@@ -57,6 +57,7 @@ waymark-http-api-types = { path = "crates/lib/http-api-types" }
 waymark-http-bringup = { path = "crates/lib/http-bringup" }
 waymark-http-config = { path = "crates/lib/http-config" }
 waymark-http-healthz = { path = "crates/lib/http-healthz" }
+waymark-http-webapp = { path = "crates/lib/http-webapp" }
 waymark-ids = { path = "crates/lib/ids" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
 waymark-lossy-batcher = { path = "crates/lib/lossy-batcher" }
@@ -181,6 +182,8 @@ waymark-vm-value = { path = "crates/lib/vm-value" }
 waymark-vm-value-convert-core = { path = "crates/lib/vm-value-convert-core" }
 waymark-vm-value-python = { path = "crates/lib/vm-value-python" }
 waymark-vm-value-python-convert-proto = { path = "crates/lib/vm-value-python-convert-proto" }
+waymark-webapp-assets = { path = "crates/lib/webapp-assets" }
+waymark-webapp-build = { path = "crates/lib/webapp-build" }
 waymark-worker-core = { path = "crates/lib/worker-core" }
 waymark-worker-inline = { path = "crates/lib/worker-inline" }
 waymark-worker-inline-compat = { path = "crates/lib/worker-inline-compat" }
@@ -227,6 +230,7 @@ envfury = "0.2"
 function_name = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
+hex = "0.4"
 http-body-util = "0.1"
 index_type = "0.4"
 indexmap = "2"
@@ -245,6 +249,7 @@ quote = "1"
 rand = "0.9"
 regex = "1"
 rmp-serde = "1"
+rust-embed = { version = "8.12", default-features = false }
 schemars = "1"
 serde = "1"
 serde_json = "1"
@@ -271,6 +276,7 @@ tracing-subscriber = "0.3"
 typed_floats = "1"
 typle = "0.13"
 uuid = "1.23"
+xshell = "0.2.7"
 zeroize = "1"
 
 [patch.crates-io]

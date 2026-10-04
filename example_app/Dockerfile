@@ -1,10 +1,20 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.20
 
 # Mirrors `tool.uv.required-version` in the root pyproject.toml; a
 # mismatch fails loudly (uv refuses to run under required-version).
 ARG UV_VERSION=0.12.3
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+
+# Must match .node-version; the check below fails the build otherwise.
+FROM node:24.13.0-bookworm AS js-deps
+WORKDIR /repo
+COPY .node-version ./
+RUN test "v$(cat .node-version)" = "$(node --version)" \
+    || { echo "node:$(node --version) does not match .node-version $(cat .node-version)" >&2; exit 1; }
+COPY package.json package-lock.json ./
+COPY --parents js/*/*/package.json ./
+RUN npm ci
 
 FROM rust:1.88-bookworm AS rust-base
 WORKDIR /repo
@@ -36,6 +46,8 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
     cargo chef cook --release --recipe-path recipe.json
 
 FROM rust-builder AS wheel-builder
+COPY --from=js-deps /usr/local /usr/local
+COPY --from=js-deps /repo/node_modules /repo/node_modules
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \

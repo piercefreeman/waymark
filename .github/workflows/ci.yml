@@ -72,6 +72,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/setup-js
+
+      - name: Frontend lint
+        run: npm run lint
+
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
@@ -117,6 +122,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/setup-js
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -147,6 +154,13 @@ jobs:
           WAYMARK_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
           WAYMARK_SKIP_UV_SYNC: "1"
         run: make rust-coverage
+
+      # CI builds the webapp in required mode; this covers the placeholder that
+      # builds without Node embed.
+      - name: Test the webapp placeholder build
+        env:
+          WAYMARK_BUILD_WEBAPP_ENABLE: disabled
+        run: cargo test -p waymark-http-webapp
 
       - name: Upload Rust coverage LCOV
         uses: actions/upload-artifact@v4
@@ -229,6 +243,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+
+      - uses: actions/setup-node@v4
+        # TODO: Remove this guard once main contains the root JavaScript workspace.
+        # This job checks out main rather than the pull request's head.
+        if: hashFiles('package-lock.json') != ''
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
@@ -510,6 +533,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: ./.github/actions/setup-js
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -609,6 +634,8 @@ jobs:
             build-sdist: false
     steps:
       - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-js
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v7

@@ -237,7 +237,8 @@ async fn main()
             .merge(waymark_http_healthz::router())
             // Mount the `/api` as an isolated service to avoid applying potential fallback
             // rules to it.
-            .nest_service("/api", waymark_http_api::router(http_api_routes, &["/api"]));
+            .nest_service("/api", waymark_http_api::router(http_api_routes, &["/api"]))
+            .merge(waymark_http_webapp::router());
 
         // Start the HTTP server.
         if config.http.enabled {
