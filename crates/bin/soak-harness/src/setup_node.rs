@@ -10,19 +10,19 @@ use tracing::{info, warn};
 
 use crate::data;
 
-/// How long to wait for the worker to exit once it has been killed.
+/// How long to wait for the node to exit once it has been killed.
 const KILL_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
-pub struct WorkerProcess {
+pub struct NodeProcess {
     /// The handle, until the exit is observed: a poll that sees the exit
     /// takes it, and so does the stop. `None` once it is gone.
     pub child: Option<waymark_managed_process::Child>,
     pub log_path: PathBuf,
 }
 
-impl WorkerProcess {
-    /// Polls the worker. Its exit status once the exit is observed, the
+impl NodeProcess {
+    /// Polls the node. Its exit status once the exit is observed, the
     /// handle gone with it; `None` while it runs, or once the handle is
     /// gone. A failed poll leaves the handle in place, for the stop to
     /// deal with.
@@ -37,7 +37,7 @@ impl WorkerProcess {
 pub async fn start_node(
     args: &crate::cli::SoakArgs,
     run_dir: &Path,
-) -> Result<WorkerProcess, color_eyre::eyre::Report> {
+) -> Result<NodeProcess, color_eyre::eyre::Report> {
     let http_enabled = !args.disable_http;
     let log_path = run_dir.join("node.log");
     // `CARGO_MANIFEST_DIR` here is `crates/bin/soak-harness`, while the soak action module lives at
@@ -47,10 +47,10 @@ pub async fn start_node(
     // remains importable even if worker-remote falls back to the caller's current directory.
     let repo_root = repo_root();
     let log_file = File::create(&log_path)
-        .wrap_err_with(|| format!("create worker log file {}", log_path.display()))?;
+        .wrap_err_with(|| format!("create node log file {}", log_path.display()))?;
     let log_file_err = log_file
         .try_clone()
-        .wrap_err_with(|| format!("clone worker log handle {}", log_path.display()))?;
+        .wrap_err_with(|| format!("clone node log handle {}", log_path.display()))?;
 
     let mut cmd = node_command();
     cmd.current_dir(&repo_root);
@@ -85,10 +85,10 @@ pub async fn start_node(
         log_path = %log_path.display(),
         http_enabled,
         http_addr = %args.http_addr,
-        "started worker process"
+        "started node process"
     );
 
-    Ok(WorkerProcess {
+    Ok(NodeProcess {
         child: Some(child),
         log_path,
     })
@@ -163,57 +163,57 @@ fn find_executable(bin: &str) -> Option<PathBuf> {
     None
 }
 
-/// Asks the worker process to stop and waits for it, killing it when
+/// Asks the node process to stop and waits for it, killing it when
 /// `stop_timeout` runs out. An abort drops the process handle instead,
-/// which kills the worker without waiting for it. A worker that exited
+/// which kills the node without waiting for it. A node that exited
 /// unsuccessfully, or that had to be killed on a platform where it could
 /// have stopped on its own, is an error. Where the platform has no
 /// graceful stop, the kill is the stop.
-pub async fn shutdown_worker(
-    worker: WorkerProcess,
+pub async fn shutdown_node(
+    node: NodeProcess,
     stop_timeout: Duration,
     abort_token: &tokio_util::sync::CancellationToken,
 ) -> Result<(), color_eyre::eyre::Report> {
     // The exit was observed already: there is nothing left to stop.
-    let Some(child) = worker.child else {
+    let Some(child) = node.child else {
         return Ok(());
     };
-    warn!(?stop_timeout, "stopping worker process");
+    warn!(?stop_timeout, "stopping node process");
     let shutdown = child.shutdown(stop_timeout, KILL_WAIT_TIMEOUT);
     let shutdown_result = abort_token.run_until_cancelled(shutdown).await;
     let outcome = match shutdown_result {
         Some(outcome) => outcome?,
-        None => bail!("aborted while stopping the worker process; it was killed"),
+        None => bail!("aborted while stopping the node process; it was killed"),
     };
 
     match outcome {
         waymark_managed_process::ShutdownOutcome::Exited(status) if status.success() => {
-            info!(status = %status, "worker process stopped");
+            info!(status = %status, "node process stopped");
         }
         waymark_managed_process::ShutdownOutcome::Exited(status) => {
-            bail!("worker process stopped with {status}");
+            bail!("node process stopped with {status}");
         }
         waymark_managed_process::ShutdownOutcome::KillSent(status)
             if waymark_managed_process::Child::CAN_GRACEFULLY_TERMINATE =>
         {
-            bail!("worker process did not stop within the timeout and was killed; {status}");
+            bail!("node process did not stop within the timeout and was killed; {status}");
         }
         waymark_managed_process::ShutdownOutcome::KillSent(status) => {
-            info!(status = %status, "worker process killed, as this platform has no graceful stop");
+            info!(status = %status, "node process killed, as this platform has no graceful stop");
         }
     }
     Ok(())
 }
 
-pub async fn shutdown_worker_if_running(
-    worker: &mut Option<WorkerProcess>,
+pub async fn shutdown_node_if_running(
+    node: &mut Option<NodeProcess>,
     stop_timeout: Duration,
     abort_token: &tokio_util::sync::CancellationToken,
 ) {
-    if let Some(worker_process) = worker.take()
-        && let Err(err) = shutdown_worker(worker_process, stop_timeout, abort_token).await
+    if let Some(node_process) = node.take()
+        && let Err(err) = shutdown_node(node_process, stop_timeout, abort_token).await
     {
-        warn!(error = %err, "failed to stop worker process during error cleanup");
+        warn!(error = %err, "failed to stop node process during error cleanup");
     }
 }
 
@@ -221,25 +221,25 @@ pub async fn wait_for_node_sample(
     store: &waymark_observability_store_postgres::Store,
     timeout: Duration,
     startup_log_interval: Duration,
-    worker: &mut WorkerProcess,
+    node: &mut NodeProcess,
 ) -> Result<(), color_eyre::eyre::Report> {
     let deadline = Instant::now() + timeout;
     let started = Instant::now();
     let mut last_log_at = Instant::now();
 
     while Instant::now() < deadline {
-        if let Some(status) = worker
+        if let Some(status) = node
             .poll_exit()
-            .wrap_err("check worker status during startup wait")?
+            .wrap_err("check node status during startup wait")?
         {
-            let tail = crate::common::read_tail_lines(&worker.log_path, 80).unwrap_or_default();
+            let tail = crate::common::read_tail_lines(&node.log_path, 80).unwrap_or_default();
             let tail_text = if tail.is_empty() {
-                "worker log unavailable".to_string()
+                "node log unavailable".to_string()
             } else {
                 tail.join("\n")
             };
             bail!(
-                "worker process exited before its first node sample: {status}\nlog tail:\n{tail_text}"
+                "node process exited before its first node sample: {status}\nlog tail:\n{tail_text}"
             );
         }
 
@@ -262,5 +262,5 @@ pub async fn wait_for_node_sample(
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    bail!("timed out waiting for node samples; worker may not have started successfully")
+    bail!("timed out waiting for node samples; node may not have started successfully")
 }

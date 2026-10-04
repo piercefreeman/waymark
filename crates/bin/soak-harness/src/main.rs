@@ -5,7 +5,7 @@
 //! - Start the standard `waymark-node` runtime as a child process
 //! - Continuously queue synthetic workloads with configurable timeout/failure mix
 //! - Detect sustained stall conditions (near-zero actions/sec with large ready queue)
-//! - Capture diagnostics (DB snapshots + worker log tail) on exit/issue
+//! - Capture diagnostics (DB snapshots + node log tail) on exit/issue
 
 mod cli;
 mod common;
@@ -13,8 +13,8 @@ mod data;
 mod diag;
 mod flow;
 mod setup_db;
+mod setup_node;
 mod setup_observability_db;
-mod setup_workers;
 mod setup_workflows;
 mod shutdown;
 
@@ -115,35 +115,34 @@ async fn run(
     }
     let services = setup_workflows::soak_services(&backend);
 
-    let mut worker = if args.skip_worker_launch {
+    let mut node = if args.skip_node_launch {
         None
     } else {
         Some(
             common::run_unless_cancelled(
                 &stop_token,
-                "starting the worker",
-                setup_workers::start_node(&args, &run_dir),
+                "starting the node",
+                setup_node::start_node(&args, &run_dir),
             )
             .await?,
         )
     };
-    let worker_stop_timeout = args.worker_stop_timeout();
+    let node_stop_timeout = args.node_stop_timeout();
 
-    if let Some(worker_process) = worker.as_mut()
+    if let Some(node_process) = node.as_mut()
         && let Err(err) = common::run_unless_cancelled(
             &stop_token,
             "waiting for the first node sample",
-            setup_workers::wait_for_node_sample(
+            setup_node::wait_for_node_sample(
                 &observability_store,
                 Duration::from_secs(60),
                 Duration::from_secs(args.startup_log_interval_secs.get()),
-                worker_process,
+                node_process,
             ),
         )
         .await
     {
-        setup_workers::shutdown_worker_if_running(&mut worker, worker_stop_timeout, &abort_token)
-            .await;
+        setup_node::shutdown_node_if_running(&mut node, node_stop_timeout, &abort_token).await;
         return Err(err);
     }
 
@@ -161,12 +160,7 @@ async fn run(
     {
         Ok(workflow) => workflow,
         Err(err) => {
-            setup_workers::shutdown_worker_if_running(
-                &mut worker,
-                worker_stop_timeout,
-                &abort_token,
-            )
-            .await;
+            setup_node::shutdown_node_if_running(&mut node, node_stop_timeout, &abort_token).await;
             return Err(err);
         }
     };
@@ -193,7 +187,7 @@ async fn run(
         &pool,
         &observability_store,
         &workflow,
-        &mut worker,
+        &mut node,
         &stop_token,
     )
     .await;
@@ -208,7 +202,7 @@ async fn run(
         }
     };
 
-    // The worker is stopped whatever the capture did: a failed or
+    // The node is stopped whatever the capture did: a failed or
     // aborted capture must not leave the child behind.
     let diagnostics_result = common::run_unless_cancelled(
         &abort_token,
@@ -220,14 +214,14 @@ async fn run(
             &workflow,
             &reason,
             &samples,
-            worker.as_ref().map(|process| process.log_path.as_path()),
+            node.as_ref().map(|process| process.log_path.as_path()),
             &run_dir,
         ),
     )
     .await;
-    let shutdown_result = match worker.take() {
-        Some(worker_process) => {
-            setup_workers::shutdown_worker(worker_process, worker_stop_timeout, &abort_token).await
+    let shutdown_result = match node.take() {
+        Some(node_process) => {
+            setup_node::shutdown_node(node_process, node_stop_timeout, &abort_token).await
         }
         None => Ok(()),
     };
@@ -235,19 +229,19 @@ async fn run(
         Ok(diagnostics_path) => diagnostics_path,
         Err(err) => {
             if let Err(shutdown_err) = shutdown_result {
-                warn!(error = %shutdown_err, "failed to stop worker process during error cleanup");
+                warn!(error = %shutdown_err, "failed to stop node process during error cleanup");
             }
             return Err(err);
         }
     };
-    // The run's issue outranks a failed stop: a worker that would not stop
+    // The run's issue outranks a failed stop: a node that would not stop
     // cleanly after the run already found an issue is a consequence,
     // logged, and the issue is what the exit reports.
     if let Err(shutdown_err) = shutdown_result {
         if !reason.is_error_exit() {
             return Err(shutdown_err);
         }
-        warn!(error = %shutdown_err, "failed to stop worker process after the run's issue");
+        warn!(error = %shutdown_err, "failed to stop node process after the run's issue");
     }
 
     info!(
