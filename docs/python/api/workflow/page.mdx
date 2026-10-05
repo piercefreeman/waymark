@@ -1,8 +1,9 @@
 # Workflow
 
 The `Workflow` base class is the durable control-flow primitive in
-Waymark. You subclass it and decorate the subclass with @workflow: this handles
-compiling the definition to Waymark's intermediate representation.
+Waymark. You subclass it and decorate the subclass with @workflow, which
+registers it. The definition is compiled to Waymark's intermediate
+representation the first time the workflow is run or scheduled.
 
 Calling run(...) on an instance accepts two keyword arguments beyond
 your own inputs:
@@ -10,11 +11,20 @@ your own inputs:
 - `_blocking=False` queues the workflow and returns its instance id
   immediately instead of waiting for completion - the fire-and-forget
   form.
-- `_priority=` sets the queue priority for this instance.
+- `_priority=` is accepted and sent with the instance, but the current
+  runtime does not use it.
 
 A blocking run(...) raises `WorkflowFailedError` (whose `exception_value`
-is the exception the workflow raised) if the workflow fails, and
-`TimeoutError` if the instance doesn't complete in time.
+is the exception the workflow raised) if the workflow fails. It waits as
+long as the workflow takes; it raises `TimeoutError` only if the server
+no longer knows the instance. With `WAYMARK_SKIP_WAIT_FOR_INSTANCE` set,
+a blocking run(...) queues the workflow and returns `None` without
+waiting.
+
+Under pytest, run(...) doesn't queue anything: it executes the workflow
+through a bridge started without Postgres, runs its actions in the test
+process, skips durable sleeps, and returns the result - so tests need no
+database or `waymark-node`.
 
 ::: waymark.workflow.Workflow
 
@@ -22,8 +32,11 @@ is the exception the workflow raised) if the workflow fails, and
 
 ## Decorator
 
-The `@workflow` decorator runs the AST compiler against your class's
-`run()` method and registers the resulting IR with the runtime.
+The `@workflow` decorator registers your class under its short name - the
+class attribute `name` if set, the lowercased class name otherwise - and
+wraps its `run()` method. The AST compiler runs against `run()` the
+first time the workflow is run or scheduled, and the resulting IR is
+registered with the runtime then.
 
 ::: waymark.workflow.workflow
 
