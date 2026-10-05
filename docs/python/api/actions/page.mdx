@@ -1,8 +1,10 @@
 # Actions
 
 Actions are the distributed work primitive. An `@action`-decorated
-async function is registered with the worker bridge and gets dispatched
-to a worker each time a workflow calls it. Action arguments and results
+async function is registered in its process's action registry, under its
+module and its name - the function name, or `name=` if you pass one to
+the decorator - and gets dispatched to a worker each time a workflow
+calls it. Action arguments and results
 round-trip through Postgres, so anything you pass needs to survive
 Waymark's serializer - pydantic models, dataclasses, primitives,
 containers, and common stdlib types. See
@@ -16,8 +18,9 @@ containers, and common stdlib types. See
 
 ## Registry
 
-The action registry is the runtime's map from action name to handler.
-The worker pool consults it when claiming queue rows.
+The action registry is the in-process map from action name to handler,
+exposed as `waymark.registry`. A worker looks the handler up there, by
+module and name, each time it's asked to run an action.
 
 ::: waymark.registry.ActionRegistry
 
