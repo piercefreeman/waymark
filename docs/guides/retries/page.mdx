@@ -39,12 +39,11 @@ To override the defaults, wrap the action call in `self.run_action(...)`
 and supply a `RetryPolicy`:
 
 ```python
-from waymark import RetryPolicy
-from waymark.workflow import Workflow
+from waymark import RetryPolicy, Workflow, workflow
 
 @workflow
 class FlakyApiWorkflow(Workflow):
-    async def run(self, payload: dict) -> Result:
+    async def run(self, payload: dict) -> dict:
         return await self.run_action(
             call_third_party_api(payload),
             retry=RetryPolicy(attempts=5),
@@ -53,8 +52,8 @@ class FlakyApiWorkflow(Workflow):
 
 `RetryPolicy(attempts=N)` is total executions - five attempts means up to
 four retries after the initial try. `RetryPolicy()` with no `attempts`
-defaults to a generous retry budget (100 internally), suitable for
-external calls that you really expect to succeed eventually.
+defaults to a generous budget of 100 retries (101 attempts in all),
+suitable for external calls that you really expect to succeed eventually.
 
 ## Filtering by exception {{ id: 'filtering-by-exception' }}
 
