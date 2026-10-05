@@ -36,6 +36,13 @@ its backward-compatible alias with the identical signature, so import
 
 ::: waymark.dependencies.Depend
 
+`provide_dependencies` resolves a function's `Depends(...)` parameters
+outside a workflow - the same resolution a worker performs before it
+runs an action. It's re-exported from `mountaineer-di`; pass
+`dependency_overrides` to test an action against fakes.
+
+::: waymark.dependencies.provide_dependencies
+
 ---
 
 ## Result payloads
