@@ -1,7 +1,7 @@
 export const metadata = {
-  title: 'Quickstart',
+  title: 'Quickstart with Python',
   description:
-    'Install Waymark, define your first workflow, and run it against a local Postgres in under five minutes.',
+    'Install Waymark for Python, define your first workflow, and run it against a local Postgres in under five minutes.',
 }
 
 export const sections = [
@@ -13,9 +13,10 @@ export const sections = [
   { title: 'Where to look next', id: 'where-to-look-next' },
 ]
 
-# Quickstart
+# Quickstart with Python
 
-The best way to get a sense for Waymark is just to jump in. This quickstart covers writing
+The best way to get a sense for Waymark is just to jump in. This quickstart uses the Python SDK
+and covers writing
 a super simple fibonacci calculator; obviously there's not a ton of practicality in making this
 a background job - but it's standalone and shows all of the key parts of the library.
 
@@ -206,12 +207,12 @@ long duration sleeps.
 - [Introduction to Python](/python/authoring) covers the
   Python-specific surface - pydantic for inputs and outputs, `Depends`
   for dependency injection, and how the worker discovers your modules.
-- [Workflows & Actions](/guides/workflows-and-actions) walks through the
+- [Workflows & Actions](/python/workflows-and-actions) walks through the
   split between durable control flow and distributed work in more depth.
-- [Control Flow](/guides/control-flow) covers what AST patterns the
+- [Control Flow](/python/control-flow) covers what AST patterns the
   compiler supports - loops, conditionals, parallel fan-out, durable
   sleep, `try/except`.
-- [Retries & Timeouts](/guides/retries) covers how to configure
+- [Retries & Timeouts](/python/retries) covers how to configure
   resilience when actions flake.
 - [Configuration](/guides/configuration) is the full reference for the
   `WAYMARK_*` environment variables you can set.

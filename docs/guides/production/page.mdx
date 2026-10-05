@@ -187,7 +187,7 @@ on a live node is the other case: the calls it was running fail with
 `ActionExecutionLost`,
 or `ActionExecutionNotStarted` if it provably never started.
 `ActionExecutionLost` derives from `BaseException`, so only a
-[retry policy](/guides/retries) that lists it retries the call;
+[retry policy](/python/retries) that lists it retries the call;
 `ActionExecutionNotStarted` is retried like any other exception. Without
 a matching policy, the exception propagates like any other.
 

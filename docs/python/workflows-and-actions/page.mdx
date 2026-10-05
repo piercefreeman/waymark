@@ -79,7 +79,7 @@ The call queues the workflow into Postgres, the runtime executes it
 durably, and you get the result back. If the workflow ends with an
 exception it didn't catch, the call raises `WorkflowFailedError`, whose
 `exception_value` describes that exception. The
-[Quickstart](/guides/quickstart) walks through this end to end, and the
+[Quickstart](/python/quickstart) walks through this end to end, and the
 [Workflow API](/python/api/workflow) covers the call's other options.
 
 ## Actions {{ id: 'actions' }}
@@ -101,12 +101,12 @@ A few things to know:
 - An action that raises an exception is, by default, marked failed and
   *not* retried. You opt into retries by wrapping the call in
   `self.run_action(...)` and providing a `RetryPolicy`. See
-  [Retries & Timeouts](/guides/retries).
+  [Retries & Timeouts](/python/retries).
 - Arguments and results travel between processes and are persisted in
   Postgres, so they need to be values Waymark can serialize: primitives,
   containers, pydantic models, dataclasses and common stdlib types. See
   [Introduction to Python](/python/authoring) for the full list, and
-  [Known issues](/guides/control-flow#known-issues) for the values that
+  [Known issues](/python/control-flow#known-issues) for the values that
   currently change shape on the way.
 - Actions can use anything Python lets them: `random()`, `datetime.now()`,
   HTTP clients, file handles. Anything outside what the workflow compiler
@@ -128,7 +128,7 @@ accepts only instructions it can run safely, and side effects and I/O go
 into actions.
 
 Workflows can run on a cron or a fixed interval with
-[`schedule_workflow`](/guides/scheduling), and can pause indefinitely
+[`schedule_workflow`](/python/scheduling), and can pause indefinitely
 with `await asyncio.sleep(...)` - a durable sleep that survives node
 restarts.
 
@@ -170,12 +170,13 @@ inside a workflow body:
 - `f`-strings, anywhere in the body (build them inside an action
   instead).
 - Calling most functions other than actions and the workflow's own
-  methods; see [what does not compile](/guides/control-flow#limitations)
+  methods; see [what does not compile](/python/control-flow#limitations)
   for the exact list.
 - Constructing classes other than pydantic models and dataclasses.
 
-The error you get back tells you what wasn't recognized and what to do
-instead. The [Control Flow guide](/guides/control-flow) walks through the
-patterns the compiler supports today, with examples for each, and lists
-the [known issues](/guides/control-flow#known-issues) that still slip
-past it.
+The error you get back tells you what wasn't recognized, and one from
+the SDK's builder also says what to do instead. The [Control Flow
+guide](/python/control-flow) walks through the patterns the compiler
+supports today, with examples for each, and lists the
+[known issues](/python/control-flow#known-issues) that still slip past
+it.
