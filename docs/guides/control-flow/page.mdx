@@ -184,8 +184,17 @@ Two notes:
   uses the defaults. Note that `RetryPolicy()` with `attempts` omitted
   defaults to a budget of 100 retries; pass `attempts=1` when you want a
   failure to surface immediately.
-- The compiler matches exceptions by class name, so the exception type
-  needs to be importable at workflow-registration time on the worker.
+- An `except` clause matches an exception by its class name or any of
+  its base classes' names, as Python does and the same way retry policies
+  do: `except OSError:` catches a `ConnectionError`, and
+  `except LookupError:` catches a `KeyError`. Waymark imports nothing at
+  runtime - only names are compared, so `except httpx.ConnectError:`
+  means the class called `ConnectError`, whatever module it came from.
+  The runtime's `ActionTimeout` and `ActionExecutionLost` derive from
+  `BaseException`, so `except Exception:` does not catch them; import
+  them from `waymark.vm_exceptions` to list them, or catch
+  `BaseException`. `except ():` is rejected at compile time, since it
+  would catch nothing.
 
 `try/except` also works inside loops - useful for "process each item, skip
 the failures":
@@ -215,7 +224,10 @@ sleep - its wake-up time is recorded in Postgres, so the sleep survives
 node restarts: if the node running the workflow dies, another node picks
 the instance up and it still wakes at the original time. While it sleeps,
 the instance stays loaded on its node and counts toward that node's
-`WAYMARK_MAX_CONCURRENT_INSTANCES`.
+`WAYMARK_MAX_CONCURRENT_INSTANCES`. Sleeps are woken by the node's sleep
+poller, so one can wake up to one poll interval late -
+`WAYMARK_SLEEP_POLL_INTERVAL_MS`, 250 ms by default. Fractional seconds
+work.
 
 ```python
 @workflow
@@ -302,6 +314,32 @@ rejected patterns:
   assign the result to a variable, then return it. Spreading a variable
   (`*tasks`) doesn't compile either; spread a list comprehension directly
   into the `gather`.
+- **A `retry=` or `timeout=` that isn't a literal.** What compiles is a
+  `RetryPolicy(...)` with keyword literals, a number or a `timedelta(...)`
+  of `seconds`, `minutes`, `hours` or `days` literals, or a `self.`
+  attribute assigned one of those once, at the top level of `__init__`,
+  passed by keyword. Rejected, among others: a variable, a call result,
+  positional `RetryPolicy` arguments, a policy passed to `run_action`
+  positionally, a `self.` attribute assigned more than once or under a
+  branch, a tuple for `exception_types`, a non-string or dotted entry in
+  it, a timeout of zero or less, a negative backoff, either above 100
+  years, and any other `run_action` keyword.
+  [Retries & Timeouts](/python/retries) and the
+  [RetryPolicy reference](/python/api/retry) point here for the rejected
+  forms.
+- **`except` with anything but an exception class in scope.** The name
+  must resolve, in the workflow's module or the builtins, to an exception
+  class, and a dotted name's root to a module or a class:
+  `except httpx.ConnectError:` compiles and matches the class called
+  `ConnectError`. An alias resolves to the class it names, so `except VE:`
+  with `VE = ValueError` catches a `ValueError`. Rejected:
+  `except self.error:`, `except cfg.error_cls:` with `cfg` a value, a
+  class that is not an exception such as `except int:`, a value reached
+  through a module such as `except os.sep:`, a tuple alias such as
+  `except ERRORS:`, an undefined name, a subscript or a call as the
+  handler type, and `except ():`, which would catch nothing. A name
+  imported only under `TYPE_CHECKING` or inside a function is not in
+  scope.
 
 Everything in this list fails at your desk, the first time the workflow
 is run or scheduled. Nothing here surfaces as a production surprise.
@@ -331,8 +369,6 @@ Until then, avoid them.
   ([#584](https://github.com/piercefreeman/waymark/issues/584)).
 - `{**base, "extra": 1}` drops the spread entries
   ([#587](https://github.com/piercefreeman/waymark/issues/587)).
-- `except pkg.Error:` - an exception named through a module - catches
-  every exception ([#588](https://github.com/piercefreeman/waymark/issues/588)).
 - `and` / `or` evaluate both sides, so an action on the right runs even
   when the left side already decided
   ([#590](https://github.com/piercefreeman/waymark/issues/590)).
