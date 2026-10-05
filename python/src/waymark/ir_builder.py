@@ -137,11 +137,6 @@ RECOMMENDATIONS = {
         "        del data[key]\n"
         "        return data"
     ),
-    "while_loop": (
-        "While loops are not supported in workflow code because they can run "
-        "indefinitely.\n"
-        "Use a for loop with a fixed range, or restructure as recursive workflow calls."
-    ),
     "with_statement": (
         "Context managers (with statements) are not supported in workflow code.\n"
         "Use an @action to handle resource management:\n\n"
@@ -243,10 +238,6 @@ RECOMMENDATIONS = {
     "yield_statement": (
         "Yield statements are not supported in workflow code.\n"
         "Workflows must return a complete result, not generate values incrementally."
-    ),
-    "continue_statement": (
-        "Continue statements are not supported in workflow code.\n"
-        "Restructure your loop using if/else to skip iterations."
     ),
     "unsupported_statement": (
         "This statement type is not supported in workflow code.\n"
