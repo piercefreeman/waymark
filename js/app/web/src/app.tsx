@@ -17,6 +17,7 @@ import { InstanceDetail } from "./features/instances/detail";
 import { InstanceList, type PageInfo } from "./features/instances/list";
 import { FleetPage } from "./features/fleet/page";
 import { shortId } from "./lib/format";
+import { parseTimeRange } from "./lib/time-range";
 import { matchPath, navigate, useLocation, useSearchParam } from "./lib/router";
 import { useNow } from "./lib/use-now";
 import { ThemeProvider } from "./providers/theme";
@@ -56,6 +57,7 @@ function InstancesRoute() {
   const [paused] = useSearchParam("paused");
   const [after] = useSearchParam("after");
   const [pinnedTo] = useSearchParam("to");
+  const [customFrom] = useSearchParam("from");
   const [query] = useSearchParam("q");
   const [stateParam] = useSearchParam("state");
   const states = useMemo(
@@ -65,21 +67,35 @@ function InstancesRoute() {
         .filter((value): value is InstanceState => value in instanceStates),
     [stateParam],
   );
-  const pinned = pinnedTo ? new Date(pinnedTo) : null;
+  const pinned =
+    pinnedTo && Number.isFinite(Date.parse(pinnedTo))
+      ? new Date(pinnedTo)
+      : null;
+  const customRange = parseTimeRange(customFrom, pinnedTo);
   const key = [
     timeWindow.id,
     after ?? "",
     pinnedTo ?? "",
+    customFrom ?? "",
     query ?? "",
     stateParam ?? "",
   ].join("|");
 
   const live = useLive(
     async (signal) => {
+      if (
+        (customFrom !== null && !customRange) ||
+        (pinnedTo !== null && !pinned)
+      ) {
+        throw new Error(
+          "Choose a valid time range with the end after the start.",
+        );
+      }
       const to = pinned ?? new Date();
+      const from = customRange?.from ?? new Date(to.getTime() - timeWindow.ms);
       const page = await fetchInstancePage(
         {
-          from: new Date(to.getTime() - timeWindow.ms),
+          from,
           to,
           after,
           query: query ?? "",
@@ -95,13 +111,13 @@ function InstancesRoute() {
       );
       signal.throwIfAborted();
       timelineCache.current = timelineRead.timelines;
-      return { ...page, to, ...timelineRead };
+      return { ...page, from, to, ...timelineRead };
     },
     {
       intervalMs: POLL_MS,
       // A pinned `to` is a frozen page: nothing after it can appear, so
       // there is nothing to poll for.
-      enabled: paused !== "1" && pinned === null,
+      enabled: paused !== "1" && pinnedTo === null,
       key,
     },
   );
@@ -130,7 +146,13 @@ function InstancesRoute() {
       <InstanceList
         instances={instances}
         now={now}
-        range={{ from: new Date(to.getTime() - timeWindow.ms), to }}
+        range={{
+          from:
+            live.data?.from ??
+            customRange?.from ??
+            new Date(to.getTime() - timeWindow.ms),
+          to,
+        }}
         source={source}
         page={page}
       />
