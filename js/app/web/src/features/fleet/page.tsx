@@ -105,14 +105,6 @@ export function FleetPage({
 
   return (
     <div className="min-w-0">
-      <div className="px-gutter pt-5">
-        <SectionHeader
-          title="Fleet"
-          count={rows.length}
-          description={`node boot${rows.length === 1 ? "" : "s"} · sampled every ${Math.round(sampleIntervalMs / 1000)}s · stale after ${Math.round((sampleIntervalMs * 3) / 1000)}s`}
-        />
-      </div>
-
       <SourceNotice source={source} now={now} className="mx-gutter mt-4" />
 
       {source.loading && !source.fetchedAt && !source.error ? (
@@ -123,12 +115,8 @@ export function FleetPage({
         <EmptyState
           className="mt-4 border-t border-line"
           variant={source.error ? "unavailable" : "empty"}
-          title={source.error ? "Metrics unavailable" : "No node samples yet"}
-          description={
-            source.error
-              ? source.error.message
-              : "Nodes appear after their first metrics sample."
-          }
+          title={source.error ? "Metrics unavailable" : "No node metrics yet"}
+          description={source.error?.message}
         />
       ) : (
         <>
@@ -160,7 +148,7 @@ export function FleetPage({
                 fresh.reduce((total, row) => total + (row.rate ?? 0), 0),
               )}
               unit="per second"
-              scope="from counter deltas, last interval"
+              scope="last interval"
             />
             <MetricTile
               label="Handling time"
@@ -169,13 +157,13 @@ export function FleetPage({
               scope={
                 handling
                   ? `p95 ${formatSeconds(histogramPercentile(handling, 0.95))} · since boot`
-                  : "no histogram"
+                  : "no timing data"
               }
             />
           </MetricStrip>
 
           <section className="px-gutter py-5">
-            <SectionHeader as="h3" title="Nodes" />
+            <SectionHeader as="h2" title="Nodes" count={rows.length} />
             <ol className="mt-2 divide-y divide-line border-y border-line">
               {rows.map((row) => {
                 const handlingP50 = row.sample.action_handling_seconds.p50;
@@ -222,13 +210,13 @@ export function FleetPage({
                           {row.stale ? (
                             <StatusInk
                               tone="waiting"
-                              label={`stale · last sample ${formatRelative(row.sampledAt, now)}`}
+                              label={`stale · updated ${formatRelative(row.sampledAt, now)}`}
                               size="sm"
                             />
                           ) : (
                             <StatusInk
                               tone="success"
-                              label={`sampled ${formatRelative(row.sampledAt, now)}`}
+                              label={`updated ${formatRelative(row.sampledAt, now)}`}
                               size="sm"
                             />
                           )}
@@ -285,10 +273,6 @@ export function FleetPage({
                 );
               })}
             </ol>
-            <p className="mt-2 text-micro text-fg-subtle">
-              A node id names one boot; a restart shows up as a new node.
-              Hostnames, CPU, and memory are not reported.
-            </p>
           </section>
 
           <section className="grid gap-x-10 gap-y-6 border-t border-line px-gutter py-5 lg:grid-cols-2">

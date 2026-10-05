@@ -30,7 +30,7 @@ The SPA's tokens, type scale, screen anatomy, and data-honesty rules live in [js
 - Every number has a unit and a scope caption ("2 fresh nodes · 1 excluded"). Every live view shows freshness.
 
 **Structure.**
-- One 40px global bar carries identity, environment, page title, time window, Live/Paused with freshness, jump box, and theme. No page-header band, no taglines, no eyebrow labels, no stack credits.
+- One 40px global bar carries identity, environment when known, page title, time window, Live/Paused with freshness, jump box, and theme. No page-header band, no taglines, no eyebrow labels, no stack credits.
 - Detail is a route. A peek panel overlays the workspace and never pushes columns. Filters, selection, and the time window live in the URL.
 - Only show what the API reports. Names, payloads, attempt numbers, and hostnames are not reported; render "Not recorded", "derived", "inferred", or a short id instead. Rejections are counted, never promoted to a workflow state.
 - Empty, filtered-empty, unavailable, and error states must never look alike. A missing value must never look like a recorded null or a loading state.
@@ -64,6 +64,7 @@ The SPA's tokens, type scale, screen anatomy, and data-honesty rules live in [js
 This section is used for the scratch updates, driven by our Agents.
 
 <code_feedback>
+<rule>Keep UI copy that identifies an operational fact, scopes a metric, explains a specific exception, or helps the user act. Remove ambient explanations of polling intervals, thresholds, storage, API schemas, and unreported capabilities. Keep actual freshness, latency and throughput, missing-data warnings, and uncertainty next to the result they qualify. Good: "handling p50 347 ms · p95 23.8 s" or "Try a wider time window." Bad: "sampled every 10s · stale after 30s" or "Hostnames, CPU, and memory are not reported."</rule>
 <rule>Publish a live view's data and dependent row details as one snapshot, retaining the last snapshot during same-query refreshes and clearing it when the query identity changes. Cancelled or unmounted polling loops must never schedule another request; pausing must not trigger a fetch. Test late responses and cleanup with requests still in flight.</rule>
 <rule>Ship UI routes backed only by production APIs; keep synthetic fixtures in tests, never in application imports, query-selectable demo modes, or fallback paths. Show explicit empty and unavailable states when real data is absent. Test fixtures should use the API's event or sample types and production derivation code so they cannot invent facts the API does not report.</rule>
 <rule>Keep domain state vocabularies in `src/domain`, derived from wire types, and let UI components import them; never define a status union inside a component. Good: `domain/status.ts` exports `InstanceState` with the rule that produces each value. Bad: `type Status = keyof typeof statuses` living in `status-badge.tsx` and imported by fixtures.</rule>

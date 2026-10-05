@@ -39,7 +39,9 @@ export function SourceNotice({
     >
       {source.error ? (
         <>
-          <span className="font-medium text-danger">Couldn't refresh.</span>
+          <span className="font-medium text-danger">
+            {source.fetchedAt ? "Couldn't refresh." : "Couldn't load data."}
+          </span>
           <span className="mono-data truncate text-fg-muted">
             {source.error.message}
           </span>
@@ -52,7 +54,7 @@ export function SourceNotice({
         </>
       ) : (
         <span className="text-fg-muted">
-          Showing a partial read; some history could not be loaded.
+          Some history is missing. Timelines and counts may be incomplete.
         </span>
       )}
       {source.refresh && (

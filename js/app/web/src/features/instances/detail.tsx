@@ -8,7 +8,6 @@ import {
 } from "@/lib/router";
 import { stopKindLabels, stopReasonError } from "@/domain/api";
 import type { InstanceSummary } from "@/domain/derive";
-import { instanceStates } from "@/domain/status";
 import { EmptyState } from "@/components/patterns/empty-state";
 import { EventLog } from "@/components/patterns/event-log";
 import { Identifier } from "@/components/patterns/identifier";
@@ -27,9 +26,6 @@ import { TimeAgo } from "@/components/patterns/time";
 import { Waterfall } from "@/components/patterns/waterfall";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { describeNow, elapsedMs } from "./list";
-
-const NOT_RECORDED =
-  "Waymark records the action name, module, and exception type. Arguments and returned values are not captured by the event API.";
 
 /**
  * The instance page. A sentence and a few facts up top, the waterfall as
@@ -57,10 +53,10 @@ export function InstanceDetail({
     return (
       <EmptyState
         variant={source.error ? "unavailable" : "empty"}
-        title="Instance not found"
+        title={source.error ? "Couldn't load instance" : "Instance not found"}
         description={
           source.error?.message ??
-          "No events for this vm_id are retained in the observability store, or the id is mistyped."
+          "Check the instance id. Its history may no longer be available."
         }
         action={
           <a
@@ -107,15 +103,12 @@ export function InstanceDetail({
 
       <section className="px-gutter py-4">
         <p className="text-section text-fg">{sentence.headline}</p>
-        <p className="mt-0.5 text-label text-fg-muted">
-          {instanceStates[summary.state].rule}
-        </p>
         <KeyValueList
           layout="grid"
           className="mt-4 max-w-4xl"
           items={[
             {
-              label: "Started",
+              label: "First event",
               value: formatClock(summary.firstEventAt),
               mono: true,
               note: <TimeAgo at={summary.firstEventAt} now={now} />,
@@ -124,15 +117,19 @@ export function InstanceDetail({
               label: "Elapsed",
               value: formatDuration(elapsedMs(summary, now)),
               mono: true,
-              note: summary.outcome ? "to the outcome" : "so far",
+              note: summary.outcome
+                ? undefined
+                : summary.state === "active"
+                  ? "so far"
+                  : "to last event",
             },
             {
               label: "Promises",
               value: `${settled} settled · ${summary.counts.open} open`,
               mono: true,
               note: summary.counts.rejected
-                ? `${summary.counts.rejected} rejected, caught or pending`
-                : "no rejections",
+                ? `${summary.counts.rejected} rejected`
+                : undefined,
             },
             {
               label: "Driver runs",
@@ -140,7 +137,7 @@ export function InstanceDetail({
               mono: true,
               note: latest
                 ? `latest on node ${shortId(latest.nodeId).slice(0, 8)} · ${latest.stopReason ? stopKindLabels[latest.stopReason.kind] : "not stopped"}`
-                : "none observed",
+                : undefined,
             },
             {
               label: "Events",
@@ -148,7 +145,7 @@ export function InstanceDetail({
               mono: true,
               note: summary.missingEvents
                 ? `${summary.missingEvents} missing from sequence`
-                : "sequence complete",
+                : undefined,
             },
           ]}
         />
@@ -165,7 +162,7 @@ export function InstanceDetail({
       <section aria-label="Promise timeline" className="border-y border-line">
         {summary.promises.length === 0 ? (
           <p className="px-gutter py-4 text-label text-fg-muted">
-            No promises were called in the retained history.
+            No recorded promises.
           </p>
         ) : (
           <Waterfall
@@ -264,7 +261,7 @@ export function InstanceDetail({
                         : "open",
                       mono: true,
                       note: promise.settledAt
-                        ? `${formatDuration(promise.settledAt.getTime() - promise.calledAt.getTime())} call → settlement, incl. queueing`
+                        ? `${formatDuration(promise.settledAt.getTime() - promise.calledAt.getTime())} including queueing`
                         : `${formatDuration(now.getTime() - promise.calledAt.getTime())} so far`,
                     },
                     ...(promise.exceptionType
@@ -294,7 +291,7 @@ export function InstanceDetail({
                             label: "Possible retry of",
                             value: `#${promise.possibleRetryOf}`,
                             mono: true,
-                            note: "inferred from a repeated action name after a rejection",
+                            note: "Inferred: same action called again after a rejection.",
                           },
                         ]
                       : []),
@@ -304,7 +301,7 @@ export function InstanceDetail({
               <div className="grid gap-3 sm:grid-cols-2">
                 <PayloadViewer
                   label="Arguments"
-                  payload={{ kind: "not-recorded", reason: NOT_RECORDED }}
+                  payload={{ kind: "not-recorded" }}
                 />
                 <PayloadViewer
                   label={promise.state === "rejected" ? "Exception" : "Result"}
@@ -316,13 +313,13 @@ export function InstanceDetail({
                             kind: "recorded",
                             value: { exception_type: promise.exceptionType },
                           }
-                        : { kind: "not-recorded", reason: NOT_RECORDED }
+                        : { kind: "not-recorded" }
                   }
                 />
                 <div className="sm:col-span-2">
                   <SectionHeader
                     as="h3"
-                    title="Events involving this promise"
+                    title="Promise events"
                     className="mb-1"
                   />
                   <EventLog

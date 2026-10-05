@@ -3,7 +3,7 @@ import { cn } from "@/lib/cn";
 import { formatClock, formatDuration, shortId } from "@/lib/format";
 import { stopKindLabels } from "@/domain/api";
 import type { InstanceSummary } from "@/domain/derive";
-import { instanceStates, promiseStates, toneBackground } from "@/domain/status";
+import { promiseStates, toneBackground } from "@/domain/status";
 import { Identifier } from "@/components/patterns/identifier";
 import { KeyValueList } from "@/components/patterns/key-value-list";
 import { SectionHeader } from "@/components/patterns/section-header";
@@ -27,9 +27,6 @@ export function InstancePeek({
     <div className="divide-y divide-line">
       <section className="px-gutter py-3">
         <Identifier value={summary.vmId} full copyable className="text-label" />
-        <p className="mt-1 text-micro text-fg-muted">
-          {instanceStates[summary.state].rule}
-        </p>
         <KeyValueList
           layout="grid"
           className="mt-3"
@@ -106,8 +103,8 @@ export function InstancePeek({
                     called {formatClock(promise.calledAt)}
                     {promise.possibleRetryOf !== null && (
                       <span className="ml-1 inline-flex items-center gap-0.5 text-waiting">
-                        <RotateCcw className="size-2.5" aria-hidden /> retry of
-                        #{promise.possibleRetryOf}, inferred
+                        <RotateCcw className="size-2.5" aria-hidden /> possible
+                        retry of #{promise.possibleRetryOf}
                       </span>
                     )}
                   </span>
@@ -163,7 +160,7 @@ export function InstancePeek({
           })}
           {summary.promises.length === 0 && (
             <li className="py-3 text-center text-micro text-fg-subtle">
-              No promises called yet
+              No recorded promises
             </li>
           )}
         </ol>
@@ -173,7 +170,7 @@ export function InstancePeek({
         <SectionHeader
           as="h3"
           title="Recent events"
-          count={summary.events.length}
+          count={`${Math.min(summary.events.length, 8)} of ${summary.events.length}`}
           className="px-gutter"
         />
         <EventLog events={summary.events.slice(-8)} className="mt-1" />
