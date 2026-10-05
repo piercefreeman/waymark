@@ -43,6 +43,26 @@ export function WorkflowSearch({
   const content = useRef<HTMLDivElement>(null);
   const contentId = useId();
 
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable;
+      if (
+        (event.key === "k" && (event.metaKey || event.ctrlKey)) ||
+        (event.key === "/" && !typing)
+      ) {
+        event.preventDefault();
+        input.current?.focus();
+        input.current?.select();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   useEffect(() => setDraft(query), [query]);
   useEffect(() => {
     if (draft.trim() === query) return;
@@ -73,7 +93,12 @@ export function WorkflowSearch({
             aria-controls={open ? contentId : undefined}
             placeholder="Search or filter workflows…"
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              const next = event.target.value;
+              setDraft(next);
+              // Cancel an in-flight ID lookup as soon as the user edits it.
+              if (isExactId(query)) onQueryChange(next.trim());
+            }}
             onFocus={() => setOpen(true)}
             onClick={() => setOpen(true)}
             onKeyDown={(event) => {

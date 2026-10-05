@@ -30,7 +30,7 @@ The SPA's tokens, type scale, screen anatomy, and data-honesty rules live in [js
 - Every number has a unit and a scope caption ("2 fresh nodes · 1 excluded"). Every live view shows freshness.
 
 **Structure.**
-- One 40px global bar carries identity, environment when known, page title, Live/Paused with freshness, jump box, and theme. Workflow time filters belong in the search dropdown; Fleet keeps its chart time control. No page-header band, no taglines, no eyebrow labels, no stack credits.
+- One 40px global bar carries identity, environment when known, page title, Live/Paused with freshness, and theme. Workflow time filters belong in the search dropdown; Fleet keeps its chart time control. No page-header band, no taglines, no eyebrow labels, no stack credits.
 - Detail is a route. A peek panel overlays the workspace and never pushes columns. Filters, selection, and the time window live in the URL.
 - Only show what the API reports. Names, payloads, attempt numbers, and hostnames are not reported; render "Not recorded", "derived", "inferred", or a short id instead. Rejections are counted, never promoted to a workflow state.
 - Empty, filtered-empty, unavailable, and error states must never look alike. A missing value must never look like a recorded null or a loading state.
@@ -64,6 +64,7 @@ The SPA's tokens, type scale, screen anatomy, and data-honesty rules live in [js
 This section is used for the scratch updates, driven by our Agents.
 
 <code_feedback>
+<rule>Use the workflow search field for both filtering and direct navigation; do not add a separate jump box. A full workflow ID opens its detail page only after a successful API lookup, ignoring list filters. Missing IDs stay in search, and Back from a match restores the list without redirecting again.</rule>
 <rule>Center workflow previews on the Promise ledger: actions and sleeps, their outcomes, durations, and outstanding work. Keep raw event logs on the detail page for debugging rather than duplicating a recent-event slice in the peek.</rule>
 <rule>Keep workflow time and state filter choices in the search dropdown, with the selected time window visible in the search control. Offer datetime bounds alongside presets, label their timezone, validate start before end, and preserve both custom bounds through pagination. Persist selections in the URL, preserve text and state filters when changing time, and clear pagination and row selection when filter criteria change.</rule>
 <rule>Show full node identifiers in the Fleet list so users can inspect and select them directly. Give the identity column enough room and wrap on narrow screens instead of truncating; reserve shortened identifiers for compact secondary contexts such as chart legends.</rule>
