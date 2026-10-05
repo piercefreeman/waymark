@@ -34,7 +34,7 @@ import {
 import { InstanceStateInk } from "@/components/patterns/status-ink";
 import { Duration } from "@/components/patterns/time";
 import { PeekPanel } from "@/components/layout/peek-panel";
-import { PAGE_SIZE } from "@/data/instances";
+import { PAGE_SIZE, isExactId } from "@/data/instances";
 import { InstancePeek } from "./peek";
 import { WorkflowSearch } from "./search";
 
@@ -79,7 +79,8 @@ export function InstanceList({
     (patch: Record<string, string | null>) => {
       navigate(
         withSearch(pathname, search, { ...patch, after: null, vm: null }),
-        { replace: true },
+        // A full-ID search becomes a detail route; Back should restore this list.
+        { replace: !isExactId(patch.q ?? "") },
       );
     },
     [pathname, search],
@@ -108,6 +109,13 @@ export function InstanceList({
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      )
+        return;
       const target = event.target as HTMLElement | null;
       if (
         target instanceof HTMLInputElement ||
@@ -225,11 +233,13 @@ export function InstanceList({
             description={
               source.error && instances.length === 0
                 ? source.error.message
-                : query || stateFilter.length
-                  ? page.capped
-                    ? `Searched ${page.scanned} workflows. Choose Keep searching for more, or narrow the time window.`
-                    : "Try a different workflow id, node id, or state, or widen the time window."
-                  : "Try a wider time window."
+                : page.direct
+                  ? "Check the workflow id. Its history may no longer be available."
+                  : query || stateFilter.length
+                    ? page.capped
+                      ? `Searched ${page.scanned} workflows. Choose Keep searching for more, or narrow the time window.`
+                      : "Try a different workflow id, node id, or state, or widen the time window."
+                    : "Try a wider time window."
             }
           />
         ) : (
