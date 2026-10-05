@@ -3692,7 +3692,7 @@ class TestUnsupportedPatternValidation:
 
         error = cast(UnsupportedPatternError, exc_info.value)
         assert "datetime.now" in error.message
-        assert "synchronous function" in error.message.lower()
+        assert "is not supported in workflow code" in error.message
         assert "@action" in error.recommendation
 
     def test_sync_function_call_return_raises_error(self) -> None:
@@ -3716,7 +3716,7 @@ class TestUnsupportedPatternValidation:
 
         error = cast(UnsupportedPatternError, exc_info.value)
         assert "datetime.now" in error.message
-        assert "synchronous function" in error.message.lower()
+        assert "is not supported in workflow code" in error.message
         assert "@action" in error.recommendation
 
     def test_sync_function_call_in_action_arg_raises_error(self) -> None:
@@ -3744,7 +3744,7 @@ class TestUnsupportedPatternValidation:
 
         error = cast(UnsupportedPatternError, exc_info.value)
         assert "datetime.now" in error.message
-        assert "synchronous function" in error.message.lower()
+        assert "is not supported in workflow code" in error.message
         assert "@action" in error.recommendation
 
     def test_plain_function_call_raises_error(self) -> None:
@@ -3771,7 +3771,7 @@ class TestUnsupportedPatternValidation:
 
         error = cast(UnsupportedPatternError, exc_info.value)
         assert "log_event" in error.message
-        assert "synchronous function" in error.message.lower()
+        assert "is not supported in workflow code" in error.message
 
     def test_attribute_function_call_raises_error(self) -> None:
         """Test: attribute calls like token.upper() raise UnsupportedPatternError."""
@@ -3795,7 +3795,7 @@ class TestUnsupportedPatternValidation:
 
         error = cast(UnsupportedPatternError, exc_info.value)
         assert "token.upper" in error.message
-        assert "synchronous function" in error.message.lower()
+        assert "is not supported in workflow code" in error.message
 
 
 class TestValidPatterns:

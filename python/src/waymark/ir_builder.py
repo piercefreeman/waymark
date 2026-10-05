@@ -100,19 +100,12 @@ RECOMMENDATIONS = {
         "    await asyncio.sleep(1)\n"
     ),
     "sync_function_call": (
-        "Calling a synchronous function directly in workflow code is not supported.\n"
-        "All computation must happen inside @action decorated async functions.\n\n"
-        "Wrap your logic in an @action:\n\n"
+        "Workflow code can only call actions (with await), the workflow's own methods, "
+        "and len(), range() and enumerate().\n"
+        "Move other calls into an @action:\n\n"
         "    @action\n"
         "    async def compute(x: int) -> int:\n"
-        "        return some_sync_function(x)"
-    ),
-    "method_call_non_self": (
-        "Calling methods on objects other than 'self' is not supported in workflow code.\n"
-        "Use an @action to perform method calls:\n\n"
-        "    @action\n"
-        "    async def call_method(obj: MyClass) -> Result:\n"
-        "        return obj.some_method()"
+        "        return some_function(x)"
     ),
     "builtin_call": (
         "Calling built-in functions like len(), str(), int() directly is not supported.\n"
@@ -4166,7 +4159,7 @@ def _expr_to_ir(
                 line = expr.lineno if hasattr(expr, "lineno") else None
                 col = expr.col_offset if hasattr(expr, "col_offset") else None
                 raise UnsupportedPatternError(
-                    f"Calling synchronous function '{func_name}()' directly is not supported",
+                    f"Calling '{func_name}()' is not supported in workflow code",
                     RECOMMENDATIONS["sync_function_call"],
                     line=line,
                     col=col,
@@ -4175,7 +4168,7 @@ def _expr_to_ir(
                 line = expr.lineno if hasattr(expr, "lineno") else None
                 col = expr.col_offset if hasattr(expr, "col_offset") else None
                 raise UnsupportedPatternError(
-                    f"Calling synchronous function '{func_name}()' directly is not supported",
+                    f"Calling '{func_name}()' is not supported in workflow code",
                     RECOMMENDATIONS["sync_function_call"],
                     line=line,
                     col=col,
