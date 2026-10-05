@@ -130,6 +130,9 @@ Pages poll `/api` every 5 s while Live; `?paused=1` stops polling. A
 refresh failure never empties a view: the previous data stays, with a notice
 that names the error and the last successful time. Empty responses and
 unavailable APIs have explicit states; the app never substitutes fake data.
+Instance pages and their timelines are published together so a refresh does
+not replace row details in stages. A different page, filter, or instance
+loads independently; data from the previous query is never shown as its result.
 
 ## Data honesty
 

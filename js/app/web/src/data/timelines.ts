@@ -1,12 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { vmTimeline } from "@/api/client";
-import type { Event, Instance } from "@/domain/api";
-
-/**
- * Per-instance timelines for the rows on screen, cached by the instance's
- * last observed event. A poll only refetches rows whose last event moved,
- * so a page of 100 costs 100 small reads once and a handful per tick.
- */
+import { vmTimeline } from "../api/client.ts";
+import type { Event, Instance } from "../domain/api.ts";
 
 export interface CachedTimeline {
   key: string;
@@ -20,67 +13,47 @@ function keyOf(instance: Instance): string {
   return `${instance.last_event.node_id}:${instance.last_event.node_sequence}`;
 }
 
-export function useTimelines(instances: Instance[]) {
-  const cache = useRef(new Map<string, CachedTimeline>());
-  const inFlight = useRef(new Set<string>());
-  const [version, setVersion] = useState(0);
-  const [pending, setPending] = useState(0);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const stale = instances.filter(
-      (instance) =>
-        cache.current.get(instance.vm_id)?.key !== keyOf(instance) &&
-        !inFlight.current.has(instance.vm_id),
-    );
-    if (stale.length === 0) return;
-    setPending((count) => count + stale.length);
-    const queue = [...stale];
-    let active = 0;
-    let cancelled = false;
-
-    function pump() {
-      while (active < CONCURRENCY && queue.length > 0) {
-        const instance = queue.shift()!;
-        active += 1;
-        inFlight.current.add(instance.vm_id);
-        vmTimeline(instance.vm_id, controller.signal)
-          .then((timeline) => {
-            if (cancelled) return;
-            cache.current.set(instance.vm_id, {
-              key: keyOf(instance),
-              events: timeline.events,
-              complete: timeline.complete,
-            });
-            setVersion((value) => value + 1);
-          })
-          .catch(() => {
-            // A failed row keeps its previous timeline, if any; the next
-            // poll retries because its key still mismatches.
-          })
-          .finally(() => {
-            inFlight.current.delete(instance.vm_id);
-            active -= 1;
-            if (!cancelled) {
-              setPending((count) => Math.max(0, count - 1));
-              pump();
-            }
+/**
+ * Prepare timelines before publishing the next ledger snapshot. Unchanged
+ * rows reuse their last read; changed rows load with bounded concurrency.
+ * The previous snapshot stays untouched while these requests are pending.
+ */
+export async function fetchTimelines(
+  instances: Instance[],
+  previous: ReadonlyMap<string, CachedTimeline>,
+  signal: AbortSignal,
+) {
+  const timelines = new Map<string, CachedTimeline>();
+  const queue = [...instances];
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+      let instance: Instance | undefined;
+      while ((instance = queue.shift())) {
+        signal.throwIfAborted();
+        const cached = previous.get(instance.vm_id);
+        if (cached) timelines.set(instance.vm_id, cached);
+        if (cached?.key === keyOf(instance)) continue;
+        try {
+          const timeline = await vmTimeline(instance.vm_id, signal);
+          signal.throwIfAborted();
+          timelines.set(instance.vm_id, {
+            key: keyOf(instance),
+            ...timeline,
           });
+        } catch {
+          signal.throwIfAborted();
+          // Keep the previous row on failure. Its mismatched key makes the
+          // next poll retry, even when no new event has arrived.
+        }
       }
-    }
-    pump();
-    return () => {
-      cancelled = true;
-      controller.abort();
-      for (const instance of stale) inFlight.current.delete(instance.vm_id);
-      setPending(0);
-    };
-    // Re-run when the set of (vm_id, last event) pairs changes.
-  }, [instances.map(keyOf).join("|")]);
-
+    }),
+  );
+  signal.throwIfAborted();
   return {
-    version,
-    pending,
-    get: (vmId: string) => cache.current.get(vmId),
+    timelines,
+    complete: instances.every((instance) => {
+      const timeline = timelines.get(instance.vm_id);
+      return timeline?.key === keyOf(instance) && timeline.complete;
+    }),
   };
 }

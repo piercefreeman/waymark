@@ -115,7 +115,11 @@ export function FleetPage({
 
       <SourceNotice source={source} now={now} className="mx-gutter mt-4" />
 
-      {rows.length === 0 ? (
+      {source.loading && !source.fetchedAt && !source.error ? (
+        <p role="status" className="px-gutter py-6 text-label text-fg-muted">
+          Loading metrics…
+        </p>
+      ) : rows.length === 0 ? (
         <EmptyState
           className="mt-4 border-t border-line"
           variant={source.error ? "unavailable" : "empty"}

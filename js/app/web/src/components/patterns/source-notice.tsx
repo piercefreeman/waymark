@@ -7,7 +7,7 @@ export interface SourceStatus {
   fetchedAt: Date | null;
   error: Error | null;
   loading: boolean;
-  /** False when a paged read stopped before the end. */
+  /** False when history was truncated or some timelines could not load. */
   complete: boolean;
   refresh?: () => void;
 }
@@ -52,7 +52,7 @@ export function SourceNotice({
         </>
       ) : (
         <span className="text-fg-muted">
-          Showing a partial read; more history exists than was loaded.
+          Showing a partial read; some history could not be loaded.
         </span>
       )}
       {source.refresh && (
