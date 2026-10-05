@@ -1,34 +1,38 @@
 export const metadata = {
   title: 'Configuration',
   description:
-    'Reference for the WAYMARK_* environment variables that configure the worker pool, the bridge, and the Python SDK.',
+    'Reference for every environment variable that configures waymark-node, the bridge, the observability store, and the Python SDK.',
 }
 
 export const sections = [
-  { title: 'Worker pool', id: 'worker-pool' },
-  { title: 'Worker pool advanced', id: 'worker-pool-advanced' },
+  { title: 'Node', id: 'node' },
+  { title: 'Node advanced', id: 'node-advanced' },
+  { title: 'Write batching', id: 'write-batching' },
+  { title: 'In-memory caches', id: 'in-memory-caches' },
   { title: 'Observability', id: 'observability' },
   { title: 'Bridge', id: 'bridge' },
   { title: 'Python SDK & bootstrap', id: 'python-sdk' },
+  { title: 'Building from source', id: 'building-from-source' },
   { title: 'Worker recycling', id: 'worker-recycling' },
 ]
 
 # Configuration
 
 Waymark is designed to run with almost no configuration: most deployments
-set `WAYMARK_DATABASE_URL` and `WAYMARK_USER_MODULE` and never touch
-another variable. Everything else has a default tuned for a single-host
-deployment.
+set `WAYMARK_DATABASE_URL`, turn on `WAYMARK_HTTP_ENABLED` for the API and
+the [webapp](/guides/webapp), and never touch another variable. Everything else has a
+default tuned for a single-host deployment.
 
 Configuration is entirely through environment variables. The runtime
 reads them directly from the process environment - there's no auto-loading
 of `.env` files, so set them before launching `waymark-node` (or
 import `python-dotenv` yourself if that's your preference).
 
-The variables are grouped by which process reads them: the worker pool,
-the bridge, and the Python SDK / boot helpers.
+The variables are grouped by which process reads them: `waymark-node`, the
+bridge, and the Python SDK / boot helpers. Durations are in milliseconds
+unless the name says otherwise.
 
-## Worker pool {{ id: 'worker-pool' }}
+## Node {{ id: 'node' }}
 
 These are the variables you'll touch most often when running
 `waymark-node`.
@@ -40,37 +44,78 @@ These are the variables you'll touch most often when running
 | `WAYMARK_WORKER_COUNT` | Number of Python worker processes. | Host CPU count |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per worker. | `10` |
 | `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently, per `waymark-node` process. | `500` |
-| `WAYMARK_USER_MODULE` | Comma-separated Python modules preloaded in workers. | Unset |
+| `WAYMARK_USER_MODULE` | Comma-separated Python modules each worker imports at startup. | Unset |
 | `WAYMARK_MAX_ACTION_LIFECYCLE` | Actions per worker before recycle (memory mitigation). | Unset (no limit) |
-| `WAYMARK_HTTP_ENABLED` | Enable the HTTP interface. | `false` |
+| `WAYMARK_HTTP_ENABLED` | Serve the HTTP API and the webapp. | `false` |
 | `WAYMARK_HTTP_ADDR` | HTTP server bind address. The HTTP API has no authentication: keep it private with the bind address or the network in front of it. | `0.0.0.0:24119` |
+| `METRICS_ADDR` | Bind address of the Prometheus metrics endpoint. It is always on and has no authentication. Note the missing `WAYMARK_` prefix. | `0.0.0.0:9118` |
+| `RUST_LOG` | Log filter for the node's output, in `tracing` target syntax (e.g. `info,waymark_vm_driver=debug`). An unparsable value falls back to the default with a warning. | `info` |
 
 <Note>
-`WAYMARK_USER_MODULE` is the one most people miss on first setup. The
-worker pool needs to import the modules where your `@action` and
-`@workflow` decorators run, otherwise it has no handlers registered when
-queue rows arrive - and it won't fail loudly, it will just idle.
+`WAYMARK_USER_MODULE` is optional. A worker imports an action's module
+itself the first time it is asked to run one of its actions, so the
+module only has to be importable from the worker's environment. Listing
+modules here imports them when each worker starts instead: a module that
+fails to import stops the worker right away, rather than failing the
+first action that needs it.
 </Note>
 
-## Worker pool advanced {{ id: 'worker-pool-advanced' }}
+## Node advanced {{ id: 'node-advanced' }}
 
-These tune the worker pool: its worker bridge bind, the workload pinning lease
-and the schedule poll. The defaults are well-chosen for a
-single-host deployment; you usually only reach for them once you're
-running multiple hosts and have a measured reason.
+These tune the node's worker bridge bind, its leases and its polling. The
+defaults are well-chosen for a single-host deployment; you usually only
+reach for them once you're running multiple hosts and have a measured
+reason.
 
 | Variable | Description | Default |
 | --- | --- | --- |
 | `WAYMARK_WORKER_GRPC_ADDR` | gRPC bind for the Python worker bridge server. | `127.0.0.1:24118` |
-| `WAYMARK_LOCK_TTL_MS` | Workload pinning lease TTL. | `15000` |
+| `WAYMARK_LOCK_TTL_MS` | Workload pinning lease TTL: how long a node's claim on a workflow instance lasts before it must be refreshed. | `15000` |
 | `WAYMARK_LOCK_HEARTBEAT_MS` | Workload pinning lease heartbeat interval. | `5000` |
-| `WAYMARK_SCHEDULER_POLL_INTERVAL_MS` | Scheduler poll interval. | `1000` |
+| `WAYMARK_PINNING_FENCING_MARGIN_MS` | How much earlier than the lease TTL a node stops an instance whose lease it could not re-confirm, so the instance has stopped before another node can take it. | `1000` |
+| `WAYMARK_WORKLOAD_POLL_INTERVAL_NS` | Minimum interval between polls for unclaimed workflow instances, in nanoseconds. Polling spins by design; this only floors how tight it gets. | `1000000` (1 ms) |
+| `WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_TTL_MS` | How long a node's lock on an action call request lasts before it must be renewed. | `15000` |
+| `WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_HEARTBEAT_MS` | How often the node renews the action call request locks it holds. | `5000` |
+| `WAYMARK_SLEEP_POLL_INTERVAL_MS` | How often the node polls for durable sleeps that are due, while any are pending. | `250` |
+| `WAYMARK_SCHEDULER_POLL_INTERVAL_MS` | How often the node polls for due schedules. | `1000` |
+| `WAYMARK_SCHEDULER_BATCH_MAX` | Max due schedules started per poll. | `64` |
+
+## Write batching {{ id: 'write-batching' }}
+
+The node coalesces its hot-path writes into batched statements. Each
+writer flushes when its batch is full or when the oldest item in it has
+waited for the delay, whichever comes first.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `WAYMARK_SNAPSHOT_BATCH_MAX` | Max VM snapshots per batched write. | `256` |
+| `WAYMARK_SNAPSHOT_BATCH_DELAY_MS` | Longest a snapshot waits before its batch is flushed. | `5` |
+| `WAYMARK_ACTION_EFFECT_RECONCILER_REQUEST_BATCH_MAX` | Max action call requests per batched insert. | `256` |
+| `WAYMARK_ACTION_EFFECT_RECONCILER_REQUEST_BATCH_DELAY_MS` | Longest an action call request waits before its batch is flushed. | `5` |
+| `WAYMARK_WORKFLOW_COMPLETION_BATCH_MAX` | Max workflow outcomes per batched write. | `256` |
+| `WAYMARK_WORKFLOW_COMPLETION_BATCH_DELAY_MS` | Longest a workflow outcome waits before its batch is flushed. | `5` |
+| `WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_BATCH_MAX` | Max action call request lock statements per batched statement. | `256` |
+| `WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_BATCH_DELAY_MS` | Longest a lock statement waits before its batch is flushed. | `5` |
+
+## In-memory caches {{ id: 'in-memory-caches' }}
+
+These bound what a node keeps in its own memory. They don't delete
+anything from the database.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `WAYMARK_VM_RETENTION_MS` | How long a node keeps a VM's state in memory after the VM is evicted. | `60000` |
+| `WAYMARK_VM_SWEEP_INTERVAL_MS` | How often expired VM states are swept from memory. | `10000` |
+| `WAYMARK_EXECUTABLE_RETENTION_MS` | How long a compiled workflow is kept in memory after its last use. | `300000` |
+| `WAYMARK_EXECUTABLE_SWEEP_INTERVAL_MS` | How often expired compiled workflows are swept from memory. | `60000` |
 
 ## Observability {{ id: 'observability' }}
 
-The worker pool records its metrics and events in an observability store,
-which gets its own schema and pools even when it shares the main database;
-the observability API reads from the store over a separate read pool:
+The node records what it does into an observability store: events for
+every workflow instance, which the webapp's instance views read, and
+periodic samples of each node's load, which its Fleet view reads. The
+store gets its own schema and pools even when it shares the main
+database; the observability API reads from it over a separate read pool.
 
 | Variable | Description | Default |
 | --- | --- | --- |
@@ -80,7 +125,36 @@ the observability API reads from the store over a separate read pool:
 | `WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS` | Connection cap for the observability read pool, additive likewise. | `4` |
 | `WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS` | How long one statement on the write pool may run; the sinks' flushes, retention sweeps and migrations run there. | `600000` |
 | `WAYMARK_OBSERVABILITY_POSTGRES_READ_STATEMENT_TIMEOUT_MS` | How long one statement on the read pool may run. | `10000` |
+
+Both kinds of data are kept for seven days by default. A retention sweep
+deletes anything older; nothing else in the observability store expires.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `WAYMARK_OBSERVABILITY_EVENTS_RETENTION_MS` | How long instance events, and the instance state derived from them, are kept. | `604800000` (7 days) |
+| `WAYMARK_OBSERVABILITY_EVENTS_RETENTION_SWEEP_INTERVAL_MS` | How often the events retention sweep runs. | `600000` |
 | `WAYMARK_OBSERVABILITY_EVENTS_RECORD_SNAPSHOT_PERSISTED` | Record a `snapshot_persisted` event per persisted VM snapshot. | `false` |
+| `WAYMARK_ESSENTIAL_METRICS_SAMPLE_INTERVAL_MS` | How often each node samples its own load. | `10000` |
+| `WAYMARK_ESSENTIAL_METRICS_RETENTION_MS` | How long node samples are kept. | `604800000` (7 days) |
+| `WAYMARK_ESSENTIAL_METRICS_RETENTION_SWEEP_INTERVAL_MS` | How often the samples retention sweep runs. | `600000` |
+
+Events and samples reach the store through two sinks. A sink fills one
+buffer while the others wait or are being written, and swaps a buffer out
+when it is full or its oldest item has waited for the max delay. The
+sinks are lossy: a batch that fails to write is dropped and counted,
+never retried. Buffers must be at least 2, and flushers at most one
+fewer than buffers.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `WAYMARK_OBSERVABILITY_EVENTS_SINK_BUFFERS` | Event buffers per node. | `3` |
+| `WAYMARK_OBSERVABILITY_EVENTS_SINK_MAX_BATCH` | Events per buffer. | `256` |
+| `WAYMARK_OBSERVABILITY_EVENTS_SINK_MAX_DELAY_MS` | Longest an event waits before its buffer is swapped out. | `1000` |
+| `WAYMARK_OBSERVABILITY_EVENTS_SINK_FLUSHERS` | Event buffers written concurrently. | `1` |
+| `WAYMARK_ESSENTIAL_METRICS_SINK_BUFFERS` | Sample buffers per node. | `3` |
+| `WAYMARK_ESSENTIAL_METRICS_SINK_MAX_BATCH` | Samples per buffer. | `64` |
+| `WAYMARK_ESSENTIAL_METRICS_SINK_MAX_DELAY_MS` | Longest a sample waits before its buffer is swapped out. | `5000` |
+| `WAYMARK_ESSENTIAL_METRICS_SINK_FLUSHERS` | Sample buffers written concurrently. | `1` |
 
 ## Bridge {{ id: 'bridge' }}
 
@@ -95,22 +169,36 @@ own service (e.g., a sidecar container).
 | `WAYMARK_BRIDGE_GRPC_ADDR` | gRPC bind address. | `127.0.0.1:24117` |
 | `WAYMARK_BRIDGE_IN_MEMORY` | Run with no Postgres backend (test / dev only). | `false` |
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN. | Required unless in-memory |
+| `RUST_LOG` | Log filter, as for the node. | `info` |
 
 ## Python SDK & bootstrap {{ id: 'python-sdk' }}
 
-These influence how the Python SDK connects to a bridge - useful when
-you've split processes across containers or hosts.
+These influence how the Python SDK finds a bridge - useful when you've
+split processes across containers or hosts. With none of them set, the SDK
+runs `waymark-boot-singleton`, which looks for a running bridge on the
+base port and the nine ports after it and starts one if there is none.
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `WAYMARK_BOOT_COMMAND` | Full command to boot the singleton bridge. | Unset |
+| `WAYMARK_BRIDGE_GRPC_ADDR` | Explicit `host:port` for the SDK to connect to; nothing is booted. | Unset |
+| `WAYMARK_BRIDGE_GRPC_HOST` | Bridge gRPC host, for the SDK and the boot helper. | `127.0.0.1` |
+| `WAYMARK_BRIDGE_GRPC_PORT` | For the SDK: connect to this port without booting anything. For the boot helper: the base port it probes from. | `24117` |
+| `WAYMARK_BRIDGE_BASE_PORT` | Fallback for `WAYMARK_BRIDGE_GRPC_PORT`, read only by the boot helper. | Unset |
+| `WAYMARK_BOOT_COMMAND` | Full command the SDK runs to boot the singleton bridge. | Unset |
 | `WAYMARK_BOOT_BINARY` | Boot binary used when `WAYMARK_BOOT_COMMAND` is unset. | `waymark-boot-singleton` |
-| `WAYMARK_BRIDGE_GRPC_ADDR` | Explicit `host:port` for the SDK to connect to. | Unset |
-| `WAYMARK_BRIDGE_GRPC_HOST` | Bridge gRPC host (used by the singleton helper and the SDK). | `127.0.0.1` |
-| `WAYMARK_BRIDGE_GRPC_PORT` | Bridge gRPC base port. | `24117` |
-| `WAYMARK_BRIDGE_BASE_PORT` | Fallback alias for `WAYMARK_BRIDGE_GRPC_PORT`. | Unset |
 | `WAYMARK_SKIP_WAIT_FOR_INSTANCE` | Return immediately after queueing instead of awaiting completion. | `false` |
 | `WAYMARK_LOG_LEVEL` | Python SDK logger level. | `INFO` |
+| `NO_COLOR` / `FORCE_COLOR` | Turn the SDK's colored log output off / on regardless of the terminal. | Unset |
+
+## Building from source {{ id: 'building-from-source' }}
+
+The webapp is compiled into `waymark-node` at build time. This only
+matters when you build the binaries yourself; the published wheels always
+include it.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `WAYMARK_BUILD_WEBAPP_ENABLE` | `required` fails the build when the webapp does not build; `best-effort` embeds a placeholder page instead; `disabled` always embeds the placeholder. | `required` when `CI=true`, else `best-effort` |
 
 ## Worker recycling {{ id: 'worker-recycling' }}
 
