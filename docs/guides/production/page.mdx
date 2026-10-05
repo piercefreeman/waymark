@@ -1,7 +1,7 @@
 export const metadata = {
   title: 'Production Deployment',
   description:
-    'Deploy Waymark to production: one image, a worker pool, your app, and the Postgres you already run.',
+    'Deploy Waymark to production: one image, waymark-start-workers, your app, and the Postgres you already run.',
 }
 
 export const sections = [
@@ -9,14 +9,15 @@ export const sections = [
   { title: 'One image, two commands', id: 'one-image' },
   { title: 'Compose the services', id: 'compose' },
   { title: 'Production settings', id: 'production-settings' },
-  { title: 'The webapp', id: 'webapp' },
+  { title: 'Database connections', id: 'database-connections' },
+  { title: 'Logs, metrics and the webapp', id: 'observability' },
   { title: 'Scaling out', id: 'scaling-out' },
 ]
 
 # Production Deployment
 
-A production Waymark deployment is three pieces: your application, a
-worker pool, and Postgres. It should be basically plug and play with any stack: self-hosted
+A production Waymark deployment is three pieces: your application, one or
+more nodes, and Postgres. It should be basically plug and play with any stack: self-hosted
 or in the cloud. There's no broker to host, no scheduler service, no replay servers. Postgres
 holds every piece of shared state, and everything else is a stateless container you can
 kill and restart at will.
@@ -27,22 +28,23 @@ kill and restart at will.
   script, a cron job. It queues workflows when it wants to delegate processing to the job cluster. The SDK boots a singleton
   `waymark-bridge` inside the container on first use, so the app needs
   nothing beyond a connection to the database.
-- **The worker pool** is one container running
-  `waymark-start-workers`. It pulls queued actions from Postgres,
-  executes them across a pool of Python processes, and persists results.
+- **The node** is one container running `waymark-start-workers`. It runs your
+  workflows, dispatches their actions to a pool of Python worker
+  processes, and persists every step in Postgres. It also runs the
+  scheduler and, if you enable it, serves the HTTP API and the webapp.
 - **Postgres** is the only stateful piece. Anything 14+ works, including
   the managed instance you already have.
 
-Because both app and workers coordinate purely through Postgres, they
+Because both app and nodes coordinate purely through Postgres, they
 don't need to reach each other over the network. Scale them, restart
 them, and deploy them independently.
 
 ## Share an image {{ id: 'one-image' }}
 
 Build a single image that contains your application code and the
-waymark package. They're both referencing the same underlying workflow and action
-code, so it makes sense for the image to have parity. The app service and the worker
-service only need different commands in the entrypoint.
+waymark package. They're both referencing the same underlying workflow and
+action code, so it makes sense for the image to have parity. The app and
+`waymark-start-workers` only need different commands in the entrypoint.
 
 If you already have Dockerfile, you just need a new service that mounts
 with `waymark-start-workers`. If you don't already have one, this basic one should
@@ -60,8 +62,8 @@ COPY src ./src
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
-# The default command serves the app; the worker service
-# overrides it with `waymark-start-workers`.
+# The default command serves the app; `waymark-start-workers`
+# overrides it.
 CMD ["uvicorn", "yourapp.web:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
@@ -117,43 +119,77 @@ The defaults are tuned for a single host. Tuning in production is usually govern
 
 | Variable | What it controls |
 | --- | --- |
-| `WAYMARK_WORKER_COUNT` | Python worker processes in the pool. Defaults to host CPU count to effectively allow Python to saturate each core. |
+| `WAYMARK_WORKER_COUNT` | Python worker processes per node. Defaults to host CPU count to effectively allow Python to saturate each core. |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Concurrent actions per worker. Raise it for IO-bound actions like api requests. |
+| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Workflow instances one node holds at once. |
+| `RUST_LOG` | The node's log filter, e.g. `info` or `warn`. |
 
 If a third-party library leaks memory inside your actions, set
 `WAYMARK_MAX_ACTION_LIFECYCLE` to recycle workers after a fixed number of
-actions. In-flight work completes before the old process exits.
+actions. Today the old worker is stopped with its in-flight actions,
+which fail with `ActionExecutionLost`
+([#727](https://github.com/piercefreeman/waymark/issues/727)); a retry
+policy that lists it retries them.
 
-More knobs, the workload pinning lease and the scheduler interval among
-them, are documented in [Configuration](/guides/configuration).
+Every other variable, the workload pinning lease and the scheduler
+interval among them, is documented in [Configuration](/guides/configuration).
 
-## The webapp {{ id: 'webapp' }}
+## Database connections {{ id: 'database-connections' }}
 
-Setting `WAYMARK_HTTP_ENABLED=true` on the worker pool serves the HTTP
-API and `/healthz` on port `24119`. The [Webapp guide](/guides/webapp)
-covers everything it can do.
+Budget your Postgres connections per process:
+
+- **Each node** opens up to 25 connections for its main pool
+  (`WAYMARK_DATABASE_MAX_CONNECTIONS`), plus up to 4 + 4 for the
+  observability store's write and read pools - 33 in total, since the
+  observability store shares the main database by default.
+- **Each app host** that queues workflows runs one singleton bridge, with
+  up to 10 connections.
+
+The observability store holds what the webapp shows: instance events and
+node load samples, kept for seven days by default. On a busy deployment
+you can move it off the main database by pointing
+`WAYMARK_OBSERVABILITY_DATABASE_URL` at another Postgres, and its reads
+at a replica with `WAYMARK_OBSERVABILITY_READ_DATABASE_URL`; the node's
+own connection count stays the same. See
+[Configuration](/guides/configuration#observability).
+
+## Logs, metrics and the webapp {{ id: 'observability' }}
+
+The node logs to standard output, filtered by `RUST_LOG`. It always
+serves Prometheus metrics on port `9118` (`METRICS_ADDR`). Setting
+`WAYMARK_HTTP_ENABLED=true` also serves the HTTP API, the
+[webapp](/guides/webapp) and `/healthz` on port `24119`.
 
 <Note>
-The webapp binds to `0.0.0.0` by default and has no built-in auth.
-Keep the port on your private network, or by firewalling your worker service
-to not be exposed to the open Internet. We suggest the latter since there's
-usually no reason why workers have to be externally accessible.
+Neither port has authentication, and both bind to `0.0.0.0` by default.
+Keep them on your private network, or firewall the hosts running
+`waymark-start-workers` so they are not exposed to the open Internet. We
+suggest the latter since there's usually no reason why nodes have to be
+externally accessible.
 </Note>
 
 ## Scaling out {{ id: 'scaling-out' }}
 
-The first approach to scale is to run a new worker on a fresh box. Each
-pool claims queued work through
-Postgres row locks with heartbeats, so pools on different hosts never
-double-execute an action, and a crashed host's locks expire and get
-reclaimed automatically. Your app tier scales the same way it always
-has - queueing a workflow is just a database write.
+The first approach to scale is to run another node on a fresh box. Each
+node claims workflow instances through a lease in Postgres that it keeps
+refreshing, and a crashed node's leases expire (15 seconds by default)
+for another node to pick its instances up from their last persisted
+state. Your app tier
+scales the same way it always has - queueing a workflow is just a
+database write.
 
-The same mechanism is what makes deploys safe. When a worker container
-is killed mid-run, its lock expires (15 seconds by default) and another
-pool picks the instance up from the last persisted state. No work is
-lost; the worst case is a partially-completed action attempt running
-again, which is the whole point of durable execution.
+The same mechanism is what makes deploys safe. When a node container is
+killed mid-run, its instances resume on another node from where they
+were. An action call that was in flight on the killed node is
+redelivered by the node that resumes the workflow, so the action may run
+twice: make actions idempotent. A worker process dying or being recycled
+on a live node is the other case: the calls it was running fail with
+`ActionExecutionLost`,
+or `ActionExecutionNotStarted` if it provably never started.
+`ActionExecutionLost` derives from `BaseException`, so only a
+[retry policy](/guides/retries) that lists it retries the call;
+`ActionExecutionNotStarted` is retried like any other exception. Without
+a matching policy, the exception propagates like any other.
 
 When Postgres is the bottleneck, you'll see it in queue latency long
 before correctness suffers. Until then, one database is all the
