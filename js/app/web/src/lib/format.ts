@@ -54,6 +54,13 @@ export function formatClock(at: Date, withSeconds = true): string {
   return parts.map((part) => part.toString().padStart(2, "0")).join(":");
 }
 
+/** UTC range with both dates when the interval crosses midnight. */
+export function formatTimeRange(from: Date, to: Date): string {
+  const fromDate = from.toISOString().slice(0, 10);
+  const toDate = to.toISOString().slice(0, 10);
+  return `${fromDate} ${formatClock(from)} – ${fromDate === toDate ? "" : `${toDate} `}${formatClock(to)} UTC`;
+}
+
 /** Full timestamp for titles and copy: "2026-09-22 14:32:09.412 UTC". */
 export function formatTimestamp(at: Date): string {
   return `${at.toISOString().replace("T", " ").replace("Z", "")} UTC`;

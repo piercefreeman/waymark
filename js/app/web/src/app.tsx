@@ -37,13 +37,20 @@ export function App() {
 }
 
 function Router() {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  const query = search.toString();
   useEffect(() => {
     if (pathname === "/" || pathname === "")
-      navigate("/instances", { replace: true });
-  }, [pathname]);
+      navigate("/workflows", { replace: true });
+    // Links from before the rename keep working.
+    else if (pathname === "/instances" || pathname.startsWith("/instances/"))
+      navigate(
+        `${pathname.replace(/^\/instances/, "/workflows")}${query ? `?${query}` : ""}`,
+        { replace: true },
+      );
+  }, [pathname, query]);
 
-  const detail = matchPath("/instances/:vmId", pathname);
+  const detail = matchPath("/workflows/:vmId", pathname);
   if (detail) return <DetailRoute vmId={detail.vmId} />;
   if (matchPath("/fleet", pathname)) return <FleetRoute />;
   return <InstancesRoute />;
@@ -120,20 +127,19 @@ function InstancesRoute() {
   const page: PageInfo = {
     next: live.data?.next ?? null,
     after,
-    pinnedTo: pinned,
     scanned: live.data?.scanned ?? 0,
     capped: live.data?.capped ?? false,
     direct: live.data?.direct ?? false,
   };
+  const to = live.data?.to ?? pinned ?? now;
   return (
     <AppShell title="Workflows" now={now} source={source} pinnedTo={pinned}>
       <InstanceList
         instances={instances}
         now={now}
-        windowLabel={timeWindow.label}
+        range={{ from: new Date(to.getTime() - timeWindow.ms), to }}
         source={source}
         page={page}
-        fetchedTo={live.data?.to ?? null}
       />
     </AppShell>
   );
