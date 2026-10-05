@@ -8,7 +8,7 @@ export const sections = [
   { title: 'Install', id: 'install' },
   { title: 'Define a workflow', id: 'define-a-workflow' },
   { title: 'Setting up your env', id: 'setting-up-your-env' },
-  { title: 'Boot the worker pool', id: 'boot-the-worker-pool' },
+  { title: 'Boot the node', id: 'boot-the-node' },
   { title: 'Kick off a run', id: 'kick-off-a-run' },
   { title: 'Where to look next', id: 'where-to-look-next' },
 ]
@@ -64,8 +64,9 @@ class ParallelMathWorkflow(Workflow):
 
 As with all workflows, this is fully native Python code that Waymark will later compile
 into its internal language. But you don't have to concern yourself with that translation.
-Just write deterministic code as you normally do. Just flesh out the run() definitions and
-any helper functions with your logic in a `Workflow` class with its decorator.
+Just write the code as you normally do: flesh out the run() definitions and any helper
+methods with your logic in a `Workflow` class with its decorator, and the compiler tells
+you when something belongs in an action instead.
 
 The two computations are similarly plain async functions, each doing one isolated piece
 of work. Note the similar action decorator.
@@ -100,8 +101,8 @@ In practice, developing workflows is more organic than writing a workflow defini
 and filling in all the actions. It's often a back and forth: sketch the workflow,
 stub the action signatures, fill in the implementations, reshape the
 workflow as the contracts firm up. The compiler keeps you honest the
-whole way - every registration re-verifies the workflow against what it
-can actually execute.
+whole way - every time a process first runs or schedules the workflow,
+it re-verifies the workflow against what it can actually execute.
 
 ## Setting up your env {{ id: 'setting-up-your-env' }}
 
@@ -126,12 +127,18 @@ export WAYMARK_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/waymar
 export WAYMARK_USER_MODULE=workflows  # or "yourpkg.workflows"
 ```
 
-`WAYMARK_USER_MODULE` tells each worker which module to preload, so it has
-the action handlers registered before it starts pulling from the queue.
+Each worker imports an action's module itself when it first runs one of
+its actions, so `workflows.py` only has to be importable by the workers:
+from the directory you start `waymark-start-workers` in, as here, or installed in
+its environment. `WAYMARK_USER_MODULE` makes each worker import it at
+startup instead: an import error then stops `waymark-start-workers` from starting,
+after its 15 second worker attach timeout, rather than failing the first
+action.
 
-## Boot the worker pool {{ id: 'boot-the-worker-pool' }}
+## Boot the node {{ id: 'boot-the-node' }}
 
-With the environment in place, the worker pool is one command:
+With the environment in place, the node - the process that runs your
+workflows and their workers - is one command:
 
 ```bash
 source .env && uv run waymark-start-workers
@@ -165,9 +172,9 @@ asyncio.run(main())
 
 <Note>
 If the script hangs instead of printing: check that Postgres is up, and
-check that the worker pool was started with `WAYMARK_USER_MODULE` set.
-A worker that can't find your module doesn't fail loudly - it idles and
-never claims work.
+that `waymark-start-workers` is running against the same database. If it raises
+`WorkflowFailedError` instead, an action failed; the error carries the
+action's exception.
 </Note>
 
 From here you can plug `workflow.run(...)` straight into a FastAPI
@@ -186,15 +193,15 @@ async def compute(number: int) -> str:
 
 ## Conclusion
 
-And that's basically it! You can play around with adding `asyncio.sleep()`, cancelling the
-runner as it's still processing a job, and seeing everything resume perfectly when you resume
-the job. Just like what you want in production when you're running longer jobs, agents, or
+And that's basically it! You can play around with adding `asyncio.sleep()`, stopping
+`waymark-start-workers` while it's still processing a job, and seeing everything resume when you
+start it again. Just like what you want in production when you're running longer jobs, agents, or
 long duration sleeps.
 
 ## Where to look next {{ id: 'where-to-look-next' }}
 
 - [Production Deployment](/guides/production) covers shipping this for
-  real: one image, a worker pool, your app, and the Postgres you already
+  real: one image, `waymark-start-workers`, your app, and the Postgres you already
   run.
 - [Introduction to Python](/python/authoring) covers the
   Python-specific surface - pydantic for inputs and outputs, `Depends`
@@ -208,3 +215,5 @@ long duration sleeps.
   resilience when actions flake.
 - [Configuration](/guides/configuration) is the full reference for the
   `WAYMARK_*` environment variables you can set.
+- [Webapp](/guides/webapp) shows your runs as they happen; set
+  `WAYMARK_HTTP_ENABLED=true` on the node to serve it.
