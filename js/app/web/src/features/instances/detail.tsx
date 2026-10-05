@@ -60,7 +60,7 @@ export function InstanceDetail({
         }
         action={
           <a
-            href="/instances"
+            href="/workflows"
             onClick={onLinkClick}
             className="text-label text-accent hover:underline"
           >
@@ -87,7 +87,7 @@ export function InstanceDetail({
     <div className="min-w-0">
       <div className="flex flex-wrap items-center gap-3 border-b border-line px-gutter py-2">
         <a
-          href="/instances"
+          href="/workflows"
           onClick={onLinkClick}
           className="inline-flex items-center gap-1 text-micro text-fg-muted hover:text-fg"
         >
