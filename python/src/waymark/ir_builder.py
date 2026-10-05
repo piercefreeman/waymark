@@ -117,13 +117,6 @@ RECOMMENDATIONS = {
         "    async def call_method(obj: MyClass) -> Result:\n"
         "        return obj.some_method()"
     ),
-    "builtin_call": (
-        "Calling built-in functions like len(), str(), int() directly is not supported.\n"
-        "Use an @action to perform these operations:\n\n"
-        "    @action\n"
-        "    async def get_length(items: list) -> int:\n"
-        "        return len(items)"
-    ),
     "policy_literal": (
         "Every retry and timeout field must be a literal in the workflow body: the\n"
         "compiler reads them from the source, not at runtime.\n\n"
@@ -184,11 +177,6 @@ RECOMMENDATIONS = {
         "    async def remove_key(data: dict, key: str) -> dict:\n"
         "        del data[key]\n"
         "        return data"
-    ),
-    "while_loop": (
-        "While loops are not supported in workflow code because they can run "
-        "indefinitely.\n"
-        "Use a for loop with a fixed range, or restructure as recursive workflow calls."
     ),
     "with_statement": (
         "Context managers (with statements) are not supported in workflow code.\n"
@@ -291,10 +279,6 @@ RECOMMENDATIONS = {
     "yield_statement": (
         "Yield statements are not supported in workflow code.\n"
         "Workflows must return a complete result, not generate values incrementally."
-    ),
-    "continue_statement": (
-        "Continue statements are not supported in workflow code.\n"
-        "Restructure your loop using if/else to skip iterations."
     ),
     "unsupported_statement": (
         "This statement type is not supported in workflow code.\n"
@@ -3026,64 +3010,6 @@ class IRBuilder(ast.NodeVisitor):
                     line=line,
                     col=col,
                 )
-
-    def _check_sync_function_call(self, node: ast.Call) -> None:
-        """Check for synchronous function calls that should be in actions.
-
-        Common patterns like len(), str(), etc. are not supported in workflow code.
-        """
-        func_name = None
-        if isinstance(node.func, ast.Name):
-            func_name = node.func.id
-        elif isinstance(node.func, ast.Attribute):
-            # Method calls on objects - check the method name
-            func_name = node.func.attr
-
-        if not func_name:
-            return
-
-        # Builtins that users commonly try to use
-        common_builtins = {
-            "len",
-            "str",
-            "int",
-            "float",
-            "bool",
-            "list",
-            "dict",
-            "set",
-            "tuple",
-            "sum",
-            "min",
-            "max",
-            "sorted",
-            "reversed",
-            "enumerate",
-            "zip",
-            "map",
-            "filter",
-            "range",
-            "abs",
-            "round",
-            "print",
-            "type",
-            "isinstance",
-            "hasattr",
-            "getattr",
-            "setattr",
-            "open",
-            "format",
-        }
-
-        if func_name in common_builtins:
-            line = getattr(node, "lineno", None)
-            col = getattr(node, "col_offset", None)
-            raise UnsupportedPatternError(
-                f"Calling built-in function '{func_name}()' directly is not supported",
-                RECOMMENDATIONS["builtin_call"],
-                line=line,
-                col=col,
-            )
 
     def _extract_action_call(self, node: ast.expr) -> Optional[ir.ActionCall]:
         """Extract an action call from an expression if present.

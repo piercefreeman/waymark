@@ -8,7 +8,6 @@ const SKIP_TESTS: &[&str] = &[
     "fixtures_gather/gather_run_action_static.py",
     "fixtures_gather/gather_unsupported_variable.py",
     "fixtures_models/pydantic_ast_variants.py",
-    "fixtures_unsupported/builtin_call.py",
     "fixtures_unsupported/constructor_assignment.py",
     "fixtures_unsupported/constructor_return.py",
     "fixtures_unsupported/except_call_root.py",
