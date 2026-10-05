@@ -3935,6 +3935,71 @@ class TestUnsupportedPatternValidation:
         assert "match" in error.message.lower()
         assert "if/elif/else" in error.recommendation.lower()
 
+    def test_sync_function_call_recommendation_lists_every_accepted_call(self) -> None:
+        """Test: the help text names every call kind the VM runs, builtins included."""
+        from waymark.ir_builder import GLOBAL_FUNCTIONS, RECOMMENDATIONS
+
+        text = RECOMMENDATIONS["sync_function_call"]
+        for name in GLOBAL_FUNCTIONS:
+            if name != "isexception":
+                assert f"{name}()" in text, name
+        assert "isexception" not in text
+        # The VM does not lower `isinstance` yet (#790), so the text must not offer it.
+        assert "isinstance" not in text
+        for accepted in (
+            "actions",
+            "own methods",
+            "awaited asyncio.sleep() and asyncio.gather()",
+            "dataclasses",
+            "the builtins",
+        ):
+            assert accepted in text, accepted
+
+    def test_isinstance_arity_recommendation_matches_its_sibling(self) -> None:
+        """Test: `isinstance(e)` names the arity and says the call does not run yet (#790)."""
+        from typing import cast
+
+        import pytest
+
+        from waymark.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.isinstance_arity import IsinstanceArityWorkflow
+
+            IsinstanceArityWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "exactly 2 positional arguments" in error.message
+        assert "does not run yet" in error.recommendation
+
+    def test_every_isinstance_hint_says_the_call_does_not_run_yet(self) -> None:
+        """Test: each of the five isinstance rejections says the call does not run yet (#790)."""
+        import ast
+        from typing import cast
+
+        import pytest
+
+        from waymark.ir_builder import (
+            UnsupportedPatternError,
+            _try_convert_isinstance_to_isexception,
+        )
+
+        def only_value_error(name: str) -> bool:
+            return name == "ValueError"
+
+        for source in (
+            "isinstance(value)",
+            "isinstance(value, str)",
+            "isinstance(value, (ValueError, str))",
+            "isinstance(value, (ValueError, 1))",
+            "isinstance(value, errors.Missing)",
+        ):
+            call = cast(ast.Call, ast.parse(source, mode="eval").body)
+            with pytest.raises(UnsupportedPatternError) as exc_info:
+                _try_convert_isinstance_to_isexception(call, only_value_error)
+            error = cast(UnsupportedPatternError, exc_info.value)
+            assert "does not run yet" in error.recommendation, source
+
     def test_sync_function_call_assignment_raises_error(self) -> None:
         """Test: assigning a sync function call raises UnsupportedPatternError."""
         from datetime import datetime
@@ -3957,7 +4022,7 @@ class TestUnsupportedPatternValidation:
 
         error = cast(UnsupportedPatternError, exc_info.value)
         assert "datetime.now" in error.message
-        assert "synchronous function" in error.message.lower()
+        assert "is not supported in workflow code" in error.message
         assert "@action" in error.recommendation
 
     def test_sync_function_call_return_raises_error(self) -> None:
@@ -3981,7 +4046,7 @@ class TestUnsupportedPatternValidation:
 
         error = cast(UnsupportedPatternError, exc_info.value)
         assert "datetime.now" in error.message
-        assert "synchronous function" in error.message.lower()
+        assert "is not supported in workflow code" in error.message
         assert "@action" in error.recommendation
 
     def test_sync_function_call_in_action_arg_raises_error(self) -> None:
@@ -4009,7 +4074,7 @@ class TestUnsupportedPatternValidation:
 
         error = cast(UnsupportedPatternError, exc_info.value)
         assert "datetime.now" in error.message
-        assert "synchronous function" in error.message.lower()
+        assert "is not supported in workflow code" in error.message
         assert "@action" in error.recommendation
 
     def test_plain_function_call_raises_error(self) -> None:
@@ -4036,7 +4101,7 @@ class TestUnsupportedPatternValidation:
 
         error = cast(UnsupportedPatternError, exc_info.value)
         assert "log_event" in error.message
-        assert "synchronous function" in error.message.lower()
+        assert "is not supported in workflow code" in error.message
 
     def test_attribute_function_call_raises_error(self) -> None:
         """Test: attribute calls like token.upper() raise UnsupportedPatternError."""
@@ -4060,7 +4125,7 @@ class TestUnsupportedPatternValidation:
 
         error = cast(UnsupportedPatternError, exc_info.value)
         assert "token.upper" in error.message
-        assert "synchronous function" in error.message.lower()
+        assert "is not supported in workflow code" in error.message
 
 
 class TestValidPatterns:
