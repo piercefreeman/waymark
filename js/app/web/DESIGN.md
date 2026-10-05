@@ -64,9 +64,27 @@ Rules:
 - Motion 120ms for hover and 180ms for panels; nothing continuous except
   the live dot, which respects `prefers-reduced-motion`.
 
+### Copy
+
+- Keep copy that identifies an operational fact, scopes a metric, explains
+  a specific exception, or helps the user act. Latency, throughput, queue
+  size, actual freshness, and "completed since boot" help an operator.
+- Remove ambient explanations of polling intervals, stale thresholds,
+  storage, API schemas, and missing capabilities. "Try a wider time window"
+  helps; explaining when a driver emits its first event does not.
+- Keep qualifications beside the value they affect: stale data, excluded
+  nodes, incomplete history, queue time included in a duration, and possible
+  retries. "Not recorded" is enough for an absent payload; do not repeat an
+  inventory of what the API records.
+- Use concise status help on hover instead of repeating state derivation
+  rules below a headline. Show missing-event warnings when there are gaps;
+  omit routine confirmations such as "sequence complete".
+- Use product terms in controls ("Jump to instance", not "Jump to vm_id").
+  Show an environment label only when its value is known.
+
 ## Screen anatomy
 
-- **Global bar**: mark, environment, page title, time window
+- **Global bar**: mark, environment when known, page title, time window
   (15m/1h/6h/24h), Live/Paused with freshness, jump box (`⌘K` or `/`), theme.
 - **Rail**: Instances, Fleet.
 - **Workspace**: one `minmax(0,1fr)` column. The peek panel (480px) overlays
@@ -91,8 +109,8 @@ Rules:
 ### Instance (`/instances/:vm_id`)
 
 1. Identity bar: full id with copy, state ink.
-2. The same sentence as the list, the rule that produced the state, and a
-   quiet key–value grid: started, elapsed, promises, driver runs, events.
+2. The same sentence as the list and a
+   quiet key–value grid: first event, elapsed, promises, driver runs, events.
 3. **Waterfall** (the hero): one row per promise the VM actually called,
    grouped into strata per driver run. Bars run from call to settlement.
    Open promises run to now with a hatched tail. Rejections get a red end
@@ -139,19 +157,19 @@ loads independently; data from the previous query is never shown as its result.
 The UI shows only what `/api/observability-state`, `/api/observability-events`
 and `/api/essential-metrics` report (types in `src/domain/api.ts`).
 
-| Fact                  | Source                                               | Treatment                                   |
-| --------------------- | ---------------------------------------------------- | ------------------------------------------- |
-| Instance state        | outcome, then latest run stop reason, then freshness | `deriveInstanceState`; rule shown on hover  |
-| "Failing"             | not a state                                          | rejections counted separately               |
-| Workflow name         | not reported                                         | short `vm_id`; first action labeled derived |
-| Node                  | id per boot, no hostname                             | short id, boot time, retired marker         |
-| Arguments and results | not recorded                                         | explicit "Not recorded" block               |
-| Exception             | type only                                            | the type, nowhere a message                 |
-| Retries               | no attempt number                                    | "retry of #n, inferred"                     |
-| Duration per promise  | call → settlement                                    | labeled as including queueing               |
-| Completion rate       | counter deltas per boot                              | never the raw counter                       |
-| Percentiles           | bucket counts                                        | summed across nodes, never averaged         |
-| Missing events        | gaps in `run_sequence`                               | hatched rows and counts                     |
+| Fact                  | Source                                               | Treatment                                       |
+| --------------------- | ---------------------------------------------------- | ----------------------------------------------- |
+| Instance state        | outcome, then latest run stop reason, then freshness | `deriveInstanceState`; concise meaning on hover |
+| "Failing"             | not a state                                          | rejections counted separately                   |
+| Workflow name         | not reported                                         | short `vm_id`; first action labeled derived     |
+| Node                  | id per boot, no hostname                             | short id, boot time, retired marker             |
+| Arguments and results | not recorded                                         | explicit "Not recorded" block                   |
+| Exception             | type only                                            | the type, nowhere a message                     |
+| Retries               | no attempt number                                    | "possible retry of #n"                          |
+| Duration per promise  | call → settlement                                    | labeled as including queueing                   |
+| Completion rate       | counter deltas per boot                              | never the raw counter                           |
+| Percentiles           | bucket counts                                        | summed across nodes, never averaged             |
+| Missing events        | gaps in `run_sequence`                               | hatched rows and counts                         |
 
 ## Components
 
@@ -162,7 +180,7 @@ callbacks and never fetches.
 
 | Pattern                                            | Responsibility                                         |
 | -------------------------------------------------- | ------------------------------------------------------ |
-| `StatusInk`, `InstanceStateInk`, `PromiseStateInk` | State vocabulary with the rule on hover                |
+| `StatusInk`, `InstanceStateInk`, `PromiseStateInk` | State vocabulary with concise help on hover            |
 | `SectionHeader`                                    | Title, quiet count, description, actions               |
 | `MetricStrip`, `MetricTile`                        | Flat tiles; label, ≤20px value, unit, scope            |
 | `Meter`                                            | Used-of-capacity; unavailable is not 0%                |

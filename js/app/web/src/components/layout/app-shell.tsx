@@ -108,7 +108,6 @@ export function AppShell({
           </span>
           Waymark
         </a>
-        <span className="text-micro text-fg-subtle">local</span>
         <span className="h-4 w-px bg-line" aria-hidden />
         <h1 className="min-w-0 truncate text-label font-medium text-fg">
           {title}
@@ -143,7 +142,7 @@ export function AppShell({
                 )
               }
               className="flex h-control items-center gap-2 rounded-control border border-waiting/50 bg-waiting/10 px-2 text-micro text-fg transition-colors duration-fast hover:bg-waiting/20"
-              title="This page is frozen at the moment you paged. Click to return to live."
+              title="Return to live updates"
             >
               <StatusDot tone="waiting" />
               <span className="font-medium">Frozen</span>
@@ -158,11 +157,7 @@ export function AppShell({
               aria-pressed={live}
               onClick={() => setPaused(live ? "1" : null, { replace: true })}
               className="flex h-control items-center gap-2 rounded-control border border-line-strong bg-surface px-2 text-micro text-fg-muted transition-colors duration-fast hover:text-fg"
-              title={
-                live
-                  ? "Polling every 5 s. Click to pause."
-                  : "Paused. Click to resume."
-              }
+              title={live ? "Pause live updates" : "Resume live updates"}
             >
               <StatusDot
                 tone={source.error ? "danger" : live ? "running" : "neutral"}
@@ -196,7 +191,7 @@ export function AppShell({
               ref={jump}
               type="search"
               aria-label="Jump to instance by id"
-              placeholder="Jump to vm_id"
+              placeholder="Jump to instance"
               className="mono-data h-control w-52 rounded-control border border-line-strong bg-surface pl-2.5 pr-12 text-micro text-fg placeholder:text-fg-subtle focus-visible:border-focus"
             />
             <span className="pointer-events-none absolute right-1.5 top-1/2 flex -translate-y-1/2 gap-0.5">

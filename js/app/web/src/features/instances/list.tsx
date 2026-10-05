@@ -34,7 +34,7 @@ import { InstanceStateInk } from "@/components/patterns/status-ink";
 import { Duration } from "@/components/patterns/time";
 import { Input } from "@/components/ui/input";
 import { PeekPanel } from "@/components/layout/peek-panel";
-import { PAGE_SIZE, SCAN_PAGE_CAP, isExactId } from "@/data/instances";
+import { PAGE_SIZE, isExactId } from "@/data/instances";
 import { InstancePeek } from "./peek";
 
 export interface PageInfo {
@@ -156,8 +156,8 @@ export function InstanceList({
           count={page.after ? undefined : instances.length}
           description={
             page.pinnedTo
-              ? `active in the ${windowLabel} before ${formatClock(page.pinnedTo)}`
-              : `active in the last ${windowLabel}`
+              ? `with activity in the ${windowLabel} before ${formatClock(page.pinnedTo)}`
+              : `with activity in the last ${windowLabel}`
           }
           actions={
             <div className="relative w-64">
@@ -227,16 +227,16 @@ export function InstanceList({
                 ? "Instances unavailable"
                 : query || stateFilter.length
                   ? "No instances match"
-                  : `No instances in the last ${windowLabel}`
+                  : "No instances in this time window"
             }
             description={
               source.error && instances.length === 0
                 ? source.error.message
                 : query || stateFilter.length
                   ? page.capped
-                    ? `Searched ${page.scanned} instances before stopping; page onward to keep searching, or narrow the window.`
-                    : `Searched ${page.scanned} instances in the window. Search covers ids, node ids, and states; action names need a timeline read.`
-                  : "Instances appear once a driver run reports an event. Try a wider window."
+                    ? `Searched ${page.scanned} instances. Choose Keep searching for more, or narrow the time window.`
+                    : "Try a different instance id, node id, or state, or widen the time window."
+                  : "Try a wider time window."
             }
           />
         ) : (
@@ -276,7 +276,7 @@ export function InstanceList({
                       <span className="mono-data block truncate text-micro text-fg-subtle">
                         {instance.firstAction
                           ? `${shortId(instance.vmId)}${instance.firstAction.module ? ` · ${instance.firstAction.module}` : ""}`
-                          : "no action called yet"}
+                          : "no recorded actions"}
                       </span>
                     </span>
                     <span className="min-w-0">
@@ -310,9 +310,9 @@ export function InstanceList({
       <div className="sticky bottom-0 mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface px-gutter py-2 text-micro text-fg-subtle">
         <span>
           {page.direct
-            ? "Direct lookup by id"
+            ? `${instances.length} instance${instances.length === 1 ? "" : "s"}`
             : query || stateFilter.length
-              ? `${instances.length} match${instances.length === 1 ? "" : "es"} in ${page.scanned} scanned${page.capped ? ` · stopped at ${SCAN_PAGE_CAP} pages` : page.next ? "" : " · whole window"}`
+              ? `${instances.length} match${instances.length === 1 ? "" : "es"} in ${page.scanned} searched${page.capped ? " · more to search" : page.next ? "" : " · end of time window"}`
               : `${instances.length} on this page${page.after ? "" : page.next ? ` · newest ${PAGE_SIZE}` : ""}`}
         </span>
         <span className="flex items-center gap-2">

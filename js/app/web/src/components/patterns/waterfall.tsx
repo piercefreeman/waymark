@@ -231,12 +231,11 @@ function PromiseRow({
                     tabIndex={0}
                   >
                     <RotateCcw className="size-2.5" aria-hidden />
-                    retry of #{promise.possibleRetryOf}
+                    possible retry of #{promise.possibleRetryOf}
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Inferred: the same action name was called again after a
-                  rejection. The API reports no attempt number.
+                  Inferred: same action called again after a rejection.
                 </TooltipContent>
               </Tooltip>
             )}
