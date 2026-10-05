@@ -30,8 +30,9 @@ tools you expose and how cleanly you format the results.
 
 This tutorial builds the smallest useful agent with Waymark. By the end of it you'll
 have a complete agent from scratch. And because you're building it with Waymark, you'll inherit Waymark's
-guarantees so even if your cluster crashes, sleeps, or needs to retry it'll do so
-transparently and without failing your job. This is exactly what billion-dollar companies are doing today. Let's jump into it!
+guarantees: every model call and tool call is persisted, so if a node crashes mid-run the agent
+resumes from its last step on another node, and the calls you give a retry policy are retried
+instead of failing your job. This is exactly what billion-dollar companies are doing today. Let's jump into it!
 
 ## Setting up your environment
 
@@ -68,18 +69,18 @@ items, and keeping track of those items as part of the overall conversation.
 class SupportAgentWorkflow(Workflow):
     async def run(self, message: str) -> str:
 +        messages: list[ModelItem] = [Message(role="user", content=message)]
-+        new_items = await self.single_turn(messages)
++        new_items = await roundtrip_agent(messages)
++        messages = messages + new_items
 +        for item in new_items:
 +            if item.kind == "message":
 +                return item.content
-+        raise RuntimeError("Tool requests are handled in the next step.")
-
-+    async def single_turn(self, messages: list[ModelItem]) -> list[ModelItem]:
-+        new_items = await roundtrip_agent(messages)
-+        for item in new_items:
-+            messages.append(item)
-+        return new_items
++        return "Tool requests are handled in the next step."
 ```
+
+Note the `messages = messages + new_items`: inside a workflow, build the new
+list and assign it, rather than handing the list to a helper method that mutates
+it - a mutation in one function doesn't reach a list held by another (see
+[Known issues](/guides/control-flow#known-issues)).
 
 So far we're just keeping track of the conversation history. We're not actually _doing_
 anything as part of the conversation. Which is pretty boring! Let's look at building
@@ -94,27 +95,18 @@ next tool result item.
 class SupportAgentWorkflow(Workflow):
     async def run(self, message: str) -> str:
         messages: list[ModelItem] = [Message(role="user", content=message)]
-        new_items = await self.single_turn(messages)
+        new_items = await roundtrip_agent(messages)
+        messages = messages + new_items
         for item in new_items:
             if item.kind == "message":
                 return item.content
-        raise RuntimeError("Tool requests are handled in the next step.")
-
-    async def single_turn(self, messages: list[ModelItem]) -> list[ModelItem]:
-        new_items = await roundtrip_agent(messages)
-        for item in new_items:
-            messages.append(item)
-        return new_items
+        return "Tool requests are handled in the next step."
 
 +    async def handle_tools(self, request: ToolRequest) -> ToolResult:
 +        if request.tool_name == "lookup_order":
-+            content = await lookup_order(
-+                LookupOrderInput.model_validate(request.arguments),
-+            )
++            content = await lookup_order(request.arguments)
 +        elif request.tool_name == "refund_order":
-+            content = await refund_order(
-+                RefundOrderInput.model_validate(request.arguments),
-+            )
++            content = await refund_order(request.arguments)
 +        else:
 +            content = await unknown_tool(
 +                UnknownToolInput(tool_name=request.tool_name),
@@ -127,6 +119,10 @@ class SupportAgentWorkflow(Workflow):
 +        return tool_result
 ```
 
+The tool's arguments go to the action as the plain dict the model produced; the
+worker validates it against the action's input model before the action runs - see
+[Type hints and validation](/python/authoring#type-hints).
+
 Now `run()` can become the actual agent loop. It's usually bad form to have a generic
 while True loop, but that's exactly what we want here. The model should keep looping forever
 until it decides it's done (or we break because we've exceeded some total calls or something).
@@ -137,14 +133,19 @@ class SupportAgentWorkflow(Workflow):
     async def run(self, message: str) -> str:
         messages: list[ModelItem] = [Message(role="user", content=message)]
 
--        new_items = await self.single_turn(messages)
+-        new_items = await roundtrip_agent(messages)
+-        messages = messages + new_items
 -        for item in new_items:
 -            if item.kind == "message":
 -                return item.content
--        raise RuntimeError("Tool requests are handled in the next step.")
+-        return "Tool requests are handled in the next step."
 
 +        while True:
-+            new_items = await self.single_turn(messages)
++            new_items = await self.run_action(
++                roundtrip_agent(messages),
++                retry=RetryPolicy(attempts=5, backoff_seconds=10),
++            )
++            messages = messages + new_items
 +            for item in new_items:
 +                if item.kind == "message":
 +                    return item.content
@@ -153,21 +154,11 @@ class SupportAgentWorkflow(Workflow):
 +                    tool_result = await self.handle_tools(item)
 +                    messages.append(tool_result)
 
-    async def single_turn(self, messages: list[ModelItem]) -> list[ModelItem]:
-        new_items = await roundtrip_agent(messages)
-        for item in new_items:
-            messages.append(item)
-        return new_items
-
     async def handle_tools(self, request: ToolRequest) -> ToolResult:
         if request.tool_name == "lookup_order":
-            content = await lookup_order(
-                LookupOrderInput.model_validate(request.arguments),
-            )
+            content = await lookup_order(request.arguments)
         elif request.tool_name == "refund_order":
-            content = await refund_order(
-                RefundOrderInput.model_validate(request.arguments),
-            )
+            content = await refund_order(request.arguments)
         else:
             content = await unknown_tool(
                 UnknownToolInput(tool_name=request.tool_name),
@@ -296,9 +287,10 @@ we just did is what makes the individual agent unique.
 ## Round trip the model {{ id: 'round-trip-the-model' }}
 
 We implement the model call lives in a separate action because it can fail in a myriad
-of ways: the API might be down, it might timeout, you might hit token pressure, etc. To have it
-retried with a backoff instead of failing the run, call the action through
-`self.run_action(..., retry=RetryPolicy(attempts=5, backoff_seconds=10))`.
+of ways: the API might be down, it might timeout, you might hit token pressure, etc. That's
+why the agent loop calls it through
+`self.run_action(..., retry=RetryPolicy(attempts=5, backoff_seconds=10))`: a failed call is
+retried after a ten-second wait instead of failing the run.
 
 We first need to translate our local items into the message dictionaries the
 OpenAI client expects. This is provider-specific, so we waited until now to add
