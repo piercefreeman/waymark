@@ -18,11 +18,13 @@ export const sections = [
 
 # Control Flow
 
-Anything inside a workflow's `run()` method is parsed into Waymark IR at
-registration time, then compiled into the program the runtime executes.
-The patterns below are what the compiler recognizes today. They cover almost everything you'd actually want
+Anything inside a workflow's `run()` method is parsed into Waymark IR the
+first time the workflow is run or scheduled, then compiled into the
+program the runtime executes. The patterns below are what the compiler
+recognizes today. They cover almost everything you'd actually want
 to write - and where they don't, the compiler tells you up front, not at
-recovery time.
+recovery time. The few patterns that currently slip through are listed
+under [Known issues](#known-issues).
 
 Every pattern in this guide runs end-to-end against Postgres today.
 
@@ -209,9 +211,11 @@ class LoopExceptionWorkflow(Workflow):
 ## Durable sleep {{ id: 'durable-sleep' }}
 
 `await asyncio.sleep(seconds)` is recognized specially. It's a durable
-sleep - the workflow record is evicted from the runner's in-memory state
-and rehydrated when the sleep deadline arrives, so a multi-hour pause
-costs almost nothing while it's pending.
+sleep - its wake-up time is recorded in Postgres, so the sleep survives
+node restarts: if the node running the workflow dies, another node picks
+the instance up and it still wakes at the original time. While it sleeps,
+the instance stays loaded on its node and counts toward that node's
+`WAYMARK_MAX_CONCURRENT_INSTANCES`.
 
 ```python
 @workflow
@@ -256,32 +260,51 @@ class LoopReturnWorkflow(Workflow):
 
 ## What does not compile (yet) {{ id: 'limitations' }}
 
-The compiler refuses anything it can't lower to IR, and it tells you at
-registration with the offending line and a suggested fix. The full list of
+The compiler refuses anything it can't lower to IR, and it tells you when
+the workflow is first run or scheduled. A pattern the SDK rejects comes
+with the offending line and a suggested fix; one the runtime rejects
+names only what it could not lower. Waymark compiles only a deterministic
+set of instructions and effects; anything outside it is rejected. The
 rejected patterns:
 
 - **f-strings.** Anywhere in the workflow body. Build formatted strings
   inside an action.
-- **Nondeterministic calls.** `datetime.now()`, `uuid4()`, `random()` and
-  friends. Move them into an action - that's what actions are for.
-- **Calling helpers that aren't `@action`-decorated.** Anything called
-  inside a workflow body needs to be either a recognized control-flow
-  primitive or an action.
-- **Constructing pydantic models in `return`.** Move the construction into
-  a dedicated "build result" action, then return its result.
+- **Calling anything but actions, the workflow's own methods, awaited
+  `asyncio.sleep` and `asyncio.gather`, `len`, and `range` and
+  `enumerate` as a `for` loop's iterable (`range` also assigned to a
+  name or returned).** That covers other builtins like `str()` and `int()`,
+  library calls like `datetime.now()` or `uuid4()`, and methods on any
+  object but `self` - `Model.model_validate(...)` included (the one
+  exception is `list.append`). Do that work inside an action - that's
+  what actions are for.
+- **`isinstance(value, SomeError)`.** The SDK accepts it with any exception
+  class, but the runtime has no lowering for it yet and rejects the
+  workflow when it is first run or scheduled
+  ([#790](https://github.com/piercefreeman/waymark/issues/790)). Catch
+  the class with an `except` clause instead.
+- **Constructing classes other than pydantic models and dataclasses.**
+  Models and dataclasses defined in your code can be constructed
+  anywhere; any other class has to be built inside an action.
 - **`raise`.** Raise inside an action; the workflow handles it with
   `try/except`.
 - **`with`, `lambda`, `match`, `yield`, walrus (`:=`), `assert`, `del`,
-  `global`/`nonlocal`.** None of these have IR lowerings yet.
+  `global`/`nonlocal`, `import`, and nested `def` or `class`.** None of
+  these have IR lowerings yet.
 - **Most references to module-level globals.** Enum members and exception
   classes resolve fine; arbitrary globals don't. Pass values in through
   workflow inputs or fetch them inside an action.
 - **Comprehensions outside two positions.** List and dict comprehensions
   compile when assigned directly to a variable or spread into `gather`;
-  set comprehensions don't compile at all.
+  set comprehensions don't compile at all, and generator expressions
+  only directly inside `gather`.
+- **`gather` anywhere but a statement of its own or the right-hand side
+  of an assignment.** `return await asyncio.gather(...)` doesn't compile:
+  assign the result to a variable, then return it. Spreading a variable
+  (`*tasks`) doesn't compile either; spread a list comprehension directly
+  into the `gather`.
 
-Everything in this list fails at your desk, at registration time. Nothing
-here surfaces as a production surprise.
+Everything in this list fails at your desk, the first time the workflow
+is run or scheduled. Nothing here surfaces as a production surprise.
 
 ## Known issues {{ id: 'known-issues' }}
 
