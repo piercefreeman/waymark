@@ -184,8 +184,11 @@ Two notes:
   uses the defaults. Note that `RetryPolicy()` with `attempts` omitted
   defaults to a budget of 100 retries; pass `attempts=1` when you want a
   failure to surface immediately.
-- The compiler matches exceptions by class name, so the exception type
-  needs to be importable at workflow-registration time on the worker.
+- An `except` clause matches an exception by its class's own name,
+  exactly, the same way retry policies do: `except OSError:` doesn't
+  catch a `ConnectionError`, though it subclasses `OSError`. Nothing is
+  imported - only the name is compared. Matching base classes too is
+  planned ([#593](https://github.com/piercefreeman/waymark/issues/593)).
 
 `try/except` also works inside loops - useful for "process each item, skip
 the failures":
@@ -215,7 +218,10 @@ sleep - its wake-up time is recorded in Postgres, so the sleep survives
 node restarts: if the node running the workflow dies, another node picks
 the instance up and it still wakes at the original time. While it sleeps,
 the instance stays loaded on its node and counts toward that node's
-`WAYMARK_MAX_CONCURRENT_INSTANCES`.
+`WAYMARK_MAX_CONCURRENT_INSTANCES`. Sleeps are woken by the node's sleep
+poller, so one ends up to one poll interval after it's due -
+`WAYMARK_SLEEP_POLL_INTERVAL_MS`, 250 ms by default. Fractional seconds
+work.
 
 ```python
 @workflow
@@ -327,6 +333,12 @@ Until then, avoid them.
 - `and` / `or` evaluate both sides, so an action on the right runs even
   when the left side already decided
   ([#590](https://github.com/piercefreeman/waymark/issues/590)).
+- `except` clauses and retry `exception_types` match exact class names,
+  so `except OSError:` misses a `ConnectionError`
+  ([#593](https://github.com/piercefreeman/waymark/issues/593)).
+- A `timeout=` or `backoff_seconds` under one second is truncated to
+  none, and a `RetryPolicy` field set from a variable is ignored
+  ([#601](https://github.com/piercefreeman/waymark/issues/601)).
 - `list.append` on a list that another name also refers to - such as a
   list passed into a helper method - doesn't reach that other name
   ([#770](https://github.com/piercefreeman/waymark/issues/770)). Return

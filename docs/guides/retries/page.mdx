@@ -58,16 +58,30 @@ suitable for external calls that you really expect to succeed eventually.
 ## Filtering by exception {{ id: 'filtering-by-exception' }}
 
 You usually don't want to retry on every exception - a `ValueError` from
-a bad input is permanent, but a `ConnectionError` is worth another shot.
-Pass `exception_types` to scope retries to specific classes (referenced
-by name, since the workflow body doesn't import the exception):
+a bad input is permanent, but a dropped connection is worth another shot.
+Pass `exception_types` to scope retries to specific exceptions, by name,
+since the workflow body doesn't import them.
+
+Each name is matched against the raised exception's own class name -
+`type(exc).__name__`, without its module - and only exactly: a subclass
+doesn't match its base class's name. `"ConnectionError"` therefore
+doesn't retry a `ConnectionResetError` or a `ConnectionRefusedError`,
+though both subclass it, so list every class you mean. A library's
+exceptions go by their own class names - httpx's failed connections are
+`ConnectError`, for example. Matching base classes too is planned
+([#593](https://github.com/piercefreeman/waymark/issues/593)).
 
 ```python
 await self.run_action(
     call_third_party_api(payload),
     retry=RetryPolicy(
         attempts=5,
-        exception_types=["ConnectionError", "TimeoutError"],
+        exception_types=[
+            "ConnectionError",
+            "ConnectionResetError",
+            "ConnectionRefusedError",
+            "TimeoutError",
+        ],
     ),
 )
 ```
@@ -77,6 +91,19 @@ match - the failure propagates immediately. Each `run_action` call takes
 exactly one `RetryPolicy`; to treat different exceptions differently,
 list them all in `exception_types` or split the work into separate
 actions with their own policies.
+
+With no `exception_types`, or `["Exception"]` alone, the policy is a
+catch-all: it retries every exception the action raises, except
+`ActionTimeout` (see [Timeouts](#timeouts)). Listing `"Exception"` next
+to other names turns the list back into exact names, so
+`["Exception", "ActionTimeout"]` matches only those two: a catch-all that
+also retries timeouts can't be expressed, deliberately.
+
+If a node dies while a call is in flight, the call fails with
+`ActionExecutionLost` - or `ActionExecutionNotStarted`, if it provably
+never started. Policies retry these like any other exception: a
+catch-all includes them, and a list has to name them. A lost attempt may
+have run to completion, so a retried action can end up running twice.
 
 ## Timeouts {{ id: 'timeouts' }}
 
@@ -125,9 +152,21 @@ The timeout is raced against each attempt separately, and
 `backoff_seconds` is slept before each retry, so a retried action waits
 the backoff and then runs again with a fresh timeout. Do not add your
 own sleep inside the action for the backoff: it would add to the wait
-and count against the timeout. Only a literal `backoff_seconds=` value is
-picked up, and a fractional value is truncated to whole seconds, so a
-value under one second means no backoff.
+and count against the timeout. A fractional `backoff_seconds` is
+truncated to whole seconds, so a value under one second means no
+backoff ([#601](https://github.com/piercefreeman/waymark/issues/601)).
+
+Timeouts and backoff are durable sleeps, woken by the node's sleep
+poller, so each one ends up to one poll interval after it's due -
+`WAYMARK_SLEEP_POLL_INTERVAL_MS`, 250 ms by default. Lower it if that
+matters for short timeouts.
+
+Every `RetryPolicy` field must be a literal in the workflow body, or the
+whole policy a `self.` attribute set to a literal `RetryPolicy(...)` in
+`__init__`: the compiler reads them from the source. A field set from a
+variable is silently ignored - the policy falls back to that field's
+default, so a variable `attempts` means a budget of 100 retries
+([#601](https://github.com/piercefreeman/waymark/issues/601)).
 
 ## API reference
 

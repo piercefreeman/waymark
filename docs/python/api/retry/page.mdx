@@ -11,13 +11,23 @@ Semantics to know:
   plus up to four retries, and `attempts=1` means fail immediately.
 - Omitting `attempts` compiles to a budget of 100 retries. Set it
   explicitly unless you want that.
+- `exception_types` names are matched against the raised exception's own
+  class name, exactly: a subclass doesn't match its base class's name
+  ([#593](https://github.com/piercefreeman/waymark/issues/593)). No list,
+  or `["Exception"]` alone, retries everything except `ActionTimeout`.
 - `backoff_seconds` is a fixed sleep before each retry; a fractional
   value is truncated to whole seconds, so under one second means no
   backoff. Don't add a sleep inside the action for it: that adds to the
   wait and counts against the timeout.
+- Backoff and timeouts are woken by the node's sleep poller, so each
+  ends up to one `WAYMARK_SLEEP_POLL_INTERVAL_MS` (250 ms by default)
+  after it's due.
 - Field values must be literal constants in the workflow body. The
-  compiler reads them from the AST at registration, so a policy built
-  from a runtime variable won't be picked up. The exception:
-  `self.retry_policy` instance attributes resolve fine.
+  compiler reads them from the AST the first time the workflow is run or
+  scheduled, and a field set from a runtime variable is silently ignored:
+  it falls back to its default, so a variable `attempts` means 100
+  retries ([#601](https://github.com/piercefreeman/waymark/issues/601)).
+  The exception: a `self.retry_policy` attribute set to a literal
+  `RetryPolicy(...)` in `__init__` resolves fine.
 
 ::: waymark.workflow.RetryPolicy
