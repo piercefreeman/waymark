@@ -105,7 +105,8 @@ function InstancesRoute() {
         signal,
       );
       const timelineRead = await fetchTimelines(
-        page.items,
+        // Exact matches open the detail route, which loads its own timeline.
+        page.direct ? [] : page.items,
         timelineCache.current,
         signal,
       );
@@ -121,6 +122,11 @@ function InstancesRoute() {
       key,
     },
   );
+
+  const matchedId = live.data?.direct ? live.data.items[0]?.vm_id : undefined;
+  useEffect(() => {
+    if (matchedId) navigate(`/workflows/${matchedId}`, { replace: true });
+  }, [matchedId]);
 
   const instances = useMemo<InstanceSummary[]>(() => {
     return (live.data?.items ?? []).map((dto: Instance) =>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { ListTree, Moon, Server, Sun } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatClock, formatRelative } from "@/lib/format";
@@ -10,7 +10,6 @@ import {
   withSearch,
 } from "@/lib/router";
 import { useTheme } from "@/providers/theme";
-import { Kbd } from "../patterns/kbd";
 import type { SourceStatus } from "../patterns/source-notice";
 import { StatusDot } from "../patterns/status-ink";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
@@ -56,7 +55,7 @@ const railItems = [
 
 /**
  * One 40px global bar carries identity, environment, page title, the time
- * window, live state, a jump box, and theme. A 48px icon rail navigates.
+ * window and live state, and theme. A 48px icon rail navigates.
  * The workspace gets everything else.
  */
 export function AppShell({
@@ -78,26 +77,6 @@ export function AppShell({
   const [pausedParam, setPaused] = useSearchParam("paused");
   const live = pausedParam !== "1";
   const { theme, setTheme } = useTheme();
-  const jump = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      const typing =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement;
-      if (
-        (event.key === "k" && (event.metaKey || event.ctrlKey)) ||
-        (event.key === "/" && !typing)
-      ) {
-        event.preventDefault();
-        jump.current?.focus();
-        jump.current?.select();
-      }
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
 
   return (
     <div className="grid min-h-svh grid-rows-[var(--spacing-bar)_minmax(0,1fr)] bg-canvas">
@@ -193,30 +172,6 @@ export function AppShell({
               </span>
             </button>
           )}
-          <form
-            className="relative hidden md:block"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const value = jump.current?.value.trim() ?? "";
-              if (!value) return;
-              if (/^[0-9a-f-]{36}$/i.test(value))
-                navigate(`/workflows/${value}`);
-              else navigate(`/workflows?q=${encodeURIComponent(value)}`);
-              jump.current?.blur();
-            }}
-          >
-            <input
-              ref={jump}
-              type="search"
-              aria-label="Jump to workflow by id"
-              placeholder="Jump to workflow"
-              className="mono-data h-control w-52 rounded-control border border-line-strong bg-surface pl-2.5 pr-12 text-micro text-fg placeholder:text-fg-subtle focus-visible:border-focus"
-            />
-            <span className="pointer-events-none absolute right-1.5 top-1/2 flex -translate-y-1/2 gap-0.5">
-              <Kbd>⌘</Kbd>
-              <Kbd>K</Kbd>
-            </span>
-          </form>
           <button
             type="button"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}

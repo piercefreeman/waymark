@@ -8,7 +8,7 @@ import { instanceStates, type InstanceState } from "@/domain/status";
  * cursor. Search and state filters have no server-side parameters, so they
  * walk the cursor across the window page by page and keep the matches;
  * the walk is bounded and the page says how far it got. An exact `vm_id`
- * skips the walk and reads the instance directly.
+ * skips the filters and reads the instance directly so search can open it.
  */
 
 export const PAGE_SIZE = 100;
@@ -72,11 +72,8 @@ export async function fetchInstancePage(
   if (isExactId(text)) {
     try {
       const instance = await getInstance(text, signal);
-      const keep =
-        query.states.length === 0 ||
-        matchesQuery(instance, "", query.states, query.now);
       return {
-        items: keep ? [instance] : [],
+        items: [instance],
         next: null,
         scanned: 1,
         capped: false,

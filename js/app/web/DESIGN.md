@@ -80,14 +80,14 @@ Rules:
   rules below a headline. Show missing-event warnings when there are gaps;
   omit routine confirmations such as "sequence complete".
 - Call workflow executions "Workflows" in navigation, headings, and controls
-  ("Jump to workflow", not "Jump to vm_id"). Use `/workflows` for frontend
+  ("Search workflows", not "Search vm_id"). Use `/workflows` for frontend
   routes; keep API identifiers in their existing technical vocabulary.
   Show an environment label only when its value is known.
 
 ## Screen anatomy
 
 - **Global bar**: mark, environment when known, page title, Live/Paused with
-  freshness, jump box (`⌘K` or `/`), theme. Fleet retains its chart time
+  freshness, theme. Fleet retains its chart time
   control (15m/1h/6h/24h); workflow time filters live in the search dropdown.
 - **Rail**: Workflows, Fleet.
 - **Workspace**: one `minmax(0,1fr)` column. The peek panel (480px) overlays
@@ -113,6 +113,7 @@ Rules:
    an error carry a red left rule. Nothing else: raw event kinds, promise
    counts, and node columns moved into the peek.
 3. `j`/`k` move, `Enter` peeks, `o` opens, `y` copies the id.
+   `⌘K`/`Ctrl+K` or `/` focuses the workflow search field.
 4. The peek centers the Promise ledger: calls, settlements, durations, and
    outstanding work. Keep raw event logs on the workflow detail page for
    debugging; do not duplicate a recent-event slice in the peek.
@@ -150,7 +151,10 @@ head freezes the window's `to` bound (kept in the URL) so the older pages
 stay put; the bar shows "Frozen" with a way back to live. Search and state
 chips walk the cursor across the window page by page and keep the matches,
 bounded at 20 pages with the footer saying how far the walk got. An exact
-`vm_id` reads the instance directly. Search matches ids, node ids, and
+`vm_id` reads the instance directly, ignoring time and state filters, and
+opens its detail page when found. Missing IDs remain in search. Back from
+a match restores the previous list; there is no separate jump box.
+Search matches partial ids, node ids, and
 states, the fields the list endpoint reports; action names would need a
 server-side search.
 
