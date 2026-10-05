@@ -129,10 +129,11 @@ Rules:
 
 1. Four numbers with their scope: in flight of capacity, queued (with
    dequeue p95), completions per second, handling p50 (with p95).
-2. One row per node boot that reads as a sentence: identity and sample age,
+2. One row per node boot that reads as a sentence: full node id and sample age,
    an in-flight meter, "8 workers · 19 resident VMs · 4 queued · 31.5 done/s"
    with latency percentiles beneath. Stale boots dim and are excluded from
-   the numbers above.
+   the numbers above. Node ids wrap on narrow screens; keep shortened ids
+   for compact chart legends.
 3. Two charts on one shared axis with gaps for missing samples: in flight
    against capacity, and queued dispatches.
 
@@ -167,7 +168,7 @@ and `/api/essential-metrics` report (types in `src/domain/api.ts`).
 | Instance state        | outcome, then latest run stop reason, then freshness | `deriveInstanceState`; concise meaning on hover |
 | "Failing"             | not a state                                          | rejections counted separately                   |
 | Workflow name         | not reported                                         | short `vm_id`; first action labeled derived     |
-| Node                  | id per boot, no hostname                             | short id, boot time, retired marker             |
+| Node                  | id per boot, no hostname                             | full id in the node list, short id in charts    |
 | Arguments and results | not recorded                                         | explicit "Not recorded" block                   |
 | Exception             | type only                                            | the type, nowhere a message                     |
 | Retries               | no attempt number                                    | "possible retry of #n"                          |
