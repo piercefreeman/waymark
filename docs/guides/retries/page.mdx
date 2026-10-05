@@ -58,9 +58,20 @@ suitable for external calls that you really expect to succeed eventually.
 ## Filtering by exception {{ id: 'filtering-by-exception' }}
 
 You usually don't want to retry on every exception - a `ValueError` from
-a bad input is permanent, but a `ConnectionError` is worth another shot.
-Pass `exception_types` to scope retries to specific classes (referenced
-by name, since the workflow body doesn't import the exception):
+a bad input is permanent, but a dropped connection is worth another shot.
+Pass `exception_types` to scope retries to specific exceptions, by name,
+since the workflow body doesn't import them.
+
+Each name is matched against the raised exception's class and its base
+classes - `type(exc).__name__` and the names along its MRO, without
+modules - the way an `except` clause matches: `"ConnectionError"` retries
+a `ConnectionResetError` or a `ConnectionRefusedError`, since both derive
+from it, and `"OSError"` covers all three. A library's exceptions go by
+their own class names and bases - httpx's failed connections are
+`ConnectError`, deriving from `TransportError`, for example. Only names
+are compared, so two unrelated classes both called `ValidationError` are
+the same to a filter, and a module path in a name is rejected at
+compile time.
 
 ```python
 await self.run_action(
@@ -77,6 +88,27 @@ match - the failure propagates immediately. Each `run_action` call takes
 exactly one `RetryPolicy`; to treat different exceptions differently,
 list them all in `exception_types` or split the work into separate
 actions with their own policies.
+
+With no `exception_types`, the policy retries on `Exception`: every
+ordinary exception the action raises. An explicit empty list retries
+nothing. `"Exception"` listed next to other names still covers everything
+deriving from it, so `["Exception", "ActionTimeout"]` retries ordinary
+exceptions and timeouts both.
+
+The runtime's own exceptions sit outside `Exception`. `ActionTimeout`
+(see [Timeouts](#timeouts)) and `ActionExecutionLost`, raised when the
+worker process running the call dies or is recycled, derive from
+`BaseException` directly, because the attempt may still be running or
+may have run to completion, so a retry can end up running it twice. A
+policy on `Exception` does not retry them; list them by name, or
+`"BaseException"`, to opt in. `ActionExecutionNotStarted`, raised when
+a lost worker process provably never started the call, derives from
+`Exception` and is retried like any other. The three are spelled out as
+classes in `waymark.vm_exceptions` for `except` clauses; see
+[Exceptions](/python/api/exceptions). A node dying is a different case:
+the calls in flight on it are redelivered by the node that resumes the
+workflow, as [Production Deployment](/guides/production#scaling-out)
+explains.
 
 ## Timeouts {{ id: 'timeouts' }}
 
@@ -102,10 +134,10 @@ await self.run_action(
 ```
 
 <Note>
-**Timeouts are not retried by a catch-all policy.** A plain
-`RetryPolicy(attempts=3)` retries exceptions your action raises, but
-`ActionTimeout` is runtime-generated and excluded from catch-all
-matching. To retry timeouts, opt in by name.
+**Timeouts are not retried by a policy on `Exception`.** A plain
+`RetryPolicy(attempts=3)` retries the exceptions your action raises, but
+`ActionTimeout` derives from `BaseException`, not from `Exception`. To
+retry timeouts, opt in by name.
 </Note>
 
 ```python
@@ -125,9 +157,21 @@ The timeout is raced against each attempt separately, and
 `backoff_seconds` is slept before each retry, so a retried action waits
 the backoff and then runs again with a fresh timeout. Do not add your
 own sleep inside the action for the backoff: it would add to the wait
-and count against the timeout. Only a literal `backoff_seconds=` value is
-picked up, and a fractional value is truncated to whole seconds, so a
-value under one second means no backoff.
+and count against the timeout. `backoff_seconds` is slept as given,
+fractions included; zero means no backoff.
+
+Timeouts and backoff are durable sleeps, woken by the node's sleep
+poller, so each one can wake up to one poll interval late -
+`WAYMARK_SLEEP_POLL_INTERVAL_MS`, 250 ms by default. Lower it if that
+matters for short timeouts or backoffs.
+
+Every `RetryPolicy` field and every `timeout=` must be a literal in the
+workflow body, or the whole policy or the timeout a `self.` attribute
+assigned a literal once, at the top level of `__init__`: the
+compiler reads them from the source and rejects anything it cannot read
+at compile time with `UnsupportedPatternError`. The
+[Control Flow guide](/python/control-flow#limitations) names the
+rejected forms.
 
 ## API reference
 

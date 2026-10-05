@@ -29,6 +29,25 @@ as the unexpected case.
 
 ::: waymark.serialization.ExceptionValue
 
+## VM runtime exceptions
+
+Proxies for the three exceptions the VM raises inside a workflow when an
+action attempt times out, is lost, or never starts. Nothing in this
+module matters at runtime: the real exceptions are defined in Rust and
+exist only in the VM, which matches them against `except` clauses by
+class name and bases. The classes exist so a workflow body can spell
+them in an `except` clause and so type hints have something to point at;
+Waymark never raises them in Python. The retry consequences are in
+[Retries & Timeouts](/python/retries#filtering-by-exception).
+
+::: waymark.vm_exceptions.ActionTimeout
+
+::: waymark.vm_exceptions.ActionExecutionLost
+
+::: waymark.vm_exceptions.ActionExecutionNotStarted
+
+---
+
 ## Retry exhaustion
 
 Defined for retry-budget exhaustion, and exported as `ExhaustedRetries`
