@@ -91,6 +91,30 @@ class Workflow:
     async def run(
         self, *args: Any, _blocking: bool = True, _priority: Optional[int] = None, **kwargs: Any
     ) -> Any:
+        """Run the workflow and return its result.
+
+        Subclasses define ``run`` with their own arguments; ``@workflow`` wraps it,
+        so calling it queues an instance and, by default, waits for its result.
+
+        Args:
+            _blocking: ``False`` queues the workflow and returns its instance id
+                immediately instead of waiting for the result.
+            _priority: Accepted and sent with the instance, but the current runtime
+                does not use it.
+
+        Returns:
+            The workflow's result, coerced to ``run``'s return annotation; the
+            instance id with ``_blocking=False``; ``None`` when
+            ``WAYMARK_SKIP_WAIT_FOR_INSTANCE`` is set.
+
+        Raises:
+            WorkflowFailedError: The workflow ended with an exception it didn't catch.
+            TimeoutError: The server no longer knows the instance.
+
+        Under pytest the workflow isn't queued: it runs through a bridge started
+        without Postgres, its actions run in the test process, and durable sleeps
+        are skipped.
+        """
         raise NotImplementedError
 
     @classmethod
@@ -146,13 +170,19 @@ class Workflow:
 
     @classmethod
     def short_name(cls) -> str:
+        """The name the workflow is registered and scheduled under: the class
+        attribute ``name`` if set, the lowercased class name otherwise."""
         if cls.name:
             return cls.name
         return cls.__name__.lower()
 
     @classmethod
     def workflow_ir(cls) -> ir.Program:
-        """Build and cache the IR program for this workflow."""
+        """Build and cache the IR program for this workflow.
+
+        Raises:
+            UnsupportedPatternError: ``run`` uses a pattern the compiler rejects.
+        """
         if cls._workflow_ir is None:
             with cls._ir_lock:
                 if cls._workflow_ir is None:
@@ -191,27 +221,39 @@ class Workflow:
 
 
 class WorkflowRegistry:
-    """Registry of workflow definitions keyed by workflow name."""
+    """Registry of workflow definitions keyed by workflow name.
+
+    ``@workflow`` registers each decorated class in the module-level
+    ``workflow_registry``, exported as ``waymark.workflow_registry``.
+    """
 
     def __init__(self) -> None:
         self._workflows: dict[str, type[Workflow]] = {}
         self._lock = RLock()
 
     def register(self, name: str, workflow_cls: type[Workflow]) -> None:
+        """Register ``workflow_cls`` under ``name``.
+
+        Raises:
+            ValueError: A workflow is already registered under ``name``.
+        """
         with self._lock:
             if name in self._workflows:
                 raise ValueError(f"workflow '{name}' already registered")
             self._workflows[name] = workflow_cls
 
     def get(self, name: str) -> Optional[type[Workflow]]:
+        """The workflow registered under ``name``, or ``None``."""
         with self._lock:
             return self._workflows.get(name)
 
     def names(self) -> list[str]:
+        """Every registered workflow name, sorted."""
         with self._lock:
             return sorted(self._workflows.keys())
 
     def reset(self) -> None:
+        """Remove every registration."""
         with self._lock:
             self._workflows.clear()
 
@@ -220,7 +262,16 @@ workflow_registry = WorkflowRegistry()
 
 
 def workflow(cls: type[TWorkflow]) -> type[TWorkflow]:
-    """Decorator that registers workflow classes and caches their IR."""
+    """Decorator that registers a workflow class and wraps its ``run`` method.
+
+    The class is registered in ``workflow_registry`` under its ``short_name()``.
+    Its ``run`` body is compiled to IR the first time the workflow is run or
+    scheduled, not here.
+
+    Raises:
+        TypeError: ``cls`` doesn't subclass ``Workflow``.
+        ValueError: A workflow is already registered under the same name.
+    """
 
     if not issubclass(cls, Workflow):
         raise TypeError("workflow decorator requires Workflow subclasses")
