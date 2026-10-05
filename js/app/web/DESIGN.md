@@ -86,8 +86,9 @@ Rules:
 
 ## Screen anatomy
 
-- **Global bar**: mark, environment when known, page title, time window
-  (15m/1h/6h/24h), Live/Paused with freshness, jump box (`⌘K` or `/`), theme.
+- **Global bar**: mark, environment when known, page title, Live/Paused with
+  freshness, jump box (`⌘K` or `/`), theme. Fleet retains its chart time
+  control (15m/1h/6h/24h); workflow time filters live in the search dropdown.
 - **Rail**: Workflows, Fleet.
 - **Workspace**: one `minmax(0,1fr)` column. The peek panel (480px) overlays
   it and never pushes columns. Detail is a route, not a sidebar.
@@ -96,11 +97,13 @@ Rules:
 
 ### Workflows (`/workflows`)
 
-1. Title, count, actual UTC time range, and a text filter on one line. Show
+1. Title, count, actual UTC time range, and search on one line. Focusing
+   search opens a dropdown with time and state filter suggestions. The
+   current time window stays visible inside the search control. Show
    the date and both time bounds, including both dates across midnight.
    Use the range of the displayed data so paused and older pages stay fixed.
-   Direct id lookups omit the range because they bypass the time filter. State chips with
-   page-local counts below it; chips only appear for states present.
+   Direct id lookups omit the range because they bypass the time filter.
+   State chips with page-local counts sit below it; chips only appear for states present.
 2. The ledger, 40px rows: state ink · the first action the VM called (the
    closest reported fact to a workflow name) over the short `vm_id` and its
    module · one plain sentence about now ("Running charge_payment for
@@ -147,6 +150,16 @@ bounded at 20 pages with the footer saying how far the walk got. An exact
 `vm_id` reads the instance directly. Search matches ids, node ids, and
 states, the fields the list endpoint reports; action names would need a
 server-side search.
+
+Time and state choices are available from the workflow search dropdown;
+state chips also provide page-local counts and quick toggles. Changing time
+starts from the newest page in that window while preserving the text and
+state filters. Changing text or state clears the page cursor and selected
+row, retaining a frozen time bound when inspecting historical results.
+Custom ranges use UTC datetime inputs and store both `from` and `to` in
+the URL. The end must be after the start. Both bounds stay fixed through
+pagination, including a return to the newest page. Selecting a preset or
+resuming live clears the custom bounds.
 
 ### Sources and refresh
 

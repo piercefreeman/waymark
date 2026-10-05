@@ -30,7 +30,7 @@ The SPA's tokens, type scale, screen anatomy, and data-honesty rules live in [js
 - Every number has a unit and a scope caption ("2 fresh nodes · 1 excluded"). Every live view shows freshness.
 
 **Structure.**
-- One 40px global bar carries identity, environment when known, page title, time window, Live/Paused with freshness, jump box, and theme. No page-header band, no taglines, no eyebrow labels, no stack credits.
+- One 40px global bar carries identity, environment when known, page title, Live/Paused with freshness, jump box, and theme. Workflow time filters belong in the search dropdown; Fleet keeps its chart time control. No page-header band, no taglines, no eyebrow labels, no stack credits.
 - Detail is a route. A peek panel overlays the workspace and never pushes columns. Filters, selection, and the time window live in the URL.
 - Only show what the API reports. Names, payloads, attempt numbers, and hostnames are not reported; render "Not recorded", "derived", "inferred", or a short id instead. Rejections are counted, never promoted to a workflow state.
 - Empty, filtered-empty, unavailable, and error states must never look alike. A missing value must never look like a recorded null or a loading state.
@@ -64,6 +64,7 @@ The SPA's tokens, type scale, screen anatomy, and data-honesty rules live in [js
 This section is used for the scratch updates, driven by our Agents.
 
 <code_feedback>
+<rule>Keep workflow time and state filter choices in the search dropdown, with the selected time window visible in the search control. Offer datetime bounds alongside presets, label their timezone, validate start before end, and preserve both custom bounds through pagination. Persist selections in the URL, preserve text and state filters when changing time, and clear pagination and row selection when filter criteria change.</rule>
 <rule>Show full node identifiers in the Fleet list so users can inspect and select them directly. Give the identity column enough room and wrap on narrow screens instead of truncating; reserve shortened identifiers for compact secondary contexts such as chart legends.</rule>
 <rule>Call workflow executions "Workflows" in user-facing navigation, headings, and controls, and use `/workflows` for frontend routes. Keep "instance" and "vm_id" for internal types and API identifiers.</rule>
 <rule>Show the actual time range of displayed results with explicit start, end, and timezone; include both dates when crossing midnight. Keep the label tied to the fetched range during pauses, refresh failures, and pagination. Omit a range for direct lookups that bypass time filtering.</rule>

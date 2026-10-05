@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { ArrowUpRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   formatClock,
@@ -33,10 +33,10 @@ import {
 } from "@/components/patterns/source-notice";
 import { InstanceStateInk } from "@/components/patterns/status-ink";
 import { Duration } from "@/components/patterns/time";
-import { Input } from "@/components/ui/input";
 import { PeekPanel } from "@/components/layout/peek-panel";
-import { PAGE_SIZE, isExactId } from "@/data/instances";
+import { PAGE_SIZE } from "@/data/instances";
 import { InstancePeek } from "./peek";
+import { WorkflowSearch } from "./search";
 
 export interface PageInfo {
   next: string | null;
@@ -71,19 +71,19 @@ export function InstanceList({
 }) {
   const { pathname, search } = useLocation();
   const [stateParam] = useSearchParam("state");
-  const [query, setQuery] = useSearchParam("q");
+  const [query] = useSearchParam("q");
+  const [customFrom] = useSearchParam("from");
   const [selectedId, setSelectedId] = useSearchParam("vm");
   const rows = useRef<HTMLAnchorElement[]>([]);
-  const [draft, setDraft] = useState(query ?? "");
-  useEffect(() => setDraft(query ?? ""), [query]);
-  useEffect(() => {
-    if (draft === (query ?? "")) return;
-    const timer = window.setTimeout(
-      () => setQuery(draft.trim() || null, { replace: true }),
-      isExactId(draft) ? 0 : 350,
-    );
-    return () => window.clearTimeout(timer);
-  }, [draft, query, setQuery]);
+  const setFilters = useCallback(
+    (patch: Record<string, string | null>) => {
+      navigate(
+        withSearch(pathname, search, { ...patch, after: null, vm: null }),
+        { replace: true },
+      );
+    },
+    [pathname, search],
+  );
 
   const stateFilter = useMemo(
     () =>
@@ -156,19 +156,22 @@ export function InstanceList({
             page.direct ? undefined : formatTimeRange(range.from, range.to)
           }
           actions={
-            <div className="relative w-64">
-              <Search
-                className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-fg-subtle"
-                aria-hidden
-              />
-              <Input
-                aria-label="Search the window by workflow id, node id, or state"
-                placeholder="Search id, node, state…"
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                className="pl-8"
-              />
-            </div>
+            <WorkflowSearch
+              query={query ?? ""}
+              range={range}
+              customRange={customFrom !== null}
+              states={stateFilter}
+              onQueryChange={(next) => setFilters({ q: next || null })}
+              onRangeChange={(next) =>
+                setFilters({
+                  from: next.from.toISOString(),
+                  to: next.to.toISOString(),
+                })
+              }
+              onStatesChange={(next) =>
+                setFilters({ state: next.length ? next.join(",") : null })
+              }
+            />
           }
         />
         {chipOptions.length > 0 && (
@@ -178,13 +181,7 @@ export function InstanceList({
             options={chipOptions}
             value={stateFilter}
             onChange={(next) =>
-              navigate(
-                withSearch(pathname, search, {
-                  state: next.length ? next.join(",") : null,
-                  after: null,
-                }),
-                { replace: true },
-              )
+              setFilters({ state: next.length ? next.join(",") : null })
             }
           />
         )}
@@ -316,7 +313,7 @@ export function InstanceList({
             <a
               href={withSearch(pathname, search, {
                 after: null,
-                to: null,
+                to: customFrom ? range.to.toISOString() : null,
                 vm: null,
               })}
               onClick={onLinkClick}

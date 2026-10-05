@@ -24,12 +24,23 @@ export const timeWindows = [
 export type TimeWindowId = (typeof timeWindows)[number]["id"];
 
 export function useTimeWindow() {
-  const [raw, setRaw] = useSearchParam("w");
+  const { pathname, search } = useLocation();
+  const raw = search.get("w");
   const current =
     timeWindows.find((window) => window.id === raw) ?? timeWindows[0];
   return [
     current,
-    (id: TimeWindowId) => setRaw(id === "15m" ? null : id, { replace: true }),
+    (id: TimeWindowId) =>
+      navigate(
+        withSearch(pathname, search, {
+          w: id === "15m" ? null : id,
+          after: null,
+          from: null,
+          to: null,
+          vm: null,
+        }),
+        { replace: true },
+      ),
   ] as const;
 }
 
@@ -113,32 +124,39 @@ export function AppShell({
           {title}
         </h1>
         <div className="ml-auto flex items-center gap-2">
-          <div
-            role="group"
-            aria-label="Time window"
-            className="flex h-control items-center rounded-control border border-line-strong bg-surface p-0.5"
-          >
-            {timeWindows.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                aria-pressed={option.id === window.id}
-                onClick={() => setWindow(option.id)}
-                className={cn(
-                  "mono-data h-full rounded-[3px] px-2 text-micro text-fg-muted transition-colors duration-fast hover:text-fg",
-                  option.id === window.id && "bg-surface-raised text-fg",
-                )}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          {pathname === "/fleet" && (
+            <div
+              role="group"
+              aria-label="Time window"
+              className="flex h-control items-center rounded-control border border-line-strong bg-surface p-0.5"
+            >
+              {timeWindows.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={option.id === window.id}
+                  onClick={() => setWindow(option.id)}
+                  className={cn(
+                    "mono-data h-full rounded-[3px] px-2 text-micro text-fg-muted transition-colors duration-fast hover:text-fg",
+                    option.id === window.id && "bg-surface-raised text-fg",
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
           {pinnedTo ? (
             <button
               type="button"
               onClick={() =>
                 navigate(
-                  withSearch(pathname, search, { to: null, after: null }),
+                  withSearch(pathname, search, {
+                    from: null,
+                    to: null,
+                    after: null,
+                    vm: null,
+                  }),
                 )
               }
               className="flex h-control items-center gap-2 rounded-control border border-waiting/50 bg-waiting/10 px-2 text-micro text-fg transition-colors duration-fast hover:bg-waiting/20"
