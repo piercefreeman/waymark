@@ -126,7 +126,7 @@ function InstancesRoute() {
     direct: live.data?.direct ?? false,
   };
   return (
-    <AppShell title="Instances" now={now} source={source} pinnedTo={pinned}>
+    <AppShell title="Workflows" now={now} source={source} pinnedTo={pinned}>
       <InstanceList
         instances={instances}
         now={now}
@@ -160,7 +160,7 @@ function DetailRoute({ vmId }: { vmId: string }) {
   }, [live.data, now, vmId]);
   const source = sourceStatus(live);
   return (
-    <AppShell title={`Instance ${shortId(vmId)}`} now={now} source={source}>
+    <AppShell title={`Workflow ${shortId(vmId)}`} now={now} source={source}>
       <InstanceDetail summary={summary} now={now} source={source} />
     </AppShell>
   );

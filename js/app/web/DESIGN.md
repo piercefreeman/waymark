@@ -79,20 +79,22 @@ Rules:
 - Use concise status help on hover instead of repeating state derivation
   rules below a headline. Show missing-event warnings when there are gaps;
   omit routine confirmations such as "sequence complete".
-- Use product terms in controls ("Jump to instance", not "Jump to vm_id").
+- Call workflow executions "Workflows" in navigation, headings, and controls
+  ("Jump to workflow", not "Jump to vm_id"). Keep API identifiers and routes
+  in their existing technical vocabulary.
   Show an environment label only when its value is known.
 
 ## Screen anatomy
 
 - **Global bar**: mark, environment when known, page title, time window
   (15m/1h/6h/24h), Live/Paused with freshness, jump box (`⌘K` or `/`), theme.
-- **Rail**: Instances, Fleet.
+- **Rail**: Workflows, Fleet.
 - **Workspace**: one `minmax(0,1fr)` column. The peek panel (480px) overlays
   it and never pushes columns. Detail is a route, not a sidebar.
 - Filters, the selected instance, the selected promise, and the time window
   live in the URL (`?state=…&q=…&vm=…`, `/instances/:vm_id?promise=…&tab=…`).
 
-### Instances (`/instances`)
+### Workflows (`/instances`)
 
 1. Title, count, window, and a text filter on one line. State chips with
    page-local counts below it; chips only appear for states present.
@@ -106,7 +108,7 @@ Rules:
    counts, and node columns moved into the peek.
 3. `j`/`k` move, `Enter` peeks, `o` opens, `y` copies the id.
 
-### Instance (`/instances/:vm_id`)
+### Workflow (`/instances/:vm_id`)
 
 1. Identity bar: full id with copy, state ink.
 2. The same sentence as the list and a
