@@ -64,6 +64,7 @@ The SPA's tokens, type scale, screen anatomy, and data-honesty rules live in [js
 This section is used for the scratch updates, driven by our Agents.
 
 <code_feedback>
+<rule>Show full node identifiers in the Fleet list so users can inspect and select them directly. Give the identity column enough room and wrap on narrow screens instead of truncating; reserve shortened identifiers for compact secondary contexts such as chart legends.</rule>
 <rule>Call workflow executions "Workflows" in user-facing navigation, headings, and controls, and use `/workflows` for frontend routes. Keep "instance" and "vm_id" for internal types and API identifiers.</rule>
 <rule>Show the actual time range of displayed results with explicit start, end, and timezone; include both dates when crossing midnight. Keep the label tied to the fetched range during pauses, refresh failures, and pagination. Omit a range for direct lookups that bypass time filtering.</rule>
 <rule>Keep UI copy that identifies an operational fact, scopes a metric, explains a specific exception, or helps the user act. Remove ambient explanations of polling intervals, thresholds, storage, API schemas, and unreported capabilities. Keep actual freshness, latency and throughput, missing-data warnings, and uncertainty next to the result they qualify. Good: "handling p50 347 ms · p95 23.8 s" or "Try a wider time window." Bad: "sampled every 10s · stale after 30s" or "Hostnames, CPU, and memory are not reported."</rule>

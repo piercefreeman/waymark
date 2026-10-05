@@ -28,11 +28,6 @@ import {
   TimeSeriesChart,
   type ChartSeries,
 } from "@/components/patterns/time-series";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 const NODE_TONES: Tone[] = ["running", "waiting", "success", "neutral"];
 
@@ -179,7 +174,7 @@ export function FleetPage({
                   <li
                     key={row.sample.node_id}
                     className={cn(
-                      "grid items-center gap-x-6 gap-y-2 py-3 lg:grid-cols-[220px_minmax(200px,1fr)_minmax(0,1.6fr)]",
+                      "grid items-center gap-x-6 gap-y-2 py-3 lg:grid-cols-[300px_minmax(200px,1fr)_minmax(0,1.6fr)]",
                       row.stale && "text-fg-subtle",
                     )}
                   >
@@ -193,19 +188,9 @@ export function FleetPage({
                         style={{ background: `var(--${row.tone})` }}
                       />
                       <span className="min-w-0">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span
-                              className="mono-data block truncate text-label text-fg"
-                              tabIndex={0}
-                            >
-                              {shortId(row.sample.node_id)}
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent className="mono-data">
-                            {row.sample.node_id}
-                          </TooltipContent>
-                        </Tooltip>
+                        <span className="mono-data block break-all text-label text-fg">
+                          {row.sample.node_id}
+                        </span>
                         <span className="block text-micro">
                           {row.stale ? (
                             <StatusInk
@@ -230,7 +215,7 @@ export function FleetPage({
                       <Meter
                         value={row.sample.in_flight_actions}
                         max={row.sample.max_in_flight_actions}
-                        label={`In-flight actions on ${shortId(row.sample.node_id)}`}
+                        label={`In-flight actions on ${row.sample.node_id}`}
                       />
                     </span>
                     <span
