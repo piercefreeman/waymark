@@ -7,7 +7,6 @@ import { promiseStates, toneBackground } from "@/domain/status";
 import { Identifier } from "@/components/patterns/identifier";
 import { KeyValueList } from "@/components/patterns/key-value-list";
 import { SectionHeader } from "@/components/patterns/section-header";
-import { EventLog } from "@/components/patterns/event-log";
 import { TimeAgo } from "@/components/patterns/time";
 
 /**
@@ -164,16 +163,6 @@ export function InstancePeek({
             </li>
           )}
         </ol>
-      </section>
-
-      <section className="py-3">
-        <SectionHeader
-          as="h3"
-          title="Recent events"
-          count={`${Math.min(summary.events.length, 8)} of ${summary.events.length}`}
-          className="px-gutter"
-        />
-        <EventLog events={summary.events.slice(-8)} className="mt-1" />
       </section>
     </div>
   );
