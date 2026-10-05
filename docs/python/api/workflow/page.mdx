@@ -51,3 +51,16 @@ workflows. You usually don't interact with it directly - the
 inspecting registration state or building tools on top of Waymark.
 
 ::: waymark.workflow.WorkflowRegistry
+
+---
+
+## Inspecting the IR
+
+`build_workflow_ir` runs the Python half of the compiler on a workflow
+class without running it, and returns the IR it produces. Calling it in
+a unit test catches a pattern the compiler rejects - it raises
+`UnsupportedPatternError` - before the workflow is ever run. Some errors
+only surface when the server compiles that IR, the first time the
+workflow is run or scheduled.
+
+::: waymark.ir_builder.build_workflow_ir
