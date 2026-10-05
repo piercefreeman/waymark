@@ -80,8 +80,8 @@ Rules:
   rules below a headline. Show missing-event warnings when there are gaps;
   omit routine confirmations such as "sequence complete".
 - Call workflow executions "Workflows" in navigation, headings, and controls
-  ("Jump to workflow", not "Jump to vm_id"). Keep API identifiers and routes
-  in their existing technical vocabulary.
+  ("Jump to workflow", not "Jump to vm_id"). Use `/workflows` for frontend
+  routes; keep API identifiers in their existing technical vocabulary.
   Show an environment label only when its value is known.
 
 ## Screen anatomy
@@ -92,11 +92,14 @@ Rules:
 - **Workspace**: one `minmax(0,1fr)` column. The peek panel (480px) overlays
   it and never pushes columns. Detail is a route, not a sidebar.
 - Filters, the selected instance, the selected promise, and the time window
-  live in the URL (`?state=…&q=…&vm=…`, `/instances/:vm_id?promise=…&tab=…`).
+  live in the URL (`?state=…&q=…&vm=…`, `/workflows/:vm_id?promise=…&tab=…`).
 
-### Workflows (`/instances`)
+### Workflows (`/workflows`)
 
-1. Title, count, window, and a text filter on one line. State chips with
+1. Title, count, actual UTC time range, and a text filter on one line. Show
+   the date and both time bounds, including both dates across midnight.
+   Use the range of the displayed data so paused and older pages stay fixed.
+   Direct id lookups omit the range because they bypass the time filter. State chips with
    page-local counts below it; chips only appear for states present.
 2. The ledger, 40px rows: state ink · the first action the VM called (the
    closest reported fact to a workflow name) over the short `vm_id` and its
@@ -108,7 +111,7 @@ Rules:
    counts, and node columns moved into the peek.
 3. `j`/`k` move, `Enter` peeks, `o` opens, `y` copies the id.
 
-### Workflow (`/instances/:vm_id`)
+### Workflow (`/workflows/:vm_id`)
 
 1. Identity bar: full id with copy, state ink.
 2. The same sentence as the list and a

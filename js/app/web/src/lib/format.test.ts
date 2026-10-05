@@ -4,6 +4,7 @@ import {
   formatDuration,
   formatRelative,
   formatSeconds,
+  formatTimeRange,
   shortId,
 } from "./format.ts";
 
@@ -46,4 +47,21 @@ test("shortId keeps the leading and trailing groups", () => {
     "019a7e21…e5f6",
   );
   assert.equal(shortId("short"), "short");
+});
+
+test("formatTimeRange shows UTC bounds and both dates across midnight", () => {
+  assert.equal(
+    formatTimeRange(
+      new Date("2026-10-05T18:31:45+02:00"),
+      new Date("2026-10-05T18:46:45+02:00"),
+    ),
+    "2026-10-05 16:31:45 – 16:46:45 UTC",
+  );
+  assert.equal(
+    formatTimeRange(
+      new Date("2026-12-31T23:50:00Z"),
+      new Date("2027-01-01T00:05:00Z"),
+    ),
+    "2026-12-31 23:50:00 – 2027-01-01 00:05:00 UTC",
+  );
 });

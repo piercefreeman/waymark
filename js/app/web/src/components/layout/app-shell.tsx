@@ -35,10 +35,10 @@ export function useTimeWindow() {
 
 const railItems = [
   {
-    href: "/instances",
+    href: "/workflows",
     label: "Workflows",
     icon: ListTree,
-    match: "/instances",
+    match: "/workflows",
   },
   { href: "/fleet", label: "Fleet", icon: Server, match: "/fleet" },
 ] as const;
@@ -98,7 +98,7 @@ export function AppShell({
       </a>
       <header className="sticky top-0 z-30 flex h-bar items-center gap-3 border-b border-line bg-surface px-3">
         <a
-          href="/instances"
+          href="/workflows"
           onClick={onLinkClick}
           className="flex items-center gap-2 pr-1 text-label font-semibold text-fg"
           aria-label="Waymark home"
@@ -182,8 +182,8 @@ export function AppShell({
               const value = jump.current?.value.trim() ?? "";
               if (!value) return;
               if (/^[0-9a-f-]{36}$/i.test(value))
-                navigate(`/instances/${value}`);
-              else navigate(`/instances?q=${encodeURIComponent(value)}`);
+                navigate(`/workflows/${value}`);
+              else navigate(`/workflows?q=${encodeURIComponent(value)}`);
               jump.current?.blur();
             }}
           >

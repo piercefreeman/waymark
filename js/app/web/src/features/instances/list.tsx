@@ -5,6 +5,7 @@ import {
   formatClock,
   formatDuration,
   formatRelative,
+  formatTimeRange,
   shortId,
 } from "@/lib/format";
 import {
@@ -40,7 +41,6 @@ import { InstancePeek } from "./peek";
 export interface PageInfo {
   next: string | null;
   after: string | null;
-  pinnedTo: Date | null;
   scanned: number;
   capped: boolean;
   direct: boolean;
@@ -59,17 +59,15 @@ export interface PageInfo {
 export function InstanceList({
   instances,
   now,
-  windowLabel,
+  range,
   source,
   page,
-  fetchedTo,
 }: {
   instances: InstanceSummary[];
   now: Date;
-  windowLabel: string;
+  range: { from: Date; to: Date };
   source: SourceStatus;
   page: PageInfo;
-  fetchedTo: Date | null;
 }) {
   const { pathname, search } = useLocation();
   const [stateParam] = useSearchParam("state");
@@ -128,7 +126,7 @@ export function InstanceList({
         rows.current[next]?.focus();
       } else if (event.key === "o" && focused >= 0) {
         event.preventDefault();
-        navigate(`/instances/${visible[focused].vmId}`);
+        navigate(`/workflows/${visible[focused].vmId}`);
       } else if (event.key === "y" && focused >= 0) {
         void navigator.clipboard
           .writeText(visible[focused].vmId)
@@ -155,9 +153,7 @@ export function InstanceList({
           title="Workflows"
           count={page.after ? undefined : instances.length}
           description={
-            page.pinnedTo
-              ? `with activity in the ${windowLabel} before ${formatClock(page.pinnedTo)}`
-              : `with activity in the last ${windowLabel}`
+            page.direct ? undefined : formatTimeRange(range.from, range.to)
           }
           actions={
             <div className="relative w-64">
@@ -334,7 +330,7 @@ export function InstanceList({
             <a
               href={withSearch(pathname, search, {
                 after: page.next,
-                to: (page.pinnedTo ?? fetchedTo ?? now).toISOString(),
+                to: range.to.toISOString(),
                 vm: null,
               })}
               onClick={onLinkClick}
@@ -368,7 +364,7 @@ export function InstanceList({
         actions={
           selected && (
             <a
-              href={`/instances/${selected.vmId}`}
+              href={`/workflows/${selected.vmId}`}
               onClick={onLinkClick}
               className="inline-flex h-6 items-center gap-1 rounded-control border border-line-strong px-2 text-micro text-fg transition-colors duration-fast hover:bg-surface-raised"
             >
