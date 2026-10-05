@@ -13,6 +13,7 @@ export const sections = [
   { title: 'Durable sleep', id: 'durable-sleep' },
   { title: 'Early return', id: 'early-return' },
   { title: 'What does not compile (yet)', id: 'limitations' },
+  { title: 'Known issues', id: 'known-issues' },
 ]
 
 # Control Flow
@@ -281,3 +282,87 @@ rejected patterns:
 
 Everything in this list fails at your desk, at registration time. Nothing
 here surfaces as a production surprise.
+
+## Known issues {{ id: 'known-issues' }}
+
+Waymark's guarantee is that a workflow that compiles runs as written. The
+patterns below currently break it: they compile, then behave differently
+from Python. Each is being closed - first by rejecting the pattern at
+compile time, then by supporting it properly - and they're tracked
+together in [#772](https://github.com/piercefreeman/waymark/issues/772).
+Until then, avoid them.
+
+**Compiles, then silently does something else:**
+
+- `try/finally` and `try/else` bodies are dropped
+  ([#580](https://github.com/piercefreeman/waymark/issues/580)).
+- `for/else` and `while/else` bodies are dropped
+  ([#581](https://github.com/piercefreeman/waymark/issues/581)).
+- A chained comparison like `0 < x < 10` checks only its first comparison
+  ([#582](https://github.com/piercefreeman/waymark/issues/582)).
+- Assigning to a subscript, `d["k"] = v`, does nothing, so dict
+  comprehensions always produce `{}`
+  ([#583](https://github.com/piercefreeman/waymark/issues/583)).
+- `**kwargs` and extra positional arguments in an action call, `d[k] += v`,
+  and `a = b = value` are dropped or assigned wrongly
+  ([#584](https://github.com/piercefreeman/waymark/issues/584)).
+- `{**base, "extra": 1}` drops the spread entries
+  ([#587](https://github.com/piercefreeman/waymark/issues/587)).
+- `except pkg.Error:` - an exception named through a module - catches
+  every exception ([#588](https://github.com/piercefreeman/waymark/issues/588)).
+- `and` / `or` evaluate both sides, so an action on the right runs even
+  when the left side already decided
+  ([#590](https://github.com/piercefreeman/waymark/issues/590)).
+- `list.append` on a list that another name also refers to - such as a
+  list passed into a helper method - doesn't reach that other name
+  ([#770](https://github.com/piercefreeman/waymark/issues/770)). Return
+  the extended list and reassign it instead.
+
+**Compiles, then fails at runtime where Python works:**
+
+- `asyncio.sleep(...)` inside a `gather`
+  ([#579](https://github.com/piercefreeman/waymark/issues/579)).
+- A failure inside a `gather` raises out of it instead of arriving as a
+  value, whatever `return_exceptions` says
+  ([#575](https://github.com/piercefreeman/waymark/issues/575)).
+- An `await` nested inside a larger expression, like
+  `total = await a() + await b()`; await each into a variable first
+  ([#585](https://github.com/piercefreeman/waymark/issues/585)).
+- `isinstance(value, SomeError)` with any exception class: the SDK accepts
+  it, but the runtime has no lowering for it yet and rejects the workflow
+  when it is first run or scheduled
+  ([#790](https://github.com/piercefreeman/waymark/issues/790)).
+- Plain `self.attr` attributes: reads fail, and writes are discarded. A
+  `retry=` or `timeout=` policy stored on `self` is the exception and
+  works ([#586](https://github.com/piercefreeman/waymark/issues/586)).
+- Mixing `int` and `float` in arithmetic or comparisons, and `/` on two
+  ints that don't divide evenly, raise; `1 == 1.0` is `False`
+  ([#589](https://github.com/piercefreeman/waymark/issues/589)).
+- Iterating over a dict, and dict keys that aren't strings
+  ([#591](https://github.com/piercefreeman/waymark/issues/591)).
+- `len()` of a string counts bytes, not characters; `"-" * 20` and
+  comparing lists raise
+  ([#592](https://github.com/piercefreeman/waymark/issues/592)).
+- Reading anything from a caught exception (`except ValueError as e:`
+  then `e.args`); passing `e` to an action works
+  ([#594](https://github.com/piercefreeman/waymark/issues/594)).
+- `asyncio.sleep(0)`, or a negative or non-numeric duration, ends the run
+  with an error ([#602](https://github.com/piercefreeman/waymark/issues/602)).
+
+**Values change between the workflow and its actions:**
+
+- Pydantic models and dataclasses become plain dicts inside the workflow,
+  and tuples become lists
+  ([#596](https://github.com/piercefreeman/waymark/issues/596)).
+- `NaN` and infinities become `None`; integers of 2⁶³ and above fail
+  ([#597](https://github.com/piercefreeman/waymark/issues/597)).
+- An explicit `None` argument to an action is dropped, and a required
+  `run()` argument the caller leaves out arrives as `None` instead of
+  failing the call ([#598](https://github.com/piercefreeman/waymark/issues/598)).
+- `datetime`, `Decimal`, `UUID`, `bytes`, `set` and `Enum` values lose
+  their type unless the receiving parameter's annotation restores it
+  ([#599](https://github.com/piercefreeman/waymark/issues/599)).
+- A subclass passed where the annotation names its base class arrives as
+  the base class, losing its own fields - or failing, for dataclasses. An
+  unbound `TypeVar`, like `state: State[DepsT]`, loses all of them
+  ([#771](https://github.com/piercefreeman/waymark/issues/771)).
