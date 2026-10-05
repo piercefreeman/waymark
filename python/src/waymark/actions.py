@@ -109,9 +109,17 @@ def action(
 ) -> Callable[[TAsync], TAsync] | TAsync:
     """Decorator for registering async actions.
 
-    Actions decorated with @action will automatically resolve dependency markers
-    when called directly (e.g., during pytest runs where workflows bypass the
-    gRPC bridge).
+    The action is registered in ``waymark.registry`` under its module and its
+    name: ``name`` if given, the function name otherwise. Used bare (``@action``)
+    or with arguments (``@action(name="...")``).
+
+    Called directly, outside a workflow - in a unit test, say - an action
+    resolves its ``Depends(...)`` parameters itself and runs in-process.
+
+    Raises:
+        TypeError: The decorated function isn't defined with ``async def``.
+        ValueError: Another function is already registered under the same
+            module and name.
     """
 
     def decorator(target: TAsync) -> TAsync:
