@@ -36,7 +36,7 @@ export function useTimeWindow() {
 const railItems = [
   {
     href: "/instances",
-    label: "Instances",
+    label: "Workflows",
     icon: ListTree,
     match: "/instances",
   },
@@ -190,8 +190,8 @@ export function AppShell({
             <input
               ref={jump}
               type="search"
-              aria-label="Jump to instance by id"
-              placeholder="Jump to instance"
+              aria-label="Jump to workflow by id"
+              placeholder="Jump to workflow"
               className="mono-data h-control w-52 rounded-control border border-line-strong bg-surface pl-2.5 pr-12 text-micro text-fg placeholder:text-fg-subtle focus-visible:border-focus"
             />
             <span className="pointer-events-none absolute right-1.5 top-1/2 flex -translate-y-1/2 gap-0.5">

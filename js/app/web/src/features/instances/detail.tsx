@@ -53,10 +53,10 @@ export function InstanceDetail({
     return (
       <EmptyState
         variant={source.error ? "unavailable" : "empty"}
-        title={source.error ? "Couldn't load instance" : "Instance not found"}
+        title={source.error ? "Couldn't load workflow" : "Workflow not found"}
         description={
           source.error?.message ??
-          "Check the instance id. Its history may no longer be available."
+          "Check the workflow id. Its history may no longer be available."
         }
         action={
           <a
@@ -64,7 +64,7 @@ export function InstanceDetail({
             onClick={onLinkClick}
             className="text-label text-accent hover:underline"
           >
-            Back to instances
+            Back to workflows
           </a>
         }
       />
@@ -92,7 +92,7 @@ export function InstanceDetail({
           className="inline-flex items-center gap-1 text-micro text-fg-muted hover:text-fg"
         >
           <ArrowLeft className="size-3" aria-hidden />
-          Instances
+          Workflows
         </a>
         <span className="h-4 w-px bg-line" aria-hidden />
         <Identifier value={summary.vmId} full copyable className="text-label" />

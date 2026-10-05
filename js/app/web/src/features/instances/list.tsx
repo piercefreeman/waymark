@@ -152,7 +152,7 @@ export function InstanceList({
     <div className="flex min-h-[calc(100svh-var(--spacing-bar))] min-w-0 flex-col">
       <div className="px-gutter pt-5">
         <SectionHeader
-          title="Instances"
+          title="Workflows"
           count={page.after ? undefined : instances.length}
           description={
             page.pinnedTo
@@ -166,7 +166,7 @@ export function InstanceList({
                 aria-hidden
               />
               <Input
-                aria-label="Search the window by instance id, node id, or state"
+                aria-label="Search the window by workflow id, node id, or state"
                 placeholder="Search id, node, state…"
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
@@ -202,7 +202,7 @@ export function InstanceList({
           className="grid h-8 min-w-[880px] grid-cols-[130px_minmax(220px,1fr)_minmax(260px,1.5fr)_168px_96px] items-center gap-x-5 border-b border-line px-gutter text-micro text-fg-subtle"
         >
           <span role="columnheader">State</span>
-          <span role="columnheader">Instance</span>
+          <span role="columnheader">Workflow</span>
           <span role="columnheader">Now</span>
           <span role="columnheader">Timeline</span>
           <span role="columnheader" className="text-right">
@@ -211,7 +211,7 @@ export function InstanceList({
         </div>
         {source.loading && !source.fetchedAt && !source.error ? (
           <p role="status" className="px-gutter py-6 text-label text-fg-muted">
-            Loading instances…
+            Loading workflows…
           </p>
         ) : visible.length === 0 ? (
           <EmptyState
@@ -224,18 +224,18 @@ export function InstanceList({
             }
             title={
               source.error && instances.length === 0
-                ? "Instances unavailable"
+                ? "Workflows unavailable"
                 : query || stateFilter.length
-                  ? "No instances match"
-                  : "No instances in this time window"
+                  ? "No workflows match"
+                  : "No workflows in this time window"
             }
             description={
               source.error && instances.length === 0
                 ? source.error.message
                 : query || stateFilter.length
                   ? page.capped
-                    ? `Searched ${page.scanned} instances. Choose Keep searching for more, or narrow the time window.`
-                    : "Try a different instance id, node id, or state, or widen the time window."
+                    ? `Searched ${page.scanned} workflows. Choose Keep searching for more, or narrow the time window.`
+                    : "Try a different workflow id, node id, or state, or widen the time window."
                   : "Try a wider time window."
             }
           />
@@ -310,7 +310,7 @@ export function InstanceList({
       <div className="sticky bottom-0 mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface px-gutter py-2 text-micro text-fg-subtle">
         <span>
           {page.direct
-            ? `${instances.length} instance${instances.length === 1 ? "" : "s"}`
+            ? `${instances.length} workflow${instances.length === 1 ? "" : "s"}`
             : query || stateFilter.length
               ? `${instances.length} match${instances.length === 1 ? "" : "es"} in ${page.scanned} searched${page.capped ? " · more to search" : page.next ? "" : " · end of time window"}`
               : `${instances.length} on this page${page.after ? "" : page.next ? ` · newest ${PAGE_SIZE}` : ""}`}
