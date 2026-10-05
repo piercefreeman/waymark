@@ -113,6 +113,9 @@ Rules:
    an error carry a red left rule. Nothing else: raw event kinds, promise
    counts, and node columns moved into the peek.
 3. `j`/`k` move, `Enter` peeks, `o` opens, `y` copies the id.
+4. The peek centers the Promise ledger: calls, settlements, durations, and
+   outstanding work. Keep raw event logs on the workflow detail page for
+   debugging; do not duplicate a recent-event slice in the peek.
 
 ### Workflow (`/workflows/:vm_id`)
 
