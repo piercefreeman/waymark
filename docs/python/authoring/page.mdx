@@ -32,10 +32,12 @@ Actions and workflows might be run on different servers. So any values that you 
 of a boundary need to be _serialized_ in a way that's safe to pass through Postgres.
 
 Waymark's Python serializer handles most of the objects you'll use day to day: pydantic
-models, dataclasses, primitives, lists, tuples, sets, dicts, enums,
-UUID, datetime, decimal, bytes, and Path. One
+models, dataclasses, primitives, lists, tuples, sets and frozensets, dicts, enums,
+UUID, datetime, date, time, timedelta, Decimal, bytes, Path, and exceptions. One
 constraint to know: dict keys must be strings: a dict keyed by ints or
-tuples fails at serialization time because it's not supported in JSON.
+tuples fails at serialization time. Some of these types arrive in a different shape
+unless the receiving parameter's annotation restores them - see
+[Known issues](/guides/control-flow#known-issues).
 
 For anything richer than a couple of scalars, declare a pydantic model:
 
@@ -83,12 +85,16 @@ Action signatures are type-hinted Python. Typehinters like ty, mypy, and pyright
 them as you'd expect. At runtime, the worker coerces incoming arguments
 toward the declared types before the handler runs: pydantic models are
 validated with `model_validate` (a malformed payload raises during the
-action attempt, not in your handler body), while plain types pass
-through as-is.
+action attempt, not in your handler body), dataclasses are rebuilt
+field by field, containers are coerced element by element, and values
+like `datetime`, `UUID`, `Decimal` or `bytes` are restored from their
+serialized form. An argument without an annotation is passed through as
+received.
 
-Workflow `run()` inputs are checked against the `run()` signature when you
-queue the workflow, so a missing or misnamed argument fails immediately
-at the call site.
+Workflow `run()` inputs are bound to the `run()` signature when you
+queue the workflow, and its defaults are filled in there. A misnamed
+argument fails immediately at the call site; a missing required one
+currently doesn't (see [Known issues](/guides/control-flow#known-issues)).
 
 ## Dependency injection {{ id: 'dependency-injection' }}
 
@@ -113,14 +119,14 @@ recycle dependency injectors that you've already written for your FastAPI app. T
 database integrations, processors, caches layers, etc.
 
 A dependency is resolved per action invocation by the worker that
-claims the row. That means the lifecycle of any per-request resource
+runs it. That means the lifecycle of any per-request resource
 (database session, scoped HTTP client) is handled the same way you'd
 handle it inside a web handler. If your provider is itself async, that
 works - the resolver awaits it.
 
 Workflow bodies do **not** take injected dependencies. They never run
-on a worker - the body is parsed once at registration to produce IR and
-never executed. If your workflow needs data that relies on a dependency, fetch it
+in a Python worker - the body is compiled to IR, and the node's runtime
+executes the compiled program. If your workflow needs data that relies on a dependency, fetch it
 inside an action and pass the result through.
 
 ## Async / await {{ id: 'async-await' }}
@@ -179,12 +185,15 @@ patterns.
 
 ## Module preloading on workers {{ id: 'module-preloading' }}
 
-Workers need to import the modules where your `@action` and `@workflow`
-decorators run, so they have handlers registered before they start
-pulling rows off the queue. Tell them where to look with
-`WAYMARK_USER_MODULE`. We will attempt to intelligently find these classes
-at startup if this parameter isn't specified - but it helps to speed up the latency
-of processing the first action after startup.
+Each action call carries the name of the module the action is defined
+in, and a worker imports that module the first time it runs one of its
+actions. So the modules only have to be importable by the workers: from
+the directory `waymark-start-workers` is started in, or installed in its
+environment. `WAYMARK_USER_MODULE` makes each worker import them at
+startup instead: the first action after startup doesn't pay for the
+import, and a module that fails to import then stops `waymark-start-workers` from
+starting, after its 15 second worker attach timeout, rather than failing
+the first action that needs it.
 
 ```bash
 export WAYMARK_USER_MODULE=myapp.workflows
@@ -203,18 +212,18 @@ A few Python-specific things worth knowing about workflow `run()`
 bodies that don't apply to actions:
 
 - **No f-strings.** Build formatted values inside an action.
-- **No constructor calls for return values.** `return MyResult(...)` at
-  the end of a workflow doesn't compile. Either move it to a variable
-  or into an action.
+- **Only models and dataclasses can be constructed.** `MyResult(...)`
+  compiles when `MyResult` is a pydantic model or dataclass defined in
+  your code - inside the workflow it becomes a plain dict. Any other
+  class has to be built inside an action.
 - **Most module-level globals are off limits.** Enum members and
-  exception classes resolve fine; other module-level names are flagged
-  at registration. Pass values in as workflow inputs or fetch them
-  inside an action.
+  exception classes resolve fine; other module-level names are rejected
+  when the workflow is compiled. Pass values in as workflow inputs or
+  fetch them inside an action.
 - **No injected dependencies.** Workflow `run()` doesn't get
-  `Depends(...)` resolution. The body is parsed once at registration and
-  never executed.
+  `Depends(...)` resolution. The body is compiled, never run as Python.
 
-The compiler diagnostic on registration tells you the offending node
-and offers a fix. The
+The compiler diagnostic, raised the first time the workflow is run or
+scheduled, tells you the offending node and offers a fix. The
 [Control Flow guide](/guides/control-flow) walks through the patterns
 that *are* supported, with examples for each.
