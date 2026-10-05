@@ -17,6 +17,15 @@ export const sections = [
 
 # Durable Agents with Pydantic AI
 
+<Note>
+This tutorial does not run on the current runtime yet: its generic action
+parameters lose their fields on the way to the worker
+([#771](https://github.com/piercefreeman/waymark/issues/771)), and parts of its
+workflow loop don't compile. It will be updated once #771 is fixed. Until then,
+[Building an Agent From Scratch](/tutorials/building-a-from-scratch-agent)
+shows the same pattern without the generics.
+</Note>
+
 Pydantic-AI is one of the most popular libraries for writing agents, because it
 abstracts away all of the per-provider complexities. You can write your agent once
 and switch to OpenAI, Anthropic, Mistral, Deepseek, or whatever. It also has a
