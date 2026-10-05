@@ -21,10 +21,10 @@ page covers the Python-specific bits: how arguments and return
 values get serialized, how dependency injection works, how the worker
 discovers your handlers.
 
-If you haven't read it yet, the [Quickstart](/guides/quickstart) is the fastest
-way to get a working setup. The [Concepts](/guides/workflows-and-actions)
-section covers the behavior of workflows and actions in language-neutral
-terms.
+If you haven't read it yet, the [Quickstart](/python/quickstart) is the fastest
+way to get a working setup, and
+[Workflows & Actions](/python/workflows-and-actions) covers the behavior of
+workflows and actions in more depth.
 
 ## Inputs and outputs {{ id: 'inputs-and-outputs' }}
 
@@ -37,7 +37,7 @@ UUID, datetime, date, time, timedelta, Decimal, bytes, Path, and exceptions. One
 constraint to know: dict keys must be strings: a dict keyed by ints or
 tuples fails at serialization time. Some of these types arrive in a different shape
 unless the receiving parameter's annotation restores them - see
-[Known issues](/guides/control-flow#known-issues).
+[Known issues](/python/control-flow#known-issues).
 
 For anything richer than a couple of scalars, declare a pydantic model:
 
@@ -94,7 +94,7 @@ received.
 Workflow `run()` inputs are bound to the `run()` signature when you
 queue the workflow, and its defaults are filled in there. A misnamed
 argument fails immediately at the call site; a missing required one
-currently doesn't (see [Known issues](/guides/control-flow#known-issues)).
+currently doesn't (see [Known issues](/python/control-flow#known-issues)).
 
 ## Dependency injection {{ id: 'dependency-injection' }}
 
@@ -180,7 +180,7 @@ In addition to the conditional (if), loop (for and while) logic that makes up mo
 logical flow, we also support asyncio primitives for dealing with asynchronous systems.
 `asyncio.gather(...)` and `asyncio.sleep(...)` are the two primary calls recognized as
 control-flow primitives by the compiler. See
-[Control Flow](/guides/control-flow) for the full list of supported
+[Control Flow](/python/control-flow) for the full list of supported
 patterns.
 
 ## Module preloading on workers {{ id: 'module-preloading' }}
@@ -223,5 +223,5 @@ bodies that don't apply to actions:
 
 The compiler diagnostic, raised the first time the workflow is run or
 scheduled, tells you the offending node and offers a fix. The
-[Control Flow guide](/guides/control-flow) walks through the patterns
+[Control Flow guide](/python/control-flow) walks through the patterns
 that *are* supported, with examples for each.

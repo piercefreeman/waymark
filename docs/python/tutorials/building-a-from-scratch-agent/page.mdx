@@ -36,7 +36,7 @@ instead of failing your job. This is exactly what billion-dollar companies are d
 
 ## Setting up your environment
 
-If you haven't already set up Waymark locally, you might want to check out our [Quickstart guide](/guides/quickstart)
+If you haven't already set up Waymark locally, you might want to check out our [Quickstart guide](/python/quickstart)
 to get you running asap. This tutorial assumes you'll be writing this workflow into a new workflow file.
 
 ## Stub the workflow {{ id: 'stub-the-workflow' }}
@@ -80,7 +80,7 @@ class SupportAgentWorkflow(Workflow):
 Note the `messages = messages + new_items`: inside a workflow, build the new
 list and assign it, rather than handing the list to a helper method that mutates
 it - a mutation in one function doesn't reach a list held by another (see
-[Known issues](/guides/control-flow#known-issues)).
+[Known issues](/python/control-flow#known-issues)).
 
 So far we're just keeping track of the conversation history. We're not actually _doing_
 anything as part of the conversation. Which is pretty boring! Let's look at building
@@ -455,5 +455,5 @@ really grow unwieldy: at which point we'll refactor.
 
 But sometimes it's helpful to add some additional abstractions on top to support more complex
 graph modeling or logging.
-[Durable Agents with Pydantic AI](/tutorials/durable-agents-with-pydantic-ai)
+[Durable Agents with Pydantic AI](/python/tutorials/durable-agents-with-pydantic-ai)
 builds the same pattern with Pydantic AI's `Agent`.

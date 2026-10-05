@@ -179,7 +179,7 @@ killed mid-run, its instances resume on another node from where they
 were. An action call that was in flight on the killed node can't be
 resumed: it surfaces in the workflow as an `ActionExecutionLost` (or
 `ActionExecutionNotStarted`, if it provably never started) exception. A
-[retry policy](/guides/retries) on the call retries it like any other
+[retry policy](/python/retries) on the call retries it like any other
 exception, keeping in mind that the lost attempt may have finished;
 without one, the exception propagates like any other.
 

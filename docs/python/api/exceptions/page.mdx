@@ -9,7 +9,7 @@ Raised when the compiler hits something in your `run()` body it can't
 lower to IR - the first time the workflow is run or scheduled. This is
 the exception you'll see most while authoring: it carries a message, the
 source line and column, and a recommendation for how to restructure. See
-[Control Flow](/guides/control-flow) for the full list of supported and
+[Control Flow](/python/control-flow) for the full list of supported and
 rejected patterns.
 
 ::: waymark.ir_builder.UnsupportedPatternError
@@ -45,6 +45,6 @@ underlying exception type in your workflow `try/except`.
 Defined, but not raised today: registering a schedule name that already
 exists replaces that schedule rather than conflicting with it, and a
 failed schedule call raises `RuntimeError`. See
-[Scheduled Workflows](/guides/scheduling).
+[Scheduled Workflows](/python/scheduling).
 
 ::: waymark.exceptions.ScheduleAlreadyExistsError

@@ -6,16 +6,25 @@ waymark is a library to let you build durable background tasks that withstand se
 
 **Documentation: [waymark.sh](https://waymark.sh)**
 
-- [Quickstart](https://waymark.sh/guides/quickstart) - install, write a workflow, run it
-- [Workflows & Actions](https://waymark.sh/guides/workflows-and-actions) - the two primitives
-- [Control Flow](https://waymark.sh/guides/control-flow) - what a workflow body can contain, and its [known issues](https://waymark.sh/guides/control-flow#known-issues)
-- [Retries & Timeouts](https://waymark.sh/guides/retries) - per-call retry policies and timeouts
-- [Scheduled Workflows](https://waymark.sh/guides/scheduling) - cron and interval schedules
+Getting started:
+
+- [Quickstart with Python](https://waymark.sh/python/quickstart) - install, write a workflow, run it
+- [Why Waymark](https://waymark.sh/guides/motivation) - the motivation and the workloads it's built for
+
+Running Waymark:
+
 - [Configuration](https://waymark.sh/guides/configuration) - every environment variable
 - [Webapp](https://waymark.sh/guides/webapp) - the built-in view of your instances and nodes
 - [Production Deployment](https://waymark.sh/guides/production) - images, services, connections, scaling
 
-## Usage
+Python:
+
+- [Workflows & Actions](https://waymark.sh/python/workflows-and-actions) - the two primitives
+- [Control Flow](https://waymark.sh/python/control-flow) - what a workflow body can contain, and its [known issues](https://waymark.sh/python/control-flow#known-issues)
+- [Retries & Timeouts](https://waymark.sh/python/retries) - per-call retry policies and timeouts
+- [Scheduled Workflows](https://waymark.sh/python/scheduling) - cron and interval schedules
+
+## Usage with Python
 
 We ship all client and server binaries in one Python package. Install it via your package manager of choice:
 
@@ -95,7 +104,7 @@ None of this executes inline in your webserver: the run is queued to Postgres an
 
 Workflows are plain async Python. A few of the things they can do:
 
-1. **Retries and timeouts, per call.** By default an action runs once, like a regular function call. Wrap a call in `self.run_action(...)` to give it a retry policy and a timeout - see [Retries & Timeouts](https://waymark.sh/guides/retries).
+1. **Retries and timeouts, per call.** By default an action runs once, like a regular function call. Wrap a call in `self.run_action(...)` to give it a retry policy and a timeout - see [Retries & Timeouts](https://waymark.sh/python/retries).
 
     ```python
     from datetime import timedelta
@@ -139,7 +148,7 @@ Workflows are plain async Python. A few of the things they can do:
         return await send_recommendations(profile, history)
     ```
 
-1. **Schedules.** Run a workflow on a cron expression or a fixed interval, with no extra infrastructure - see [Scheduled Workflows](https://waymark.sh/guides/scheduling).
+1. **Schedules.** Run a workflow on a cron expression or a fixed interval, with no extra infrastructure - see [Scheduled Workflows](https://waymark.sh/python/scheduling).
 
     ```python
     await schedule_workflow(DataSyncWorkflow, schedule_name="hourly", schedule="0 * * * *")
@@ -170,9 +179,9 @@ Waymark takes a different approach from replay-based workflow engines like Tempo
 | **Temporal/Vercel Workflows** | Replay-based. Your workflow code re-executes from the beginning on each step; completed activities return cached results. | Code must be deterministic. No `random()`, no `datetime.now()`, no side effects in workflow logic. |
 | **Waymark** | Compile-once. Parse your Python AST → intermediate representation → bytecode. A durable VM executes the bytecode. Your code never re-runs. | Code must use supported patterns. But once compiled, the runtime always knows exactly where the workflow is in its execution. |
 
-The first time a workflow is run or scheduled, Waymark parses its `run()` method's AST and compiles it to an intermediate representation (IR). This IR captures your control flow - loops, conditionals, parallel branches - and is lowered to bytecode for a durable virtual machine. The Rust runtime executes the bytecode and snapshots the VM's state to Postgres as it goes, so a workflow resumes from where it was after a crash. Your original Python `run()` definition is never re-executed during workflow recovery.
+The first time a workflow is run or scheduled, the Python SDK parses its `run()` method's AST and compiles it to an intermediate representation (IR). This IR captures your control flow - loops, conditionals, parallel branches - and is lowered to bytecode for a durable virtual machine. The Rust runtime executes the bytecode and snapshots the VM's state to Postgres as it goes, so a workflow resumes from where it was after a crash. Your original Python `run()` definition is never re-executed during workflow recovery.
 
-This is convenient in practice because it means that if your workflow compiles, your workflow will run as advertised. There's no need to hack around stdlib functions that are non-deterministic (like time/uuid/etc) because you'll get an error on compilation to switch these into an explicit `@action`. The few patterns that currently slip past the compiler are listed under [known issues](https://waymark.sh/guides/control-flow#known-issues) and tracked in [#772](https://github.com/piercefreeman/waymark/issues/772).
+This is convenient in practice because it means that if your workflow compiles, your workflow will run as advertised. There's no need to hack around stdlib functions that are non-deterministic (like time/uuid/etc) because you'll get an error on compilation to switch these into an explicit `@action`. The few patterns that currently slip past the compiler are listed under [known issues](https://waymark.sh/python/control-flow#known-issues) and tracked in [#772](https://github.com/piercefreeman/waymark/issues/772).
 
 ## When to use it
 
