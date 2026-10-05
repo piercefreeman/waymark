@@ -44,7 +44,6 @@ export interface PageInfo {
   scanned: number;
   capped: boolean;
   direct: boolean;
-  loadingRows: number;
 }
 
 /**
@@ -210,7 +209,11 @@ export function InstanceList({
             Elapsed
           </span>
         </div>
-        {visible.length === 0 ? (
+        {source.loading && !source.fetchedAt && !source.error ? (
+          <p role="status" className="px-gutter py-6 text-label text-fg-muted">
+            Loading instances…
+          </p>
+        ) : visible.length === 0 ? (
           <EmptyState
             variant={
               source.error && instances.length === 0
@@ -311,7 +314,6 @@ export function InstanceList({
             : query || stateFilter.length
               ? `${instances.length} match${instances.length === 1 ? "" : "es"} in ${page.scanned} scanned${page.capped ? ` · stopped at ${SCAN_PAGE_CAP} pages` : page.next ? "" : " · whole window"}`
               : `${instances.length} on this page${page.after ? "" : page.next ? ` · newest ${PAGE_SIZE}` : ""}`}
-          {page.loadingRows > 0 && ` · loading ${page.loadingRows} timelines`}
         </span>
         <span className="flex items-center gap-2">
           {page.after && (

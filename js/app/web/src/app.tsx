@@ -1,11 +1,11 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { getInstance, nodeSeries, nodesLatest, vmTimeline } from "./api/client";
 import { AppShell, useTimeWindow } from "./components/layout/app-shell";
 import type { SourceStatus } from "./components/patterns/source-notice";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { fetchInstancePage } from "./data/instances";
 import { useLive } from "./data/live";
-import { useTimelines } from "./data/timelines";
+import { fetchTimelines, type CachedTimeline } from "./data/timelines";
 import { instanceStates, type InstanceState } from "./domain/status";
 import type { Instance, NodeSample } from "./domain/api";
 import {
@@ -50,6 +50,7 @@ function Router() {
 }
 
 function InstancesRoute() {
+  const timelineCache = useRef(new Map<string, CachedTimeline>());
   const now = useNow();
   const [timeWindow] = useTimeWindow();
   const [paused] = useSearchParam("paused");
@@ -87,7 +88,14 @@ function InstancesRoute() {
         },
         signal,
       );
-      return { ...page, to, complete: true };
+      const timelineRead = await fetchTimelines(
+        page.items,
+        timelineCache.current,
+        signal,
+      );
+      signal.throwIfAborted();
+      timelineCache.current = timelineRead.timelines;
+      return { ...page, to, ...timelineRead };
     },
     {
       intervalMs: POLL_MS,
@@ -98,15 +106,15 @@ function InstancesRoute() {
     },
   );
 
-  const dtos = useMemo(() => live.data?.items ?? [], [live.data]);
-  const timelines = useTimelines(dtos);
-
   const instances = useMemo<InstanceSummary[]>(() => {
-    return dtos.map((dto: Instance) =>
-      deriveFromInstance(dto, timelines.get(dto.vm_id)?.events ?? [], now),
+    return (live.data?.items ?? []).map((dto: Instance) =>
+      deriveFromInstance(
+        dto,
+        live.data?.timelines.get(dto.vm_id)?.events ?? [],
+        now,
+      ),
     );
-    // `timelines.version` is the cache's change counter.
-  }, [dtos, now, timelines.version]);
+  }, [live.data, now]);
 
   const source = sourceStatus(live);
   const page: PageInfo = {
@@ -116,7 +124,6 @@ function InstancesRoute() {
     scanned: live.data?.scanned ?? 0,
     capped: live.data?.capped ?? false,
     direct: live.data?.direct ?? false,
-    loadingRows: timelines.pending,
   };
   return (
     <AppShell title="Instances" now={now} source={source} pinnedTo={pinned}>
