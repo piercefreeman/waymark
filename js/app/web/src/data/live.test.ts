@@ -97,8 +97,24 @@ test("refreshes retain data, pause stays paused, and superseded polls stop", asy
   assert.equal(requests.length, 6, "a new query loads once while paused");
   options = { ...options, enabled: true };
   await render();
-  await act(async () => root.unmount());
-  await act(async () => requests[6].resolve("response after unmount"));
+
+  // Pausing an initial load cancels it without starting a replacement request.
+  options = { ...options, key: "fourth" };
+  await render();
+  assert.equal(requests[6].signal.aborted, true);
+  assert.equal(requests.length, 8);
+  options = { ...options, enabled: false };
+  await render();
+  assert.equal(requests[7].signal.aborted, true);
+  assert.equal(requests.length, 8);
+  await act(async () => requests[7].resolve("paused initial response"));
   await act(async () => context.mock.timers.tick(10_000));
-  assert.equal(requests.length, 7, "unmounted polls must not schedule again");
+  assert.equal(requests.length, 8);
+  assert.equal(current!.data, null);
+  options = { ...options, enabled: true };
+  await render();
+  await act(async () => root.unmount());
+  await act(async () => requests[8].resolve("response after unmount"));
+  await act(async () => context.mock.timers.tick(10_000));
+  assert.equal(requests.length, 9, "unmounted polls must not schedule again");
 });

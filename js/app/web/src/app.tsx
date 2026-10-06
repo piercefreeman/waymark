@@ -3,9 +3,8 @@ import { getInstance, nodeSeries, nodesLatest, vmTimeline } from "./api/client";
 import { AppShell, useTimeWindow } from "./components/layout/app-shell";
 import type { SourceStatus } from "./components/patterns/source-notice";
 import { TooltipProvider } from "./components/ui/tooltip";
-import { fetchInstancePage } from "./data/instances";
+import { fetchInstanceSnapshot, type InstanceSnapshot } from "./data/instances";
 import { useLive } from "./data/live";
-import { fetchTimelines, type CachedTimeline } from "./data/timelines";
 import { instanceStates, type InstanceState } from "./domain/status";
 import type { Instance, NodeSample } from "./domain/api";
 import {
@@ -51,7 +50,7 @@ function Router() {
 }
 
 function InstancesRoute() {
-  const timelineCache = useRef(new Map<string, CachedTimeline>());
+  const snapshot = useRef<{ key: string; data: InstanceSnapshot } | null>(null);
   const now = useNow();
   const [timeWindow] = useTimeWindow();
   const [paused] = useSearchParam("paused");
@@ -81,6 +80,13 @@ function InstancesRoute() {
     query ?? "",
     stateParam ?? "",
   ].join("|");
+  const previous = snapshot.current?.key === key ? snapshot.current.data : null;
+  const previewOpen = Boolean(
+    previewId &&
+    (previous?.preview?.vm_id === previewId ||
+      previous?.items.some((item) => item.vm_id === previewId)),
+  );
+  const holdList = paused === "1" || pinnedTo !== null || previewOpen;
 
   const live = useLive(
     async (signal) => {
@@ -94,7 +100,7 @@ function InstancesRoute() {
       }
       const to = pinned ?? new Date();
       const from = customRange?.from ?? new Date(to.getTime() - timeWindow.ms);
-      const page = await fetchInstancePage(
+      const data = await fetchInstanceSnapshot(
         {
           from,
           to,
@@ -103,24 +109,20 @@ function InstancesRoute() {
           states,
           now: new Date(),
         },
-        signal,
-      );
-      const timelineRead = await fetchTimelines(
-        // Exact matches open the detail route, which loads its own timeline.
-        page.direct ? [] : page.items,
-        timelineCache.current,
+        previous,
+        holdList,
+        previewId,
         signal,
       );
       signal.throwIfAborted();
-      timelineCache.current = timelineRead.timelines;
-      return { ...page, from, to, ...timelineRead };
+      snapshot.current = { key, data };
+      return data;
     },
     {
       intervalMs: POLL_MS,
-      // A pinned `to` is a frozen page: nothing after it can appear, so
-      // there is nothing to poll for.
-      enabled: paused !== "1" && pinnedTo === null && !previewId,
+      enabled: true,
       key,
+      restartKey: `${holdList}:${previewId ?? ""}`,
     },
   );
 
@@ -139,6 +141,17 @@ function InstancesRoute() {
     );
   }, [live.data, now]);
 
+  const preview = live.data?.preview;
+  const selected =
+    instances.find((instance) => instance.vmId === previewId) ??
+    (preview && preview.vm_id === previewId
+      ? deriveFromInstance(
+          preview,
+          live.data?.timelines.get(preview.vm_id)?.events ?? [],
+          now,
+        )
+      : null);
+
   const source = sourceStatus(live);
   const page: PageInfo = {
     next: live.data?.next ?? null,
@@ -154,10 +167,11 @@ function InstancesRoute() {
       now={now}
       source={source}
       pinnedTo={pinned}
-      previewOpen={Boolean(previewId)}
+      previewOpen={selected !== null}
     >
       <InstanceList
         instances={instances}
+        selected={selected}
         now={now}
         range={{
           from:
