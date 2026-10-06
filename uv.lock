@@ -12,7 +12,10 @@ members = [
     "waymark",
     "waymark-scripts",
 ]
-build-constraints = [{ name = "hatchling", specifier = "==1.31.0" }]
+build-constraints = [
+    { name = "hatch-fancy-pypi-readme", specifier = "==25.1.0" },
+    { name = "hatchling", specifier = "==1.32.4" },
+]
 
 [[package]]
 name = "annotated-doc"

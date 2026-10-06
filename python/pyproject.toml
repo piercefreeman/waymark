@@ -2,7 +2,7 @@
 name = "waymark"
 version = "0.1.0"
 description = "Distributed & durable background events in Python"
-readme = "../README.md"
+dynamic = ["readme"]
 requires-python = ">=3.10"
 dependencies = ["grpcio>=1.66,<2", "mountaineer-di", "protobuf>=5.29,<6", "pydantic>=2,<3", "typing-extensions>=4.5,<5"]
 
@@ -45,14 +45,23 @@ exclude = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-fancy-pypi-readme"]
 build-backend = "hatchling.build"
+
+# The readme is the repository's README, read from outside the project
+# at build time; a wheel built from the sdist takes it from PKG-INFO.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+fragments = [{ path = "../README.md" }]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/waymark"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "README.md"]
+include = ["src"]
+
+[tool.hatch.build.targets.sdist.force-include]
+"../README.md" = "README.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
