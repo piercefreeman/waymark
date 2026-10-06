@@ -7,7 +7,7 @@ export interface SourceStatus {
   fetchedAt: Date | null;
   error: Error | null;
   loading: boolean;
-  /** False when history was truncated or some timelines could not load. */
+  /** False when history was truncated or some workflow data could not refresh. */
   complete: boolean;
   refresh?: () => void;
 }
@@ -54,7 +54,8 @@ export function SourceNotice({
         </>
       ) : (
         <span className="text-fg-muted">
-          Some history is missing. Timelines and counts may be incomplete.
+          Some data is missing or out of date. Timelines and counts may be
+          incomplete.
         </span>
       )}
       {source.refresh && (

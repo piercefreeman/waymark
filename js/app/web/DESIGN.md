@@ -149,7 +149,7 @@ Rules:
 
 The ledger follows the list endpoint's cursor, 100 per page. Paging past the
 head freezes the window's `to` bound (kept in the URL) so the older pages
-stay put; the bar shows "Frozen" with a way back to live. Search and state
+stay put; the bar shows "Fixed range" with a way back to live. Search and state
 chips walk the cursor across the window page by page and keep the matches,
 bounded at 20 pages with the footer saying how far the walk got. An exact
 `vm_id` reads the instance directly, ignoring time and state filters, and
@@ -171,12 +171,17 @@ resuming live clears the custom bounds.
 
 ### Sources and refresh
 
-Pages poll `/api` every 5 s while Live; `?paused=1` stops polling. A
-workflow preview temporarily pauses the list and cancels pending refreshes,
-retaining its current rows. The live control shows Paused while the preview
-is open. Closing it restores the prior live setting; manually paused and
-frozen views stay paused. Opening a preview does not change `paused` or the
-time bounds in the URL. A
+Pages poll `/api` every 5 s. On the workflow list, a preview, `?paused=1`,
+or a fixed time range holds the visible workflow IDs, their order, the
+pagination cursor, and the displayed range steady. Every held workflow and
+the preview still refresh by ID, including workflows whose activity moves
+outside the range. Cancel pending membership changes when holding the list.
+The live control shows "List paused" while a preview or manual pause holds
+the rows. Closing a preview restores the prior list setting. A preview URL
+also loads its workflow when it is outside the current page; a missing
+workflow must not leave the list paused without a preview. Opening a preview
+does not change `paused` or the time bounds in the URL. Fleet and workflow
+detail pages still stop polling on `?paused=1`. A
 refresh failure never empties a view: the previous data stays, with a notice
 that names the error and the last successful time. Empty responses and
 unavailable APIs have explicit states; the app never substitutes fake data.

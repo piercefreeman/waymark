@@ -69,9 +69,9 @@ export function AppShell({
   title: ReactNode;
   now: Date;
   source: SourceStatus;
-  /** When set, the page is frozen at this instant and does not poll. */
+  /** When set, list membership is held within this time range. */
   pinnedTo?: Date | null;
-  /** A preview temporarily pauses polling without changing the user's setting. */
+  /** A preview holds the list in place while its workflow data keeps updating. */
   previewOpen?: boolean;
   children: ReactNode;
 }) {
@@ -79,6 +79,7 @@ export function AppShell({
   const [window, setWindow] = useTimeWindow();
   const [pausedParam, setPaused] = useSearchParam("paused");
   const live = pausedParam !== "1" && !previewOpen;
+  const workflowList = pathname === "/workflows";
   const { theme, setTheme } = useTheme();
 
   return (
@@ -138,14 +139,15 @@ export function AppShell({
                     to: null,
                     after: null,
                     vm: null,
+                    paused: null,
                   }),
                 )
               }
               className="flex h-control items-center gap-2 rounded-control border border-waiting/50 bg-waiting/10 px-2 text-micro text-fg transition-colors duration-fast hover:bg-waiting/20"
-              title="Return to live updates"
+              title="Return to the newest workflows"
             >
               <StatusDot tone="waiting" />
-              <span className="font-medium">Frozen</span>
+              <span className="font-medium">Fixed range</span>
               <span className="mono-data hidden sm:inline">
                 {formatClock(pinnedTo)}
               </span>
@@ -166,10 +168,14 @@ export function AppShell({
               className="flex h-control items-center gap-2 rounded-control border border-line-strong bg-surface px-2 text-micro text-fg-muted transition-colors duration-fast hover:text-fg"
               title={
                 previewOpen
-                  ? "Close preview and resume live updates"
-                  : live
-                    ? "Pause live updates"
-                    : "Resume live updates"
+                  ? "Close preview and resume the list"
+                  : workflowList
+                    ? live
+                      ? "Hold the list in place; workflow details keep updating"
+                      : "Resume the list"
+                    : live
+                      ? "Pause live updates"
+                      : "Resume live updates"
               }
             >
               <StatusDot
@@ -177,7 +183,7 @@ export function AppShell({
                 pulse={live && !source.error}
               />
               <span className="font-medium text-fg">
-                {live ? "Live" : "Paused"}
+                {live ? "Live" : workflowList ? "List paused" : "Paused"}
               </span>
               <span className="mono-data hidden sm:inline">
                 {source.fetchedAt

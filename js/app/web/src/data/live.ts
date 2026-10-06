@@ -16,7 +16,13 @@ export interface LiveState<T> {
 
 export function useLive<T>(
   fetcher: (signal: AbortSignal) => Promise<T>,
-  options: { intervalMs: number; enabled: boolean; key: string },
+  options: {
+    intervalMs: number;
+    enabled: boolean;
+    key: string;
+    /** Restart an in-flight read without discarding this query's displayed data. */
+    restartKey?: string;
+  },
 ): LiveState<T> {
   const [state, setState] = useState<
     Omit<LiveState<T>, "refresh"> & { key: string; tick: number }
@@ -31,10 +37,13 @@ export function useLive<T>(
   const [tick, setTick] = useState(0);
   const latest = useRef(fetcher);
   latest.current = fetcher;
+  const wasEnabled = useRef(options.enabled);
 
   const refresh = useCallback(() => setTick((value) => value + 1), []);
 
   useEffect(() => {
+    const pausing = wasEnabled.current && !options.enabled;
+    wasEnabled.current = options.enabled;
     let controller: AbortController | null = null;
     let timer: number | null = null;
     let cancelled = false;
@@ -97,7 +106,7 @@ export function useLive<T>(
       options.enabled ||
       state.key !== options.key ||
       state.tick !== tick ||
-      (!state.fetchedAt && !state.error)
+      (!state.fetchedAt && !state.error && !pausing)
     )
       void run().then(schedule);
     else setState((previous) => ({ ...previous, loading: false }));
@@ -111,7 +120,13 @@ export function useLive<T>(
     // `key` names the inputs that should restart polling; the fetcher itself
     // is read through a ref so a new closure per render doesn't refetch.
     // State changes record the result; they must not restart the effect.
-  }, [options.key, options.enabled, options.intervalMs, tick]);
+  }, [
+    options.key,
+    options.restartKey,
+    options.enabled,
+    options.intervalMs,
+    tick,
+  ]);
 
   // Keep data during same-query refreshes, never across pages or identities.
   const current = state.key === options.key ? state : null;

@@ -58,12 +58,14 @@ export interface PageInfo {
  */
 export function InstanceList({
   instances,
+  selected,
   now,
   range,
   source,
   page,
 }: {
   instances: InstanceSummary[];
+  selected: InstanceSummary | null;
   now: Date;
   range: { from: Date; to: Date };
   source: SourceStatus;
@@ -103,8 +105,6 @@ export function InstanceList({
 
   const visible = instances;
 
-  const selected =
-    visible.find((instance) => instance.vmId === selectedId) ?? null;
   const closePeek = useCallback(() => setSelectedId(null), [setSelectedId]);
 
   useEffect(() => {
