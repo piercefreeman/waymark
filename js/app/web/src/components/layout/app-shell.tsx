@@ -63,6 +63,7 @@ export function AppShell({
   now,
   source,
   pinnedTo = null,
+  previewOpen = false,
   children,
 }: {
   title: ReactNode;
@@ -70,12 +71,14 @@ export function AppShell({
   source: SourceStatus;
   /** When set, the page is frozen at this instant and does not poll. */
   pinnedTo?: Date | null;
+  /** A preview temporarily pauses polling without changing the user's setting. */
+  previewOpen?: boolean;
   children: ReactNode;
 }) {
   const { pathname, search } = useLocation();
   const [window, setWindow] = useTimeWindow();
   const [pausedParam, setPaused] = useSearchParam("paused");
-  const live = pausedParam !== "1";
+  const live = pausedParam !== "1" && !previewOpen;
   const { theme, setTheme } = useTheme();
 
   return (
@@ -152,9 +155,22 @@ export function AppShell({
             <button
               type="button"
               aria-pressed={live}
-              onClick={() => setPaused(live ? "1" : null, { replace: true })}
+              onClick={() => {
+                if (previewOpen)
+                  navigate(
+                    withSearch(pathname, search, { vm: null, paused: null }),
+                    { replace: true },
+                  );
+                else setPaused(live ? "1" : null, { replace: true });
+              }}
               className="flex h-control items-center gap-2 rounded-control border border-line-strong bg-surface px-2 text-micro text-fg-muted transition-colors duration-fast hover:text-fg"
-              title={live ? "Pause live updates" : "Resume live updates"}
+              title={
+                previewOpen
+                  ? "Close preview and resume live updates"
+                  : live
+                    ? "Pause live updates"
+                    : "Resume live updates"
+              }
             >
               <StatusDot
                 tone={source.error ? "danger" : live ? "running" : "neutral"}
