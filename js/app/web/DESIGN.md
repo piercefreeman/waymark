@@ -171,6 +171,11 @@ resuming live clears the custom bounds.
 ### Sources and refresh
 
 Pages poll `/api` every 5 s while Live; `?paused=1` stops polling. A
+workflow preview temporarily pauses the list and cancels pending refreshes,
+retaining its current rows. The live control shows Paused while the preview
+is open. Closing it restores the prior live setting; manually paused and
+frozen views stay paused. Opening a preview does not change `paused` or the
+time bounds in the URL. A
 refresh failure never empties a view: the previous data stays, with a notice
 that names the error and the last successful time. Empty responses and
 unavailable APIs have explicit states; the app never substitutes fake data.
