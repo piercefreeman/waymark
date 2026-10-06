@@ -51,7 +51,8 @@ export function FleetPage({
   sampleIntervalMs: number;
   source: SourceStatus;
 }) {
-  const rows = latest
+  const rows = [...latest]
+    .sort((a, b) => a.node_id.localeCompare(b.node_id))
     .map((sample, index) => {
       const sampledAt = new Date(sample.sampled_at);
       const stale = isStale(sampledAt, now, sampleIntervalMs);
@@ -62,12 +63,7 @@ export function FleetPage({
         tone: NODE_TONES[index % NODE_TONES.length],
         rate: completionRate(seriesByNode[sample.node_id] ?? [sample]),
       };
-    })
-    .sort(
-      (a, b) =>
-        Number(a.stale) - Number(b.stale) ||
-        b.sampledAt.getTime() - a.sampledAt.getTime(),
-    );
+    });
   const fresh = rows.filter((row) => !row.stale);
   const excluded = rows.length - fresh.length;
   const sum = (pick: (sample: NodeSample) => number) =>
