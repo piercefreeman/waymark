@@ -140,7 +140,8 @@ Rules:
    an in-flight meter, "8 workers · 19 resident VMs · 4 queued · 31.5 done/s"
    with latency percentiles beneath. Stale boots dim and are excluded from
    the numbers above. Node ids wrap on narrow screens; keep shortened ids
-   for compact chart legends.
+   for compact chart legends. Sort by UUID before assigning chart colors so
+   rows and legends stay in place as timestamps and metrics refresh.
 3. Two charts on one shared axis with gaps for missing samples: in flight
    against capacity, and queued dispatches.
 
