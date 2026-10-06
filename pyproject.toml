@@ -9,10 +9,7 @@ required-version = "==0.12.3"
 # isolated build environments); this constrains them everywhere a
 # member gets built — `uv sync`/`uv run` editable installs and
 # `uv build` wheel builds alike.
-#
-# hatchling 1.32.0 rejects the out-of-project readme path
-# (`readme = "../README.md"`).
-build-constraint-dependencies = ["hatchling==1.31.0"]
+build-constraint-dependencies = ["hatchling==1.32.4", "hatch-fancy-pypi-readme==25.1.0"]
 
 [tool.uv.workspace]
 members = ["python", "scripts", "example_app"]
