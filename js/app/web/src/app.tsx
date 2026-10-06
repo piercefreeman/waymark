@@ -62,6 +62,7 @@ function InstancesRoute() {
   const now = useNow();
   const [timeWindow] = useTimeWindow();
   const [paused] = useSearchParam("paused");
+  const [previewId] = useSearchParam("vm");
   const [after] = useSearchParam("after");
   const [pinnedTo] = useSearchParam("to");
   const [customFrom] = useSearchParam("from");
@@ -125,7 +126,7 @@ function InstancesRoute() {
       intervalMs: POLL_MS,
       // A pinned `to` is a frozen page: nothing after it can appear, so
       // there is nothing to poll for.
-      enabled: paused !== "1" && pinnedTo === null,
+      enabled: paused !== "1" && pinnedTo === null && !previewId,
       key,
     },
   );
@@ -155,7 +156,13 @@ function InstancesRoute() {
   };
   const to = live.data?.to ?? pinned ?? now;
   return (
-    <AppShell title="Workflows" now={now} source={source} pinnedTo={pinned}>
+    <AppShell
+      title="Workflows"
+      now={now}
+      source={source}
+      pinnedTo={pinned}
+      previewOpen={Boolean(previewId)}
+    >
       <InstanceList
         instances={instances}
         now={now}
