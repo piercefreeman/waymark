@@ -5,12 +5,13 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { createServer } from "vite";
-import type { Instance } from "./domain/api.ts";
+import type { Event, Instance, Observation } from "./domain/api.ts";
 
-test("workflow search navigates safely and previews suspend list refreshes", async (context) => {
+test("workflow search navigates safely and held lists keep refreshing workflow data", async (context) => {
   const foundId = "b4fba47f-b09e-43cf-94ea-82d660df2f80";
   const missingId = "00000000-0000-4000-8000-000000000001";
   const delayedId = "11111111-1111-1111-1111-111111111111";
+  const secondId = "33333333-3333-3333-3333-333333333333";
   const window = new Window({
     url: `http://localhost/workflows?q=${missingId}&state=active&paused=1`,
   });
@@ -40,8 +41,26 @@ test("workflow search navigates safely and previews suspend list refreshes", asy
     },
   };
   const requests: string[] = [];
+  const second: Instance = { ...instance, vm_id: secondId };
+  const events: Event[] = [];
+  function addEvent(observation: Observation) {
+    events.push({
+      node_id: instance.last_event.node_id,
+      node_sequence: events.length + 1,
+      at: new Date(
+        Date.parse(instance.last_event.at) + events.length * 1000,
+      ).toISOString(),
+      kind: observation.kind,
+      payload: { vm_id: foundId, run_sequence: events.length, observation },
+    });
+    instance.last_event = {
+      ...instance.last_event,
+      node_sequence: events.length,
+    };
+  }
   let listItems: Instance[] = [];
   let holdList = false;
+  let failInstance = false;
   let pendingList: {
     signal: AbortSignal;
     resolve: (response: Response) => void;
@@ -63,7 +82,13 @@ test("workflow search navigates safely and previews suspend list refreshes", asy
         return new Promise<Response>((resolve) => (finishDelayed = resolve));
       if (input.endsWith(missingId))
         return new Response("Not found", { status: 404 });
-      if (input.toLowerCase().endsWith(foundId)) return Response.json(instance);
+      if (input.endsWith(secondId)) return Response.json(second);
+      if (input.toLowerCase().endsWith(foundId))
+        return failInstance
+          ? new Response("unavailable", { status: 503 })
+          : Response.json(instance);
+      if (input.includes(foundId) && input.includes("/timeline"))
+        return Response.json({ items: events, next: null });
       return Response.json({ items: [], next: null });
     },
   );
@@ -108,7 +133,19 @@ test("workflow search navigates safely and previews suspend list refreshes", asy
 
   context.mock.timers.enable({ apis: ["setTimeout"] });
   Object.assign(window, { setTimeout, clearTimeout });
-  listItems = [instance];
+  instance.outcome = null;
+  addEvent({ kind: "vm_started" });
+  addEvent({
+    kind: "effect_emitted",
+    effect_number: 0,
+    effect: {
+      kind: "action_call",
+      promise_state_id: 1,
+      action_name: "charge_payment",
+      module_name: null,
+    },
+  });
+  listItems = [instance, second];
   await act(async () => navigate("/workflows"));
   const liveButton = () =>
     container.querySelector<HTMLButtonElement>("header button[aria-pressed]")!;
@@ -123,15 +160,30 @@ test("workflow search navigates safely and previews suspend list refreshes", asy
         .click(),
     );
   assert.equal(liveButton().getAttribute("aria-pressed"), "true");
+  const rowIds = () =>
+    Array.from(
+      container.querySelectorAll<HTMLAnchorElement>("a[data-row]"),
+      (row) => new URL(row.href).searchParams.get("vm"),
+    );
+  const listReads = () =>
+    requests.filter((path) =>
+      path.startsWith("/api/observability-state/instances?"),
+    ).length;
+  const rangeLabel = () =>
+    container.textContent!.match(
+      /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} – .*? UTC/,
+    )![0];
+  const initialRange = rangeLabel();
 
   // Complete a stale refresh after selecting its row: it must not remove the preview.
   holdList = true;
   await act(async () => context.mock.timers.tick(5000));
-  const beforePreview = requests.length;
+  const beforePreview = listReads();
   await openPreview();
   assert.equal(pendingList!.signal.aborted, true);
   assert.equal(liveButton().getAttribute("aria-pressed"), "false");
-  assert.equal(liveButton().title, "Close preview and resume live updates");
+  assert.equal(liveButton().title, "Close preview and resume the list");
+  assert.match(liveButton().textContent!, /List paused/);
   assert.equal(
     new URLSearchParams(window.location.search).has("paused"),
     false,
@@ -139,21 +191,62 @@ test("workflow search navigates safely and previews suspend list refreshes", asy
   await act(async () =>
     pendingList.resolve(Response.json({ items: [], next: null })),
   );
-  await act(async () => {
-    window.document.dispatchEvent(new window.Event("visibilitychange"));
-    context.mock.timers.tick(15_000);
+  instance.outcome = { kind: "complete", at: "2026-10-05T16:00:03Z" };
+  addEvent({
+    kind: "promise_settled",
+    promise_state_id: 1,
+    settlement: { kind: "resolved" },
   });
-  assert.equal(requests.length, beforePreview);
+  addEvent({
+    kind: "effect_emitted",
+    effect_number: 1,
+    effect: { kind: "complete" },
+  });
+  second.outcome = { kind: "unhandled_exception", at: "2026-10-05T16:00:03Z" };
+  listItems = [];
+  await act(async () => {
+    context.mock.timers.tick(5000);
+  });
+  assert.equal(listReads(), beforePreview);
+  assert.deepEqual(rowIds(), [foundId, secondId]);
+  assert.equal(rangeLabel(), initialRange);
   assert.ok(container.querySelector("aside"));
+  assert.match(
+    container.querySelector("aside")!.textContent!,
+    /1 settled · 0 open/,
+  );
+  assert.match(
+    container.querySelector("a[data-row]")!.textContent!,
+    /Completed/,
+  );
+  assert.match(
+    container.querySelectorAll("a[data-row]")[1].textContent!,
+    /Unhandled exception/,
+  );
+
+  // A failed row refresh retains the row and preview, and retries next time.
+  failInstance = true;
+  await act(async () => context.mock.timers.tick(5000));
+  assert.deepEqual(rowIds(), [foundId, secondId]);
+  assert.match(container.textContent!, /Some data is missing or out of date/);
+  assert.match(
+    container.querySelector("aside")!.textContent!,
+    /1 settled · 0 open/,
+  );
+  failInstance = false;
+  await act(async () => context.mock.timers.tick(5000));
+  assert.doesNotMatch(
+    container.textContent!,
+    /Some data is missing or out of date/,
+  );
 
   holdList = false;
-  listItems = [];
   await closePreview();
   assert.equal(liveButton().getAttribute("aria-pressed"), "true");
-  assert.equal(requests.length, beforePreview + 1);
+  assert.equal(listReads(), beforePreview + 1);
   assert.equal(container.querySelector("aside"), null);
 
-  // Closing a preview must preserve a deliberate pause or a historical range.
+  // Closing a preview preserves held membership, but data still refreshes.
   listItems = [instance];
   for (const search of [
     "?w=24h&paused=1",
@@ -161,13 +254,36 @@ test("workflow search navigates safely and previews suspend list refreshes", asy
   ]) {
     await act(async () => navigate(`/workflows${search}`));
     const before = requests.length;
+    const beforeList = listReads();
     await openPreview();
     await closePreview();
     await act(async () => context.mock.timers.tick(10_000));
-    assert.equal(requests.length, before);
+    assert.ok(requests.length > before);
+    assert.equal(listReads(), beforeList);
     assert.deepEqual(
       [...new URLSearchParams(window.location.search)],
       [...new URLSearchParams(search)],
     );
   }
+
+  // A shared preview opens directly even after its workflow leaves the page.
+  listItems = [second];
+  await act(async () => navigate(`/workflows?vm=${foundId}`));
+  assert.deepEqual(rowIds(), [secondId]);
+  assert.match(
+    container.querySelector("aside")!.textContent!,
+    /charge_payment/,
+  );
+  const beforeShared = listReads();
+  await act(async () => context.mock.timers.tick(5000));
+  assert.equal(listReads(), beforeShared);
+  assert.deepEqual(rowIds(), [secondId]);
+
+  // A nonexistent preview must not hold the list without an open panel.
+  await act(async () => navigate(`/workflows?vm=${missingId}`));
+  assert.equal(container.querySelector("aside"), null);
+  assert.equal(liveButton().getAttribute("aria-pressed"), "true");
+  const beforeMissing = listReads();
+  await act(async () => context.mock.timers.tick(5000));
+  assert.ok(listReads() > beforeMissing);
 });
