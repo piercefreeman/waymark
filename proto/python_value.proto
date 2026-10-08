@@ -115,18 +115,24 @@ message ActionArgument {
   Value value = 2;
 }
 
-// A raised exception, shaped as the VM models one: the type identifying
-// it, and the details value carried alongside.
+// A raised Python exception, shaped as this language's VM flavor models
+// one: the class identifying it, the classes it derives from, and the
+// details value carried alongside.
+//
+// `mro_type_ids` are the bases of the raised class in method-resolution
+// order, most-derived first, `object` excluded: what an `except` clause
+// or a retry policy matches against beside the leaf class itself. An
+// empty list is a class with no bases to name.
 //
 // The details are an ordinary value — in practice a dict carrying the
 // language-specific particulars (module, message, traceback, the
-// exception's own values, the class hierarchy for the planned base-class
-// `except` matching).
-// Nothing about those particulars is wire-level structure: they are just
-// what this language chose to put in the details.
+// exception's own values). Nothing about those particulars is wire-level
+// structure: they are just what this language chose to put in the
+// details.
 message ExceptionValue {
   string type_id = 1;
   Value details = 2;
+  repeated string mro_type_ids = 7;
 
   reserved 3, 4, 5, 6;
   reserved "message", "traceback", "values", "type_hierarchy";

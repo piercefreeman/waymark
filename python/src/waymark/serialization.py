@@ -22,8 +22,13 @@ PRIMITIVE_TYPES = (str, int, float, bool, type(None))
 
 @dataclasses.dataclass(frozen=True)
 class ExceptionValue:
-    """An exception as the VM models one: the type identifying it and the
-    details value raised with it.
+    """An exception as the VM's Python flavor models one: the class
+    identifying it, the classes it derives from, and the details value
+    raised with it.
+
+    `mro_type_ids` are the bases of the raised class in method-resolution
+    order, most-derived first, `object` excluded. An `except` clause or a
+    retry policy naming the class or any of its bases matches.
 
     The details are whatever the raiser put there: a Python exception
     carries the dict [`from_exception`] records, the VM's own built-in
@@ -40,6 +45,7 @@ class ExceptionValue:
 
     type_id: str
     details: Any
+    mro_type_ids: list[str] = dataclasses.field(default_factory=list)
 
     def __str__(self) -> str:
         return f"{self.type_id}: {self.details!r}"
@@ -48,16 +54,14 @@ class ExceptionValue:
     def from_exception(cls, exc: BaseException) -> "ExceptionValue":
         """The value denoting a raised Python exception.
 
-        The particulars are this language's own choice, so they ride as an
-        ordinary dict: the message, the defining module, the traceback, the
-        class hierarchy, and whatever values the exception itself carries.
-        A value of a type the SDK does not serialize rides as its `str`.
+        The class's bases ride as `mro_type_ids`, so `except LookupError:`
+        in the workflow catches a KeyError the action raised. The
+        particulars are this language's own choice, so they ride as an
+        ordinary dict: the message, the defining module, the traceback,
+        and whatever values the exception itself carries. A value of a
+        type the SDK does not serialize rides as its `str`.
         """
-        # The class hierarchy (MRO) is shipped for the planned base-class
-        # matching, where `except LookupError:` catches a KeyError in the
-        # workflow. Nothing reads it yet: handlers match the exact class
-        # name.
-        hierarchy = [c.__name__ for c in exc.__class__.__mro__ if c is not object]
+        mro_type_ids = [c.__name__ for c in type(exc).__mro__[1:] if c is not object]
 
         values: dict[str, Any] = {}
         for key, item in _exception_values(exc).items():
@@ -68,14 +72,14 @@ class ExceptionValue:
             values[key] = item
 
         return cls(
-            type_id=exc.__class__.__name__,
+            type_id=type(exc).__name__,
             details={
                 "message": str(exc),
-                "module": exc.__class__.__module__,
+                "module": type(exc).__module__,
                 "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
-                "type_hierarchy": hierarchy,
                 "values": values,
             },
+            mro_type_ids=mro_type_ids,
         )
 
 
@@ -103,7 +107,11 @@ def loads_exception(exception: pb2v.ExceptionValue) -> ExceptionValue:
     denotes; details the message does not carry are `None`."""
 
     details = _from_argument_value(exception.details) if exception.HasField("details") else None
-    return ExceptionValue(type_id=exception.type_id, details=details)
+    return ExceptionValue(
+        type_id=exception.type_id,
+        details=details,
+        mro_type_ids=list(exception.mro_type_ids),
+    )
 
 
 def loads(data: Any) -> Any:
@@ -173,6 +181,7 @@ def _to_argument_value(value: Any) -> pb2v.Value:
         argument.exception.type_id = value.type_id
         if value.details is not None:
             argument.exception.details.CopyFrom(_to_argument_value(value.details))
+        argument.exception.mro_type_ids.extend(value.mro_type_ids)
         return argument
     if isinstance(value, datetime):
         # Serialize datetime as ISO format string

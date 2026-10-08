@@ -154,10 +154,11 @@ fn compare_promise_values(
 /// Compare two exceptions.
 ///
 /// Only the type id is compared.  The details are each producer's own
-/// account of what happened — Python's carry the traceback, module and
-/// class hierarchy, the VM's carry whatever it built — so requiring them
-/// to agree would test the accounts against each other rather than the
-/// exception.  Both are reported when the ids differ.
+/// account of what happened — Python's carry the traceback and module,
+/// the VM's carry whatever it built — so requiring them to agree would
+/// test the accounts against each other rather than the exception.  The
+/// class bases beside the details are not compared either.  Both details
+/// are reported when the ids differ.
 fn compare_exceptions(
     path: Path<'_>,
     expected: &waymark_vm_runtime_exception::Exception<waymark_system_vm::ReadyValue>,

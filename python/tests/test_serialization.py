@@ -70,25 +70,52 @@ def test_error_payload_serialization() -> None:
     decoded = deserialize_action_result(action_result(payload))
     assert decoded.result is None
     assert decoded.error is not None
-    # The exception is a type id plus a details value; the particulars
-    # ride inside the details rather than as wire-level structure.
+    # The exception is a type id, its bases and a details value; the
+    # particulars ride inside the details rather than as wire-level
+    # structure.
     assert decoded.error.type_id == "RuntimeError"
+    assert decoded.error.mro_type_ids == ["Exception", "BaseException"]
     details = decoded.error.details
     assert details["module"] == "builtins"
     assert "boom" in details["message"]
     assert "Traceback" in details["traceback"]
-    assert details["type_hierarchy"][0] == "RuntimeError"
+    assert "type_hierarchy" not in details
     assert details["values"]["args"][0] == "boom"
+
+
+def test_raised_exception_carries_its_bases_most_derived_first() -> None:
+    class MissingThingError(LookupError):
+        pass
+
+    try:
+        raise MissingThingError("gone")
+    except MissingThingError as exc:
+        payload = serialize_raised_exception(exc)
+    decoded = deserialize_action_result(action_result(payload))
+    assert decoded.error is not None
+    assert decoded.error.type_id == "MissingThingError"
+    assert decoded.error.mro_type_ids == ["LookupError", "Exception", "BaseException"]
 
 
 def test_exception_value_round_trips_with_any_details() -> None:
     # The VM's own built-in exceptions carry a string; nothing about the
     # details' shape is assumed.
-    exception = ExceptionValue(type_id="ZeroDivisionError", details="division by zero")
+    exception = ExceptionValue(
+        type_id="ZeroDivisionError",
+        details="division by zero",
+        mro_type_ids=["ArithmeticError", "Exception", "BaseException"],
+    )
 
     assert loads(dumps(exception)) == exception
     assert loads(dumps([exception])) == [exception]
     assert str(exception) == "ZeroDivisionError: 'division by zero'"
+
+
+def test_exception_value_without_bases_round_trips() -> None:
+    exception = ExceptionValue(type_id="Rootless", details=None)
+
+    assert exception.mro_type_ids == []
+    assert loads(dumps(exception)) == exception
 
 
 def test_a_live_exception_serializes_as_its_exception_value() -> None:

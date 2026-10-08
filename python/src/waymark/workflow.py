@@ -52,16 +52,17 @@ class RetryPolicy:
     Args:
         attempts: Total executions, the first try included: ``attempts=1`` never
             retries. Omitted, the policy compiles to a budget of 100 retries.
-        exception_types: Exception class names to retry on, matched by exact class
-            name: base classes do not match yet, so ``"OSError"`` does not cover a
-            ``ConnectionError``. Empty, or ``["Exception"]`` alone, retries every
-            exception the attempt raises except ``ActionTimeout``, which has to be
-            listed to be retried; listed beside ``"Exception"`` it makes the list
-            literal, so a catch-all that also retries timeouts is deliberately not
-            expressible: a timed-out attempt may still be running, and is retried
-            only by name. The runtime's own ``ActionExecutionNotStarted`` and
-            ``ActionExecutionLost`` are retried like any other exception, and a lost
-            attempt may have run to completion.
+        exception_types: Exception class names to retry on. A name matches the
+            raised exception's own class or any of its base classes, as an
+            ``except`` clause does: ``"OSError"`` covers a ``ConnectionError``, and
+            ``"Exception"`` covers every ordinary exception. Omitted, the policy
+            retries on ``Exception``. The runtime's ``ActionTimeout`` and
+            ``ActionExecutionLost`` derive from ``BaseException`` directly, not
+            from ``Exception``: the attempt may still be running or may have run
+            to completion, so it is retried only when one of those names, or
+            ``"BaseException"``, is listed. ``ActionExecutionNotStarted`` derives
+            from ``Exception``: the attempt provably never ran, so a policy
+            retrying on ``Exception`` retries it.
         backoff_seconds: A fixed sleep before each retry, in whole seconds: a
             fractional value is truncated, and under one second means no backoff.
 
@@ -137,7 +138,9 @@ class Workflow:
                 built from ``seconds``, ``minutes``, ``hours`` or ``days`` keywords;
                 whole seconds only (fractions are truncated), and under one second
                 means no timeout. Raced against each attempt; expiry raises
-                ``ActionTimeout``, which a catch-all retry policy does not retry.
+                ``ActionTimeout``, which derives from ``BaseException`` and is
+                therefore retried only by a policy listing it (or
+                ``"BaseException"``), never by one retrying on ``Exception``.
         """
         # Parameters are intentionally unused at runtime; the workflow compiler
         # inspects the AST to record them.
