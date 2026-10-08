@@ -48,7 +48,7 @@ fn captured(drive: impl FnOnce()) -> Vec<Seen> {
     seen.lock().unwrap().clone()
 }
 
-type TestTracing = Tracing<(), (), waymark_vm_driver::Error<(), (), &'static str, (), ()>>;
+type TestTracing = Tracing<(), (), (), waymark_vm_driver::Error<(), (), &'static str, (), ()>>;
 
 #[test]
 fn expected_exits_log_at_debug() {
@@ -84,7 +84,8 @@ fn assert_send_sync<T: Send + Sync>(_value: &T) {}
 
 #[test]
 fn tracing_is_thread_safe_regardless_of_its_parameters() {
-    let tracing = Tracing::<std::rc::Rc<()>, std::rc::Rc<()>, std::rc::Rc<()>>::new();
+    let tracing =
+        Tracing::<std::rc::Rc<()>, std::rc::Rc<()>, std::rc::Rc<()>, std::rc::Rc<()>>::new();
 
     assert_send_sync(&tracing);
 }

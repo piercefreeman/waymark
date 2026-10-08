@@ -24,6 +24,7 @@ waymark-vm-compiler-for-ast-old-action-ref = { workspace = true }
 waymark-vm-compiler-for-ast-old-bytecode-consts = { workspace = true }
 waymark-vm-compiler-for-ast-old-core = { workspace = true }
 waymark-vm-instructions-coreset = { workspace = true }
+waymark-vm-instructions-excset = { workspace = true }
 waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-instructions-fullset = { workspace = true }
 waymark-vm-instructions-pureset = { workspace = true }

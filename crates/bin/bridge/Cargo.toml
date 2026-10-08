@@ -20,7 +20,6 @@ waymark-vm-ast-old-proto = { workspace = true }
 waymark-vm-codec-rmp = { workspace = true }
 waymark-vm-driver-hooks-tracing = { workspace = true }
 waymark-vm-executable = { workspace = true }
-waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-value-python-convert-proto = { workspace = true }
 waymark-workflow-initialization-convert-proto = { workspace = true }

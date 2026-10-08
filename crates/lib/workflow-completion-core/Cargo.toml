@@ -7,10 +7,7 @@ publish.workspace = true
 [features]
 default = []
 
-serde = ["waymark-vm-runtime-exception/serde"]
-
-[dependencies]
-waymark-vm-runtime-exception = { workspace = true }
+serde = []
 
 [lib]
 doctest = false

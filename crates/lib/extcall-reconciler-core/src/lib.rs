@@ -92,8 +92,27 @@ pub trait HasValue {
     type Value;
 }
 
+/// Exposes the raised exception type a settler rejects with.
+///
+/// Shared by [`ActionPromiseSettler`] and [`SleepPromiseSettler`] the way
+/// [`HasValue`] is, for the rejection side of a settlement.
+pub trait HasRaisedException {
+    /// The type of a settlement rejection's raised exception.
+    type RaisedException;
+}
+
+/// The settlements a settler polls: over its own value and raised exception,
+/// acknowledged through the unified ack.
+pub type SettlementsFor<Settler, UnifiedAck> = NEVec<
+    PromiseSettlement<
+        <Settler as HasValue>::Value,
+        <Settler as HasRaisedException>::RaisedException,
+        UnifiedAck,
+    >,
+>;
+
 /// Produces promise settlements from completed action calls.
-pub trait ActionPromiseSettler<UnifiedAck>: SettlerAck + HasValue
+pub trait ActionPromiseSettler<UnifiedAck>: SettlerAck + HasValue + HasRaisedException
 where
     UnifiedAck: From<Self::Ack>,
 {
@@ -109,15 +128,13 @@ where
     fn poll_action_settlements<'a>(
         &'a mut self,
         waiting_promise_state_ids: NESlice<'a, PromiseStateId>,
-    ) -> impl Future<Output = Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>>
-    + Send
-    + 'a
+    ) -> impl Future<Output = Result<SettlementsFor<Self, UnifiedAck>, Self::Error>> + Send + 'a
     where
         UnifiedAck: 'a;
 }
 
 /// Produces promise settlements from elapsed sleeps.
-pub trait SleepPromiseSettler<UnifiedAck>: SettlerAck + HasValue
+pub trait SleepPromiseSettler<UnifiedAck>: SettlerAck + HasValue + HasRaisedException
 where
     UnifiedAck: From<Self::Ack>,
 {
@@ -133,9 +150,7 @@ where
     fn poll_sleep_settlements<'a>(
         &'a mut self,
         waiting_promise_state_ids: NESlice<'a, PromiseStateId>,
-    ) -> impl Future<Output = Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>>
-    + Send
-    + 'a
+    ) -> impl Future<Output = Result<SettlementsFor<Self, UnifiedAck>, Self::Error>> + Send + 'a
     where
         UnifiedAck: 'a;
 }

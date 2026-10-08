@@ -44,20 +44,22 @@ pub struct Policy {
 ///
 /// Generic over the summarizer of the run's effects, the run's value and
 /// its VM driver error, which it only ever summarizes.
-pub struct Hooks<EffectSummarizer, Value, DriverError> {
+pub struct Hooks<EffectSummarizer, Value, RaisedException, DriverError> {
     vm_id: waymark_ids::InstanceId,
     run_sequence: AtomicU64,
     emitter: Arc<Emitter>,
     policy: Policy,
-    parameters: PhantomData<Parameters<EffectSummarizer, Value, DriverError>>,
+    parameters: PhantomData<Parameters<EffectSummarizer, Value, RaisedException, DriverError>>,
 }
 
 /// The hooks' type parameters, held as a function pointer type so that
 /// [`Hooks`] stays `Send` and `Sync` whatever they are.
-type Parameters<EffectSummarizer, Value, DriverError> =
-    fn() -> (EffectSummarizer, Value, DriverError);
+type Parameters<EffectSummarizer, Value, RaisedException, DriverError> =
+    fn() -> (EffectSummarizer, Value, RaisedException, DriverError);
 
-impl<EffectSummarizer, Value, DriverError> Hooks<EffectSummarizer, Value, DriverError> {
+impl<EffectSummarizer, Value, RaisedException, DriverError>
+    Hooks<EffectSummarizer, Value, RaisedException, DriverError>
+{
     /// The hooks for one run of `vm_id`, emitting through `emitter` what
     /// `policy` asks for; the run's positions start at zero.
     pub fn new(vm_id: waymark_ids::InstanceId, emitter: Arc<Emitter>, policy: Policy) -> Self {
@@ -85,23 +87,33 @@ impl<EffectSummarizer, Value, DriverError> Hooks<EffectSummarizer, Value, Driver
     }
 }
 
-impl<EffectSummarizer, Value, DriverError> waymark_vm_driver_hooks::effect_emitted::HasEffect
-    for Hooks<EffectSummarizer, Value, DriverError>
+impl<EffectSummarizer, Value, RaisedException, DriverError>
+    waymark_vm_driver_hooks::effect_emitted::HasEffect
+    for Hooks<EffectSummarizer, Value, RaisedException, DriverError>
 where
     EffectSummarizer: waymark_observability_events_vm_driver_hooks_core::SummarizeEffect,
 {
     type Effect = EffectSummarizer::Effect;
 }
 
-impl<EffectSummarizer, Value, DriverError> waymark_vm_driver_hooks::promise_settled::HasValue
-    for Hooks<EffectSummarizer, Value, DriverError>
+impl<EffectSummarizer, Value, RaisedException, DriverError>
+    waymark_vm_driver_hooks::promise_settled::HasValue
+    for Hooks<EffectSummarizer, Value, RaisedException, DriverError>
 {
     type Value = Value;
+}
+
+impl<EffectSummarizer, Value, RaisedException, DriverError>
+    waymark_vm_driver_hooks::promise_settled::HasRaisedException
+    for Hooks<EffectSummarizer, Value, RaisedException, DriverError>
+{
+    type RaisedException = RaisedException;
 }
 
 impl<
     EffectSummarizer,
     Value,
+    RaisedException,
     ExecutionError,
     SnapshotSerializationError,
     SnapshotPersistenceError,
@@ -111,6 +123,7 @@ impl<
     for Hooks<
         EffectSummarizer,
         Value,
+        RaisedException,
         waymark_vm_driver::Error<
             ExecutionError,
             SnapshotSerializationError,
@@ -129,16 +142,16 @@ impl<
     >;
 }
 
-impl<EffectSummarizer, Value, DriverError> waymark_vm_driver_hooks::VmStarted
-    for Hooks<EffectSummarizer, Value, DriverError>
+impl<EffectSummarizer, Value, RaisedException, DriverError> waymark_vm_driver_hooks::VmStarted
+    for Hooks<EffectSummarizer, Value, RaisedException, DriverError>
 {
     fn vm_started(&self) {
         self.emit(waymark_observability_events_payload::vm_driver::Observation::VmStarted);
     }
 }
 
-impl<EffectSummarizer, Value, DriverError> waymark_vm_driver_hooks::EffectEmitted
-    for Hooks<EffectSummarizer, Value, DriverError>
+impl<EffectSummarizer, Value, RaisedException, DriverError> waymark_vm_driver_hooks::EffectEmitted
+    for Hooks<EffectSummarizer, Value, RaisedException, DriverError>
 where
     EffectSummarizer: waymark_observability_events_vm_driver_hooks_core::SummarizeEffect<
             Summary = waymark_observability_events_payload::vm_driver::EffectSummary,
@@ -154,13 +167,15 @@ where
     }
 }
 
-impl<EffectSummarizer, Value, DriverError> waymark_vm_driver_hooks::PromiseSettled
-    for Hooks<EffectSummarizer, Value, DriverError>
+impl<EffectSummarizer, Value, RaisedException, DriverError> waymark_vm_driver_hooks::PromiseSettled
+    for Hooks<EffectSummarizer, Value, RaisedException, DriverError>
+where
+    RaisedException: waymark_observability_vm_value_display::CaptureRaisedException,
 {
     fn promise_settled(
         &self,
         promise_state_id: PromiseStateId,
-        resolution: &PromiseResolution<Self::Value>,
+        resolution: &PromiseResolution<Self::Value, Self::RaisedException>,
     ) {
         let settlement = match resolution {
             PromiseResolution::Resolved(_) => {
@@ -168,7 +183,7 @@ impl<EffectSummarizer, Value, DriverError> waymark_vm_driver_hooks::PromiseSettl
             }
             PromiseResolution::Rejected(exception) => {
                 waymark_observability_events_payload::vm_driver::Settlement::Rejected {
-                    exception_type: exception.type_id.clone(),
+                    exception: exception.capture_raised_exception(),
                 }
             }
         };
@@ -182,8 +197,9 @@ impl<EffectSummarizer, Value, DriverError> waymark_vm_driver_hooks::PromiseSettl
     }
 }
 
-impl<EffectSummarizer, Value, DriverError> waymark_vm_driver_hooks::SnapshotPersisted
-    for Hooks<EffectSummarizer, Value, DriverError>
+impl<EffectSummarizer, Value, RaisedException, DriverError>
+    waymark_vm_driver_hooks::SnapshotPersisted
+    for Hooks<EffectSummarizer, Value, RaisedException, DriverError>
 {
     fn snapshot_persisted(&self, size_in_bytes: usize) {
         if !self.policy.snapshot_persisted {
@@ -201,6 +217,7 @@ impl<EffectSummarizer, Value, DriverError> waymark_vm_driver_hooks::SnapshotPers
 impl<
     EffectSummarizer,
     Value,
+    RaisedException,
     ExecutionError,
     SnapshotSerializationError,
     SnapshotPersistenceError,
@@ -210,6 +227,7 @@ impl<
     for Hooks<
         EffectSummarizer,
         Value,
+        RaisedException,
         waymark_vm_driver::Error<
             ExecutionError,
             SnapshotSerializationError,

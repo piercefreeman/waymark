@@ -185,7 +185,7 @@ where
 
             try_handlers.push(waymark_vm_exception_handler::ExceptionHandler {
                 handler_state,
-                exception_types,
+                pattern: Lowering::lower_exception_pattern(&exception_types),
                 exception_dst,
             });
         }

@@ -24,7 +24,9 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 /// Set `skip_sleep` to true to force skip-allowed sleeps to resolve
 /// immediately (useful for testing and debugging); sleeps recorded with
 /// `skip_allowed: false` elapse in full regardless.
-pub fn new<SleepValueProvider>(skip_sleep: bool) -> (Handler, Poller<SleepValueProvider>) {
+pub fn new<SleepValueProvider, RaisedException>(
+    skip_sleep: bool,
+) -> (Handler, Poller<SleepValueProvider, RaisedException>) {
     let (tx, rx) = mpsc::unbounded_channel();
     let recorded = Arc::new(std::sync::Mutex::new(RecordedSleeps::new()));
     let handler = Handler {
@@ -122,7 +124,7 @@ impl waymark_extcall_reconciler_core::SleepEffectHandler for Handler {
 }
 
 /// Always-active polling handle for sleep deadlines.
-pub struct Poller<SleepValueProvider> {
+pub struct Poller<SleepValueProvider, RaisedException> {
     /// Receives new sleep deadlines from the handler.
     pub rx: mpsc::UnboundedReceiver<(PromiseStateId, Instant)>,
     /// Pending sleeps grouped by deadline, earliest first.
@@ -131,7 +133,7 @@ pub struct Poller<SleepValueProvider> {
     /// settlements remove their entries.
     pub recorded: Arc<std::sync::Mutex<RecordedSleeps>>,
     /// The sleep value provider is purely type-level.
-    pub provider: std::marker::PhantomData<fn() -> SleepValueProvider>,
+    pub provider: std::marker::PhantomData<fn() -> (SleepValueProvider, RaisedException)>,
 }
 
 /// Settlement acknowledgement for an elapsed sleep.
@@ -162,14 +164,14 @@ impl<ActionAck> From<Ack> for waymark_extcall_reconciler_core::Ack<ActionAck, Ac
     }
 }
 
-impl<SleepValueProvider> Poller<SleepValueProvider>
+impl<SleepValueProvider, RaisedException> Poller<SleepValueProvider, RaisedException>
 where
     SleepValueProvider: waymark_sleep_core::SleepValueProvider,
 {
     /// Wait for the next batch of elapsed sleep settlements.
     pub async fn poll<Ack>(
         &mut self,
-    ) -> Option<NEVec<PromiseSettlement<SleepValueProvider::Value, Ack>>>
+    ) -> Option<NEVec<PromiseSettlement<SleepValueProvider::Value, RaisedException, Ack>>>
     where
         Ack: From<self::Ack>,
     {
@@ -182,9 +184,10 @@ where
                     .push(promise_state_id);
             }
 
-            if let Some(settlements) =
-                collect_elapsed::<SleepValueProvider, Ack>(&mut self.pending, &self.recorded)
-            {
+            if let Some(settlements) = collect_elapsed::<SleepValueProvider, RaisedException, Ack>(
+                &mut self.pending,
+                &self.recorded,
+            ) {
                 return Some(settlements);
             }
 
@@ -215,21 +218,29 @@ pub enum PollSleepError {
     ChannelClosed,
 }
 
-impl<SleepValueProvider> waymark_extcall_reconciler_core::SettlerAck
-    for Poller<SleepValueProvider>
+impl<SleepValueProvider, RaisedException> waymark_extcall_reconciler_core::SettlerAck
+    for Poller<SleepValueProvider, RaisedException>
 {
     type Ack = Ack;
 }
 
-impl<SleepValueProvider> waymark_extcall_reconciler_core::HasValue for Poller<SleepValueProvider>
+impl<SleepValueProvider, RaisedException> waymark_extcall_reconciler_core::HasValue
+    for Poller<SleepValueProvider, RaisedException>
 where
     SleepValueProvider: waymark_sleep_core::SleepValueProvider,
 {
     type Value = SleepValueProvider::Value;
 }
 
-impl<SleepValueProvider, UnifiedAck>
-    waymark_extcall_reconciler_core::SleepPromiseSettler<UnifiedAck> for Poller<SleepValueProvider>
+impl<SleepValueProvider, RaisedException> waymark_extcall_reconciler_core::HasRaisedException
+    for Poller<SleepValueProvider, RaisedException>
+{
+    type RaisedException = RaisedException;
+}
+
+impl<SleepValueProvider, RaisedException, UnifiedAck>
+    waymark_extcall_reconciler_core::SleepPromiseSettler<UnifiedAck>
+    for Poller<SleepValueProvider, RaisedException>
 where
     SleepValueProvider: waymark_sleep_core::SleepValueProvider,
     UnifiedAck: From<Ack>,
@@ -245,7 +256,7 @@ where
             'a,
             waymark_vm_runtime_promise_core::PromiseStateId,
         >,
-    ) -> Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>
+    ) -> Result<NEVec<PromiseSettlement<Self::Value, Self::RaisedException, UnifiedAck>>, Self::Error>
     where
         UnifiedAck: 'a,
     {
@@ -256,10 +267,10 @@ where
 }
 
 /// Move any elapsed sleeps into settlements.
-fn collect_elapsed<SleepValueProvider, Ack>(
+fn collect_elapsed<SleepValueProvider, RaisedException, Ack>(
     pending: &mut PendingSleeps,
     recorded: &Arc<std::sync::Mutex<RecordedSleeps>>,
-) -> Option<NEVec<PromiseSettlement<SleepValueProvider::Value, Ack>>>
+) -> Option<NEVec<PromiseSettlement<SleepValueProvider::Value, RaisedException, Ack>>>
 where
     SleepValueProvider: waymark_sleep_core::SleepValueProvider,
     Ack: From<self::Ack>,

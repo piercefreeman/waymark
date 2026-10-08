@@ -22,13 +22,14 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 /// capable of providing instructions from the said instruction set,
 /// and the state of the runtime required to drive the execution of
 /// the instructions forward.
-pub struct Runtime<Executable, Interpreter, Value>
+pub struct Runtime<Executable, Interpreter, Value, RaisedException>
 where
     Executable: waymark_vm_executable::FunctionStates,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
 {
     interpreter: Interpreter,
     executable: Executable,
-    state: RuntimeState<Executable::FunctionId, Executable::StateId, Value>,
+    state: RuntimeState<Executable::FunctionId, Executable::StateId, Value, RaisedException>,
 }
 
 pub use waymark_vm_runtime_callspec::CallSpec;
@@ -40,13 +41,15 @@ pub struct FunctionNotFoundError<FunctionId> {
     function_id: FunctionId,
 }
 
-impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
+impl<Executable, Interpreter, Value, RaisedException>
+    Runtime<Executable, Interpreter, Value, RaisedException>
 where
     Interpreter: waymark_vm_interpreter::Interpreter,
     Executable: waymark_vm_executable::FunctionStates,
     Executable: waymark_vm_executable::FunctionInfo,
     Executable::FunctionId: Copy,
     Executable::StateId: Default,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
 {
     /// Create a new runtime with a conventional entrypoint.
     ///
@@ -134,20 +137,22 @@ pub enum RunError<InterpreterError> {
 
 /// A type alias shorthand for specifying runtime frames from and executable
 /// and a value.
-pub type FrameFor<Executable, Value> = Frame<
+pub type FrameFor<Executable, Value, RaisedException> = Frame<
     <Executable as waymark_vm_executable::Functions>::FunctionId,
     <Executable as waymark_vm_executable::FunctionStates>::StateId,
     Value,
+    RaisedException,
 >;
 
-impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
+impl<Executable, Interpreter, Value, RaisedException>
+    Runtime<Executable, Interpreter, Value, RaisedException>
 where
     Executable: waymark_vm_executable::InstructionsProvider,
     Executable::FunctionId: Copy,
     Executable::StateId: Copy + PartialEq,
     Executable: 'static,
     Interpreter: waymark_vm_interpreter::Interpreter<
-            Frame = FrameFor<Executable, Value>,
+            Frame = FrameFor<Executable, Value, RaisedException>,
             Instruction = Executable::Instruction,
         >,
     for<'view, 'runtime> <Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'view>:
@@ -159,9 +164,12 @@ where
                     Executable::FunctionId,
                     Executable::StateId,
                     Value,
+                    RaisedException,
                 >,
             >,
     Value: 'static,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+    RaisedException: 'static,
     // Debug
     Interpreter::Instruction: core::fmt::Debug,
     Value: core::fmt::Debug,
@@ -199,11 +207,14 @@ where
     }
 }
 
-impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
+impl<Executable, Interpreter, Value, RaisedException>
+    Runtime<Executable, Interpreter, Value, RaisedException>
 where
     Executable: waymark_vm_executable::FunctionStates,
     Value: waymark_vm_runtime_promise_core::Resolvable,
     Value: Clone,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+    RaisedException: Clone,
 {
     /// Provide an async computation value for a given promise.
     ///
@@ -234,36 +245,17 @@ where
     pub fn reject_promise(
         &mut self,
         promise_state_id: PromiseStateId,
-        exception: waymark_vm_runtime_exception::Exception<Value::ReadyValue>,
-    ) -> Result<(), SettlePromiseError<waymark_vm_runtime_exception::Exception<Value::ReadyValue>>>
-    {
-        let exception = waymark_vm_runtime_exception::Exception {
-            type_id: exception.type_id,
-            details: Value::from_ready(exception.details),
-        };
-
-        self.state
-            .reject_promise(promise_state_id, exception)
-            .map_err(|error| {
-                error.map(|new_value| {
-                    let waymark_vm_runtime_exception::Exception { type_id, details } = new_value;
-
-                    let Ok(details) = details.into_ready() else {
-                        // We've wrapped this value with `Value::from_ready`
-                        // ourselves just a couple lines above.
-                        // It is guaranteed to be resolved here.
-                        unreachable!();
-                    };
-
-                    waymark_vm_runtime_exception::Exception { type_id, details }
-                })
-            })
+        exception: RaisedException,
+    ) -> Result<(), SettlePromiseError<RaisedException>> {
+        self.state.reject_promise(promise_state_id, exception)
     }
 }
 
-impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
+impl<Executable, Interpreter, Value, RaisedException>
+    Runtime<Executable, Interpreter, Value, RaisedException>
 where
     Executable: waymark_vm_executable::FunctionStates,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
 {
     /// Returns `true` if the runtime has ready frames to execute.
     pub fn has_ready_frames(&self) -> bool {

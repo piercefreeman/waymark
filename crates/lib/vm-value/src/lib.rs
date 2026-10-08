@@ -26,16 +26,26 @@ pub trait Flavor {
     /// type providing the matching trait — an explicit requirement at
     /// the sites that need it, never a demand on the flavor.
     type Extension;
+
+    /// The language's exception as a value, hosted by
+    /// [`ReadyValue::Exception`]: what a handler captures into a register
+    /// and what a `raise` takes from one.
+    ///
+    /// Entirely the language's shape; the VM never looks inside. A
+    /// language that raises and catches by matching alone, without ever
+    /// holding an exception as a value, uses [`core::convert::Infallible`].
+    /// Unbounded, like [`Flavor::Extension`].
+    type ExceptionValue;
 }
 
 /// The VM value that is ready.
-#[derive_where(Debug, Clone, PartialEq; Flavor::Extension)]
+#[derive_where(Debug, Clone, PartialEq; Flavor::Extension, Flavor::ExceptionValue)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
-        serialize = "Flavor::Extension: serde::Serialize",
-        deserialize = "Flavor::Extension: serde::Deserialize<'de>",
+        serialize = "Flavor::Extension: serde::Serialize, Flavor::ExceptionValue: serde::Serialize",
+        deserialize = "Flavor::Extension: serde::Deserialize<'de>, Flavor::ExceptionValue: serde::Deserialize<'de>",
     ))
 )]
 pub enum ReadyValue<Flavor: self::Flavor> {
@@ -63,8 +73,8 @@ pub enum ReadyValue<Flavor: self::Flavor> {
     /// Dictionary value stored as an insertion-ordered string-keyed map.
     Dict(IndexMap<String, Value<Flavor>>),
 
-    /// Runtime exception value.
-    Exception(Box<waymark_vm_runtime_exception::Exception<Value<Flavor>>>),
+    /// The language's exception, held as a value.
+    Exception(Box<Flavor::ExceptionValue>),
 
     /// Language-specific extension value.
     Extension(Flavor::Extension),

@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 waymark-blanket-impl-macros = { workspace = true }
 waymark-vm-instructions-coreset = { workspace = true }
+waymark-vm-instructions-excset = { workspace = true }
 waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-instructions-pureset = { workspace = true }
 
@@ -19,6 +20,7 @@ serde = [
   "dep:serde",
   "serde/derive",
   "waymark-vm-instructions-coreset/serde",
+  "waymark-vm-instructions-excset/serde",
   "waymark-vm-instructions-extcallset/serde",
   "waymark-vm-instructions-pureset/serde",
 ]

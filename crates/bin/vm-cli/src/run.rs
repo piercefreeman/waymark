@@ -5,7 +5,10 @@ use waymark_managed_spawner_supervised::SupervisorExt as _;
 pub async fn run(
     runtime: waymark_system_vm::Runtime,
 ) -> Result<
-    waymark_workflow_completion_core::Outcome<waymark_system_vm::ReadyValue>,
+    waymark_workflow_completion_core::Outcome<
+        waymark_system_vm::ReadyValue,
+        waymark_system_vm::RaisedException,
+    >,
     waymark_fn_main_common::Error,
 > {
     let shutdown_token = tokio_util::sync::CancellationToken::new();

@@ -1,11 +1,10 @@
 use waymark_vm_runtime::{CallSpec, RunError};
-use waymark_vm_runtime_core::{FullRuntimeView, RegisterId, SettlePromiseError};
+use waymark_vm_runtime_core::{RegisterId, SettlePromiseError};
 use waymark_vm_runtime_effect::EffectNumber;
-use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_runtime_test::{
-    FunctionId, StateId, TestEffect, TestExecutable, TestExecutionError, TestInstruction,
-    TestInterpreter, TestReadyValue, TestValue, executable, function, runtime,
+    FunctionId, StateId, TestEffect, TestException, TestExecutionError, TestFrame, TestInstruction,
+    TestInterpreter, TestReadyValue, TestRuntimeView, executable, function, runtime,
     runtime_with_entrypoint, try_runtime,
 };
 
@@ -19,8 +18,8 @@ enum HookMode {
 }
 
 impl waymark_vm_interpreter::Interpreter for HookInterpreter {
-    type RuntimeView<'r> = FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>;
-    type Frame = waymark_vm_runtime::FrameFor<TestExecutable, TestValue>;
+    type RuntimeView<'r> = TestRuntimeView<'r>;
+    type Frame = TestFrame;
     type Instruction = TestInstruction;
     type Error = TestExecutionError;
     type Effect = TestEffect;
@@ -265,7 +264,7 @@ fn reject_promise_bubbles_uncaught_exceptions() {
     runtime
         .reject_promise(
             PromiseStateId(0),
-            Exception {
+            TestException {
                 type_id: "ValueError".to_owned(),
                 details: TestReadyValue::Int(41),
             },
@@ -277,7 +276,7 @@ fn reject_promise_bubbles_uncaught_exceptions() {
         .expect("resumed frame should emit the raised exception");
     assert_eq!(
         emitted_effect.effect,
-        TestEffect::UnhandledException(Exception {
+        TestEffect::UnhandledException(TestException {
             type_id: "ValueError".to_owned(),
             details: TestReadyValue::Int(41),
         })
@@ -336,7 +335,7 @@ fn state_entry_hook_can_redirect_exceptional_resumes_when_the_interpreter_wants(
     runtime
         .reject_promise(
             PromiseStateId(0),
-            Exception {
+            TestException {
                 type_id: "ValueError".to_owned(),
                 details: TestReadyValue::Int(41),
             },
@@ -436,7 +435,7 @@ fn snapshot_suspended_and_from_snapshot_preserves_rejected_promises() {
     restored
         .reject_promise(
             PromiseStateId(0),
-            Exception {
+            TestException {
                 type_id: "ValueError".to_owned(),
                 details: TestReadyValue::Int(41),
             },
@@ -448,7 +447,7 @@ fn snapshot_suspended_and_from_snapshot_preserves_rejected_promises() {
         .expect("restored runtime should emit exception");
     assert_eq!(
         emitted_effect.effect,
-        TestEffect::UnhandledException(Exception {
+        TestEffect::UnhandledException(TestException {
             type_id: "ValueError".to_owned(),
             details: TestReadyValue::Int(41),
         })

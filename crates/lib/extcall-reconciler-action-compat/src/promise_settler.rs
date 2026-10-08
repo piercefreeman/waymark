@@ -72,6 +72,14 @@ where
     type Value = ActionCallCompletionsProvider::Value;
 }
 
+impl<ActionCallCompletionsProvider, Converter> waymark_extcall_reconciler_core::HasRaisedException
+    for PromiseSettler<ActionCallCompletionsProvider, Converter>
+where
+    ActionCallCompletionsProvider: waymark_action_runtime_core::ActionCallCompletionsProvider,
+{
+    type RaisedException = ActionCallCompletionsProvider::RaisedException;
+}
+
 impl<ActionCallCompletionsProvider, Converter, UnifiedAck>
     waymark_extcall_reconciler_core::ActionPromiseSettler<UnifiedAck>
     for PromiseSettler<ActionCallCompletionsProvider, Converter>
@@ -81,10 +89,16 @@ where
     ActionCallCompletionsProvider::Metadata: ActionCallCorrelated,
     Converter: waymark_convert_core::Convert<
             Result<
-                ActionCallOutcome<ActionCallCompletionsProvider::Value>,
+                ActionCallOutcome<
+                    ActionCallCompletionsProvider::Value,
+                    ActionCallCompletionsProvider::RaisedException,
+                >,
                 ActionCallCompletionsProvider::ActionExecutionError,
             >,
-            PromiseResolution<ActionCallCompletionsProvider::Value>,
+            PromiseResolution<
+                ActionCallCompletionsProvider::Value,
+                ActionCallCompletionsProvider::RaisedException,
+            >,
         > + Send
         + Sync,
     UnifiedAck: From<Ack>,
@@ -96,7 +110,7 @@ where
         // The provider yields everything it has; the demand set is not
         // consulted.
         _waiting_promise_state_ids: NESlice<'a, PromiseStateId>,
-    ) -> Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>
+    ) -> Result<NEVec<PromiseSettlement<Self::Value, Self::RaisedException, UnifiedAck>>, Self::Error>
     where
         UnifiedAck: 'a,
     {

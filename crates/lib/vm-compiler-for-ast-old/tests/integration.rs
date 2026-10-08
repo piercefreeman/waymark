@@ -13,18 +13,20 @@ use waymark_vm_ast_old_helpers::{
     unary_expr, variable, while_stmt,
 };
 use waymark_vm_bytecode_core::{FunctionId, InstructionId, StateId};
-use waymark_vm_compiler_for_ast_old_test_support::{TestActionRef, TestReadyValue, TestValue};
+use waymark_vm_compiler_for_ast_old_test_support::{
+    TestActionRef, TestRaisedException, TestReadyValue, TestValue,
+};
 use waymark_vm_interpreter_fullset::Effect;
 
-fn completed_int(
-    emitted_effect: waymark_vm_runtime_effect::EmittedEffect<
-        Effect<
-            waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
-            waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
-            core::convert::Infallible,
-        >,
-    >,
-) -> i64 {
+/// The effect the test runtime emits: the fullset's, over the test types.
+type TestEffect = Effect<
+    waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
+    waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
+    core::convert::Infallible,
+    waymark_vm_interpreter_excset::Effect<TestRaisedException>,
+>;
+
+fn completed_int(emitted_effect: waymark_vm_runtime_effect::EmittedEffect<TestEffect>) -> i64 {
     match completed_value(emitted_effect) {
         TestReadyValue::Int(value) => value,
         other => panic!("unexpected runtime effect: {other:?}"),
@@ -32,13 +34,7 @@ fn completed_int(
 }
 
 fn completed_value(
-    emitted_effect: waymark_vm_runtime_effect::EmittedEffect<
-        Effect<
-            waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
-            waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
-            core::convert::Infallible,
-        >,
-    >,
+    emitted_effect: waymark_vm_runtime_effect::EmittedEffect<TestEffect>,
 ) -> TestReadyValue {
     match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => value,

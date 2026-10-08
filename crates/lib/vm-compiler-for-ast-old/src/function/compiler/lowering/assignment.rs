@@ -16,10 +16,6 @@ use super::r#loop::LoopControlStack;
 use super::plan::assignment::AssignmentStatementPlan;
 use super::plan::call::CallPlanFor;
 
-/// The exception type raised when an unpacked value's length does not match
-/// the assignment target count.
-const UNPACK_MISMATCH_TYPE_ID: &str = waymark_vm_exception_type_ids::VALUE_ERROR;
-
 /// Lowers assignment statements into bytecode.
 pub struct AssignmentCompiler<'borrow, 'table, Spec, Lowering>
 where
@@ -169,28 +165,11 @@ where
             .emitter
             .emit_jump_if(unpack_state, length_matches_register);
 
-        let type_id_value =
-            Lowering::lower_literal(&Literal::String(UNPACK_MISMATCH_TYPE_ID.to_owned()))
-                .map_err(Error::LiteralLowering)?;
-        let type_id_register = self.context.local_frame.allocate_register();
         self.context
             .emitter
-            .emit_load_const(type_id_register, type_id_value);
-
-        let details_value =
-            Lowering::lower_literal(&Literal::None).map_err(Error::LiteralLowering)?;
-        let details_register = self.context.local_frame.allocate_register();
-        self.context
-            .emitter
-            .emit_load_const(details_register, details_value);
-
-        let exception_register = self.context.local_frame.allocate_register();
-        self.context.emitter.emit_make_exception(
-            exception_register,
-            type_id_register,
-            details_register,
-        );
-        self.context.emitter.emit_raise(exception_register);
+            .emit_raise_const(Lowering::lower_compiler_emitted_exception(
+                &waymark_vm_compiler_for_ast_old_core::lowering::CompilerEmittedException::UnpackMismatch,
+            ));
 
         self.context.emitter.switch_to(unpack_state);
         for (item_index, target) in targets.into_iter().enumerate() {
@@ -529,15 +508,12 @@ mod tests {
           PureSet(LoadConst { dst: r4, value: Int(2) })
           PureSet(Binary { kind: Eq, op: BinaryOp { dst: r5, a: r3, b: r4 } })
           CoreSet(JumpIf { target_state: s1, cond: r5 })
-          PureSet(LoadConst { dst: r6, value: String("ValueError") })
-          PureSet(LoadConst { dst: r7, value: None })
-          PureSet(MakeException { dst: r8, type_id: r6, details: r7 })
-          CoreSet(Raise { src: r8 })
+          ExcSet(RaiseConst { exception: ConstException { type_id: "ValueError", mro_type_ids: ["Exception", "BaseException"], details: None } })
         s1:
-          PureSet(LoadConst { dst: r9, value: Int(0) })
-          PureSet(Index { dst: r1, object: r0, index: r9 })
-          PureSet(LoadConst { dst: r10, value: Int(1) })
-          PureSet(Index { dst: r2, object: r0, index: r10 })
+          PureSet(LoadConst { dst: r6, value: Int(0) })
+          PureSet(Index { dst: r1, object: r0, index: r6 })
+          PureSet(LoadConst { dst: r7, value: Int(1) })
+          PureSet(Index { dst: r2, object: r0, index: r7 })
         "#);
     }
 
@@ -582,15 +558,12 @@ mod tests {
           PureSet(LoadConst { dst: r4, value: Int(2) })
           PureSet(Binary { kind: Eq, op: BinaryOp { dst: r5, a: r3, b: r4 } })
           CoreSet(JumpIf { target_state: s1, cond: r5 })
-          PureSet(LoadConst { dst: r6, value: String("ValueError") })
-          PureSet(LoadConst { dst: r7, value: None })
-          PureSet(MakeException { dst: r8, type_id: r6, details: r7 })
-          CoreSet(Raise { src: r8 })
+          ExcSet(RaiseConst { exception: ConstException { type_id: "ValueError", mro_type_ids: ["Exception", "BaseException"], details: None } })
         s1:
-          PureSet(LoadConst { dst: r9, value: Int(0) })
-          PureSet(Index { dst: r0, object: r2, index: r9 })
-          PureSet(LoadConst { dst: r10, value: Int(1) })
-          PureSet(Index { dst: r1, object: r2, index: r10 })
+          PureSet(LoadConst { dst: r6, value: Int(0) })
+          PureSet(Index { dst: r0, object: r2, index: r6 })
+          PureSet(LoadConst { dst: r7, value: Int(1) })
+          PureSet(Index { dst: r1, object: r2, index: r7 })
         "#);
     }
 }

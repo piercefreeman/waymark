@@ -20,18 +20,6 @@ pub enum Error<Spec: waymark_vm_instructions_coreset::Spec> {
     #[error("jump if: {0}")]
     JumpIf(#[source] JumpIfError),
 
-    /// Managing exception-handler blocks failed.
-    #[error("exception handlers: {0}")]
-    ExceptionHandlers(#[source] ExceptionHandlersError),
-
-    /// Bubbling a raised exception failed.
-    #[error("bubble exception: {0}")]
-    BubbleException(#[source] FnExitError),
-
-    /// Raising an exception failed.
-    #[error("raise: {0}")]
-    Raise(#[source] RaiseError),
-
     /// A function call failed.
     #[error("function call: {0}")]
     Call(#[source] CallError<Spec::FunctionId>),
@@ -78,22 +66,6 @@ pub enum JumpIfError {
     /// The resolved condition value could not be interpreted as conditional.
     #[error("condition check: {0}")]
     ConditionCheck(#[source] crate::value::NotAConditionalError),
-}
-
-/// Errors produced while managing exception-handler blocks.
-#[derive(Debug, thiserror::Error)]
-pub enum ExceptionHandlersError {
-    /// A pop tried to remove more blocks than were active.
-    #[error("pop: {0}")]
-    Pop(#[source] waymark_vm_runtime_core::PopExceptionHandlersError),
-}
-
-/// Errors produced while evaluating a `Raise` instruction.
-#[derive(Debug, thiserror::Error)]
-pub enum RaiseError {
-    /// The source register did not contain an exception value.
-    #[error("source value is not an exception")]
-    SourceNotException,
 }
 
 /// Errors produced while exiting from a function.

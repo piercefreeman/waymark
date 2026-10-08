@@ -111,6 +111,7 @@ pub type ActionCallCompletionsProvider =
     waymark_action_runtime_worker_stream::WorkerStreamActionCallCompletionsProvider<
         ActionCallCorrelation,
         waymark_vm_value_python::ReadyValue,
+        waymark_vm_value_python::RaisedException,
         waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
     >;
 
@@ -265,7 +266,10 @@ where
     reason = "the workflow outcome feeds a tonic::Status gRPC response stream"
 )]
 fn convert_workflow_outcome_to_stream_response(
-    workflow_outcome: waymark_workflow_completion_core::Outcome<waymark_system_vm::ReadyValue>,
+    workflow_outcome: waymark_workflow_completion_core::Outcome<
+        waymark_system_vm::ReadyValue,
+        waymark_system_vm::RaisedException,
+    >,
 ) -> Result<proto::WorkflowStreamResponse, Status> {
     let payload: Vec<u8> =
         waymark_vm_value_python_convert_proto::WorkflowOutcomeConverter::try_convert(

@@ -8,4 +8,3 @@ mod support;
 
 mod call_await;
 mod jump;
-mod raise;

@@ -5,22 +5,29 @@
 
 use std::marker::PhantomData;
 
-/// Summarizes the full instruction set's effects, over any value.
+/// Summarizes the full instruction set's effects, over any value and
+/// raised exception.
 ///
-/// The value is only pinned, never held; the summary never carries one.
-pub struct FullSetEffectSummarizer<Value>(PhantomData<fn() -> Value>);
+/// The value and the raised exception are only pinned, never held; the
+/// summary never carries one.
+pub struct FullSetEffectSummarizer<Value, RaisedException>(
+    PhantomData<fn() -> (Value, RaisedException)>,
+);
 
-/// The full instruction set's effect over `Value`.
-type Effect<Value> = waymark_vm_interpreter_fullset::Effect<
+/// The full instruction set's effect over `Value` and `RaisedException`.
+type Effect<Value, RaisedException> = waymark_vm_interpreter_fullset::Effect<
     waymark_vm_interpreter_coreset::Effect<Value>,
     waymark_vm_interpreter_extcallset::Effect<waymark_action_core::ActionRef, Value>,
     core::convert::Infallible,
+    waymark_vm_interpreter_excset::Effect<RaisedException>,
 >;
 
-impl<Value> waymark_observability_events_vm_driver_hooks_core::SummarizeEffect
-    for FullSetEffectSummarizer<Value>
+impl<Value, RaisedException> waymark_observability_events_vm_driver_hooks_core::SummarizeEffect
+    for FullSetEffectSummarizer<Value, RaisedException>
+where
+    RaisedException: waymark_observability_vm_value_display::CaptureRaisedException,
 {
-    type Effect = Effect<Value>;
+    type Effect = Effect<Value, RaisedException>;
     type Summary = waymark_observability_events_payload::vm_driver::EffectSummary;
 
     fn summarize_effect(effect: &Self::Effect) -> Self::Summary {
@@ -28,11 +35,11 @@ impl<Value> waymark_observability_events_vm_driver_hooks_core::SummarizeEffect
             waymark_vm_interpreter_fullset::Effect::CoreSet(
                 waymark_vm_interpreter_coreset::Effect::Complete(_),
             ) => waymark_observability_events_payload::vm_driver::EffectSummary::Complete,
-            waymark_vm_interpreter_fullset::Effect::CoreSet(
-                waymark_vm_interpreter_coreset::Effect::UnhandledException(exception),
+            waymark_vm_interpreter_fullset::Effect::ExcSet(
+                waymark_vm_interpreter_excset::Effect::UnhandledException(exception),
             ) => {
                 waymark_observability_events_payload::vm_driver::EffectSummary::UnhandledException {
-                    exception_type: exception.type_id.clone(),
+                    exception: exception.capture_raised_exception(),
                 }
             }
             waymark_vm_interpreter_fullset::Effect::ExtCallSet(

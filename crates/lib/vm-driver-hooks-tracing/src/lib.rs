@@ -23,34 +23,47 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 /// The type parameters only pin the effect, value and error types the hooks
 /// are declared over; `Tracing` is `Send` and `Sync` regardless of them.
 #[derive_where(Debug, Default)]
-pub struct Tracing<Effect, Value, DriverError>(PhantomData<Parameters<Effect, Value, DriverError>>);
+pub struct Tracing<Effect, Value, RaisedException, DriverError>(
+    PhantomData<Parameters<Effect, Value, RaisedException, DriverError>>,
+);
 
 /// The hooks' type parameters, held as a function pointer type so that
 /// [`Tracing`] stays `Send` and `Sync` whatever they are.
-type Parameters<Effect, Value, DriverError> = fn() -> (Effect, Value, DriverError);
+type Parameters<Effect, Value, RaisedException, DriverError> =
+    fn() -> (Effect, Value, RaisedException, DriverError);
 
-impl<Effect, Value, DriverError> Tracing<Effect, Value, DriverError> {
+impl<Effect, Value, RaisedException, DriverError>
+    Tracing<Effect, Value, RaisedException, DriverError>
+{
     /// Create the logging hooks.
     pub const fn new() -> Self {
         Self(PhantomData)
     }
 }
 
-impl<Effect, Value, DriverError> waymark_vm_driver_hooks::effect_emitted::HasEffect
-    for Tracing<Effect, Value, DriverError>
+impl<Effect, Value, RaisedException, DriverError> waymark_vm_driver_hooks::effect_emitted::HasEffect
+    for Tracing<Effect, Value, RaisedException, DriverError>
 {
     type Effect = Effect;
 }
 
-impl<Effect, Value, DriverError> waymark_vm_driver_hooks::promise_settled::HasValue
-    for Tracing<Effect, Value, DriverError>
+impl<Effect, Value, RaisedException, DriverError> waymark_vm_driver_hooks::promise_settled::HasValue
+    for Tracing<Effect, Value, RaisedException, DriverError>
 {
     type Value = Value;
+}
+
+impl<Effect, Value, RaisedException, DriverError>
+    waymark_vm_driver_hooks::promise_settled::HasRaisedException
+    for Tracing<Effect, Value, RaisedException, DriverError>
+{
+    type RaisedException = RaisedException;
 }
 
 impl<
     Effect,
     Value,
+    RaisedException,
     ExecutionError,
     SnapshotSerializationError,
     SnapshotPersistenceError,
@@ -60,6 +73,7 @@ impl<
     for Tracing<
         Effect,
         Value,
+        RaisedException,
         waymark_vm_driver::Error<
             ExecutionError,
             SnapshotSerializationError,
@@ -78,33 +92,33 @@ impl<
     >;
 }
 
-impl<Effect, Value, DriverError> waymark_vm_driver_hooks::VmStarted
-    for Tracing<Effect, Value, DriverError>
+impl<Effect, Value, RaisedException, DriverError> waymark_vm_driver_hooks::VmStarted
+    for Tracing<Effect, Value, RaisedException, DriverError>
 {
     fn vm_started(&self) {
         tracing::debug!("vm driver started");
     }
 }
 
-impl<Effect, Value, DriverError> waymark_vm_driver_hooks::EffectEmitted
-    for Tracing<Effect, Value, DriverError>
+impl<Effect, Value, RaisedException, DriverError> waymark_vm_driver_hooks::EffectEmitted
+    for Tracing<Effect, Value, RaisedException, DriverError>
 {
     fn effect_emitted(&self, _number: EffectNumber, _effect: &Self::Effect) {}
 }
 
-impl<Effect, Value, DriverError> waymark_vm_driver_hooks::PromiseSettled
-    for Tracing<Effect, Value, DriverError>
+impl<Effect, Value, RaisedException, DriverError> waymark_vm_driver_hooks::PromiseSettled
+    for Tracing<Effect, Value, RaisedException, DriverError>
 {
     fn promise_settled(
         &self,
         _promise_state_id: PromiseStateId,
-        _resolution: &PromiseResolution<Self::Value>,
+        _resolution: &PromiseResolution<Self::Value, Self::RaisedException>,
     ) {
     }
 }
 
-impl<Effect, Value, DriverError> waymark_vm_driver_hooks::SnapshotPersisted
-    for Tracing<Effect, Value, DriverError>
+impl<Effect, Value, RaisedException, DriverError> waymark_vm_driver_hooks::SnapshotPersisted
+    for Tracing<Effect, Value, RaisedException, DriverError>
 {
     fn snapshot_persisted(&self, size_in_bytes: usize) {
         tracing::debug!(size_in_bytes, "vm snapshot persisted");
@@ -114,6 +128,7 @@ impl<Effect, Value, DriverError> waymark_vm_driver_hooks::SnapshotPersisted
 impl<
     Effect,
     Value,
+    RaisedException,
     ExecutionError,
     SnapshotSerializationError,
     SnapshotPersistenceError,
@@ -123,6 +138,7 @@ impl<
     for Tracing<
         Effect,
         Value,
+        RaisedException,
         waymark_vm_driver::Error<
             ExecutionError,
             SnapshotSerializationError,

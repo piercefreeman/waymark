@@ -24,7 +24,6 @@ waymark-action-runtime-metadata = { workspace = true }
 waymark-extcall-reconciler-action-compat = { workspace = true }
 waymark-sleep-compat-python = { workspace = true }
 waymark-transient-sleep-reconciler = { workspace = true }
-waymark-vm-exception-type-ids = { workspace = true }
 waymark-vm-value-python = { workspace = true }
 waymark-vm-value-python-convert-proto = { workspace = true }
 

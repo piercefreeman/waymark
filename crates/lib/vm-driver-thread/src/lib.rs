@@ -41,8 +41,17 @@ pub type HandleFor<Interpreter, Codec, Persister, Effector> = Handle<
 /// starve other async tasks running on the pool.
 ///
 /// Current tracing span is carried over to the driver thread.
-pub fn spawn<Executable, Interpreter, Value, Effector, Persister, Codec, Hooks>(
-    params: driver::Params<Executable, Interpreter, Value, Effector, Persister, Codec, Hooks>,
+pub fn spawn<Executable, Interpreter, Value, RaisedException, Effector, Persister, Codec, Hooks>(
+    params: driver::Params<
+        Executable,
+        Interpreter,
+        Value,
+        RaisedException,
+        Effector,
+        Persister,
+        Codec,
+        Hooks,
+    >,
 ) -> HandleFor<Interpreter, Codec, Persister, Effector>
 where
     // Executable
@@ -51,7 +60,7 @@ where
     Executable::StateId: Copy + PartialEq + serde::Serialize + Send,
     // Interpreter
     Interpreter: waymark_vm_interpreter::Interpreter<
-            Frame = waymark_vm_runtime::FrameFor<Executable, Value>,
+            Frame = waymark_vm_runtime::FrameFor<Executable, Value, RaisedException>,
             Instruction = Executable::Instruction,
         >,
     Interpreter: Send + 'static,
@@ -64,6 +73,7 @@ where
                     Executable::FunctionId,
                     Executable::StateId,
                     Value,
+                    RaisedException,
                 >,
             >,
     Interpreter::Instruction: core::fmt::Debug,
@@ -75,9 +85,19 @@ where
     Value: waymark_vm_runtime_promise_core::Resolvable,
     Value: core::fmt::Debug,
     Value::ReadyValue: core::fmt::Debug + Send,
+    // Raised exception
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+    RaisedException: Clone + Send + 'static,
+    RaisedException: serde::Serialize,
+    RaisedException: core::fmt::Debug,
+    waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize + Send,
     // Effector
     Effector: waymark_vm_driver_core::EffectHandler<Effect = Interpreter::Effect> + Send + 'static,
-    Effector: waymark_vm_driver_core::PromiseSettler<Value = Value::ReadyValue, Ack: Send> + Send,
+    Effector: waymark_vm_driver_core::PromiseSettler<
+            Value = Value::ReadyValue,
+            RaisedException = RaisedException,
+            Ack: Send,
+        > + Send,
     <Effector as waymark_vm_driver_core::EffectHandler>::Error: Send,
     <Effector as waymark_vm_driver_core::PromiseSettler>::Error: Send,
     // Persister
@@ -87,7 +107,7 @@ where
     Codec: waymark_vm_codec_core::SerializerProvider<Ok = ()> + Send + 'static,
     <Codec as waymark_vm_codec_core::SerializerProvider>::Error: Send,
     // Hooks
-    Hooks: driver::HooksFor<Interpreter, Value, Effector, Persister, Codec>,
+    Hooks: driver::HooksFor<Interpreter, Value, RaisedException, Effector, Persister, Codec>,
     Hooks: Send + Sync + 'static,
 {
     let task = waymark_blocking_future::spawn_thread(driver::run(params).in_current_span());

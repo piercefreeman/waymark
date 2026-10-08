@@ -8,24 +8,29 @@ use crate::RegisterId;
 pub struct PopExceptionHandlersError;
 
 /// Frame-local stack of active exception-handler blocks.
+///
+/// Knows nothing about exceptions: whether a raised exception matches a
+/// handler's pattern is supplied by the caller taking a handler.
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ExceptionHandlers<StateId>(Vec<ExceptionHandlerBlock<StateId, RegisterId>>);
+pub struct ExceptionHandlers<StateId, Pattern>(
+    Vec<ExceptionHandlerBlock<StateId, RegisterId, Pattern>>,
+);
 
-impl<StateId> Default for ExceptionHandlers<StateId> {
+impl<StateId, Pattern> Default for ExceptionHandlers<StateId, Pattern> {
     fn default() -> Self {
         Self(Vec::new())
     }
 }
 
-impl<StateId> ExceptionHandlers<StateId> {
+impl<StateId, Pattern> ExceptionHandlers<StateId, Pattern> {
     /// Creates an empty exception-handler stack.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Pushes one exception-handler block as the new innermost active scope.
-    pub fn push(&mut self, handlers: ExceptionHandlerBlock<StateId, RegisterId>) {
+    pub fn push(&mut self, handlers: ExceptionHandlerBlock<StateId, RegisterId, Pattern>) {
         self.0.push(handlers);
     }
 
@@ -40,16 +45,17 @@ impl<StateId> ExceptionHandlers<StateId> {
         Ok(())
     }
 
-    /// Returns the innermost matching handler and unwinds active handler blocks
+    /// Returns the innermost handler whose pattern matches the exception -
+    /// as decided by `pattern_matches` - and unwinds active handler blocks
     /// to the surrounding scope of that handler.
     pub fn take_matching(
         &mut self,
-        type_id: &str,
-    ) -> Option<ExceptionHandler<StateId, RegisterId>> {
+        mut pattern_matches: impl FnMut(&Pattern) -> bool,
+    ) -> Option<ExceptionHandler<StateId, RegisterId, Pattern>> {
         for block_index in (0..self.0.len()).rev() {
             if let Some(handler_index) = self.0[block_index]
                 .iter()
-                .position(|handler| handler.matches(type_id))
+                .position(|handler| pattern_matches(&handler.pattern))
             {
                 let handler = self.0[block_index].remove(handler_index);
                 self.0.truncate(block_index);

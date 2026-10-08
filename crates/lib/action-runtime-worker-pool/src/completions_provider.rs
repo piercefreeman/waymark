@@ -34,11 +34,12 @@ pub enum WorkerPoolCompletionsError<PollError, MetadataDecodeError, PayloadError
 /// Expressed as a projection through the value converter rather than
 /// named concretely: this provider merely propagates that conversion's
 /// failure, whatever it is.
-pub type PayloadConvertErrorFor<ValueConverter, Value> = waymark_convert_core::ConvertErrorFor<
-    ValueConverter,
-    Vec<u8>,
-    waymark_action_runtime_core::ActionCallOutcome<Value>,
->;
+pub type PayloadConvertErrorFor<ValueConverter, Value, RaisedException> =
+    waymark_convert_core::ConvertErrorFor<
+        ValueConverter,
+        Vec<u8>,
+        waymark_action_runtime_core::ActionCallOutcome<Value, RaisedException>,
+    >;
 
 /// Provides action outcomes by polling a
 /// [`waymark_worker_core::PollActionResults`].
@@ -53,16 +54,22 @@ pub type PayloadConvertErrorFor<ValueConverter, Value> = waymark_convert_core::C
 /// writer feeding the demand poller) instantiate with a
 /// [`WithVmId`](waymark_action_runtime_metadata::WithVmId)-wrapped metadata
 /// and recover the owning VM from it.
-pub struct WorkerPoolActionCallCompletionsProvider<Pool, Metadata, Value, ValueConverter> {
+pub struct WorkerPoolActionCallCompletionsProvider<
+    Pool,
+    Metadata,
+    Value,
+    RaisedException,
+    ValueConverter,
+> {
     /// The worker pool to poll for completed actions.
     pub pool: Pool,
 
     /// Phantom data for the type parameters the provider only relays.
-    pub _phantom: PhantomData<(Metadata, Value, ValueConverter)>,
+    pub _phantom: PhantomData<(Metadata, Value, RaisedException, ValueConverter)>,
 }
 
-impl<Pool, Metadata, Value, ValueConverter>
-    WorkerPoolActionCallCompletionsProvider<Pool, Metadata, Value, ValueConverter>
+impl<Pool, Metadata, Value, RaisedException, ValueConverter>
+    WorkerPoolActionCallCompletionsProvider<Pool, Metadata, Value, RaisedException, ValueConverter>
 {
     /// Create a new completions provider backed by the given worker pool.
     pub fn new(pool: Pool) -> Self {
@@ -73,22 +80,37 @@ impl<Pool, Metadata, Value, ValueConverter>
     }
 }
 
-impl<Pool, Metadata, Value, ValueConverter>
+impl<Pool, Metadata, Value, RaisedException, ValueConverter>
     waymark_action_runtime_core::ActionCallCompletionsProvider
-    for WorkerPoolActionCallCompletionsProvider<Pool, Metadata, Value, ValueConverter>
+    for WorkerPoolActionCallCompletionsProvider<
+        Pool,
+        Metadata,
+        Value,
+        RaisedException,
+        ValueConverter,
+    >
 where
     Pool: waymark_worker_core::PollActionResults + Send + Sync + 'static,
     Pool::Error: core::fmt::Debug,
     Metadata: Decode + Send + Sync + 'static,
     Metadata::Error: core::fmt::Display,
     Value: Send + Sync,
-    ValueConverter:
-        TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<Value>> + Send + Sync,
-    PayloadConvertErrorFor<ValueConverter, Value>: core::fmt::Debug,
+    RaisedException: Send + Sync,
+    ValueConverter: TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<Value, RaisedException>>
+        + Send
+        + Sync,
+    PayloadConvertErrorFor<ValueConverter, Value, RaisedException>: core::fmt::Debug,
 {
     type Value = Value;
+    type RaisedException = RaisedException;
     type ActionExecutionError = waymark_action_runtime_core::ActionCallLossError;
-    type WaitError = WorkerPoolCompletionsErrorFor<Pool::Error, Metadata, Value, ValueConverter>;
+    type WaitError = WorkerPoolCompletionsErrorFor<
+        Pool::Error,
+        Metadata,
+        Value,
+        RaisedException,
+        ValueConverter,
+    >;
     type Metadata = Metadata;
 
     async fn wait_for_completions(
@@ -106,7 +128,15 @@ where
 
             let vec: Vec<_> = completions
                 .into_iter()
-                .map(resolve_execution::<Pool::Error, Metadata, Value, ValueConverter>)
+                .map(
+                    resolve_execution::<
+                        Pool::Error,
+                        Metadata,
+                        Value,
+                        RaisedException,
+                        ValueConverter,
+                    >,
+                )
                 .collect::<Result<_, _>>()?;
 
             let Some(nevec) = NEVec::try_from_vec(vec) else {
@@ -120,12 +150,17 @@ where
 
 /// The [`WorkerPoolCompletionsError`] of a provider over the given pool
 /// error, metadata, and value converter.
-pub type WorkerPoolCompletionsErrorFor<PollError, Metadata, Value, ValueConverter> =
-    WorkerPoolCompletionsError<
-        PollError,
-        <Metadata as Decode>::Error,
-        PayloadConvertErrorFor<ValueConverter, Value>,
-    >;
+pub type WorkerPoolCompletionsErrorFor<
+    PollError,
+    Metadata,
+    Value,
+    RaisedException,
+    ValueConverter,
+> = WorkerPoolCompletionsError<
+    PollError,
+    <Metadata as Decode>::Error,
+    PayloadConvertErrorFor<ValueConverter, Value, RaisedException>,
+>;
 
 /// Convert a finished execution into an [`ActionCallCompletion`] by
 /// decoding the correlation metadata from the echoed `metadata` bytes
@@ -151,16 +186,17 @@ pub type WorkerPoolCompletionsErrorFor<PollError, Metadata, Value, ValueConverte
     clippy::type_complexity,
     reason = "already factored through WorkerPoolCompletionsErrorFor"
 )]
-fn resolve_execution<PollError, Metadata, Value, ValueConverter>(
+fn resolve_execution<PollError, Metadata, Value, RaisedException, ValueConverter>(
     report: waymark_worker_core::ActionExecutionReport,
 ) -> Result<
-    ActionCallCompletion<Metadata, Value, ActionCallLossError>,
-    WorkerPoolCompletionsErrorFor<PollError, Metadata, Value, ValueConverter>,
+    ActionCallCompletion<Metadata, Value, RaisedException, ActionCallLossError>,
+    WorkerPoolCompletionsErrorFor<PollError, Metadata, Value, RaisedException, ValueConverter>,
 >
 where
     Metadata: Decode,
     Metadata::Error: core::fmt::Display,
-    ValueConverter: TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<Value>>,
+    ValueConverter:
+        TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<Value, RaisedException>>,
 {
     let (metadata_bytes, execution_result) = match report {
         waymark_worker_core::ActionExecutionReport::Completed(result) => {
@@ -235,6 +271,7 @@ mod tests {
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
             waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python::RaisedException,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >(waymark_worker_core::ActionExecutionReport::Lost(
             waymark_worker_core::ActionExecutionLoss {
@@ -265,6 +302,7 @@ mod tests {
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
             waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python::RaisedException,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >(waymark_worker_core::ActionExecutionReport::Completed(
             completion(Vec::new()),
@@ -288,6 +326,7 @@ mod tests {
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
             waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python::RaisedException,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >(waymark_worker_core::ActionExecutionReport::Completed(
             completion(encoded),

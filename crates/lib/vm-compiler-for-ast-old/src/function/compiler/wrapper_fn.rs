@@ -20,8 +20,9 @@ use super::env::LocalFrame;
 use super::suspend::PromiseMarker;
 use super::{Error, ErrorFor};
 
-/// The exception type id raised when a per-attempt timeout fires.
-const ACTION_TIMEOUT_TYPE_ID: &str = waymark_vm_exception_type_ids::ACTION_TIMEOUT;
+/// The exception type id raised when a per-attempt timeout fires, as a
+/// retry bracket lists it.
+const ACTION_TIMEOUT_TYPE_ID: &str = "ActionTimeout";
 
 /// One digested retry bracket.
 struct RetryPlan {
@@ -230,35 +231,20 @@ where
     emitter.emit_return(result_register);
 
     emitter.switch_to(resume_on_timeout);
-    emit_action_timeout_raise::<Spec, Lowering>(emitter, local_frame)?;
+    emit_action_timeout_raise::<Spec, Lowering>(emitter);
 
     Ok(())
 }
 
-/// Emits the construction and raise of the `ActionTimeout` exception.
-fn emit_action_timeout_raise<Spec, Lowering>(
-    emitter: &mut FunctionEmitter<Spec>,
-    local_frame: &mut LocalFrame,
-) -> Result<(), ErrorFor<Spec, Lowering>>
+/// Emits the raise of the `ActionTimeout` exception.
+fn emit_action_timeout_raise<Spec, Lowering>(emitter: &mut FunctionEmitter<Spec>)
 where
     Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
     Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
 {
-    let type_id_value =
-        Lowering::lower_literal(&Literal::String(ACTION_TIMEOUT_TYPE_ID.to_owned()))
-            .map_err(Error::LiteralLowering)?;
-    let type_id_register = local_frame.allocate_register();
-    emitter.emit_load_const(type_id_register, type_id_value);
-
-    let details_value = Lowering::lower_literal(&Literal::None).map_err(Error::LiteralLowering)?;
-    let details_register = local_frame.allocate_register();
-    emitter.emit_load_const(details_register, details_value);
-
-    let exception_register = local_frame.allocate_register();
-    emitter.emit_make_exception(exception_register, type_id_register, details_register);
-    emitter.emit_raise(exception_register);
-
-    Ok(())
+    emitter.emit_raise_const(Lowering::lower_compiler_emitted_exception(
+        &waymark_vm_compiler_for_ast_old_core::lowering::CompilerEmittedException::ActionTimeout,
+    ));
 }
 
 /// Emits the retrying wrapper body: an attempt loop with the retry brackets
@@ -318,7 +304,7 @@ where
         .map(
             |(retry_plan, handler_state)| waymark_vm_exception_handler::ExceptionHandler {
                 handler_state,
-                exception_types: retry_plan.exception_types.clone(),
+                pattern: Lowering::lower_exception_pattern(&retry_plan.exception_types),
                 exception_dst: Some(exception_register),
             },
         )
@@ -408,10 +394,10 @@ where
                         max_register,
                     );
                     emitter.emit_jump_if(retry_states[position], cond_register);
-                    emit_action_timeout_raise::<Spec, Lowering>(emitter, local_frame)?;
+                    emit_action_timeout_raise::<Spec, Lowering>(emitter);
                 }
                 None => {
-                    emit_action_timeout_raise::<Spec, Lowering>(emitter, local_frame)?;
+                    emit_action_timeout_raise::<Spec, Lowering>(emitter);
                 }
             }
         }
@@ -544,10 +530,7 @@ mod tests {
         s3:
           CoreSet(Return { src: r4 })
         s4:
-          PureSet(LoadConst { dst: r6, value: String("ActionTimeout") })
-          PureSet(LoadConst { dst: r7, value: None })
-          PureSet(MakeException { dst: r8, type_id: r6, details: r7 })
-          CoreSet(Raise { src: r8 })
+          ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
         "#);
     }
 
@@ -569,10 +552,7 @@ mod tests {
         s3:
           CoreSet(Return { src: r3 })
         s4:
-          PureSet(LoadConst { dst: r5, value: String("ActionTimeout") })
-          PureSet(LoadConst { dst: r6, value: None })
-          PureSet(MakeException { dst: r7, type_id: r5, details: r6 })
-          CoreSet(Raise { src: r7 })
+          ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
         "#
         );
     }
@@ -599,20 +579,20 @@ mod tests {
           PureSet(LoadConst { dst: r2, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r3) }] })
           ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("notify"), args: [r0], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r6, value: Int(2) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r7, a: r1, b: r6 } })
           CoreSet(JumpIf { target_state: s3, cond: r7 })
-          CoreSet(Raise { src: r3 })
+          ExcSet(Raise { src: r3 })
         s3:
           PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
           CoreSet(Jump { target_state: s1 })
         s4:
           CoreSet(Await { dst: r5, src: r4, resume: s5 })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          ExcSet(PopExceptionHandlers { count: 1 })
           CoreSet(Return { src: r5 })
         "#
         );
@@ -628,13 +608,13 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r5, value: Int(2) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r0, b: r5 } })
           CoreSet(JumpIf { target_state: s3, cond: r6 })
-          CoreSet(Raise { src: r2 })
+          ExcSet(Raise { src: r2 })
         s3:
           PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
           PureSet(LoadConst { dst: r7, value: Int(5) })
@@ -642,7 +622,7 @@ mod tests {
         s4:
           CoreSet(Await { dst: r4, src: r3, resume: s5 })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          ExcSet(PopExceptionHandlers { count: 1 })
           CoreSet(Return { src: r4 })
         s6:
           CoreSet(Await { dst: r9, src: r8, resume: s7 })
@@ -668,18 +648,18 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }, ExceptionHandler { handler_state: s3, exception_types: ["ValueError"], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r2) }, ExceptionHandler { handler_state: s3, pattern: ["ValueError"], exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s6 })
         s2:
           PureSet(LoadConst { dst: r5, value: Int(3) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r0, b: r5 } })
           CoreSet(JumpIf { target_state: s4, cond: r6 })
-          CoreSet(Raise { src: r2 })
+          ExcSet(Raise { src: r2 })
         s3:
           PureSet(LoadConst { dst: r5, value: Int(1) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r0, b: r5 } })
           CoreSet(JumpIf { target_state: s5, cond: r6 })
-          CoreSet(Raise { src: r2 })
+          ExcSet(Raise { src: r2 })
         s4:
           PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
           CoreSet(Jump { target_state: s1 })
@@ -689,7 +669,7 @@ mod tests {
         s6:
           CoreSet(Await { dst: r4, src: r3, resume: s7 })
         s7:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          ExcSet(PopExceptionHandlers { count: 1 })
           CoreSet(Return { src: r4 })
         "#
         );
@@ -705,20 +685,20 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r5, value: Int(1) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r0, b: r5 } })
           CoreSet(JumpIf { target_state: s3, cond: r6 })
-          CoreSet(Raise { src: r2 })
+          ExcSet(Raise { src: r2 })
         s3:
           PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
           CoreSet(Jump { target_state: s1 })
         s4:
           CoreSet(Await { dst: r4, src: r3, resume: s5 })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          ExcSet(PopExceptionHandlers { count: 1 })
           CoreSet(Return { src: r4 })
         "#
         );
@@ -734,13 +714,13 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r8, value: Int(2) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r9, a: r0, b: r8 } })
           CoreSet(JumpIf { target_state: s3, cond: r9 })
-          CoreSet(Raise { src: r2 })
+          ExcSet(Raise { src: r2 })
         s3:
           PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
           CoreSet(Jump { target_state: s1 })
@@ -748,16 +728,13 @@ mod tests {
           PureSet(LoadConst { dst: r4, value: Int(30) })
           ExtCallSet(Sleep { dst: r5, duration: r4, resume: s6, unskippable: true })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          ExcSet(PopExceptionHandlers { count: 1 })
           CoreSet(Return { src: r6 })
         s6:
           CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
         s7:
-          CoreSet(PopExceptionHandlers { count: 1 })
-          PureSet(LoadConst { dst: r10, value: String("ActionTimeout") })
-          PureSet(LoadConst { dst: r11, value: None })
-          PureSet(MakeException { dst: r12, type_id: r10, details: r11 })
-          CoreSet(Raise { src: r12 })
+          ExcSet(PopExceptionHandlers { count: 1 })
+          ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
         "#
         );
     }
@@ -778,13 +755,13 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ActionTimeout"], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["ActionTimeout"], exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r8, value: Int(2) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r9, a: r0, b: r8 } })
           CoreSet(JumpIf { target_state: s3, cond: r9 })
-          CoreSet(Raise { src: r2 })
+          ExcSet(Raise { src: r2 })
         s3:
           PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
           CoreSet(Jump { target_state: s1 })
@@ -792,19 +769,16 @@ mod tests {
           PureSet(LoadConst { dst: r4, value: Int(30) })
           ExtCallSet(Sleep { dst: r5, duration: r4, resume: s6, unskippable: true })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          ExcSet(PopExceptionHandlers { count: 1 })
           CoreSet(Return { src: r6 })
         s6:
           CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
         s7:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          ExcSet(PopExceptionHandlers { count: 1 })
           PureSet(LoadConst { dst: r8, value: Int(2) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r9, a: r0, b: r8 } })
           CoreSet(JumpIf { target_state: s3, cond: r9 })
-          PureSet(LoadConst { dst: r10, value: String("ActionTimeout") })
-          PureSet(LoadConst { dst: r11, value: None })
-          PureSet(MakeException { dst: r12, type_id: r10, details: r11 })
-          CoreSet(Raise { src: r12 })
+          ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
         "#
         );
     }

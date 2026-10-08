@@ -6,19 +6,15 @@ use waymark_vm_instructions_extcallset::ExtCallSet;
 use waymark_vm_interpreter_fullset::Effect;
 use waymark_vm_runtime::RunError;
 use waymark_vm_runtime_core::RegisterId;
-use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_test::{StateId, executable, function};
 
 use crate::support::{
-    Instruction, TestActionRef, TestReadyValue, new_runtime, new_runtime_with_args,
+    Instruction, TestActionRef, TestEffect, TestException, TestReadyValue, TestValue, new_runtime,
+    new_runtime_with_args,
 };
 
 fn action_call_promise_state_id(
-    effect: Effect<
-        waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
-        waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
-        core::convert::Infallible,
-    >,
+    effect: TestEffect,
 ) -> waymark_vm_runtime_promise_core::PromiseStateId {
     match effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
@@ -29,13 +25,7 @@ fn action_call_promise_state_id(
     }
 }
 
-fn completed_value(
-    effect: Effect<
-        waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
-        waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
-        core::convert::Infallible,
-    >,
-) -> TestReadyValue {
+fn completed_value(effect: TestEffect) -> TestReadyValue {
     match effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => value,
         other => panic!("expected the program to complete: {other:?}"),
@@ -140,9 +130,9 @@ fn select_delivers_rejections_by_raising_at_the_arm() {
     runtime
         .reject_promise(
             first_promise,
-            Exception {
+            TestException {
                 type_id: "ValueError".to_owned(),
-                details: TestReadyValue::Int(41),
+                details: TestValue::Ready(TestReadyValue::Int(41)),
             },
         )
         .expect("first source should reject cleanly");
@@ -151,7 +141,7 @@ fn select_delivers_rejections_by_raising_at_the_arm() {
         .run()
         .expect("the raised arm should surface the exception");
     match emitted_effect.effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::UnhandledException(exception)) => {
+        Effect::ExcSet(waymark_vm_interpreter_excset::Effect::UnhandledException(exception)) => {
             assert_eq!(exception.type_id, "ValueError");
         }
         other => panic!("expected an unhandled exception: {other:?}"),

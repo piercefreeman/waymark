@@ -6,7 +6,6 @@ publish.workspace = true
 
 [dependencies]
 waymark-action-core = { workspace = true }
-waymark-vm-runtime-exception = { workspace = true }
 
 nonempty-collections = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
@@ -14,7 +13,7 @@ serde = { workspace = true, optional = true, features = ["derive"] }
 [features]
 default = []
 
-serde = ["dep:serde", "serde/derive", "waymark-vm-runtime-exception/serde"]
+serde = ["dep:serde", "serde/derive"]
 
 [lib]
 doctest = false

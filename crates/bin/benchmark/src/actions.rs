@@ -17,7 +17,7 @@ where
     Fut: Future<
             Output = Result<
                 waymark_vm_value_python::ReadyValue,
-                waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
+                waymark_vm_value_python::RaisedException,
             >,
         > + Send
         + 'static,
@@ -28,23 +28,25 @@ where
         _,
         _,
         _,
+        _,
     >(body)
 }
 
 /// The exception an action raises for a malformed call.
-fn action_error(message: &str) -> waymark_vm_runtime_exception::Exception<ReadyValue> {
-    waymark_vm_runtime_exception::Exception {
+fn action_error(message: &str) -> waymark_vm_value_python::Exception {
+    waymark_vm_value_python::Exception {
         type_id: "ActionError".to_owned(),
-        details: ReadyValue::Dict(indexmap::IndexMap::from([(
+        mro_type_ids: vec!["Exception".to_owned(), "BaseException".to_owned()],
+        details: Value::Ready(ReadyValue::Dict(indexmap::IndexMap::from([(
             "message".to_owned(),
             Value::Ready(ReadyValue::String(message.to_owned())),
-        )])),
+        )]))),
     }
 }
 
 async fn action_double(
     kwargs: HashMap<String, ReadyValue>,
-) -> Result<ReadyValue, waymark_vm_runtime_exception::Exception<ReadyValue>> {
+) -> Result<ReadyValue, waymark_vm_value_python::RaisedException> {
     let Some(ReadyValue::Int(value)) = kwargs.get("value") else {
         return Err(action_error("double expects integer value"));
     };
@@ -53,7 +55,7 @@ async fn action_double(
 
 async fn action_sum(
     kwargs: HashMap<String, ReadyValue>,
-) -> Result<ReadyValue, waymark_vm_runtime_exception::Exception<ReadyValue>> {
+) -> Result<ReadyValue, waymark_vm_value_python::RaisedException> {
     let Some(ReadyValue::List(values)) = kwargs.get("values") else {
         return Err(action_error("sum expects list of integers"));
     };

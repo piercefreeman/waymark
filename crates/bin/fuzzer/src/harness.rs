@@ -20,7 +20,7 @@ where
     Fut: Future<
             Output = Result<
                 waymark_vm_value_python::ReadyValue,
-                waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
+                waymark_vm_value_python::RaisedException,
             >,
         > + Send
         + 'static,
@@ -28,6 +28,7 @@ where
     inline_action::<
         waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
         waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
+        _,
         _,
         _,
         _,
@@ -172,46 +173,38 @@ fn action_registry() -> HashMap<String, InlineActionCallable> {
 }
 
 /// The exception an action raises for a malformed call.
-fn action_error(
-    message: String,
-) -> waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue> {
-    waymark_vm_runtime_exception::Exception {
+fn action_error(message: String) -> waymark_vm_value_python::Exception {
+    waymark_vm_value_python::Exception {
         type_id: "ActionError".to_owned(),
-        details: waymark_vm_value_python::ReadyValue::Dict(indexmap::IndexMap::from([(
-            "message".to_owned(),
-            waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::String(
-                message,
-            )),
-        )])),
+        mro_type_ids: vec!["Exception".to_owned(), "BaseException".to_owned()],
+        details: waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::Dict(
+            indexmap::IndexMap::from([(
+                "message".to_owned(),
+                waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::String(
+                    message,
+                )),
+            )]),
+        )),
     }
 }
 
 async fn action_inc(
     kwargs: HashMap<String, waymark_vm_value_python::ReadyValue>,
-) -> Result<
-    waymark_vm_value_python::ReadyValue,
-    waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
-> {
+) -> Result<waymark_vm_value_python::ReadyValue, waymark_vm_value_python::RaisedException> {
     let value = get_i64(&kwargs, "value")?;
     Ok(waymark_vm_value_python::ReadyValue::Int(value + 1))
 }
 
 async fn action_double(
     kwargs: HashMap<String, waymark_vm_value_python::ReadyValue>,
-) -> Result<
-    waymark_vm_value_python::ReadyValue,
-    waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
-> {
+) -> Result<waymark_vm_value_python::ReadyValue, waymark_vm_value_python::RaisedException> {
     let value = get_i64(&kwargs, "value")?;
     Ok(waymark_vm_value_python::ReadyValue::Int(value * 2))
 }
 
 async fn action_sum(
     kwargs: HashMap<String, waymark_vm_value_python::ReadyValue>,
-) -> Result<
-    waymark_vm_value_python::ReadyValue,
-    waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>,
-> {
+) -> Result<waymark_vm_value_python::ReadyValue, waymark_vm_value_python::RaisedException> {
     let Some(waymark_vm_value_python::ReadyValue::List(values)) = kwargs.get("values") else {
         return Err(action_error("sum expects list input".to_owned()));
     };
@@ -230,7 +223,7 @@ async fn action_sum(
 fn get_i64(
     kwargs: &HashMap<String, waymark_vm_value_python::ReadyValue>,
     key: &str,
-) -> Result<i64, waymark_vm_runtime_exception::Exception<waymark_vm_value_python::ReadyValue>> {
+) -> Result<i64, waymark_vm_value_python::RaisedException> {
     match kwargs.get(key) {
         Some(waymark_vm_value_python::ReadyValue::Int(value)) => Ok(*value),
         _ => Err(action_error(format!("missing integer '{key}'"))),

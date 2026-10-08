@@ -7,5 +7,4 @@ publish.workspace = true
 [dependencies]
 waymark-action-runtime-core = { workspace = true }
 waymark-convert-core = { workspace = true }
-waymark-vm-runtime-exception = { workspace = true }
 waymark-worker-inline = { workspace = true }

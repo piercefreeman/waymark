@@ -6,7 +6,6 @@ publish.workspace = true
 
 [dependencies]
 waymark-blanket-impl-macros = { workspace = true }
-waymark-vm-exception-type-ids = { workspace = true }
 waymark-vm-instructions-pureset = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
 waymark-vm-interpreter-utils = { workspace = true }

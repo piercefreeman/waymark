@@ -17,17 +17,20 @@ pub use self::value::Value;
 
 /// An interpreter for the "core" instructions set.
 #[derive_where(Default)]
-pub struct CoreSetInterpreter<Spec, Executable, Value> {
-    phantom_data: core::marker::PhantomData<(Spec, Executable, Value)>,
+pub struct CoreSetInterpreter<Spec, Executable, Value, RaisedException> {
+    phantom_data: core::marker::PhantomData<(Spec, Executable, Value, RaisedException)>,
 }
 
 /// The runtime view for the [`CoreSetInterpreter`].
-pub struct RuntimeView<'r, Executable, FunctionId, StateId, Value> {
+pub struct RuntimeView<'r, Executable, FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     /// The executable access.
     pub executable: &'r Executable,
 
     /// The runtime state access.
-    pub state: &'r mut RuntimeState<FunctionId, StateId, Value>,
+    pub state: &'r mut RuntimeState<FunctionId, StateId, Value, RaisedException>,
 }
 
 /// The effect for the [`CoreSetInterpreter`].
@@ -35,82 +38,17 @@ pub struct RuntimeView<'r, Executable, FunctionId, StateId, Value> {
 pub enum Effect<Value> {
     /// Program execution is complete.
     Complete(Value),
-
-    /// Program execution terminated with an unhandled exception.
-    UnhandledException(waymark_vm_runtime_exception::Exception<Value>),
 }
 
-type FrameFor<Spec, Value> = Frame<
+type FrameFor<Spec, Value, RaisedException> = Frame<
     <Spec as waymark_vm_instructions_coreset::Spec>::FunctionId,
     <Spec as waymark_vm_instructions_coreset::Spec>::StateId,
     Value,
+    RaisedException,
 >;
 
-type EffectFor<Value> = Effect<<Value as waymark_vm_runtime_promise_core::Resolvable>::ReadyValue>;
-
-impl<Spec, Executable, Value> CoreSetInterpreter<Spec, Executable, Value>
-where
-    Spec: waymark_vm_instructions_coreset::Spec,
-    Spec::StateId: Copy,
-    Value: self::Value,
-    Value: Clone,
-    Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
-    Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,
-    Value: waymark_vm_runtime_promise_core::Suspendable,
-    Value: waymark_vm_runtime_promise_core::Resolvable,
-    Value::ReadyValue: Clone,
-{
-    fn bubble_exception(
-        state: &mut RuntimeState<Spec::FunctionId, Spec::StateId, Value>,
-        mut frame: Frame<Spec::FunctionId, Spec::StateId, Value>,
-    ) -> Result<ExecutionOutcome<FrameFor<Spec, Value>, EffectFor<Value>>, FnExitError> {
-        let Some(exception) = frame.exception.take() else {
-            return Ok(ExecutionOutcome::Continue(frame));
-        };
-
-        if let Some(handler) = frame
-            .exception_handler_blocks
-            .take_matching(&exception.type_id)
-        {
-            if let Some(dst) = handler.exception_dst {
-                frame.regs.set(dst, Value::from_exception(exception));
-            }
-            frame.state = handler.handler_state;
-            return Ok(ExecutionOutcome::Continue(frame));
-        }
-
-        Ok(match frame.kind {
-            FrameKind::FnCall { ret } => {
-                state
-                    .reject_promise(ret, exception)
-                    .map_err(|error| match error {
-                        waymark_vm_runtime_core::SettlePromiseError::PromiseStateNotFound(_) => {
-                            ReturnFnCallError::ReturnPromiseNotFound
-                        }
-                        waymark_vm_runtime_core::SettlePromiseError::AlreadySettled(_) => {
-                            ReturnFnCallError::ReturnPromiseAlreadySettled
-                        }
-                    })
-                    .map_err(FnExitError::FnCall)?;
-                ExecutionOutcome::ExitFrame
-            }
-            FrameKind::TopLevel => {
-                let waymark_vm_runtime_exception::Exception { type_id, details } = exception;
-
-                let details = details
-                    .into_ready()
-                    .map_err(|(error, _)| FnExitError::TopLevel(error))?;
-
-                let exception = waymark_vm_runtime_exception::Exception { type_id, details };
-
-                ExecutionOutcome::ExitFrameWithEffect(Effect::UnhandledException(exception))
-            }
-        })
-    }
-}
-
-impl<Spec, Executable, Value> waymark_vm_interpreter::Interpreter
-    for CoreSetInterpreter<Spec, Executable, Value>
+impl<Spec, Executable, Value, RaisedException> waymark_vm_interpreter::Interpreter
+    for CoreSetInterpreter<Spec, Executable, Value, RaisedException>
 where
     Executable: 'static,
     Executable: waymark_vm_executable::FunctionInfo<FunctionId = Spec::FunctionId>,
@@ -119,56 +57,26 @@ where
     Spec::StateId: Copy + Default,
     Value: self::Value,
     Value: Clone,
-    Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
-    Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,
     Value: waymark_vm_runtime_promise_core::Suspendable,
     Value: waymark_vm_runtime_promise_core::Resolvable,
     Value::ReadyValue: Clone,
     Value: 'static,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+    RaisedException: Clone + 'static,
 {
-    type RuntimeView<'r> = RuntimeView<'r, Executable, Spec::FunctionId, Spec::StateId, Value>;
-    type Frame = Frame<Spec::FunctionId, Spec::StateId, Value>;
+    type RuntimeView<'r> =
+        RuntimeView<'r, Executable, Spec::FunctionId, Spec::StateId, Value, RaisedException>;
+    type Frame = FrameFor<Spec, Value, RaisedException>;
     type Instruction = waymark_vm_instructions_coreset::CoreSet<Spec>;
     type Error = Error<Spec>;
     type Effect = Effect<Value::ReadyValue>;
 
-    fn enter_state<'r>(
-        &self,
-        runtime_view: Self::RuntimeView<'r>,
-        frame: Frame<Spec::FunctionId, Spec::StateId, Value>,
-    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
-        let Self::RuntimeView { state, .. } = runtime_view;
-
-        if frame.exception.is_none() {
-            return Ok(ExecutionOutcome::Continue(frame));
-        }
-
-        Self::bubble_exception(state, frame).map_err(Error::BubbleException)
-    }
-
-    fn after_execute<'r>(
-        &self,
-        runtime_view: Self::RuntimeView<'r>,
-        frame: Frame<Spec::FunctionId, Spec::StateId, Value>,
-    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
-        let Self::RuntimeView { state, .. } = runtime_view;
-
-        if frame.exception.is_none() {
-            return Ok(ExecutionOutcome::Continue(frame));
-        }
-
-        Self::bubble_exception(state, frame).map_err(Error::BubbleException)
-    }
-
     fn execute<'r>(
         &self,
         runtime_view: Self::RuntimeView<'r>,
-        mut frame: Frame<Spec::FunctionId, Spec::StateId, Value>,
+        mut frame: Self::Frame,
         instruction: &Self::Instruction,
-    ) -> Result<
-        ExecutionOutcome<Frame<Spec::FunctionId, Spec::StateId, Value>, Self::Effect>,
-        Self::Error,
-    > {
+    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
         let Self::RuntimeView { executable, state } = runtime_view;
 
         match instruction {
@@ -326,16 +234,6 @@ where
                 }
                 return Ok(ExecutionOutcome::ExitFrame);
             }
-            waymark_vm_instructions_coreset::CoreSet::PushExceptionHandlers { handlers } => {
-                frame.exception_handler_blocks.push(handlers.clone());
-            }
-            waymark_vm_instructions_coreset::CoreSet::PopExceptionHandlers { count } => {
-                frame
-                    .exception_handler_blocks
-                    .pop(*count)
-                    .map_err(ExceptionHandlersError::Pop)
-                    .map_err(Error::ExceptionHandlers)?;
-            }
             waymark_vm_instructions_coreset::CoreSet::Jump { target_state } => {
                 frame.state = *target_state;
             }
@@ -350,16 +248,6 @@ where
                 if should_jump {
                     frame.state = *target_state;
                 }
-            }
-            waymark_vm_instructions_coreset::CoreSet::Raise { src } => {
-                let exception = frame.regs[*src]
-                    .clone()
-                    .into_exception()
-                    .map_err(|_| RaiseError::SourceNotException)
-                    .map_err(Error::Raise)?;
-                frame.exception = Some(exception);
-
-                return Self::bubble_exception(state, frame).map_err(Error::BubbleException);
             }
             waymark_vm_instructions_coreset::CoreSet::Return { src } => {
                 let val = frame.regs[*src].clone();
@@ -397,11 +285,20 @@ where
     }
 }
 
-impl<'s, 'r, Executable, FunctionId, StateId, Value>
+impl<'s, 'r, Executable, FunctionId, StateId, Value, RaisedException>
     waymark_vm_runtime_view_capture::CaptureRuntimeView<
         's,
-        waymark_vm_runtime_core::FullRuntimeView<'r, Executable, FunctionId, StateId, Value>,
-    > for RuntimeView<'s, Executable, FunctionId, StateId, Value>
+        waymark_vm_runtime_core::FullRuntimeView<
+            'r,
+            Executable,
+            FunctionId,
+            StateId,
+            Value,
+            RaisedException,
+        >,
+    > for RuntimeView<'s, Executable, FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
 {
     fn capture_runtime_view(
         source: &'s mut waymark_vm_runtime_core::FullRuntimeView<
@@ -410,6 +307,7 @@ impl<'s, 'r, Executable, FunctionId, StateId, Value>
             FunctionId,
             StateId,
             Value,
+            RaisedException,
         >,
     ) -> Self {
         RuntimeView {

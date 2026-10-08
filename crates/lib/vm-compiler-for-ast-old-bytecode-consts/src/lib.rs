@@ -1,11 +1,14 @@
-//! Const value for [`waymark_vm_ast_old`].
+//! The constants the compiler embeds in the bytecode for
+//! [`waymark_vm_ast_old`]: values and exceptions.
 //!
 //! Provides lowering from the [`waymark_vm_ast_old::Literal`] and
-//! binding to [`waymark_vm_value_python::Value`].
+//! binding to [`waymark_vm_value_python::Value`] and
+//! [`waymark_vm_value_python::RaisedException`].
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 use typed_floats::NonNaNFinite;
+use waymark_vm_value_python::exception::ClassSpec;
 
 /// A subset of [`waymark_vm_value_python::Value`] that can be lowered from
 /// the [`waymark_vm_ast_old::Literal`].
@@ -36,6 +39,74 @@ impl From<&ConstValue> for waymark_vm_value_python::ReadyValue {
             ConstValue::Bool(value) => Self::Bool(*value),
             ConstValue::String(value) => Self::String(value.clone()),
             ConstValue::None => Self::None,
+        }
+    }
+}
+
+/// A [`waymark_vm_value_python::RaisedException`] as the bytecode embeds
+/// one for the compiler's own raises: the class and a const details value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ConstException {
+    /// The name of the raised class.
+    pub type_id: String,
+
+    /// The names of the raised class's bases in method-resolution order,
+    /// most-derived first, `object` excluded.
+    pub mro_type_ids: Vec<String>,
+
+    /// The details raised alongside.
+    pub details: ConstValue,
+}
+
+/// What a handler lists in the bytecode: the class names an `except`
+/// clause lists, none for a bare `except:`.
+pub type ConstExceptionPattern = Vec<String>;
+
+/// Lowers the class names an `except` clause lists into the bytecode's
+/// handler pattern.
+pub fn lower_exception_pattern(class_names: &[String]) -> ConstExceptionPattern {
+    class_names.to_vec()
+}
+
+impl ConstException {
+    /// Lowers one of the compiler's own raises into the exception the
+    /// bytecode embeds: the Python class it maps to, with no details.
+    pub fn lower(
+        exception: &waymark_vm_compiler_for_ast_old_core::lowering::CompilerEmittedException,
+    ) -> Self {
+        use waymark_vm_compiler_for_ast_old_core::lowering::CompilerEmittedException;
+        use waymark_vm_value_python::exception::classes;
+
+        let class = match exception {
+            CompilerEmittedException::UnpackMismatch => classes::VALUE_ERROR,
+            CompilerEmittedException::ActionTimeout => classes::ACTION_TIMEOUT,
+        };
+        Self::new(class, ConstValue::None)
+    }
+
+    /// An instance of the class carrying the given const details.
+    pub fn new(class: ClassSpec, details: ConstValue) -> Self {
+        Self {
+            type_id: class.type_id.to_owned(),
+            mro_type_ids: class
+                .mro_type_ids
+                .iter()
+                .map(|type_id| (*type_id).to_owned())
+                .collect(),
+            details,
+        }
+    }
+}
+
+impl From<&ConstException> for waymark_vm_value_python::RaisedException {
+    fn from(exception: &ConstException) -> Self {
+        Self {
+            type_id: exception.type_id.clone(),
+            mro_type_ids: exception.mro_type_ids.clone(),
+            details: waymark_vm_value_python::Value::Ready(
+                waymark_vm_value_python::ReadyValue::from(&exception.details),
+            ),
         }
     }
 }

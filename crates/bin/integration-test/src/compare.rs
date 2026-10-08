@@ -161,8 +161,8 @@ fn compare_promise_values(
 /// are reported when the ids differ.
 fn compare_exceptions(
     path: Path<'_>,
-    expected: &waymark_vm_runtime_exception::Exception<waymark_system_vm::ReadyValue>,
-    actual: &waymark_vm_runtime_exception::Exception<waymark_system_vm::ReadyValue>,
+    expected: &waymark_system_vm::RaisedException,
+    actual: &waymark_system_vm::RaisedException,
 ) -> Result<(), String> {
     if expected.type_id != actual.type_id {
         return Err(format!(
@@ -179,8 +179,8 @@ fn compare_exceptions(
 
 fn compare_exception_values(
     path: Path<'_>,
-    expected: &waymark_vm_runtime_exception::Exception<waymark_system_vm::Value>,
-    actual: &waymark_vm_runtime_exception::Exception<waymark_system_vm::Value>,
+    expected: &waymark_system_vm::RaisedException,
+    actual: &waymark_system_vm::RaisedException,
 ) -> Result<(), String> {
     if expected.type_id != actual.type_id {
         return Err(mismatch(

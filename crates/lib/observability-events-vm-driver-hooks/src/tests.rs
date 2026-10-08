@@ -20,11 +20,29 @@ const EVERYTHING: Policy = Policy {
     snapshot_persisted: true,
 };
 
+/// The raised exception of the tests: a class name, captured as-is.
+#[derive(Debug)]
+struct TestException(&'static str);
+
+impl waymark_observability_vm_value_display::CaptureRaisedException for TestException {
+    fn capture_raised_exception(
+        &self,
+    ) -> waymark_observability_vm_value_display::RaisedExceptionSummary {
+        waymark_observability_vm_value_display::RaisedExceptionSummary {
+            exception_type: self.0.to_owned(),
+        }
+    }
+}
+
 /// The hooks over a full-instruction-set run with `u8` values whose
 /// collaborators cannot fail.
 type TestHooks = Hooks<
-    waymark_observability_events_vm_driver_hooks_fullset::FullSetEffectSummarizer<u8>,
+    waymark_observability_events_vm_driver_hooks_fullset::FullSetEffectSummarizer<
+        u8,
+        TestException,
+    >,
     u8,
+    TestException,
     waymark_vm_driver::Error<(), (), (), (), ()>,
 >;
 
@@ -142,20 +160,12 @@ async fn every_hook_becomes_one_summarized_event_in_run_order() {
     );
     hooks.promise_settled(
         PromiseStateId(4),
-        &PromiseResolution::Rejected(waymark_vm_runtime_exception::Exception {
-            type_id: "TimeoutError".to_owned(),
-            details: 1,
-        }),
+        &PromiseResolution::Rejected(TestException("TimeoutError")),
     );
     hooks.effect_emitted(
         EffectNumber(2),
-        &waymark_vm_interpreter_fullset::Effect::CoreSet(
-            waymark_vm_interpreter_coreset::Effect::UnhandledException(
-                waymark_vm_runtime_exception::Exception {
-                    type_id: "ValueError".to_owned(),
-                    details: 2,
-                },
-            ),
+        &waymark_vm_interpreter_fullset::Effect::ExcSet(
+            waymark_vm_interpreter_excset::Effect::UnhandledException(TestException("ValueError")),
         ),
     );
     hooks.vm_stopped(&waymark_vm_driver::Error::NoReadyFramesOrWaitingPromises);
@@ -228,8 +238,12 @@ async fn a_failed_run_renders_the_collaborator_error_once() {
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let (emitter, task, shutdown_tx) = recording_emitter(&seen);
     let hooks = Hooks::<
-        waymark_observability_events_vm_driver_hooks_fullset::FullSetEffectSummarizer<u8>,
+        waymark_observability_events_vm_driver_hooks_fullset::FullSetEffectSummarizer<
+            u8,
+            TestException,
+        >,
         u8,
+        TestException,
         waymark_vm_driver::Error<(), (), &'static str, (), ()>,
     >::new(waymark_ids::InstanceId::new_uuid_v4(), emitter, EVERYTHING);
 

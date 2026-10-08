@@ -58,6 +58,7 @@ enum FakeCompletionsProvider {
 
 impl ActionCallCompletionsProvider for FakeCompletionsProvider {
     type Value = waymark_vm_value_python::ReadyValue;
+    type RaisedException = waymark_vm_value_python::RaisedException;
     type ActionExecutionError = core::convert::Infallible;
     type WaitError = MockProviderError;
     type Metadata = ActionCallCorrelation;
@@ -70,6 +71,7 @@ impl ActionCallCompletionsProvider for FakeCompletionsProvider {
                 ActionCallCompletion<
                     ActionCallCorrelation,
                     waymark_vm_value_python::ReadyValue,
+                    waymark_vm_value_python::RaisedException,
                     core::convert::Infallible,
                 >,
             >,
@@ -94,6 +96,7 @@ struct LostCompletionsProvider {
 
 impl ActionCallCompletionsProvider for LostCompletionsProvider {
     type Value = waymark_vm_value_python::ReadyValue;
+    type RaisedException = waymark_vm_value_python::RaisedException;
     type ActionExecutionError = ActionCallLossError;
     type WaitError = MockProviderError;
     type Metadata = ActionCallCorrelation;
@@ -106,6 +109,7 @@ impl ActionCallCompletionsProvider for LostCompletionsProvider {
                 ActionCallCompletion<
                     ActionCallCorrelation,
                     waymark_vm_value_python::ReadyValue,
+                    waymark_vm_value_python::RaisedException,
                     ActionCallLossError,
                 >,
             >,
@@ -142,8 +146,10 @@ async fn effect_handler_dispatches_action_call() {
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >,
     >::new(provider);
-    let (sleep_handler, sleep_poller) =
-        waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
+    let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
+        ReadyValueSleepProvider,
+        waymark_vm_value_python::RaisedException,
+    >(false);
     let (mut handler, _settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
 
@@ -182,8 +188,10 @@ async fn effect_handler_records_sleep() {
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >,
     >::new(provider);
-    let (sleep_handler, sleep_poller) =
-        waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
+    let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
+        ReadyValueSleepProvider,
+        waymark_vm_value_python::RaisedException,
+    >(false);
     let (mut handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
 
@@ -226,8 +234,10 @@ async fn action_settler_settles_a_lost_execution_raised() {
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >,
     >::new(provider);
-    let (sleep_handler, sleep_poller) =
-        waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
+    let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
+        ReadyValueSleepProvider,
+        waymark_vm_value_python::RaisedException,
+    >(false);
     let (_handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
 
@@ -242,10 +252,11 @@ async fn action_settler_settles_a_lost_execution_raised() {
         panic!("a lost execution settles its promise raised");
     };
     assert_eq!(
-        exception.type_id,
-        waymark_vm_exception_type_ids::ACTION_EXECUTION_LOST
+        *exception,
+        waymark_vm_value_python::exception::classes::ACTION_EXECUTION_LOST.exception(
+            waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::None)
+        )
     );
-    assert_eq!(exception.details, waymark_vm_value_python::ReadyValue::None);
 }
 
 #[tokio::test]
@@ -261,8 +272,10 @@ async fn action_settler_error_propagates() {
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >,
     >::new(provider);
-    let (sleep_handler, sleep_poller) =
-        waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
+    let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
+        ReadyValueSleepProvider,
+        waymark_vm_value_python::RaisedException,
+    >(false);
     let (_handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
     // Handler kept alive — sleep poller blocks waiting for sleeps.
@@ -291,8 +304,10 @@ async fn a_shut_down_action_provider_is_an_action_settler_error() {
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >,
     >::new(provider);
-    let (sleep_handler, sleep_poller) =
-        waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
+    let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
+        ReadyValueSleepProvider,
+        waymark_vm_value_python::RaisedException,
+    >(false);
     let (_handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
     // Handler kept alive — sleep poller blocks waiting for sleeps.
@@ -328,8 +343,10 @@ async fn sleep_settler_error_propagates() {
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >,
     >::new(provider);
-    let (sleep_handler, sleep_poller) =
-        waymark_transient_sleep_reconciler::new::<ReadyValueSleepProvider>(false);
+    let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
+        ReadyValueSleepProvider,
+        waymark_vm_value_python::RaisedException,
+    >(false);
     let (handler, mut settler) =
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
     drop(handler); // Close sleep channel — sleep poller errors with ChannelClosed.

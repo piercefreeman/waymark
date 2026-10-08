@@ -10,16 +10,19 @@ use waymark_proto::messages as proto;
 /// Expressed as a projection through the value converter rather than
 /// named concretely: this provider merely propagates that conversion's
 /// failure, whatever it is.
-pub type PayloadConvertErrorFor<ValueConverter, Value> = waymark_convert_core::ConvertErrorFor<
-    ValueConverter,
-    Vec<u8>,
-    waymark_action_runtime_core::ActionCallOutcome<Value>,
->;
+pub type PayloadConvertErrorFor<ValueConverter, Value, RaisedException> =
+    waymark_convert_core::ConvertErrorFor<
+        ValueConverter,
+        Vec<u8>,
+        waymark_action_runtime_core::ActionCallOutcome<Value, RaisedException>,
+    >;
 
 /// The [`ReceiveError`] of a provider over the given metadata and value
 /// converter.
-pub type ReceiveErrorFor<Metadata, Value, ValueConverter> =
-    ReceiveError<<Metadata as Decode>::Error, PayloadConvertErrorFor<ValueConverter, Value>>;
+pub type ReceiveErrorFor<Metadata, Value, RaisedException, ValueConverter> = ReceiveError<
+    <Metadata as Decode>::Error,
+    PayloadConvertErrorFor<ValueConverter, Value, RaisedException>,
+>;
 
 /// Error returned when receiving action results fails.
 #[derive(Debug, thiserror::Error)]
@@ -37,16 +40,21 @@ pub enum ReceiveError<DecodeError, PayloadError> {
 
 /// Receives action results from a tokio mpsc channel and surfaces them
 /// as [`waymark_action_runtime_core::ActionCallCompletion`]s.
-pub struct WorkerStreamActionCallCompletionsProvider<Metadata, Value, ValueConverter> {
+pub struct WorkerStreamActionCallCompletionsProvider<
+    Metadata,
+    Value,
+    RaisedException,
+    ValueConverter,
+> {
     /// The receiver of the action results.
     pub rx: mpsc::Receiver<proto::ActionResult>,
 
     /// Phantom data for the type parameters the provider only relays.
-    _phantom: core::marker::PhantomData<(Metadata, Value, ValueConverter)>,
+    _phantom: core::marker::PhantomData<(Metadata, Value, RaisedException, ValueConverter)>,
 }
 
-impl<Metadata, Value, ValueConverter>
-    WorkerStreamActionCallCompletionsProvider<Metadata, Value, ValueConverter>
+impl<Metadata, Value, RaisedException, ValueConverter>
+    WorkerStreamActionCallCompletionsProvider<Metadata, Value, RaisedException, ValueConverter>
 {
     /// Create a new completions provider from a receiver.
     pub fn new(rx: mpsc::Receiver<proto::ActionResult>) -> Self {
@@ -57,21 +65,25 @@ impl<Metadata, Value, ValueConverter>
     }
 }
 
-impl<Metadata, Value, ValueConverter> waymark_action_runtime_core::ActionCallCompletionsProvider
-    for WorkerStreamActionCallCompletionsProvider<Metadata, Value, ValueConverter>
+impl<Metadata, Value, RaisedException, ValueConverter>
+    waymark_action_runtime_core::ActionCallCompletionsProvider
+    for WorkerStreamActionCallCompletionsProvider<Metadata, Value, RaisedException, ValueConverter>
 where
     Metadata: Decode + Send + 'static,
     <Metadata as Decode>::Error: Send + 'static,
     Value: Send,
-    ValueConverter:
-        TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<Value>> + Send,
-    PayloadConvertErrorFor<ValueConverter, Value>: core::fmt::Debug + Send + 'static,
+    RaisedException: Send,
+    ValueConverter: TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<Value, RaisedException>>
+        + Send,
+    PayloadConvertErrorFor<ValueConverter, Value, RaisedException>:
+        core::fmt::Debug + Send + 'static,
 {
     type Value = Value;
+    type RaisedException = RaisedException;
     // Every received result carries an outcome by construction; there is
     // no protocol report of a lost execution on the stream path.
     type ActionExecutionError = core::convert::Infallible;
-    type WaitError = ReceiveErrorFor<Metadata, Value, ValueConverter>;
+    type WaitError = ReceiveErrorFor<Metadata, Value, RaisedException, ValueConverter>;
     type Metadata = Metadata;
 
     async fn wait_for_completions(
@@ -85,14 +97,20 @@ where
             return Ok(None);
         };
 
-        let mut batch = NEVec::new(completion_from_result::<Metadata, Value, ValueConverter>(
-            result,
-        )?);
+        let mut batch = NEVec::new(completion_from_result::<
+            Metadata,
+            Value,
+            RaisedException,
+            ValueConverter,
+        >(result)?);
 
         while let Ok(result) = self.rx.try_recv() {
-            batch.push(completion_from_result::<Metadata, Value, ValueConverter>(
-                result,
-            )?);
+            batch.push(completion_from_result::<
+                Metadata,
+                Value,
+                RaisedException,
+                ValueConverter,
+            >(result)?);
         }
 
         Ok(Some(batch))
@@ -103,15 +121,16 @@ where
     clippy::type_complexity,
     reason = "already factored through ReceiveErrorFor"
 )]
-fn completion_from_result<Metadata, Value, ValueConverter>(
+fn completion_from_result<Metadata, Value, RaisedException, ValueConverter>(
     result: proto::ActionResult,
 ) -> Result<
-    ActionCallCompletion<Metadata, Value, core::convert::Infallible>,
-    ReceiveErrorFor<Metadata, Value, ValueConverter>,
+    ActionCallCompletion<Metadata, Value, RaisedException, core::convert::Infallible>,
+    ReceiveErrorFor<Metadata, Value, RaisedException, ValueConverter>,
 >
 where
     Metadata: Decode,
-    ValueConverter: TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<Value>>,
+    ValueConverter:
+        TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<Value, RaisedException>>,
 {
     let metadata = Metadata::decode(&mut result.metadata.as_slice()).map_err(|error| {
         tracing::error!(
@@ -141,6 +160,7 @@ mod tests {
         let mut provider = WorkerStreamActionCallCompletionsProvider::<
             ActionCallCorrelation,
             waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python::RaisedException,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >::new(rx);
 
@@ -168,6 +188,7 @@ mod tests {
         let mut provider = WorkerStreamActionCallCompletionsProvider::<
             ActionCallCorrelation,
             waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python::RaisedException,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >::new(rx);
         drop(tx);

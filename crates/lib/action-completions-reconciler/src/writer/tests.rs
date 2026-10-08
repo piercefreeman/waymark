@@ -10,7 +10,7 @@ use waymark_ids::InstanceId;
 use waymark_vm_codec_rmp::RmpCodec;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
-use waymark_vm_value_python::ReadyValue;
+use waymark_vm_value_python::{RaisedException, ReadyValue};
 
 use super::{Error, Params};
 use crate::test_support::{MockBackend, MockRecordError, key};
@@ -19,6 +19,7 @@ type TestMetadata = WithVmId<InstanceId, ActionCallCorrelation>;
 type TestCompletion = ActionCallCompletion<
     TestMetadata,
     ReadyValue,
+    RaisedException,
     waymark_action_runtime_core::ActionCallLossError,
 >;
 
@@ -41,6 +42,7 @@ struct FakeProvider {
 
 impl waymark_action_runtime_core::ActionCallCompletionsProvider for FakeProvider {
     type Value = ReadyValue;
+    type RaisedException = RaisedException;
     type ActionExecutionError = waymark_action_runtime_core::ActionCallLossError;
     type WaitError = FakeProviderError;
     type Metadata = TestMetadata;
@@ -127,7 +129,7 @@ async fn records_provider_completions_until_the_provider_fails() {
 
     // The stored blob round-trips back to how the call ended.
     let execution_result: Result<
-        ActionCallOutcome<ReadyValue>,
+        ActionCallOutcome<ReadyValue, RaisedException>,
         waymark_action_runtime_core::ActionCallLossError,
     > = waymark_vm_codec_core::DeserializerProvider::with_deserializer(
         &RmpCodec,
@@ -165,7 +167,7 @@ async fn records_a_lost_execution_as_its_loss() {
     let recorded = backend.inner.recorded.lock().unwrap();
     assert_eq!(recorded.len(), 1);
     let execution_result: Result<
-        ActionCallOutcome<ReadyValue>,
+        ActionCallOutcome<ReadyValue, RaisedException>,
         waymark_action_runtime_core::ActionCallLossError,
     > = waymark_vm_codec_core::DeserializerProvider::with_deserializer(
         &RmpCodec,

@@ -29,9 +29,12 @@ fn poll_once<F: Future>(future: std::pin::Pin<&mut F>) -> Poll<F::Output> {
 
 /// Poll the handle for settlements with the given demanded promise ids.
 async fn poll_settlements(
-    handle: &mut SettlementsHandle<InstanceId, ReadyValueSleepProvider>,
+    handle: &mut SettlementsHandle<InstanceId, ReadyValueSleepProvider, core::convert::Infallible>,
     ids: &[usize],
-) -> Result<NEVec<PromiseSettlement<ReadyValue, Ack<InstanceId>>>, PollSleepSettlementsError> {
+) -> Result<
+    NEVec<PromiseSettlement<ReadyValue, core::convert::Infallible, Ack<InstanceId>>>,
+    PollSleepSettlementsError,
+> {
     let demand = demand(ids);
     SleepPromiseSettler::<Ack<InstanceId>>::poll_sleep_settlements(
         handle,
@@ -69,7 +72,8 @@ async fn delivers_demanded_settlements_with_key_acks() {
         .push_back(vec![key(vm_id, 3)]);
 
     let (registrar, params, mut ack_rx) = poller(&backend);
-    let mut handle = registrar.subscribe::<ReadyValueSleepProvider>(vm_id);
+    let mut handle =
+        registrar.subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(vm_id);
 
     let poll_loop = tokio::spawn(super::run(params));
 
@@ -98,7 +102,8 @@ async fn parks_without_subscribed_demand() {
     let backend = MockBackend::default();
     let (registrar, params, _ack_rx) = poller(&backend);
     // A subscribed VM with no demand is not demand.
-    let _handle = registrar.subscribe::<ReadyValueSleepProvider>(InstanceId::new_uuid_v4());
+    let _handle = registrar
+        .subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(InstanceId::new_uuid_v4());
 
     {
         let mut run = pin!(super::run(params));
@@ -123,7 +128,8 @@ async fn buffered_keys_survive_a_cancelled_wait() {
         .push_back(vec![key(vm_id, 3)]);
 
     let (registrar, params, _ack_rx) = poller(&backend);
-    let mut handle = registrar.subscribe::<ReadyValueSleepProvider>(vm_id);
+    let mut handle =
+        registrar.subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(vm_id);
 
     {
         // Register demand, then cancel the wait before delivery.
@@ -163,8 +169,10 @@ async fn stale_handle_drop_leaves_resubscribed_entry_intact() {
     // The VM is re-subscribed while the previous handle is still
     // alive; dropping the stale handle must not unsubscribe the fresh
     // one.
-    let stale_handle = registrar.subscribe::<ReadyValueSleepProvider>(vm_id);
-    let mut fresh_handle = registrar.subscribe::<ReadyValueSleepProvider>(vm_id);
+    let stale_handle =
+        registrar.subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(vm_id);
+    let mut fresh_handle =
+        registrar.subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(vm_id);
     drop(stale_handle);
 
     let poll_loop = tokio::spawn(super::run(params));
@@ -181,7 +189,8 @@ async fn stale_handle_drop_leaves_resubscribed_entry_intact() {
 async fn ends_once_every_registrar_and_handle_is_gone() {
     let backend = MockBackend::default();
     let (registrar, params, _ack_rx) = poller(&backend);
-    let handle = registrar.subscribe::<ReadyValueSleepProvider>(InstanceId::new_uuid_v4());
+    let handle = registrar
+        .subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(InstanceId::new_uuid_v4());
 
     let mut run = pin!(super::run(params));
     assert!(poll_once(run.as_mut()).is_pending());
@@ -219,7 +228,8 @@ async fn ends_from_the_poll_interval_wait_once_everything_is_gone() {
     let (registrar, params, _ack_rx) = poller(&backend);
     // The clone outlives the original.
     let registrar_clone = registrar.clone();
-    let mut handle = registrar.subscribe::<ReadyValueSleepProvider>(vm_id);
+    let mut handle =
+        registrar.subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(vm_id);
     drop(registrar);
 
     // Parked with no demand first, so the registration below is seen as
@@ -257,7 +267,8 @@ async fn waiters_fail_when_the_run_loop_is_cancelled() {
     let vm_id = InstanceId::new_uuid_v4();
     let backend = MockBackend::default();
     let (registrar, params, _ack_rx) = poller(&backend);
-    let mut handle = registrar.subscribe::<ReadyValueSleepProvider>(vm_id);
+    let mut handle =
+        registrar.subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(vm_id);
 
     // Start the loop, then cancel it — the registry is marked closed.
     {
