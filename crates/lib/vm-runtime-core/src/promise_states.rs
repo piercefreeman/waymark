@@ -1,30 +1,57 @@
+use derive_where::derive_where;
 use index_type::typed_vec::TypedVec;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::{PromiseState, SettlingAlreadySettledPromiseError};
+use crate::{PromiseState, SettlingAlreadySettledPromiseError, WaitersFor};
 
 /// A list of promise states.
-#[derive(Debug)]
+#[derive_where(
+    Debug;
+    FunctionId, StateId, Value, RaisedException,
+    waymark_vm_runtime_exception::MatchPatternOf<RaisedException>,
+)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
-        serialize = "FunctionId: serde::Serialize, StateId: serde::Serialize, Value: serde::Serialize",
-        deserialize = "FunctionId: serde::Deserialize<'de>, StateId: serde::Deserialize<'de>, Value: serde::Deserialize<'de>",
+        serialize = "
+            FunctionId: serde::Serialize,
+            StateId: serde::Serialize,
+            Value: serde::Serialize,
+            RaisedException: serde::Serialize,
+            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
+        ",
+        deserialize = "
+            FunctionId: serde::Deserialize<'de>,
+            StateId: serde::Deserialize<'de>,
+            Value: serde::Deserialize<'de>,
+            RaisedException: serde::Deserialize<'de>,
+            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Deserialize<'de>,
+        ",
     ))
 )]
-pub struct PromiseStates<FunctionId, StateId, Value>(
+pub struct PromiseStates<FunctionId, StateId, Value, RaisedException>(
     #[cfg_attr(feature = "serde", serde(with = "waymark_typed_vec_serde"))]
-    TypedVec<PromiseStateId, PromiseState<FunctionId, StateId, Value>>,
-);
+    TypedVec<PromiseStateId, PromiseState<FunctionId, StateId, Value, RaisedException>>,
+)
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern;
 
-impl<FunctionId, StateId, Value> Default for PromiseStates<FunctionId, StateId, Value> {
+impl<FunctionId, StateId, Value, RaisedException> Default
+    for PromiseStates<FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     fn default() -> Self {
         Self(Default::default())
     }
 }
 
-impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
+impl<FunctionId, StateId, Value, RaisedException>
+    PromiseStates<FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     /// Create a new list of promised states.
     pub fn new() -> Self {
         Self::default()
@@ -49,12 +76,17 @@ pub struct PromiseStateNotFoundError {
     pub promise_state_id: PromiseStateId,
 }
 
-impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
+impl<FunctionId, StateId, Value, RaisedException>
+    PromiseStates<FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     /// Borrow a promise state by `promise_state_id`.
     pub fn get(
         &self,
         promise_state_id: PromiseStateId,
-    ) -> Result<&PromiseState<FunctionId, StateId, Value>, PromiseStateNotFoundError> {
+    ) -> Result<&PromiseState<FunctionId, StateId, Value, RaisedException>, PromiseStateNotFoundError>
+    {
         self.0
             .get(promise_state_id)
             .ok_or(PromiseStateNotFoundError { promise_state_id })
@@ -64,7 +96,10 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
     pub fn get_mut(
         &mut self,
         promise_state_id: PromiseStateId,
-    ) -> Result<&mut PromiseState<FunctionId, StateId, Value>, PromiseStateNotFoundError> {
+    ) -> Result<
+        &mut PromiseState<FunctionId, StateId, Value, RaisedException>,
+        PromiseStateNotFoundError,
+    > {
         self.0
             .get_mut(promise_state_id)
             .ok_or(PromiseStateNotFoundError { promise_state_id })
@@ -95,7 +130,11 @@ pub enum SettlePromiseError<Value> {
     AlreadySettled(SettlingAlreadySettledPromiseError<Value>),
 }
 
-impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
+impl<FunctionId, StateId, Value, RaisedException>
+    PromiseStates<FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     /// Idempotently resolve a promise at a given `promise_state_id` with
     /// the provided `value`.
     ///
@@ -105,7 +144,7 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
         &mut self,
         promise_state_id: PromiseStateId,
         value: Value,
-    ) -> Result<Vec<crate::PromiseWaiter<FunctionId, StateId, Value>>, SettlePromiseError<Value>>
+    ) -> Result<WaitersFor<FunctionId, StateId, Value, RaisedException>, SettlePromiseError<Value>>
     {
         let promise_state = self
             .get_mut(promise_state_id)
@@ -120,17 +159,13 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
     ///
     /// Returns a list of waiters to notify, or an error if this promise
     /// has already settled.
-    #[expect(
-        clippy::type_complexity,
-        reason = "we purposely avoid alias for the error"
-    )]
     pub fn reject(
         &mut self,
         promise_state_id: PromiseStateId,
-        exception: waymark_vm_runtime_exception::Exception<Value>,
+        exception: RaisedException,
     ) -> Result<
-        Vec<crate::PromiseWaiter<FunctionId, StateId, Value>>,
-        SettlePromiseError<waymark_vm_runtime_exception::Exception<Value>>,
+        WaitersFor<FunctionId, StateId, Value, RaisedException>,
+        SettlePromiseError<RaisedException>,
     > {
         let promise_state = self
             .get_mut(promise_state_id)
@@ -162,9 +197,8 @@ impl<Value> SettlePromiseError<Value> {
 
 #[cfg(test)]
 mod tests {
-    use waymark_vm_runtime_exception::Exception;
-
     use super::{PromiseStateId, PromiseStateNotFoundError, PromiseStates, SettlePromiseError};
+    use crate::test_helpers::TestException;
     use crate::{
         Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, PromiseWaiter, RegisterId,
         Registers, SettledPromiseState,
@@ -173,7 +207,7 @@ mod tests {
     fn continuation(
         dst: RegisterId,
         resume_state: usize,
-    ) -> Continuation<&'static str, usize, i32, crate::ResumeWithValue> {
+    ) -> Continuation<&'static str, usize, i32, TestException, crate::ResumeWithValue> {
         Continuation::capture(
             Frame {
                 func: "example",
@@ -190,7 +224,7 @@ mod tests {
 
     #[test]
     fn prepare_allocates_waiting_states_in_order() {
-        let mut states = PromiseStates::<&'static str, usize, i32>::new();
+        let mut states = PromiseStates::<&'static str, usize, i32, TestException>::new();
 
         let first = states.prepare();
         let second = states.prepare();
@@ -209,7 +243,7 @@ mod tests {
 
     #[test]
     fn resolve_updates_state_and_returns_continuations() {
-        let mut states = PromiseStates::<&'static str, usize, i32>::new();
+        let mut states = PromiseStates::<&'static str, usize, i32, TestException>::new();
         let promise_state_id = states.prepare();
         let state = states
             .get_mut(promise_state_id)
@@ -229,7 +263,7 @@ mod tests {
 
     #[test]
     fn resolve_rejects_unknown_promise_state_ids() {
-        let mut states = PromiseStates::<&'static str, usize, i32>::new();
+        let mut states = PromiseStates::<&'static str, usize, i32, TestException>::new();
 
         let Err(SettlePromiseError::PromiseStateNotFound(PromiseStateNotFoundError {
             promise_state_id,
@@ -243,24 +277,17 @@ mod tests {
 
     #[test]
     fn reject_preserves_exceptional_results() {
-        let mut states = PromiseStates::<&'static str, usize, i32>::new();
+        let mut states = PromiseStates::<&'static str, usize, i32, TestException>::new();
         let promise_state_id = states.prepare();
 
         let continuations = states
-            .reject(
-                promise_state_id,
-                Exception {
-                    type_id: "ValueError".to_owned(),
-                    details: 23,
-                },
-            )
+            .reject(promise_state_id, TestException("ValueError"))
             .expect("prepared promise should resolve exceptionally");
 
         assert!(continuations.is_empty());
         assert!(matches!(
             states.get(promise_state_id).expect("promise state exists"),
-            PromiseState::Settled(SettledPromiseState::Rejected(Exception { type_id, details }))
-                if type_id == "ValueError" && *details == 23
+            PromiseState::Settled(SettledPromiseState::Rejected(TestException("ValueError")))
         ));
     }
 }

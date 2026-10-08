@@ -183,13 +183,15 @@ where
 }
 
 /// High-level service for polling workflow outcomes.
-pub struct OutcomePollingService<Backend, Codec, Value> {
+pub struct OutcomePollingService<Backend, Codec, Value, RaisedException> {
     backend: Backend,
     codec: Codec,
-    phantom_data: PhantomData<Value>,
+    phantom_data: PhantomData<fn() -> (Value, RaisedException)>,
 }
 
-impl<Backend, Codec, Value> OutcomePollingService<Backend, Codec, Value> {
+impl<Backend, Codec, Value, RaisedException>
+    OutcomePollingService<Backend, Codec, Value, RaisedException>
+{
     /// Create a new outcome polling service wrapping the given backend and
     /// codec.
     pub fn new(backend: Backend, codec: Codec) -> Self {
@@ -201,7 +203,8 @@ impl<Backend, Codec, Value> OutcomePollingService<Backend, Codec, Value> {
     }
 }
 
-impl<Backend, Codec, Value> OutcomePollingService<Backend, Codec, Value>
+impl<Backend, Codec, Value, RaisedException>
+    OutcomePollingService<Backend, Codec, Value, RaisedException>
 where
     Backend: waymark_workflow_completion_backend::PollOutcome,
     Backend: waymark_workflow_service_vm_runtimes_backend::FindExistingVmRuntimes<
@@ -209,6 +212,7 @@ where
         >,
     Codec: DeserializerProvider,
     Value: for<'de> serde::Deserialize<'de>,
+    RaisedException: for<'de> serde::Deserialize<'de>,
 {
     /// Poll for the outcome of a workflow instance.
     ///
@@ -222,7 +226,7 @@ where
         vm_id: &<Backend as waymark_workflow_completion_backend::HasVmId>::VmId,
         poll_interval: Duration,
     ) -> Result<
-        Outcome<Value>,
+        Outcome<Value, RaisedException>,
         WaitForOutcomeError<
             <Backend as waymark_workflow_completion_backend::PollOutcome>::Error,
             <Backend as waymark_workflow_service_vm_runtimes_backend::FindExistingVmRuntimes>::Error,
@@ -262,13 +266,14 @@ where
     }
 }
 
-fn decode<Codec, Value>(
+fn decode<Codec, Value, RaisedException>(
     codec: &Codec,
     raw: waymark_workflow_completion_backend::Outcome,
-) -> Result<Outcome<Value>, Codec::Error>
+) -> Result<Outcome<Value, RaisedException>, Codec::Error>
 where
     Codec: DeserializerProvider,
     Value: for<'de> serde::Deserialize<'de>,
+    RaisedException: for<'de> serde::Deserialize<'de>,
 {
     match raw {
         waymark_workflow_completion_backend::Outcome::Completion(bytes) => {

@@ -262,11 +262,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
     } = config;
 
     let interpreter_provider = waymark_state_vm_runtimes_core::DefaultInterpreterProvider::<
-        waymark_vm_interpreter_fullset::FullSetInterpreter<
-            waymark_system_vm::Spec,
-            Arc<waymark_system_vm::Executable>,
-            waymark_system_vm::Value,
-        >,
+        waymark_system_vm::Interpreter,
         <Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
     >::new();
 
@@ -299,6 +295,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
                 waymark_action_runtime_metadata::ActionCallCorrelation,
             >,
             waymark_vm_value_python::ReadyValue,
+            waymark_system_vm::RaisedException,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >::new(worker_pool_completions),
         backend: Arc::clone(&backend),
@@ -322,6 +319,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
     let (registrar, poller_state) = waymark_action_completions_reconciler::poller::state::<
         _,
         waymark_vm_value_python::ReadyValue,
+        waymark_system_vm::RaisedException,
         waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
     >(ack_tx);
     let poller_params = waymark_action_completions_reconciler::poller::Params {
@@ -451,8 +449,10 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
                 backend: Arc::clone(&backend),
                 vm_id: *vm_id,
             };
-            let sleep_settler = sleep_registrar
-                .subscribe::<waymark_sleep_compat_python::ReadyValueSleepProvider>(*vm_id);
+            let sleep_settler = sleep_registrar.subscribe::<
+                waymark_sleep_compat_python::ReadyValueSleepProvider,
+                waymark_system_vm::RaisedException,
+            >(*vm_id);
             let (extcall_handler, extcall_settler) = waymark_extcall_reconciler::new(
                 action_handler,
                 sleep_handler,
@@ -466,7 +466,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
             );
 
             let handler = waymark_fullset_effect_handler::EffectHandler {
-                core: completion_handler,
+                terminal: completion_handler,
                 extcall: extcall_handler,
             };
 
@@ -492,7 +492,9 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
                     waymark_observability_events_vm_driver_hooks::Hooks::<
                         waymark_observability_events_vm_driver_hooks_fullset::FullSetEffectSummarizer<
                             waymark_vm_value_python::ReadyValue,
+                            waymark_system_vm::RaisedException,
                         >,
+                        _,
                         _,
                         _,
                     >::new(

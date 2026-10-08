@@ -29,6 +29,7 @@ pub struct WorkflowStore {
         PostgresBackend,
         waymark_vm_codec_rmp::RmpCodec,
         waymark_system_vm::ReadyValue,
+        waymark_system_vm::RaisedException,
     >,
 }
 
@@ -103,13 +104,9 @@ impl WorkflowStore {
             waymark_system_vm::Value,
         >,
     ) -> Result<(), color_eyre::eyre::Report> {
-        let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::<
-            waymark_system_vm::Spec,
-            Arc<waymark_system_vm::Executable>,
-            waymark_system_vm::Value,
-        >::default();
+        let interpreter = waymark_system_vm::Interpreter::default();
 
-        let runtime: waymark_vm_runtime::Runtime<_, _, waymark_system_vm::Value> =
+        let runtime: waymark_system_vm::Runtime =
             waymark_vm_runtime::Runtime::with_custom_entrypoint(interpreter, executable, call_spec)
                 .map_err(|err| color_eyre::eyre::eyre!("create runtime: {err}"))?;
 
@@ -146,12 +143,8 @@ impl WorkflowStore {
 
             let mut batch = Vec::with_capacity(chunk.len());
             for (vm_id, call_spec) in chunk {
-                let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::<
-                    waymark_system_vm::Spec,
-                    Arc<waymark_system_vm::Executable>,
-                    waymark_system_vm::Value,
-                >::default();
-                let runtime: waymark_vm_runtime::Runtime<_, _, waymark_system_vm::Value> =
+                let interpreter = waymark_system_vm::Interpreter::default();
+                let runtime: waymark_system_vm::Runtime =
                     waymark_vm_runtime::Runtime::with_custom_entrypoint(
                         interpreter,
                         Arc::clone(&executable),
@@ -235,12 +228,8 @@ impl WorkflowStore {
             RegisterScheduleError::Internal(color_eyre::eyre::eyre!("build entry call spec: {err}"))
         })?;
 
-        let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::<
-            waymark_system_vm::Spec,
-            Arc<waymark_system_vm::Executable>,
-            waymark_system_vm::Value,
-        >::default();
-        let runtime: waymark_vm_runtime::Runtime<_, _, waymark_system_vm::Value> =
+        let interpreter = waymark_system_vm::Interpreter::default();
+        let runtime: waymark_system_vm::Runtime =
             waymark_vm_runtime::Runtime::with_custom_entrypoint(interpreter, executable, call_spec)
                 .map_err(|err| {
                     RegisterScheduleError::Internal(color_eyre::eyre::eyre!(

@@ -6,14 +6,12 @@
 
 #![warn(missing_docs)]
 
-use waymark_vm_runtime_exception::Exception;
-
 /// A typed workflow execution outcome.
 #[derive(Debug, PartialEq, Eq)]
-pub enum Outcome<Value> {
+pub enum Outcome<Value, RaisedException> {
     /// The workflow completed successfully with this value.
     Completion(Value),
 
     /// The workflow terminated with an unhandled exception.
-    Exception(Exception<Value>),
+    Exception(RaisedException),
 }

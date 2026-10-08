@@ -1,18 +1,21 @@
 //! Pureset operation errors raised as catchable typed exceptions.
 //!
 //! A raising pureset instruction records the exception on the frame and
-//! continues; the coreset `after_execute` hook then bubbles it — into
-//! a handler when one matches, or up to an `UnhandledException` effect
+//! continues; the excset `after_execute` hook then unwinds it — into a
+//! handler when one matches, or up to an `UnhandledException` effect
 //! otherwise.
 
 use waymark_vm_instructions_coreset::CoreSet;
+use waymark_vm_instructions_excset::ExcSet;
 use waymark_vm_instructions_pureset::{BinaryOp, BinaryOpKind, PureSet, UnaryOp, UnaryOpKind};
 use waymark_vm_interpreter_fullset::Effect;
 use waymark_vm_runtime_core::RegisterId;
-use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_test::{StateId, executable, function};
 
-use crate::support::{Instruction, TestConstValue, TestReadyValue, TestValue, new_runtime};
+use crate::support::{
+    Instruction, TestConstValue, TestException, TestExceptionPattern, TestReadyValue, TestValue,
+    new_runtime,
+};
 
 /// A straight-line prologue that raises a `TypeError` from the pureset
 /// interpreter by adding an integer to a boolean.
@@ -40,14 +43,14 @@ fn raising_prologue() -> Vec<Instruction> {
             },
         }
         .into(),
-        // Only reached if the raise fails to bubble; completes with a value
+        // Only reached if the raise fails to unwind; completes with a value
         // the assertions below reject.
         CoreSet::Return { src: RegisterId(0) }.into(),
     ]
 }
 
-fn expected_exception() -> Exception<TestValue> {
-    Exception {
+fn expected_exception() -> TestException {
+    TestException {
         type_id: "TypeError".to_owned(),
         details: TestValue::Ready(TestReadyValue::Text(
             "+ is not supported for these operands".to_owned(),
@@ -56,12 +59,12 @@ fn expected_exception() -> Exception<TestValue> {
 }
 
 #[test]
-fn raised_typed_exceptions_bubble_into_matching_handlers() {
+fn raised_typed_exceptions_unwind_into_matching_handlers() {
     let mut instructions = vec![
-        CoreSet::PushExceptionHandlers {
+        ExcSet::PushExceptionHandlers {
             handlers: vec![waymark_vm_exception_handler::ExceptionHandler {
                 handler_state: StateId(1),
-                exception_types: vec!["TypeError".to_owned()],
+                pattern: TestExceptionPattern::type_id("TypeError"),
                 exception_dst: Some(RegisterId(2)),
             }],
         }
@@ -99,10 +102,10 @@ fn raised_typed_exceptions_bubble_into_matching_handlers() {
 #[test]
 fn typed_exceptions_raised_in_called_functions_are_caught_by_local_handlers() {
     let mut callee_instructions = vec![
-        CoreSet::PushExceptionHandlers {
+        ExcSet::PushExceptionHandlers {
             handlers: vec![waymark_vm_exception_handler::ExceptionHandler {
                 handler_state: StateId(1),
-                exception_types: vec!["TypeError".to_owned()],
+                pattern: TestExceptionPattern::type_id("TypeError"),
                 exception_dst: Some(RegisterId(2)),
             }],
         }
@@ -168,10 +171,10 @@ fn typed_exceptions_raised_in_called_functions_propagate_to_caller_handlers() {
             3,
             vec![
                 vec![
-                    CoreSet::PushExceptionHandlers {
+                    ExcSet::PushExceptionHandlers {
                         handlers: vec![waymark_vm_exception_handler::ExceptionHandler {
                             handler_state: StateId(2),
-                            exception_types: vec!["TypeError".to_owned()],
+                            pattern: TestExceptionPattern::type_id("TypeError"),
                             exception_dst: Some(RegisterId(2)),
                         }],
                     }
@@ -229,12 +232,8 @@ fn uncaught_typed_exceptions_surface_as_unhandled_exceptions() {
         .expect("uncaught typed exception should emit an unhandled exception");
 
     match emitted_effect.effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::UnhandledException(exception)) => {
-            assert_eq!(exception.type_id, "TypeError");
-            assert_eq!(
-                exception.details,
-                TestReadyValue::Text("+ is not supported for these operands".to_owned())
-            );
+        Effect::ExcSet(waymark_vm_interpreter_excset::Effect::UnhandledException(exception)) => {
+            assert_eq!(exception, expected_exception());
         }
         effect => panic!("uncaught typed exception should not complete: {effect:?}"),
     }

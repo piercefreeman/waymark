@@ -86,23 +86,6 @@ where
         self.emit(waymark_vm_instructions_pureset::PureSet::MakeDict { dst, entries }.into());
     }
 
-    /// Emits an exception-construction instruction.
-    pub fn emit_make_exception(
-        &mut self,
-        dst: RegisterId,
-        type_id: RegisterId,
-        details: RegisterId,
-    ) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::MakeException {
-                dst,
-                type_id,
-                details,
-            }
-            .into(),
-        );
-    }
-
     /// Emits an indexed-access instruction.
     pub fn emit_index(&mut self, dst: RegisterId, object: RegisterId, index: RegisterId) {
         self.emit(waymark_vm_instructions_pureset::PureSet::Index { dst, object, index }.into());
@@ -211,16 +194,16 @@ where
     /// Emits a push of one exception-handler block.
     pub fn emit_push_exception_handlers(
         &mut self,
-        handlers: Vec<waymark_vm_exception_handler::ExceptionHandler<StateId, RegisterId>>,
+        handlers: Vec<waymark_vm_instructions_excset::ConstExceptionHandlerFor<Spec>>,
     ) {
         self.emit(
-            waymark_vm_instructions_coreset::CoreSet::PushExceptionHandlers { handlers }.into(),
+            waymark_vm_instructions_excset::ExcSet::PushExceptionHandlers { handlers }.into(),
         );
     }
 
     /// Emits a pop of `count` exception-handler blocks.
     pub fn emit_pop_exception_handlers(&mut self, count: usize) {
-        self.emit(waymark_vm_instructions_coreset::CoreSet::PopExceptionHandlers { count }.into());
+        self.emit(waymark_vm_instructions_excset::ExcSet::PopExceptionHandlers { count }.into());
     }
 
     /// Emits a conditional jump.
@@ -236,7 +219,17 @@ where
 
     /// Emits a raise and terminates the current state.
     pub fn emit_raise(&mut self, src: RegisterId) {
-        self.emit(waymark_vm_instructions_coreset::CoreSet::Raise { src }.into());
+        self.emit(waymark_vm_instructions_excset::ExcSet::Raise { src }.into());
+        self.function_states.terminate();
+    }
+
+    /// Emits a raise of a bytecode-embedded exception and terminates the
+    /// current state.
+    pub fn emit_raise_const(
+        &mut self,
+        exception: <Spec as waymark_vm_instructions_excset::Spec>::ConstException,
+    ) {
+        self.emit(waymark_vm_instructions_excset::ExcSet::RaiseConst { exception }.into());
         self.function_states.terminate();
     }
 

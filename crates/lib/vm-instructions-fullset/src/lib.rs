@@ -1,6 +1,7 @@
 //! The "full" instruction set for the VM.
 //!
-//! Merges together the "core", "extcall", and "pure" instruction sets.
+//! Merges together the "core", "extcall", "pure", and "exception"
+//! instruction sets.
 
 #![warn(missing_docs)]
 
@@ -15,6 +16,9 @@ pub trait Spec:
         StateId = <Self as waymark_vm_instructions_coreset::Spec>::StateId,
     > + waymark_vm_instructions_pureset::Spec<
         RegisterId = <Self as waymark_vm_instructions_coreset::Spec>::RegisterId,
+    > + waymark_vm_instructions_excset::Spec<
+        RegisterId = <Self as waymark_vm_instructions_coreset::Spec>::RegisterId,
+        StateId = <Self as waymark_vm_instructions_coreset::Spec>::StateId,
     >
 {
 }
@@ -30,11 +34,13 @@ pub trait Spec:
             waymark_vm_instructions_coreset::CoreSet<Spec>: serde::Serialize,
             waymark_vm_instructions_extcallset::ExtCallSet<Spec>: serde::Serialize,
             waymark_vm_instructions_pureset::PureSet<Spec>: serde::Serialize,
+            waymark_vm_instructions_excset::ExcSet<Spec>: serde::Serialize,
         ",
         deserialize = "
             waymark_vm_instructions_coreset::CoreSet<Spec>: serde::Deserialize<'de>,
             waymark_vm_instructions_extcallset::ExtCallSet<Spec>: serde::Deserialize<'de>,
             waymark_vm_instructions_pureset::PureSet<Spec>: serde::Deserialize<'de>,
+            waymark_vm_instructions_excset::ExcSet<Spec>: serde::Deserialize<'de>,
         ",
     ))
 )]
@@ -47,4 +53,7 @@ pub enum FullSet<Spec: self::Spec> {
 
     /// Pure instructions set.
     PureSet(waymark_vm_instructions_pureset::PureSet<Spec>),
+
+    /// Exception instructions set.
+    ExcSet(waymark_vm_instructions_excset::ExcSet<Spec>),
 }

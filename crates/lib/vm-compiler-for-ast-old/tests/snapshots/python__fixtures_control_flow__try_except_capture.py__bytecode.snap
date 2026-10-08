@@ -11,7 +11,7 @@ fn main(input: [], output: []):
 ---
 f0: [2 registers]
   s0:
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ValueError"], exception_dst: Some(r0) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["ValueError"], exception_dst: Some(r0) }] })
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("risky_action_capture"), args: [], resume: s3 })
   s1:
     CoreSet(Return { src: r1 })
@@ -20,7 +20,7 @@ f0: [2 registers]
   s3:
     CoreSet(Await { dst: r1, src: r1, resume: s4 })
   s4:
-    CoreSet(PopExceptionHandlers { count: 1 })
+    ExcSet(PopExceptionHandlers { count: 1 })
     CoreSet(Jump { target_state: s1 })
   s5:
     CoreSet(Await { dst: r1, src: r1, resume: s6 })

@@ -12,6 +12,7 @@ waymark-vm-executable = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 waymark-vm-runtime-view-capture = { workspace = true }
 
@@ -25,7 +26,6 @@ waymark-vm-codec-rmp = { workspace = true }
 waymark-vm-driver-core = { workspace = true, features = ["tokio"] }
 waymark-vm-driver-hooks-noop = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
-waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }
 
 mockall = { workspace = true }

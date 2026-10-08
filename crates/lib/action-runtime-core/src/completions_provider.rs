@@ -1,13 +1,14 @@
 use nonempty_collections::NEVec;
 
-/// The outcome of a completed action call — either a value or an exception.
+/// The outcome of a completed action call — either a value or a raised
+/// exception.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum ActionCallOutcome<Value> {
+pub enum ActionCallOutcome<Value, RaisedException> {
     /// The action completed successfully with this value.
     Value(Value),
 
     /// The action failed with this exception.
-    Exception(waymark_vm_runtime_exception::Exception<Value>),
+    Exception(RaisedException),
 }
 
 /// The stage an action call provably reached.
@@ -33,22 +34,23 @@ pub struct ActionCallLossError {
 
 /// A completed action call, pairing its correlation metadata with how the
 /// call ended.
-pub struct ActionCallCompletion<Metadata, Value, ExecutionError> {
+pub struct ActionCallCompletion<Metadata, Value, RaisedException, ExecutionError> {
     /// Correlation metadata identifying which call this completion is for.
     pub metadata: Metadata,
 
     /// How the call ended: `Ok` carries the outcome the action produced,
     /// `Err` means the runtime failed to produce an outcome at all
     /// (e.g. the execution was lost).
-    pub execution_result: Result<ActionCallOutcome<Value>, ExecutionError>,
+    pub execution_result: Result<ActionCallOutcome<Value, RaisedException>, ExecutionError>,
 }
 
 /// The [`ActionCallCompletion`] type produced by a given
-/// [`ActionCallCompletionsProvider`], with its value, execution error,
-/// and metadata resolved.
+/// [`ActionCallCompletionsProvider`], with its value, raised exception,
+/// execution error, and metadata resolved.
 pub type ActionCallCompletionFor<T> = ActionCallCompletion<
     <T as ActionCallCompletionsProvider>::Metadata,
     <T as ActionCallCompletionsProvider>::Value,
+    <T as ActionCallCompletionsProvider>::RaisedException,
     <T as ActionCallCompletionsProvider>::ActionExecutionError,
 >;
 
@@ -59,6 +61,9 @@ pub type ActionCallCompletionFor<T> = ActionCallCompletion<
 pub trait ActionCallCompletionsProvider {
     /// The type of a successful action result.
     type Value;
+
+    /// The type of the raised exception an action fails with.
+    type RaisedException;
 
     /// The error of a single call's execution failing to produce an
     /// outcome (e.g. a lost execution).

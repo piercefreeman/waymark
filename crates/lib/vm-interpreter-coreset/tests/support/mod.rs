@@ -4,6 +4,9 @@
 //! that satisfies the coreset interpreter's trait bounds, and a
 //! single-function runtime builder shared by all thematic test submodules.
 //!
+//! The coreset raises nothing, so the raised exception is
+//! [`core::convert::Infallible`].
+//!
 //! # Why not `PromiseValue`?
 //!
 //! `waymark-vm-runtime-promise-value` sits *above* the interpreter crates in
@@ -18,17 +21,16 @@ use waymark_vm_instructions_coreset::CoreSet;
 use waymark_vm_interpreter_coreset::CoreSetInterpreter;
 use waymark_vm_runtime::{CallSpec, Runtime};
 use waymark_vm_runtime_core::RegisterId;
-use waymark_vm_runtime_exception::{
-    Exception, FromException, IntoException, NotAnOwnedExceptionError,
-};
 use waymark_vm_runtime_promise_core::{
     PromiseStateId, Resolvable, Suspendable, UnresolvedPromiseError,
 };
 use waymark_vm_runtime_test::{FunctionId, StateId};
 
 pub type Instruction = CoreSet<TestSpec>;
-pub type Interpreter = CoreSetInterpreter<TestSpec, Executable<Instruction>, TestValue>;
-pub type TestRuntime = Runtime<Executable<Instruction>, Interpreter, TestValue>;
+pub type Interpreter =
+    CoreSetInterpreter<TestSpec, Executable<Instruction>, TestValue, core::convert::Infallible>;
+pub type TestRuntime =
+    Runtime<Executable<Instruction>, Interpreter, TestValue, core::convert::Infallible>;
 
 // --- Spec ---
 
@@ -46,7 +48,6 @@ impl waymark_vm_instructions_coreset::Spec for TestSpec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TestReadyValue {
     Int(i64),
-    Exception(Box<Exception<TestValue>>),
 }
 
 /// Minimal promise-aware value: ready holds a [`TestReadyValue`], pending
@@ -76,7 +77,6 @@ impl waymark_vm_interpreter_coreset::value::ShouldJump for TestValue {
     ) -> Result<bool, waymark_vm_interpreter_coreset::value::NotAConditionalError> {
         match self {
             Self::Ready(TestReadyValue::Int(value)) => Ok(*value != 0),
-            Self::Ready(TestReadyValue::Exception(_)) => Ok(true),
             Self::Pending(_) => Err(waymark_vm_interpreter_coreset::value::NotAConditionalError),
         }
     }
@@ -127,21 +127,6 @@ impl Resolvable for TestValue {
             Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
                 promise_state_id: *promise_state_id,
             }),
-        }
-    }
-}
-
-impl FromException for TestValue {
-    fn from_exception(exception: Exception<Self::RootValue>) -> Self {
-        Self::Ready(TestReadyValue::Exception(Box::new(exception)))
-    }
-}
-
-impl IntoException for TestValue {
-    fn into_exception(self) -> Result<Exception<Self::RootValue>, NotAnOwnedExceptionError<Self>> {
-        match self {
-            Self::Ready(TestReadyValue::Exception(exception)) => Ok(*exception),
-            value => Err(NotAnOwnedExceptionError { value }),
         }
     }
 }

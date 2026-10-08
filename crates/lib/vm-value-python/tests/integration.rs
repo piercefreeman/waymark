@@ -6,14 +6,17 @@ use waymark_vm_interpreter_extcallset::value::{
     CaptureActionCallArgument as _, SleepDuration as _,
 };
 use waymark_vm_interpreter_pureset::value::{
-    AsDictKey as _, AsDictKeyError, AsExceptionTypeId as _, AsExceptionTypeIdError,
-    BinaryOperationError, BinaryOps as _, DotOp as _, DotOperationError, FromLengthError,
-    IndexOp as _, IndexOperationError, Length as _, LengthError, MakeDict as _, MakeException as _,
-    MakeList as _, UnaryOps as _,
+    AsDictKey as _, AsDictKeyError, BinaryOperationError, BinaryOps as _, DotOp as _,
+    DotOperationError, FromLengthError, IndexOp as _, IndexOperationError, Length as _,
+    LengthError, MakeDict as _, MakeList as _, UnaryOps as _,
 };
-use waymark_vm_runtime_exception::{AsException as _, Exception, IntoException as _};
+use waymark_vm_runtime_exception::{
+    Match as _, RaisedExceptionToValue as _, ValueToRaisedException as _,
+};
 use waymark_vm_value::extcallset;
-use waymark_vm_value_python::{ReadyValue, Value};
+use waymark_vm_value_python::exception::classes;
+use waymark_vm_value_python::raised_exception::Pattern;
+use waymark_vm_value_python::{Exception, RaisedException, ReadyValue, Value};
 
 #[test]
 fn values_follow_truthiness() {
@@ -461,24 +464,82 @@ fn length_operations_follow_runtime_semantics() {
 }
 
 #[test]
-fn exception_operations_follow_runtime_semantics() {
+fn operation_errors_raise_the_class_they_map_to() {
+    let exception = RaisedException::from(BinaryOperationError::UnsupportedOperation {
+        operation: BinaryOpKind::Add,
+    });
+    assert_eq!(exception.type_id, "TypeError");
+    assert_eq!(exception.mro_type_ids, ["Exception", "BaseException"]);
     assert_eq!(
-        ReadyValue::make_exception("ValueError".to_owned(), Value::Ready(ReadyValue::Int(41))),
-        ReadyValue::Exception(Box::new(Exception {
-            type_id: "ValueError".to_owned(),
-            details: Value::Ready(ReadyValue::Int(41)),
-        }))
+        exception.details,
+        Value::Ready(ReadyValue::String(
+            "+ is not supported for these operands".to_owned()
+        ))
     );
+
+    let exception = RaisedException::from(IndexOperationError::MissingKey);
+    assert_eq!(exception.type_id, "KeyError");
     assert_eq!(
-        ReadyValue::String("ValueError".to_owned())
-            .as_exception_type_id()
-            .unwrap(),
-        "ValueError"
+        exception.mro_type_ids,
+        ["LookupError", "Exception", "BaseException"]
     );
-    assert!(matches!(
-        ReadyValue::Int(3).as_exception_type_id(),
-        Err(AsExceptionTypeIdError::UnsupportedTypeIdType)
-    ));
+
+    let exception = RaisedException::from(FromLengthError::ResultOutOfBounds);
+    assert_eq!(exception.type_id, "OverflowError");
+    assert_eq!(
+        exception.mro_type_ids,
+        ["ArithmeticError", "Exception", "BaseException"]
+    );
+}
+
+#[test]
+fn exceptions_match_handlers_by_class_hierarchy() {
+    let key_error = classes::KEY_ERROR.exception(Value::Ready(ReadyValue::None));
+
+    let class = |name: &str| Pattern::from(&vec![name.to_owned()]);
+    assert!(key_error.matches(&class("KeyError")));
+    assert!(key_error.matches(&class("LookupError")));
+    assert!(key_error.matches(&class("Exception")));
+    assert!(key_error.matches(&class("BaseException")));
+    assert!(!key_error.matches(&class("IndexError")));
+    assert!(!key_error.matches(&class("ArithmeticError")));
+
+    // Any class listed catches; the list lowers as given.
+    let several = Pattern::from(&vec!["ValueError".to_owned(), "LookupError".to_owned()]);
+    assert_eq!(
+        several,
+        Pattern::Classes(nonempty_collections::nev![
+            "ValueError".to_owned(),
+            "LookupError".to_owned()
+        ])
+    );
+    assert!(key_error.matches(&several));
+
+    // No classes listed is the bare `except:`.
+    assert_eq!(Pattern::from(&Vec::<String>::new()), Pattern::Any);
+    assert!(key_error.matches(&Pattern::Any));
+
+    // The action exceptions sit directly under `BaseException`: a bare
+    // `except Exception` does not catch them.
+    let timeout = classes::ACTION_TIMEOUT.exception(Value::Ready(ReadyValue::None));
+    assert!(!timeout.matches(&class("Exception")));
+    assert!(timeout.matches(&class("BaseException")));
+    let lost = classes::ACTION_EXECUTION_LOST.exception(Value::Ready(ReadyValue::None));
+    assert!(!lost.matches(&class("Exception")));
+    assert!(lost.matches(&class("BaseException")));
+    let not_started =
+        classes::ACTION_EXECUTION_NOT_STARTED.exception(Value::Ready(ReadyValue::None));
+    assert!(not_started.matches(&class("Exception")));
+
+    // A class whose bases are not known matches by its own name alone.
+    let bare = Exception {
+        type_id: "RetryCounterError".to_owned(),
+        mro_type_ids: Vec::new(),
+        details: Value::Ready(ReadyValue::None),
+    };
+    assert!(bare.matches(&class("RetryCounterError")));
+    assert!(!bare.matches(&class("Exception")));
+    assert!(bare.matches(&Pattern::Any));
 }
 
 #[test]
@@ -537,18 +598,11 @@ fn float_operations_follow_non_nan_finite_semantics() {
 }
 
 #[test]
-fn exception_values_round_trip_through_exception_traits() {
-    let details = Value::Ready(ReadyValue::String("boom".to_owned()));
-    let value = ReadyValue::Exception(Box::new(Exception {
-        type_id: "ValueError".to_owned(),
-        details: details.clone(),
-    }));
+fn exception_values_cross_to_and_from_the_raised_domain() {
+    let exception =
+        classes::VALUE_ERROR.exception(Value::Ready(ReadyValue::String("boom".to_owned())));
+    let value = ReadyValue::Exception(Box::new(exception.clone()));
 
-    let exception = value
-        .as_exception()
-        .expect("ready value should be an exception");
-    assert_eq!(exception.type_id, "ValueError");
-    assert_eq!(exception.details, details);
     assert_eq!(value.capture_action_call_argument().unwrap(), value.clone());
     assert!(value.should_jump().unwrap());
     assert!(matches!(
@@ -556,26 +610,34 @@ fn exception_values_round_trip_through_exception_traits() {
         extcallset::SleepDurationError::UnsupportedValue
     ));
 
-    let owned = value
+    // The raised exception and the exception value are one type: raising
+    // and capturing are the identity on it.
+    let raised: RaisedException = value
         .clone()
-        .into_exception()
-        .expect("owned ready exception");
-    assert_eq!(owned.type_id, "ValueError");
-    assert_eq!(owned.details, details);
+        .into_raised()
+        .expect("a ready exception value raises");
+    assert_eq!(raised, exception);
+    assert_eq!(
+        ReadyValue::from_raised(raised.clone()).expect("a raised exception is captured"),
+        value
+    );
 
-    let wrapped = Value::Ready(value);
-    let exception = wrapped
-        .as_exception()
-        .expect("promise value should forward exception refs");
-    assert_eq!(exception.type_id, "ValueError");
-    assert_eq!(exception.details, details);
+    let wrapped = Value::Ready(value.clone());
+    let raised: RaisedException = wrapped
+        .into_raised()
+        .expect("a promise value forwards the raise to its ready value");
+    assert_eq!(raised, exception);
+    assert_eq!(
+        Value::from_raised(raised).expect("a promise value captures as ready"),
+        Value::Ready(value)
+    );
 
-    let owned = wrapped
-        .into_exception()
-        .expect("promise value should forward owned exceptions");
-    assert_eq!(owned.type_id, "ValueError");
-    assert_eq!(owned.details, details);
-
-    assert!(ReadyValue::Int(1).as_exception().is_err());
-    assert!(Value::Ready(ReadyValue::Int(1)).into_exception().is_err());
+    let not_an_exception: Result<RaisedException, _> = ReadyValue::Int(1).into_raised();
+    assert!(not_an_exception.is_err());
+    let not_an_exception: Result<RaisedException, _> =
+        Value::Ready(ReadyValue::Int(1)).into_raised();
+    assert!(not_an_exception.is_err());
+    let pending: Result<RaisedException, _> =
+        Value::Pending(waymark_vm_runtime_promise_core::PromiseStateId(3)).into_raised();
+    assert!(pending.is_err());
 }

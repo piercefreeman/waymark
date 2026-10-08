@@ -3,6 +3,7 @@
 #![warn(missing_docs)]
 
 mod error;
+pub mod raised_exception;
 pub mod value;
 
 use derive_where::derive_where;
@@ -11,6 +12,7 @@ use waymark_vm_interpreter_utils::register_values::with_register_values;
 use waymark_vm_runtime_core::Frame;
 
 pub use self::error::*;
+pub use self::raised_exception::RaisedException;
 pub use self::value::Value;
 
 use self::value::*;
@@ -19,21 +21,24 @@ use waymark_vm_instructions_pureset::{BinaryOpKind, UnaryOpKind};
 
 /// An interpreter for the "pure" instructions set.
 #[derive_where(Default)]
-pub struct PureSetInterpreter<Spec, FunctionId, StateId, Value> {
-    phantom_data: core::marker::PhantomData<(Spec, FunctionId, StateId, Value)>,
+pub struct PureSetInterpreter<Spec, FunctionId, StateId, Value, RaisedException> {
+    phantom_data: core::marker::PhantomData<(Spec, FunctionId, StateId, Value, RaisedException)>,
 }
 
-impl<Spec, FunctionId, StateId, Value> waymark_vm_interpreter::Interpreter
-    for PureSetInterpreter<Spec, FunctionId, StateId, Value>
+impl<Spec, FunctionId, StateId, Value, RaisedException> waymark_vm_interpreter::Interpreter
+    for PureSetInterpreter<Spec, FunctionId, StateId, Value, RaisedException>
 where
     Spec: waymark_vm_instructions_pureset::Spec<RegisterId = waymark_vm_runtime_core::RegisterId>
         + 'static,
     Value: 'static,
     Value: value::Value,
     Value: for<'a> value::LoadConst<&'a Spec::ConstValue>,
+    RaisedException: 'static,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+    RaisedException: raised_exception::RaisedException,
 {
     type RuntimeView<'r> = ();
-    type Frame = Frame<FunctionId, StateId, Value>;
+    type Frame = Frame<FunctionId, StateId, Value, RaisedException>;
     type Instruction = waymark_vm_instructions_pureset::PureSet<Spec>;
     type Error = Error;
     type Effect = core::convert::Infallible;
@@ -41,10 +46,9 @@ where
     fn execute<'r>(
         &self,
         _runtime_view: Self::RuntimeView<'r>,
-        mut frame: Frame<FunctionId, StateId, Value>,
+        mut frame: Self::Frame,
         instruction: &Self::Instruction,
-    ) -> Result<ExecutionOutcome<Frame<FunctionId, StateId, Value>, Self::Effect>, Self::Error>
-    {
+    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
         match instruction {
             waymark_vm_instructions_pureset::PureSet::LoadConst { dst, value } => {
                 frame.regs.set(*dst, Value::load_const(value));
@@ -96,7 +100,7 @@ where
 
                 match make_list_result {
                     Ok(list) => frame.regs.set(*dst, list),
-                    Err(error) => frame.raise_typed_exception(error),
+                    Err(error) => frame.raise_exception_from_error(error),
                 }
             }
             waymark_vm_instructions_pureset::PureSet::ListAppend { dst, list, item } => {
@@ -110,7 +114,7 @@ where
                     .ok_or(Error::MissingListAppendItem { register: *item })?;
                 match Value::list_append(list_value, item_value.capture_copy()) {
                     Ok(grown) => frame.regs.set(*dst, grown),
-                    Err(error) => frame.raise_typed_exception(error),
+                    Err(error) => frame.raise_exception_from_error(error),
                 }
             }
             waymark_vm_instructions_pureset::PureSet::MakeDict { dst, entries } => {
@@ -139,36 +143,14 @@ where
                 }
 
                 if let Some(error) = raised_key_error {
-                    frame.raise_typed_exception(error);
+                    frame.raise_exception_from_error(error);
                     return Ok(ExecutionOutcome::Continue(frame));
                 }
 
                 match Value::make_dict(resolved_entries) {
                     Ok(dict) => frame.regs.set(*dst, dict),
-                    Err(error) => frame.raise_typed_exception(error),
+                    Err(error) => frame.raise_exception_from_error(error),
                 }
-            }
-            waymark_vm_instructions_pureset::PureSet::MakeException {
-                dst,
-                type_id,
-                details,
-            } => {
-                let type_id_value = frame
-                    .regs
-                    .get(*type_id)
-                    .ok_or(Error::MissingExceptionTypeId { register: *type_id })?;
-                let type_id_value = type_id_value
-                    .as_exception_type_id()
-                    .map_err(|source| Error::UnusableExceptionTypeId { source })?
-                    .to_owned();
-                let details_value = frame
-                    .regs
-                    .get(*details)
-                    .ok_or(Error::MissingExceptionDetails { register: *details })?
-                    .capture_copy();
-
-                let exception = Value::make_exception(type_id_value, details_value);
-                frame.regs.set(*dst, exception);
             }
         }
 
@@ -176,12 +158,15 @@ where
     }
 }
 
-impl<Spec, FunctionId, StateId, Value> PureSetInterpreter<Spec, FunctionId, StateId, Value>
+impl<Spec, FunctionId, StateId, Value, RaisedException>
+    PureSetInterpreter<Spec, FunctionId, StateId, Value, RaisedException>
 where
     Value: value::Value,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+    RaisedException: raised_exception::RaisedException,
 {
     fn execute_binary_operation(
-        frame: &mut Frame<FunctionId, StateId, Value>,
+        frame: &mut Frame<FunctionId, StateId, Value, RaisedException>,
         dst: waymark_vm_runtime_core::RegisterId,
         a: waymark_vm_runtime_core::RegisterId,
         b: waymark_vm_runtime_core::RegisterId,
@@ -195,7 +180,7 @@ where
         let x = match x.as_scalar() {
             Ok(scalar) => scalar,
             Err(error) => {
-                frame.raise_typed_exception(error);
+                frame.raise_exception_from_error(error);
                 return Ok(());
             }
         };
@@ -208,7 +193,7 @@ where
         let y = match y.as_scalar() {
             Ok(scalar) => scalar,
             Err(error) => {
-                frame.raise_typed_exception(error);
+                frame.raise_exception_from_error(error);
                 return Ok(());
             }
         };
@@ -234,13 +219,13 @@ where
 
         match operation_result {
             Ok(value) => frame.regs.set(dst, Value::from_scalar(value)),
-            Err(error) => frame.raise_typed_exception(error),
+            Err(error) => frame.raise_exception_from_error(error),
         }
         Ok(())
     }
 
     fn execute_unary_operation(
-        frame: &mut Frame<FunctionId, StateId, Value>,
+        frame: &mut Frame<FunctionId, StateId, Value, RaisedException>,
         dst: waymark_vm_runtime_core::RegisterId,
         src: waymark_vm_runtime_core::RegisterId,
         operation: UnaryOpKind,
@@ -252,7 +237,7 @@ where
         let value = match value.as_scalar() {
             Ok(scalar) => scalar,
             Err(error) => {
-                frame.raise_typed_exception(error);
+                frame.raise_exception_from_error(error);
                 return Ok(());
             }
         };
@@ -264,13 +249,13 @@ where
 
         match operation_result {
             Ok(value) => frame.regs.set(dst, Value::from_scalar(value)),
-            Err(error) => frame.raise_typed_exception(error),
+            Err(error) => frame.raise_exception_from_error(error),
         }
         Ok(())
     }
 
     fn execute_length(
-        frame: &mut Frame<FunctionId, StateId, Value>,
+        frame: &mut Frame<FunctionId, StateId, Value, RaisedException>,
         dst: waymark_vm_runtime_core::RegisterId,
         src: waymark_vm_runtime_core::RegisterId,
     ) -> Result<(), Error> {
@@ -282,19 +267,19 @@ where
         let length = match <Value as value::Length>::length(value) {
             Ok(length) => length,
             Err(error) => {
-                frame.raise_typed_exception(error);
+                frame.raise_exception_from_error(error);
                 return Ok(());
             }
         };
         match <Value as value::Length>::from_length(length) {
             Ok(value) => frame.regs.set(dst, value),
-            Err(error) => frame.raise_typed_exception(error),
+            Err(error) => frame.raise_exception_from_error(error),
         }
         Ok(())
     }
 
     fn execute_index_operation(
-        frame: &mut Frame<FunctionId, StateId, Value>,
+        frame: &mut Frame<FunctionId, StateId, Value, RaisedException>,
         dst: waymark_vm_runtime_core::RegisterId,
         object: waymark_vm_runtime_core::RegisterId,
         index: waymark_vm_runtime_core::RegisterId,
@@ -311,13 +296,13 @@ where
 
         match Value::index(object_value, index_value) {
             Ok(value) => frame.regs.set(dst, value),
-            Err(error) => frame.raise_typed_exception(error),
+            Err(error) => frame.raise_exception_from_error(error),
         }
         Ok(())
     }
 
     fn execute_dot_operation(
-        frame: &mut Frame<FunctionId, StateId, Value>,
+        frame: &mut Frame<FunctionId, StateId, Value, RaisedException>,
         dst: waymark_vm_runtime_core::RegisterId,
         object: waymark_vm_runtime_core::RegisterId,
         attribute: &str,
@@ -332,7 +317,7 @@ where
 
         match Value::dot(object_value, attribute) {
             Ok(value) => frame.regs.set(dst, value),
-            Err(error) => frame.raise_typed_exception(error),
+            Err(error) => frame.raise_exception_from_error(error),
         }
         Ok(())
     }

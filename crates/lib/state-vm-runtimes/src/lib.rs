@@ -58,6 +58,7 @@ pub struct SpawningFactory<
     EffectorProvider,
     HooksProvider,
     Value,
+    RaisedException,
 > where
     Backend: waymark_state_vm_runtimes_backend::HasVmId,
 {
@@ -69,7 +70,7 @@ pub struct SpawningFactory<
     hooks_provider: HooksProvider,
     /// Shared batcher that coalesces snapshot writes across all VMs.
     snapshot_batcher: snapshot_batcher::SnapshotBatcherHandle<Backend::VmId>,
-    _phantom_data: PhantomData<Value>,
+    _phantom_data: PhantomData<(Value, RaisedException)>,
 }
 
 impl<
@@ -80,6 +81,7 @@ impl<
     EffectorProvider,
     HooksProvider,
     Value,
+    RaisedException,
 >
     SpawningFactory<
         Backend,
@@ -89,6 +91,7 @@ impl<
         EffectorProvider,
         HooksProvider,
         Value,
+        RaisedException,
     >
 where
     Backend: waymark_state_vm_runtimes_backend::HasVmId,
@@ -124,6 +127,7 @@ impl<
     EffectorProvider,
     HooksProvider,
     Value,
+    RaisedException,
 > waymark_state_manager_core::Factory
     for SpawningFactory<
         Backend,
@@ -133,6 +137,7 @@ impl<
         EffectorProvider,
         HooksProvider,
         Value,
+        RaisedException,
     >
 where
     Backend: waymark_state_vm_runtimes_backend::HasVmId,
@@ -174,7 +179,7 @@ where
     >,
     InterpreterProvider: Send + Sync + 'static,
     InterpreterProvider::Interpreter: waymark_vm_interpreter::Interpreter<
-            Frame = waymark_vm_runtime::FrameFor<ExecutableProvider::Value, Value>,
+            Frame = waymark_vm_runtime::FrameFor<ExecutableProvider::Value, Value, RaisedException>,
             Instruction = <ExecutableProvider::Value as waymark_vm_executable::InstructionsProvider>::Instruction,
         >,
     InterpreterProvider::Interpreter: Send + 'static,
@@ -187,6 +192,7 @@ where
                 <ExecutableProvider::Value as waymark_vm_executable::Functions>::FunctionId,
                 <ExecutableProvider::Value as waymark_vm_executable::FunctionStates>::StateId,
                 Value,
+                RaisedException,
             >,
         >,
     EffectorProvider: waymark_state_vm_runtimes_core::EffectorProvider<
@@ -195,14 +201,22 @@ where
     EffectorProvider: Send + Sync + 'static,
     EffectorProvider::Effector: waymark_vm_driver_core::EffectHandler<
             Effect = <InterpreterProvider::Interpreter as waymark_vm_interpreter::Interpreter>::Effect,
-        > + waymark_vm_driver_core::PromiseSettler<Value = Value::ReadyValue, Ack: Send>
-        + Send
+        > + waymark_vm_driver_core::PromiseSettler<
+            Value = Value::ReadyValue,
+            RaisedException = RaisedException,
+            Ack: Send,
+        > + Send
         + Sync
         + 'static,
     Value: Clone + Send + Sync + 'static,
     Value: serde::Serialize + for<'a> serde::Deserialize<'a>,
     Value: waymark_vm_runtime_promise_core::Resolvable + core::fmt::Debug,
     Value::ReadyValue: core::fmt::Debug + Send,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+    RaisedException: Clone + Send + Sync + 'static + core::fmt::Debug,
+    RaisedException: serde::Serialize + for<'a> serde::Deserialize<'a>,
+    waymark_vm_runtime_exception::MatchPatternOf<RaisedException>:
+        serde::Serialize + for<'a> serde::Deserialize<'a> + Send,
     <InterpreterProvider::Interpreter as waymark_vm_interpreter::Interpreter>::Error:
         core::fmt::Debug + Send,
     <InterpreterProvider::Interpreter as waymark_vm_interpreter::Interpreter>::Effect:
@@ -218,6 +232,7 @@ where
     HooksProvider::Hooks: waymark_vm_driver::HooksFor<
             InterpreterProvider::Interpreter,
             Value,
+            RaisedException,
             EffectorProvider::Effector,
             SnapshotAdapter<Backend::VmId>,
             Arc<Codec>,

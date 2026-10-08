@@ -16,14 +16,17 @@ pub use self::value::Value;
 
 /// An interpreter for the "extcall" instructions set.
 #[derive_where(Default)]
-pub struct ExtCallSetInterpreter<Spec, FunctionId, StateId, Value> {
-    phantom_data: core::marker::PhantomData<(Spec, FunctionId, StateId, Value)>,
+pub struct ExtCallSetInterpreter<Spec, FunctionId, StateId, Value, RaisedException> {
+    phantom_data: core::marker::PhantomData<(Spec, FunctionId, StateId, Value, RaisedException)>,
 }
 
 /// The runtime view for the [`ExtCallSetInterpreter`].
-pub struct RuntimeView<'r, FunctionId, StateId, Value> {
+pub struct RuntimeView<'r, FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     /// The runtime state access.
-    pub state: &'r mut RuntimeState<FunctionId, StateId, Value>,
+    pub state: &'r mut RuntimeState<FunctionId, StateId, Value, RaisedException>,
 }
 
 /// The effect for the [`ExtCallSetInterpreter`].
@@ -56,14 +59,15 @@ pub enum Effect<ActionRef, ActionCallArgument> {
     },
 }
 
-fn suspend_frame<FunctionId, StateId, Value>(
-    state: &mut RuntimeState<FunctionId, StateId, Value>,
-    mut frame: Frame<FunctionId, StateId, Value>,
+fn suspend_frame<FunctionId, StateId, Value, RaisedException>(
+    state: &mut RuntimeState<FunctionId, StateId, Value, RaisedException>,
+    mut frame: Frame<FunctionId, StateId, Value, RaisedException>,
     dst: RegisterId,
     resume: StateId,
 ) -> PromiseStateId
 where
     Value: waymark_vm_runtime_promise_core::Suspendable,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
 {
     let promise_state_id = state.promise_states.prepare();
     waymark_vm_runtime_core::Continuation::immediate_resume(
@@ -76,8 +80,8 @@ where
     promise_state_id
 }
 
-impl<Spec, FunctionId, StateId, Value> waymark_vm_interpreter::Interpreter
-    for ExtCallSetInterpreter<Spec, FunctionId, StateId, Value>
+impl<Spec, FunctionId, StateId, Value, RaisedException> waymark_vm_interpreter::Interpreter
+    for ExtCallSetInterpreter<Spec, FunctionId, StateId, Value, RaisedException>
 where
     Spec: waymark_vm_instructions_extcallset::Spec<
             RegisterId = waymark_vm_runtime_core::RegisterId,
@@ -88,9 +92,11 @@ where
     Spec::ActionRef: Clone,
     Value: self::value::Value + Clone + 'static,
     Value: waymark_vm_runtime_promise_core::Promisable,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+    RaisedException: 'static,
 {
-    type RuntimeView<'r> = RuntimeView<'r, FunctionId, StateId, Value>;
-    type Frame = Frame<FunctionId, StateId, Value>;
+    type RuntimeView<'r> = RuntimeView<'r, FunctionId, StateId, Value, RaisedException>;
+    type Frame = Frame<FunctionId, StateId, Value, RaisedException>;
     type Instruction = waymark_vm_instructions_extcallset::ExtCallSet<Spec>;
     type Error = Error<Value>;
     type Effect = Effect<Spec::ActionRef, Value::ActionCallArgument>;
@@ -98,10 +104,9 @@ where
     fn execute<'r>(
         &self,
         runtime_view: Self::RuntimeView<'r>,
-        frame: Frame<FunctionId, StateId, Value>,
+        frame: Self::Frame,
         instruction: &Self::Instruction,
-    ) -> Result<ExecutionOutcome<Frame<FunctionId, StateId, Value>, Self::Effect>, Self::Error>
-    {
+    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
         let Self::RuntimeView { state } = runtime_view;
 
         match instruction {
@@ -155,11 +160,20 @@ where
     }
 }
 
-impl<'s, 'r, Executable, FunctionId, StateId, Value>
+impl<'s, 'r, Executable, FunctionId, StateId, Value, RaisedException>
     waymark_vm_runtime_view_capture::CaptureRuntimeView<
         's,
-        waymark_vm_runtime_core::FullRuntimeView<'r, Executable, FunctionId, StateId, Value>,
-    > for RuntimeView<'s, FunctionId, StateId, Value>
+        waymark_vm_runtime_core::FullRuntimeView<
+            'r,
+            Executable,
+            FunctionId,
+            StateId,
+            Value,
+            RaisedException,
+        >,
+    > for RuntimeView<'s, FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
 {
     fn capture_runtime_view(
         source: &'s mut waymark_vm_runtime_core::FullRuntimeView<
@@ -168,6 +182,7 @@ impl<'s, 'r, Executable, FunctionId, StateId, Value>
             FunctionId,
             StateId,
             Value,
+            RaisedException,
         >,
     ) -> Self {
         RuntimeView {

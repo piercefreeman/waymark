@@ -11,7 +11,8 @@ use waymark_ids::InstanceId;
 use waymark_vm_codec_rmp::RmpCodec;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement, PromiseSettlementAck as _};
 use waymark_vm_runtime_promise_core::PromiseStateId;
-use waymark_vm_value_python::ReadyValue;
+use waymark_vm_value_python::exception::classes;
+use waymark_vm_value_python::{RaisedException, ReadyValue, Value};
 
 use super::{Ack, DemandRegistrar, Params, PollActionSettlementsError, SettlementsHandle};
 use crate::test_support::{MockBackend, key, lost_record, record};
@@ -28,9 +29,12 @@ fn poll_once<F: Future>(future: std::pin::Pin<&mut F>) -> Poll<F::Output> {
 
 /// Poll the handle for settlements with the given demanded promise ids.
 async fn poll_settlements(
-    handle: &mut SettlementsHandle<InstanceId, ReadyValue, TestConverter>,
+    handle: &mut SettlementsHandle<InstanceId, ReadyValue, RaisedException, TestConverter>,
     ids: &[usize],
-) -> Result<NEVec<PromiseSettlement<ReadyValue, Ack<InstanceId>>>, PollActionSettlementsError> {
+) -> Result<
+    NEVec<PromiseSettlement<ReadyValue, RaisedException, Ack<InstanceId>>>,
+    PollActionSettlementsError,
+> {
     let demand = demand(ids);
     ActionPromiseSettler::<Ack<InstanceId>>::poll_action_settlements(
         handle,
@@ -46,14 +50,15 @@ type TestConverter = waymark_vm_value_python_convert_proto::ActionOutcomeConvert
 fn poller(
     backend: &MockBackend,
 ) -> (
-    DemandRegistrar<InstanceId, ReadyValue, TestConverter>,
-    Params<MockBackend, RmpCodec, ReadyValue>,
+    DemandRegistrar<InstanceId, ReadyValue, RaisedException, TestConverter>,
+    Params<MockBackend, RmpCodec, ReadyValue, RaisedException>,
     tokio::sync::mpsc::UnboundedReceiver<CompletionKey<InstanceId>>,
 ) {
     let (ack_tx, ack_rx) = tokio::sync::mpsc::unbounded_channel();
     let (registrar, state) = super::state::<
         _,
         ReadyValue,
+        RaisedException,
         waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
     >(ack_tx);
     let params = Params {
@@ -117,7 +122,7 @@ async fn settles_a_lost_execution_raised() {
     let poll_loop = tokio::spawn(super::run(params));
 
     // The stored loss decodes on the durable path and settles the promise
-    // raised with the type id of the stage the call provably reached.
+    // raised with the class of the stage the call provably reached.
     let settlements = poll_settlements(&mut handle, &[3])
         .await
         .expect("settlement delivered");
@@ -127,10 +132,9 @@ async fn settles_a_lost_execution_raised() {
         panic!("a lost execution settles its promise raised");
     };
     assert_eq!(
-        exception.type_id,
-        waymark_vm_exception_type_ids::ACTION_EXECUTION_NOT_STARTED
+        exception,
+        classes::ACTION_EXECUTION_NOT_STARTED.exception(Value::Ready(ReadyValue::None))
     );
-    assert_eq!(exception.details, ReadyValue::None);
 
     poll_loop.abort();
 }

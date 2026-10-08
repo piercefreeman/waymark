@@ -20,7 +20,10 @@ pub trait SpecRequirements:
         RegisterId = waymark_vm_runtime_core::RegisterId,
         StateId = waymark_vm_bytecode_core::StateId,
     > + waymark_vm_instructions_pureset::Spec
-    + waymark_vm_instructions_fullset::Spec
+    + waymark_vm_instructions_excset::Spec<
+        RegisterId = waymark_vm_runtime_core::RegisterId,
+        StateId = waymark_vm_bytecode_core::StateId,
+    > + waymark_vm_instructions_fullset::Spec
 {
 }
 

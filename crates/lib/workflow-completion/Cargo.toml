@@ -6,11 +6,10 @@ publish.workspace = true
 
 [dependencies]
 waymark-batcher = { workspace = true }
+waymark-fullset-effect-handler = { workspace = true }
 waymark-vm-codec-core = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
-waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
-waymark-vm-runtime-exception = { workspace = true }
 waymark-workflow-completion-backend = { workspace = true }
 
 nonempty-collections = { workspace = true }

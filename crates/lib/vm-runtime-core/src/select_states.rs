@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 
+use derive_where::derive_where;
+
 use crate::{Continuation, RegisterId, ResumeSelectArm, ResumeWithValue, SelectArm};
 
 /// An opaque identifier of a select state.
@@ -58,16 +60,35 @@ pub struct SelectStateClaim<StateId> {
 /// A select continuation is inserted when its frame waits on multiple
 /// promises at once, and claimed - exactly once - by the first of its arms
 /// to settle.
-#[derive(Debug)]
+#[derive_where(
+    Debug;
+    FunctionId, StateId, Value, RaisedException,
+    waymark_vm_runtime_exception::MatchPatternOf<RaisedException>,
+)]
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
     serde(bound(
-        serialize = "FunctionId: serde::Serialize, StateId: serde::Serialize, Value: serde::Serialize",
-        deserialize = "FunctionId: serde::Deserialize<'de>, StateId: serde::Deserialize<'de>, Value: serde::Deserialize<'de>",
+        serialize = "
+            FunctionId: serde::Serialize,
+            StateId: serde::Serialize,
+            Value: serde::Serialize,
+            RaisedException: serde::Serialize,
+            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
+        ",
+        deserialize = "
+            FunctionId: serde::Deserialize<'de>,
+            StateId: serde::Deserialize<'de>,
+            Value: serde::Deserialize<'de>,
+            RaisedException: serde::Deserialize<'de>,
+            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Deserialize<'de>,
+        ",
     ))
 )]
-pub struct SelectStates<FunctionId, StateId, Value> {
+pub struct SelectStates<FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     /// The id to assign to the next select state.
     ///
     /// Monotonically increasing and never rewound - upholding the
@@ -77,11 +98,17 @@ pub struct SelectStates<FunctionId, StateId, Value> {
     /// The select continuations by their ids.
     //
     // A `BTreeMap` keeps the serialized snapshot form deterministic.
-    continuations:
-        BTreeMap<SelectStateId, Continuation<FunctionId, StateId, Value, ResumeSelectArm>>,
+    continuations: BTreeMap<
+        SelectStateId,
+        Continuation<FunctionId, StateId, Value, RaisedException, ResumeSelectArm>,
+    >,
 }
 
-impl<FunctionId, StateId, Value> Default for SelectStates<FunctionId, StateId, Value> {
+impl<FunctionId, StateId, Value, RaisedException> Default
+    for SelectStates<FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     fn default() -> Self {
         Self {
             next_select_state_id: 0,
@@ -90,7 +117,11 @@ impl<FunctionId, StateId, Value> Default for SelectStates<FunctionId, StateId, V
     }
 }
 
-impl<FunctionId, StateId, Value> SelectStates<FunctionId, StateId, Value> {
+impl<FunctionId, StateId, Value, RaisedException>
+    SelectStates<FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     /// Create a new empty select states collection.
     pub fn new() -> Self {
         Self::default()
@@ -100,7 +131,7 @@ impl<FunctionId, StateId, Value> SelectStates<FunctionId, StateId, Value> {
     /// arms.
     pub fn insert(
         &mut self,
-        continuation: Continuation<FunctionId, StateId, Value, ResumeSelectArm>,
+        continuation: Continuation<FunctionId, StateId, Value, RaisedException, ResumeSelectArm>,
     ) -> SelectStateHandle {
         let select_state_id = SelectStateId(self.next_select_state_id);
         self.next_select_state_id += 1;
@@ -118,7 +149,7 @@ impl<FunctionId, StateId, Value> SelectStates<FunctionId, StateId, Value> {
     pub(crate) fn claim(
         &mut self,
         select_state_claim: SelectStateClaim<StateId>,
-    ) -> Option<Continuation<FunctionId, StateId, Value, ResumeWithValue>> {
+    ) -> Option<Continuation<FunctionId, StateId, Value, RaisedException, ResumeWithValue>> {
         let SelectStateClaim {
             select_state_id,
             arm,
@@ -134,6 +165,7 @@ mod tests {
     use waymark_vm_runtime_promise_value::PromiseValue;
 
     use super::{SelectStateId, SelectStates};
+    use crate::test_helpers::TestException;
     use crate::{Continuation, ExceptionHandlers, Frame, FrameKind, Registers};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,8 +177,8 @@ mod tests {
         type RootValue = TestValue;
     }
 
-    fn select_continuation() -> Continuation<&'static str, usize, TestValue, crate::ResumeSelectArm>
-    {
+    fn select_continuation()
+    -> Continuation<&'static str, usize, TestValue, TestException, crate::ResumeSelectArm> {
         Continuation::capture_select(Frame {
             func: "example",
             state: 0,

@@ -5,10 +5,8 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
-waymark-vm-exception-handler = { workspace = true }
-
 derive-where = { workspace = true }
 serde = { workspace = true, optional = true }
 
 [features]
-serde = ["dep:serde", "serde/derive", "waymark-vm-exception-handler/serde"]
+serde = ["dep:serde", "serde/derive"]

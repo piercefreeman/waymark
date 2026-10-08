@@ -28,14 +28,15 @@ pub enum Error<InterpreterError> {
     NoInstructions,
 }
 
-impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
+impl<Executable, Interpreter, Value, RaisedException>
+    Runtime<Executable, Interpreter, Value, RaisedException>
 where
     Executable: waymark_vm_executable::InstructionsProvider,
     Executable::FunctionId: Copy,
     Executable::StateId: Copy + PartialEq,
     Executable: 'static,
     Interpreter: waymark_vm_interpreter::Interpreter<
-            Frame = FrameFor<Executable, Value>,
+            Frame = FrameFor<Executable, Value, RaisedException>,
             Instruction = Executable::Instruction,
         >,
     for<'view, 'runtime> <Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'view>:
@@ -47,16 +48,19 @@ where
                     Executable::FunctionId,
                     Executable::StateId,
                     Value,
+                    RaisedException,
                 >,
             >,
     Value: 'static,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+    RaisedException: 'static,
     Interpreter::Instruction: core::fmt::Debug,
     Value: core::fmt::Debug,
 {
     /// Consume and execute a frame till a side-effect is encountered.
     pub(crate) fn step(
         &mut self,
-        mut frame: FrameFor<Executable, Value>,
+        mut frame: FrameFor<Executable, Value, RaisedException>,
     ) -> Result<StepOutcome<Interpreter::Effect>, Error<Interpreter::Error>> {
         let Self {
             executable,

@@ -78,6 +78,7 @@ where
     Provider: ActionCallCompletionsProvider,
     Provider::Metadata: VmScoped<VmId = Backend::VmId> + ActionCallCorrelated,
     Provider::Value: serde::Serialize,
+    Provider::RaisedException: serde::Serialize,
     Provider::ActionExecutionError: serde::Serialize,
     Backend: RecordCompletions,
     Codec: waymark_vm_codec_core::SerializerProvider,

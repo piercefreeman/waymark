@@ -47,19 +47,19 @@ fn lowers_retry_policies_through_a_wrapper_function() {
       s1:
         PureSet(LoadConst { dst: r0, value: None })
         CoreSet(Return { src: r0 })
-    f1: [13 registers]
+    f1: [10 registers]
       s0:
         PureSet(LoadConst { dst: r0, value: Int(0) })
         PureSet(LoadConst { dst: r1, value: Int(1) })
         CoreSet(Jump { target_state: s1 })
       s1:
-        CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }] })
+        ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r2) }] })
         ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
       s2:
         PureSet(LoadConst { dst: r8, value: Int(2) })
         PureSet(Binary { kind: Lt, op: BinaryOp { dst: r9, a: r0, b: r8 } })
         CoreSet(JumpIf { target_state: s3, cond: r9 })
-        CoreSet(Raise { src: r2 })
+        ExcSet(Raise { src: r2 })
       s3:
         PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
         CoreSet(Jump { target_state: s1 })
@@ -67,16 +67,13 @@ fn lowers_retry_policies_through_a_wrapper_function() {
         PureSet(LoadConst { dst: r4, value: Int(30) })
         ExtCallSet(Sleep { dst: r5, duration: r4, resume: s6, unskippable: true })
       s5:
-        CoreSet(PopExceptionHandlers { count: 1 })
+        ExcSet(PopExceptionHandlers { count: 1 })
         CoreSet(Return { src: r6 })
       s6:
         CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
       s7:
-        CoreSet(PopExceptionHandlers { count: 1 })
-        PureSet(LoadConst { dst: r10, value: String("ActionTimeout") })
-        PureSet(LoadConst { dst: r11, value: None })
-        PureSet(MakeException { dst: r12, type_id: r10, details: r11 })
-        CoreSet(Raise { src: r12 })
+        ExcSet(PopExceptionHandlers { count: 1 })
+        ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
     "#);
 }
 
@@ -105,7 +102,7 @@ fn lowers_timeout_policies_through_a_wrapper_function() {
       s1:
         PureSet(LoadConst { dst: r0, value: None })
         CoreSet(Return { src: r0 })
-    f1: [8 registers]
+    f1: [5 registers]
       s0:
         ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("notify"), args: [], resume: s1 })
       s1:
@@ -116,9 +113,6 @@ fn lowers_timeout_policies_through_a_wrapper_function() {
       s3:
         CoreSet(Return { src: r3 })
       s4:
-        PureSet(LoadConst { dst: r5, value: String("ActionTimeout") })
-        PureSet(LoadConst { dst: r6, value: None })
-        PureSet(MakeException { dst: r7, type_id: r5, details: r6 })
-        CoreSet(Raise { src: r7 })
+        ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
     "#);
 }

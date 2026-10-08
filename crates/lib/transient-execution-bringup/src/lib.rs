@@ -98,7 +98,10 @@ pub fn setup_runtime(
 /// sleep reconciler.
 pub type EffectorFor<ActionCallRequester, ActionCallCompletionsProvider> = (
     waymark_fullset_effect_handler::EffectHandler<
-        waymark_workflow_completion_direct::DirectHandler<waymark_system_vm::ReadyValue>,
+        waymark_workflow_completion_direct::DirectHandler<
+            waymark_system_vm::ReadyValue,
+            waymark_system_vm::RaisedException,
+        >,
         waymark_extcall_reconciler::EffectHandler<
             waymark_extcall_reconciler_action_compat::EffectHandler<ActionCallRequester>,
             waymark_transient_sleep_reconciler::Handler,
@@ -113,6 +116,7 @@ pub type EffectorFor<ActionCallRequester, ActionCallCompletionsProvider> = (
         >,
         waymark_transient_sleep_reconciler::Poller<
             waymark_sleep_compat_python::ReadyValueSleepProvider,
+            waymark_system_vm::RaisedException,
         >,
     >,
 );
@@ -135,6 +139,7 @@ pub trait DriverHooksFor<ActionCallRequester, ActionCallCompletionsProvider>:
     waymark_vm_driver::HooksFor<
         waymark_system_vm::Interpreter,
         waymark_system_vm::Value,
+        waymark_system_vm::RaisedException,
         EffectorFor<ActionCallRequester, ActionCallCompletionsProvider>,
         NoopPersister,
         waymark_vm_codec_rmp::RmpCodec,
@@ -151,6 +156,7 @@ where
     T: waymark_vm_driver::HooksFor<
             waymark_system_vm::Interpreter,
             waymark_system_vm::Value,
+            waymark_system_vm::RaisedException,
             EffectorFor<ActionCallRequester, ActionCallCompletionsProvider>,
             NoopPersister,
             waymark_vm_codec_rmp::RmpCodec,
@@ -168,7 +174,10 @@ pub struct Execution<DriverHandle> {
     /// producing a workflow outcome — await [`Self::driver_handle`] for the
     /// terminal error.
     pub workflow_outcome_rx: tokio::sync::oneshot::Receiver<
-        waymark_workflow_completion_core::Outcome<waymark_system_vm::ReadyValue>,
+        waymark_workflow_completion_core::Outcome<
+            waymark_system_vm::ReadyValue,
+            waymark_system_vm::RaisedException,
+        >,
     >,
 
     /// Join handle for the VM driver thread.
@@ -211,6 +220,7 @@ where
     ActionCallRequester::Error: Send,
     ActionCallCompletionsProvider: waymark_action_runtime_core::ActionCallCompletionsProvider<
             Value = waymark_system_vm::ReadyValue,
+            RaisedException = waymark_system_vm::RaisedException,
             Metadata = waymark_action_runtime_metadata::ActionCallCorrelation,
         >,
     ActionCallCompletionsProvider: Send + Sync + 'static,
@@ -219,10 +229,16 @@ where
         waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
     >: waymark_convert_core::Convert<
             Result<
-                waymark_action_runtime_core::ActionCallOutcome<waymark_system_vm::ReadyValue>,
+                waymark_action_runtime_core::ActionCallOutcome<
+                    waymark_system_vm::ReadyValue,
+                    waymark_system_vm::RaisedException,
+                >,
                 ActionCallCompletionsProvider::ActionExecutionError,
             >,
-            waymark_vm_driver_core::PromiseResolution<waymark_system_vm::ReadyValue>,
+            waymark_vm_driver_core::PromiseResolution<
+                waymark_system_vm::ReadyValue,
+                waymark_system_vm::RaisedException,
+            >,
         >,
 {
     let codec = waymark_vm_codec_rmp::RmpCodec;
@@ -239,6 +255,7 @@ where
     >::new(action_call_completions_provider);
     let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
         waymark_sleep_compat_python::ReadyValueSleepProvider,
+        waymark_system_vm::RaisedException,
     >(skip_sleep);
     let (extcall_handler, extcall_settler) =
         waymark_extcall_reconciler::new(action_handler, sleep_handler, action_poller, sleep_poller);
@@ -246,7 +263,7 @@ where
         waymark_workflow_completion_direct::DirectHandler::new(workflow_outcome_tx);
 
     let handler = waymark_fullset_effect_handler::EffectHandler {
-        core: workflow_completion_handler,
+        terminal: workflow_completion_handler,
         extcall: extcall_handler,
     };
 

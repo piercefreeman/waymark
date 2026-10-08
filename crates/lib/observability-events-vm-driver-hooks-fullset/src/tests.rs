@@ -2,18 +2,34 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use super::FullSetEffectSummarizer;
 
+/// The raised exception of the tests: a class name, captured as-is.
+#[derive(Debug)]
+struct TestException(&'static str);
+
+impl waymark_observability_vm_value_display::CaptureRaisedException for TestException {
+    fn capture_raised_exception(
+        &self,
+    ) -> waymark_observability_vm_value_display::RaisedExceptionSummary {
+        waymark_observability_vm_value_display::RaisedExceptionSummary {
+            exception_type: self.0.to_owned(),
+        }
+    }
+}
+
 type Effect = waymark_vm_interpreter_fullset::Effect<
     waymark_vm_interpreter_coreset::Effect<u8>,
     waymark_vm_interpreter_extcallset::Effect<waymark_action_core::ActionRef, u8>,
     core::convert::Infallible,
+    waymark_vm_interpreter_excset::Effect<TestException>,
 >;
 
 fn summarize(effect: &Effect) -> serde_json::Value {
-    let summary = <FullSetEffectSummarizer<u8> as waymark_observability_events_vm_driver_hooks_core::SummarizeEffect>::summarize_effect(effect);
+    let summary = <FullSetEffectSummarizer<u8, TestException> as waymark_observability_events_vm_driver_hooks_core::SummarizeEffect>::summarize_effect(effect);
     serde_json::to_value(summary).expect("serialize")
 }
 
-/// Every effect summarizes by variant; the values never reach the summary.
+/// Every effect summarizes by variant; the values never reach the summary,
+/// and of a raised exception only its captured type does.
 #[test]
 fn effects_summarize_by_variant() {
     assert_eq!(
@@ -23,13 +39,8 @@ fn effects_summarize_by_variant() {
         serde_json::json!({ "kind": "complete" })
     );
     assert_eq!(
-        summarize(&waymark_vm_interpreter_fullset::Effect::CoreSet(
-            waymark_vm_interpreter_coreset::Effect::UnhandledException(
-                waymark_vm_runtime_exception::Exception {
-                    type_id: "ValueError".to_owned(),
-                    details: 7,
-                },
-            ),
+        summarize(&waymark_vm_interpreter_fullset::Effect::ExcSet(
+            waymark_vm_interpreter_excset::Effect::UnhandledException(TestException("ValueError")),
         )),
         serde_json::json!({ "kind": "unhandled_exception", "exception_type": "ValueError" })
     );

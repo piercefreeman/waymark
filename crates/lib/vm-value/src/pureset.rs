@@ -6,8 +6,8 @@ use waymark_vm_instructions_pureset::{
     BinaryOpKind as BinaryOperationKind, UnaryOpKind as UnaryOperationKind,
 };
 use waymark_vm_interpreter_pureset::value::{
-    AsDictKeyError, AsExceptionTypeIdError, BinaryOperationError, DotOperationError,
-    FromLengthError, IndexOperationError, LengthError, MakeDictError, UnaryOperationError,
+    AsDictKeyError, BinaryOperationError, DotOperationError, FromLengthError, IndexOperationError,
+    LengthError, MakeDictError, UnaryOperationError,
 };
 
 use crate::{Flavor, ReadyValue, ReadyValue as RV, Value, pythonic};
@@ -18,6 +18,7 @@ fn contains_bool<Flavor: self::Flavor>(
 ) -> Result<bool, BinaryOperationError>
 where
     Flavor::Extension: PartialEq,
+    Flavor::ExceptionValue: PartialEq,
 {
     match (a, b) {
         (ReadyValue::String(needle), ReadyValue::String(haystack)) => Ok(haystack.contains(needle)),
@@ -76,6 +77,7 @@ where
 impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::CaptureCopy for ReadyValue<Flavor>
 where
     Flavor::Extension: Clone,
+    Flavor::ExceptionValue: Clone,
 {
     fn capture_copy(&self) -> Self {
         self.clone()
@@ -85,6 +87,7 @@ where
 impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::BinaryOps for ReadyValue<Flavor>
 where
     Flavor::Extension: Clone + PartialEq,
+    Flavor::ExceptionValue: Clone + PartialEq,
 {
     fn add(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         match (a, b) {
@@ -344,6 +347,7 @@ impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::MakeList for R
 impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::ListAppend for ReadyValue<Flavor>
 where
     Flavor::Extension: Clone,
+    Flavor::ExceptionValue: Clone,
 {
     fn list_append(
         list: &Self,
@@ -390,35 +394,6 @@ impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::MakeDict for R
     }
 }
 
-impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::AsExceptionTypeId
-    for ReadyValue<Flavor>
-{
-    fn as_exception_type_id(&self) -> Result<&str, AsExceptionTypeIdError> {
-        match self {
-            Self::String(value) => Ok(value),
-            Self::Int(_)
-            | Self::Float(_)
-            | Self::Bool(_)
-            | Self::None
-            | Self::List(_)
-            | Self::Dict(_)
-            | Self::Exception(_)
-            | Self::Extension(_) => Err(AsExceptionTypeIdError::UnsupportedTypeIdType),
-        }
-    }
-}
-
-impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::MakeException
-    for ReadyValue<Flavor>
-{
-    fn make_exception(type_id: String, details: Self::RootValue) -> Self {
-        Self::Exception(Box::new(waymark_vm_runtime_exception::Exception {
-            type_id,
-            details,
-        }))
-    }
-}
-
 impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::Length for ReadyValue<Flavor> {
     type Length = usize;
 
@@ -445,6 +420,7 @@ impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::Length for Rea
 impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::IndexOp for ReadyValue<Flavor>
 where
     Flavor::Extension: Clone,
+    Flavor::ExceptionValue: Clone,
 {
     fn index(object: &Self, index: &Self) -> Result<Self::RootValue, IndexOperationError> {
         match object {
@@ -487,6 +463,7 @@ where
 impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::DotOp for ReadyValue<Flavor>
 where
     Flavor::Extension: Clone,
+    Flavor::ExceptionValue: Clone,
 {
     fn dot(object: &Self, attribute: &str) -> Result<Self::RootValue, DotOperationError> {
         match object {

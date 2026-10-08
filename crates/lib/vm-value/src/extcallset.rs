@@ -64,6 +64,7 @@ impl<Flavor: crate::Flavor> waymark_vm_interpreter_extcallset::value::CaptureAct
     for ReadyValue<Flavor>
 where
     Flavor::Extension: Clone,
+    Flavor::ExceptionValue: Clone,
 {
     type Error = core::convert::Infallible;
     type ActionCallArgument = ReadyValue<Flavor>;

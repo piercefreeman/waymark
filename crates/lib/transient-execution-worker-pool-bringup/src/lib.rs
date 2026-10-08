@@ -26,6 +26,7 @@ pub type ActionCallCompletionsProviderFor<WorkerPoolCompletions> =
         WorkerPoolCompletions,
         waymark_action_runtime_metadata::ActionCallCorrelation,
         waymark_vm_value_python::ReadyValue,
+        waymark_vm_value_python::RaisedException,
         waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
     >;
 

@@ -7,23 +7,26 @@ use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_interpreter_fullset::FullSetInterpreter;
 use waymark_vm_runtime::Runtime;
 use waymark_vm_runtime_core::{FullRuntimeView, RegisterId};
-use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
 
-use crate::support::{Instruction, TestActionRef, TestReadyValue, TestSpec, TestValue};
+use crate::support::{
+    Instruction, TestActionRef, TestException, TestReadyValue, TestSpec, TestValue,
+};
+
+type Inner = FullSetInterpreter<TestSpec, Executable<Instruction>, TestValue, TestException>;
 
 #[derive(Default)]
 struct NoPendingExceptionExecuteInterpreter {
-    inner: FullSetInterpreter<TestSpec, Executable<Instruction>, TestValue>,
+    inner: Inner,
 }
 
 impl waymark_vm_interpreter::Interpreter for NoPendingExceptionExecuteInterpreter {
     type RuntimeView<'r> =
-        FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, TestValue>;
-    type Frame = waymark_vm_runtime::FrameFor<Executable<Instruction>, TestValue>;
+        FullRuntimeView<'r, Executable<Instruction>, FunctionId, StateId, TestValue, TestException>;
+    type Frame = waymark_vm_runtime::FrameFor<Executable<Instruction>, TestValue, TestException>;
     type Instruction = Instruction;
-    type Error = <FullSetInterpreter<TestSpec, Executable<Instruction>, TestValue> as waymark_vm_interpreter::Interpreter>::Error;
-    type Effect = <FullSetInterpreter<TestSpec, Executable<Instruction>, TestValue> as waymark_vm_interpreter::Interpreter>::Effect;
+    type Error = <Inner as waymark_vm_interpreter::Interpreter>::Error;
+    type Effect = <Inner as waymark_vm_interpreter::Interpreter>::Effect;
 
     fn enter_state<'r>(
         &self,
@@ -99,29 +102,23 @@ fn pending_exceptions_are_consumed_before_execute_dispatch() {
         panic!("first run should emit an action call");
     };
 
+    let rejection = TestException {
+        type_id: "ValueError".to_owned(),
+        details: TestValue::Ready(TestReadyValue::Int(7)),
+    };
     runtime
-        .reject_promise(
-            promise_state_id,
-            Exception {
-                type_id: "ValueError".to_owned(),
-                details: TestReadyValue::Int(7),
-            },
-        )
+        .reject_promise(promise_state_id, rejection.clone())
         .expect("action-call promise should resolve exceptionally");
 
     let emitted_effect = runtime
         .run()
-        .expect("state entry should bubble the pending exception before execute dispatch");
+        .expect("state entry should unwind the pending exception before execute dispatch");
 
     match emitted_effect.effect {
-        waymark_vm_interpreter_fullset::Effect::CoreSet(
-            waymark_vm_interpreter_coreset::Effect::UnhandledException(Exception {
-                type_id,
-                details,
-            }),
+        waymark_vm_interpreter_fullset::Effect::ExcSet(
+            waymark_vm_interpreter_excset::Effect::UnhandledException(exception),
         ) => {
-            assert_eq!(type_id, "ValueError");
-            assert_eq!(details, TestReadyValue::Int(7));
+            assert_eq!(exception, rejection);
         }
         other => panic!(
             "program should surface the unhandled exception without dispatching execute: {other:?}"

@@ -14,7 +14,7 @@ serde = { workspace = true, optional = true, features = ["derive"] }
 [features]
 default = []
 
-serde = ["dep:serde", "serde/derive", "waymark-vm-runtime-exception/serde"]
+serde = ["dep:serde", "serde/derive"]
 
 [lib]
 doctest = false

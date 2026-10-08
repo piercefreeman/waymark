@@ -1,84 +1,96 @@
-//! The core types for supporting exceptions at VM runtime.
+//! The exception traits of the VM runtime.
+//!
+//! The VM has no exception representation of its own. A raised exception
+//! is whatever type the instruction set's spec names, and the `Exception`
+//! variant of a value holds whatever type the value's flavor names; the two
+//! need not be the same type, and a language may have no exception values
+//! at all and still raise and catch. These traits are how the runtime and
+//! the interpreters work with either without knowing its shape: how a
+//! raised exception matches a handler's pattern, and how an exception
+//! crosses between the raised domain and the value domain.
 
 #![warn(missing_docs)]
 
-/// The exception type.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Exception<Details> {
-    /// The exception's type identifier.
-    pub type_id: String,
-
-    /// The exception's details payload.
-    pub details: Details,
+/// The type of the exception match pattern: the value an exception handler
+/// keeps, and what a raised exception is matched against.
+///
+/// The pattern is whatever the language compiles an `except` clause to -
+/// for Python, a class name. Everything that carries a raised exception
+/// and its handler stack needs only this; matching itself is
+/// [`Match`]. Implemented by the raised exception type.
+pub trait HasMatchPattern {
+    /// The exception match pattern type: what an exception handler keeps,
+    /// and what a raised exception of the implementing type is matched
+    /// against.
+    type Pattern;
 }
 
-/// Error returned by [`AsException::as_exception`].
-#[derive(Debug, thiserror::Error)]
-#[error("the value is not an exception")]
-pub struct NotAnExceptionError;
-
-/// Error returned by [`IntoException::into_exception`].
-#[derive(Debug, thiserror::Error)]
-#[error("the value is not an exception")]
-pub struct NotAnOwnedExceptionError<Value> {
-    /// The consumed value that was not an exception.
-    pub value: Value,
+/// Match a raised exception against a handler's pattern.
+///
+/// The match is the language's rule. Implemented by the raised exception
+/// type; required only where the unwind decides which handler catches.
+pub trait Match: HasMatchPattern {
+    /// Whether a handler listing `pattern` catches this exception.
+    fn matches(&self, pattern: &Self::Pattern) -> bool;
 }
 
-impl<Value> From<NotAnOwnedExceptionError<Value>> for NotAnExceptionError {
-    fn from(_value: NotAnOwnedExceptionError<Value>) -> Self {
-        Self
+/// The runtime exception pattern type of a raised exception type: what its
+/// handlers hold and it matches against.
+pub type MatchPatternOf<RaisedException> = <RaisedException as HasMatchPattern>::Pattern;
+
+/// A language without raised exceptions has no pattern, trivially.
+impl HasMatchPattern for core::convert::Infallible {
+    type Pattern = core::convert::Infallible;
+}
+
+/// A language without raised exceptions has nothing to match, ever.
+impl Match for core::convert::Infallible {
+    fn matches(&self, _pattern: &Self::Pattern) -> bool {
+        match *self {}
     }
 }
 
-/// Borrows the value as an exception.
-///
-/// If the value is not an exception, returns an error.
-pub trait AsException: waymark_vm_runtime_value::RootValueAccess {
-    /// Returns this value as a runtime exception ref.
-    fn as_exception(&self) -> Result<&Exception<Self::RootValue>, NotAnExceptionError>;
+/// Turn a value into a raised exception: what the `Raise` instruction does
+/// to the register it names.
+pub trait ValueToRaisedException<RaisedException>: Sized {
+    /// Why the value cannot be raised.
+    type Error;
+
+    /// Raise this value.
+    fn into_raised(self) -> Result<RaisedException, Self::Error>;
 }
 
-/// Consumes and returns the value as an exception.
-///
-/// If the value is not itself an exception, returns an error that provides
-/// the original value.
-pub trait IntoException: Sized + waymark_vm_runtime_value::RootValueAccess {
-    /// Return this value as an owned a runtime exception.
-    fn into_exception(self) -> Result<Exception<Self::RootValue>, NotAnOwnedExceptionError<Self>>;
+/// Capture a raised exception as a value: what a handler does with the
+/// exception it caught when it has a destination register.
+pub trait RaisedExceptionToValue<RaisedException>: Sized {
+    /// Why the raised exception cannot be held as a value.
+    type Error;
+
+    /// Capture the raised exception.
+    fn from_raised(raised: RaisedException) -> Result<Self, Self::Error>;
 }
 
-/// Constructs a value from a runtime exception.
-pub trait FromException: Sized + waymark_vm_runtime_value::RootValueAccess {
-    /// Wrap the provided exception as `Self`.
-    fn from_exception(exception: Exception<Self::RootValue>) -> Self;
+/// The error of capturing a raised exception in a language that has no
+/// exception values: such a language catches by matching alone, and its
+/// compiler never emits a handler with a destination register.
+#[derive(Debug, thiserror::Error)]
+#[error("this language has no exception values")]
+pub struct NoExceptionValuesError;
+
+/// An uninhabited exception value can never be raised, trivially.
+impl<RaisedException> ValueToRaisedException<RaisedException> for core::convert::Infallible {
+    type Error = core::convert::Infallible;
+
+    fn into_raised(self) -> Result<RaisedException, Self::Error> {
+        match self {}
+    }
 }
 
-/// A statically-typed exception.
-///
-/// Implemented by the narrow error types whose failures are exposed to
-/// the user code as catchable runtime exceptions; the implementation
-/// determines the runtime exception type identifier and details payload.
-pub trait TypedException {
-    /// The typed details payload of the intermediate exception.
-    type IntermediateDetails;
+/// An uninhabited exception value can never capture anything.
+impl<RaisedException> RaisedExceptionToValue<RaisedException> for core::convert::Infallible {
+    type Error = NoExceptionValuesError;
 
-    /// Build the intermediate typed representation of the runtime exception.
-    fn into_intermediate_exception(self) -> Exception<Self::IntermediateDetails>;
-}
-
-/// Constructs a runtime exception from an intermediate typed exception.
-///
-/// Implemented by the value types; the implementation lifts the intermediate
-/// exception details into the value domain — effectively a
-/// `From<IntermediateDetails>` with the added context that the payload is
-/// an exception details payload and not just a raw value.
-pub trait ExceptionFromIntermediate<IntermediateDetails>:
-    waymark_vm_runtime_value::RootValueAccess
-{
-    /// Build the runtime exception from the provided intermediate exception.
-    fn from_intermediate_exception(
-        intermediate_exception: Exception<IntermediateDetails>,
-    ) -> Exception<Self::RootValue>;
+    fn from_raised(_raised: RaisedException) -> Result<Self, Self::Error> {
+        Err(NoExceptionValuesError)
+    }
 }

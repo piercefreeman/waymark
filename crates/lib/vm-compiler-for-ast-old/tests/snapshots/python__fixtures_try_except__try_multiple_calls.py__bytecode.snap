@@ -12,7 +12,7 @@ fn main(input: [value], output: []):
 ---
 f0: [4 registers]
   s0:
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ValueError"], exception_dst: None }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["ValueError"], exception_dst: None }] })
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("risky_step_one"), args: [r0], resume: s3 })
   s1:
   s2:
