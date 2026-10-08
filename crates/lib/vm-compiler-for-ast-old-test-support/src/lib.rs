@@ -14,11 +14,11 @@ pub use waymark_vm_value_python::Value as TestValue;
 pub use waymark_vm_value_python::ReadyValue as TestReadyValue;
 
 /// Test const value type definition as
-/// an actual [`waymark_vm_compiler_for_ast_old_const_value::ConstValue`].
-pub use waymark_vm_compiler_for_ast_old_const_value::ConstValue as TestConstValue;
+/// an actual [`waymark_vm_compiler_for_ast_old_bytecode_consts::ConstValue`].
+pub use waymark_vm_compiler_for_ast_old_bytecode_consts::ConstValue as TestConstValue;
 
 /// Errors produced while lowering literals in tests.
-pub use waymark_vm_compiler_for_ast_old_const_value::LoweringError as TestLiteralLoweringError;
+pub use waymark_vm_compiler_for_ast_old_bytecode_consts::LoweringError as TestLiteralLoweringError;
 
 /// Action reference used by the test VM spec.
 #[derive(Debug, Clone)]

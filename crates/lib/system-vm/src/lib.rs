@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-pub use waymark_vm_compiler_for_ast_old_const_value::ConstValue;
+pub use waymark_vm_compiler_for_ast_old_bytecode_consts::ConstValue;
 pub use waymark_vm_value_python::{ReadyValue, Value};
 
 #[cfg(test)]
@@ -59,7 +59,7 @@ impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::PureSet<Spec> for Low
 where
     Spec: waymark_vm_instructions_pureset::Spec<ConstValue = ConstValue>,
 {
-    type LiteralError = waymark_vm_compiler_for_ast_old_const_value::LoweringError;
+    type LiteralError = waymark_vm_compiler_for_ast_old_bytecode_consts::LoweringError;
 
     fn lower_literal(
         literal: &waymark_vm_ast_old::Literal,
