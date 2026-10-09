@@ -3,7 +3,7 @@ source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_gather/gather_run_action_spread.py
 ---
 fn main(input: [items], output: []):
-    results = spread items:item -> @gather_run_action_spread.process_item(item=item) [retry: 2] [timeout: 30s]
+    results = spread items:item -> @gather_run_action_spread.process_item(item=item) [Exception -> retry: 2] [timeout: 30s]
     _return_tmp = @gather_run_action_spread.combine_results(results=results)
     return _return_tmp
 ---
@@ -57,7 +57,7 @@ f1: [11 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["Exception"], exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("process_item"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r9, value: Int(2) })
@@ -76,5 +76,4 @@ f1: [11 registers]
   s6:
     CoreSet(Select { arms: [SelectArm { src: r4, dst: r7, resume: s5 }, SelectArm { src: r6, dst: r8, resume: s7 }] })
   s7:
-    ExcSet(PopExceptionHandlers { count: 1 })
     ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })

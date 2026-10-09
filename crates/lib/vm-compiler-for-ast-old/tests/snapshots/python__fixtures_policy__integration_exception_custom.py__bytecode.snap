@@ -5,7 +5,7 @@ expression: bytecode for python/tests/fixtures_policy/integration_exception_cust
 fn main(input: [], output: []):
     try:
         number = @integration_exception_custom.provide_value()
-        @integration_exception_custom.explode_custom(value=number) [retry: 0]
+        @integration_exception_custom.explode_custom(value=number) [Exception -> retry: 0]
     except CustomError:
         result = @integration_exception_custom.cleanup(label="custom_fallback")
     return result
@@ -37,7 +37,7 @@ f1: [8 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["Exception"], exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("explode_custom"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r6, value: Int(0) })

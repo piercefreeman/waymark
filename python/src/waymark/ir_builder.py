@@ -254,6 +254,7 @@ GLOBAL_FUNCTIONS = {
 }
 ALLOWED_SYNC_FUNCTIONS = set(GLOBAL_FUNCTIONS)
 DEFAULT_RETRY_POLICY_MAX_RETRIES = 100
+DEFAULT_RETRY_POLICY_EXCEPTION_TYPE = "Exception"
 
 _CURRENT_ACTION_NAMES: set[str] = set()
 
@@ -2974,6 +2975,12 @@ class IRBuilder(ast.NodeVisitor):
                         policy.exception_types.append(elt.value)
             elif kw.arg == "backoff_seconds" and isinstance(kw.value, ast.Constant):
                 policy.backoff.seconds = int(kw.value.value)
+
+        # An omitted or empty filter retries on `Exception`, as an `except
+        # Exception` clause would. An empty list of patterns means retry on
+        # everything in the compiled form, which no policy literal spells.
+        if not policy.exception_types:
+            policy.exception_types.append(DEFAULT_RETRY_POLICY_EXCEPTION_TYPE)
 
         return policy
 

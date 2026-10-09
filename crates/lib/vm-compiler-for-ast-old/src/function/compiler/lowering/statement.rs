@@ -171,11 +171,6 @@ where
         let mut try_handlers = Vec::with_capacity(handlers.len());
 
         for (handler, handler_state) in handlers.iter().zip(handler_states.iter().copied()) {
-            let exception_types = if handler.value.exception_types == ["Exception"] {
-                Vec::new()
-            } else {
-                handler.value.exception_types.clone()
-            };
             let exception_dst = handler.value.exception_var.as_ref().map(|exception_var| {
                 self.context
                     .local_frame
@@ -185,7 +180,7 @@ where
 
             try_handlers.push(waymark_vm_exception_handler::ExceptionHandler {
                 handler_state,
-                pattern: Lowering::lower_exception_pattern(&exception_types),
+                pattern: Lowering::lower_exception_pattern(&handler.value.exception_types),
                 exception_dst,
             });
         }

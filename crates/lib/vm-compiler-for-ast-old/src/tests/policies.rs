@@ -72,7 +72,6 @@ fn lowers_retry_policies_through_a_wrapper_function() {
       s6:
         CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
       s7:
-        ExcSet(PopExceptionHandlers { count: 1 })
         ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
     "#);
 }

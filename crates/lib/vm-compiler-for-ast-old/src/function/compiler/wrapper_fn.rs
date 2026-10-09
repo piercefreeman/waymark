@@ -20,10 +20,6 @@ use super::env::LocalFrame;
 use super::suspend::PromiseMarker;
 use super::{Error, ErrorFor};
 
-/// The exception type id raised when a per-attempt timeout fires, as a
-/// retry bracket lists it.
-const ACTION_TIMEOUT_TYPE_ID: &str = "ActionTimeout";
-
 /// One digested retry bracket.
 struct RetryPlan {
     /// The exception types this bracket retries; empty retries everything.
@@ -37,14 +33,8 @@ struct RetryPlan {
 }
 
 impl RetryPlan {
-    /// Digests one retry bracket, normalizing the catch-all filter the same
-    /// way `try`/`except` normalizes `Exception`.
+    /// Digests one retry bracket.
     fn digest(retry_policy: &waymark_vm_ast_old::RetryPolicy) -> Self {
-        let exception_types = if retry_policy.exception_types == ["Exception"] {
-            Vec::new()
-        } else {
-            retry_policy.exception_types.clone()
-        };
         let backoff_seconds = retry_policy
             .backoff
             .as_ref()
@@ -52,22 +42,10 @@ impl RetryPlan {
             .filter(|&seconds| seconds != 0);
 
         Self {
-            exception_types,
+            exception_types: retry_policy.exception_types.clone(),
             max_retries: retry_policy.max_retries,
             backoff_seconds,
         }
-    }
-
-    /// Returns whether this bracket statically retries the compiled-in
-    /// `ActionTimeout` exception.
-    ///
-    /// The catch-all filter deliberately does not: with no cancellation the
-    /// timed-out attempt may still be running, so retrying timeouts requires
-    /// an explicit opt-in - matching the legacy runner semantics.
-    fn retries_timeouts(&self) -> bool {
-        self.exception_types
-            .iter()
-            .any(|exception_type| exception_type == ACTION_TIMEOUT_TYPE_ID)
     }
 }
 
@@ -254,11 +232,10 @@ where
 /// A shared attempt counter is checked against each bracket's budget at the
 /// bracket's own handler, and each bracket sleeps its own fixed backoff -
 /// outside the protected region, so a failure during backoff propagates
-/// instead of counting as an attempt. The timeout select arm routes at
-/// compile time: into the retry bookkeeping of the first bracket statically
-/// listing `ActionTimeout`, or straight to the raise - after popping the
-/// attempt's handler block, so the routing never re-enters the handlers at
-/// runtime.
+/// instead of counting as an attempt. The timeout select arm raises
+/// `ActionTimeout` inside the protected region, so the brackets catch it
+/// like any exception the action raises: by matching their patterns against
+/// its lineage.
 fn emit_retry_loop<Spec, Lowering>(
     emitter: &mut FunctionEmitter<Spec>,
     local_frame: &mut LocalFrame,
@@ -321,14 +298,10 @@ where
     emitter.switch_to(resume_after_call);
 
     let ok_state = emitter.reserve_state();
-    let max_register;
-    let cond_register;
 
     match timeout_seconds {
         None => {
             let result_register = local_frame.allocate_register();
-            max_register = local_frame.allocate_register();
-            cond_register = local_frame.allocate_register();
 
             emitter.emit_await(result_register, promise_register, ok_state);
 
@@ -354,8 +327,6 @@ where
 
             let result_register = local_frame.allocate_register();
             let sleep_result_register = local_frame.allocate_register();
-            max_register = local_frame.allocate_register();
-            cond_register = local_frame.allocate_register();
             let timeout_state = emitter.reserve_state();
             emitter.emit_select(vec![
                 SelectArm {
@@ -375,37 +346,17 @@ where
             emitter.emit_return(result_register);
 
             // The timeout arm resumed normally, so the attempt's handler
-            // block is still active - pop it first: the compile-time routing
-            // below must never be caught by the attempt's own handlers.
+            // block is still active: the raise transfers into it.
             emitter.switch_to(timeout_state);
-            emitter.emit_pop_exception_handlers(1);
-            let routed_retry = retry_plans.iter().position(RetryPlan::retries_timeouts);
-            match routed_retry {
-                Some(position) => {
-                    let max_value = Lowering::lower_literal(&Literal::Int(i64::from(
-                        retry_plans[position].max_retries,
-                    )))
-                    .map_err(Error::LiteralLowering)?;
-                    emitter.emit_load_const(max_register, max_value);
-                    emitter.emit_binary(
-                        BinaryOpKind::Lt,
-                        cond_register,
-                        used_register,
-                        max_register,
-                    );
-                    emitter.emit_jump_if(retry_states[position], cond_register);
-                    emit_action_timeout_raise::<Spec, Lowering>(emitter);
-                }
-                None => {
-                    emit_action_timeout_raise::<Spec, Lowering>(emitter);
-                }
-            }
+            emit_action_timeout_raise::<Spec, Lowering>(emitter);
         }
     }
 
     // Per-bracket handlers: check the shared counter against this bracket's
     // budget; retry or re-raise the caught exception on exhaustion. The
     // handler block was already popped by the raise transfer.
+    let max_register = local_frame.allocate_register();
+    let cond_register = local_frame.allocate_register();
     let mut backoff_registers: Option<(RegisterId, Marked<RegisterId, PromiseMarker>, RegisterId)> =
         None;
     for (retry_plan, (handler_state, retry_state)) in retry_plans
@@ -676,7 +627,7 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_the_exception_catch_all_like_try_except() {
+    fn keeps_the_exception_filter_as_listed() {
         insta::assert_snapshot!(
             display_wrapper(0, &[retry_policy(1, vec!["Exception"], None)]),
             @r#"
@@ -685,7 +636,7 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["Exception"], exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r5, value: Int(1) })
@@ -705,42 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn does_not_route_timeouts_into_catch_all_retries() {
-        insta::assert_snapshot!(
-            display_wrapper(0, &[retry_policy(2, Vec::new(), None), timeout_policy(30)]),
-            @r#"
-        s0:
-          PureSet(LoadConst { dst: r0, value: Int(0) })
-          PureSet(LoadConst { dst: r1, value: Int(1) })
-          CoreSet(Jump { target_state: s1 })
-        s1:
-          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r2) }] })
-          ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
-        s2:
-          PureSet(LoadConst { dst: r8, value: Int(2) })
-          PureSet(Binary { kind: Lt, op: BinaryOp { dst: r9, a: r0, b: r8 } })
-          CoreSet(JumpIf { target_state: s3, cond: r9 })
-          ExcSet(Raise { src: r2 })
-        s3:
-          PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
-          CoreSet(Jump { target_state: s1 })
-        s4:
-          PureSet(LoadConst { dst: r4, value: Int(30) })
-          ExtCallSet(Sleep { dst: r5, duration: r4, resume: s6, unskippable: true })
-        s5:
-          ExcSet(PopExceptionHandlers { count: 1 })
-          CoreSet(Return { src: r6 })
-        s6:
-          CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
-        s7:
-          ExcSet(PopExceptionHandlers { count: 1 })
-          ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
-        "#
-        );
-    }
-
-    #[test]
-    fn routes_timeouts_into_retries_on_explicit_opt_in() {
+    fn raises_timeouts_inside_the_protected_region() {
         insta::assert_snapshot!(
             display_wrapper(
                 0,
@@ -774,10 +690,6 @@ mod tests {
         s6:
           CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
         s7:
-          ExcSet(PopExceptionHandlers { count: 1 })
-          PureSet(LoadConst { dst: r8, value: Int(2) })
-          PureSet(Binary { kind: Lt, op: BinaryOp { dst: r9, a: r0, b: r8 } })
-          CoreSet(JumpIf { target_state: s3, cond: r9 })
           ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
         "#
         );

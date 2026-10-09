@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
-from waymark import Workflow, action, workflow
+from waymark import ActionTimeout, Workflow, action, workflow
 from waymark.workflow import RetryPolicy
 
 # =============================================================================
@@ -1075,7 +1075,7 @@ class TimeoutProbeWorkflow(Workflow):
                     ),
                     timeout=1,
                 )
-        except Exception:
+        except ActionTimeout:
             # Expected path: terminal timeout after retries are exhausted.
             timed_out = True
             error_type = "ActionTimeout"

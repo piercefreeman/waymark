@@ -37,6 +37,12 @@ async def action_with_retry_default(value: str) -> str:
 
 
 @action
+async def action_with_retry_empty_exceptions(value: str) -> str:
+    """Action with an empty retry exception-types list."""
+    return f"done({value})"
+
+
+@action
 async def action_with_timeout_hours(value: str) -> str:
     """Action with timedelta hours."""
     return f"done({value})"
@@ -85,9 +91,15 @@ class PolicyVariationsWorkflow(Workflow):
             retry=RetryPolicy(),
         )
 
+        # Test an empty exception_types list: retries on Exception
+        d_retry_empty = await self.run_action(
+            action_with_retry_empty_exceptions(value=d_retry_default),
+            retry=RetryPolicy(attempts=2, exception_types=[]),
+        )
+
         # Test timeout with timedelta hours
         e = await self.run_action(
-            action_with_timeout_hours(value=d_retry_default), timeout=timedelta(hours=1)
+            action_with_timeout_hours(value=d_retry_empty), timeout=timedelta(hours=1)
         )
 
         # Test timeout with timedelta days
