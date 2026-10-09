@@ -1,0 +1,28 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_control_flow/try_except_hierarchy.py
+---
+fn main(input: [], output: []):
+    try:
+        result = @try_except_hierarchy.lookup_action()
+    except LookupError:
+        result = @try_except_hierarchy.handle_lookup_error()
+    return result
+---
+f0: [1 registers]
+  s0:
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["LookupError"], exception_dst: None }] })
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("lookup_action"), args: [], resume: s3 })
+  s1:
+    CoreSet(Return { src: r0 })
+  s2:
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("handle_lookup_error"), args: [], resume: s5 })
+  s3:
+    CoreSet(Await { dst: r0, src: r0, resume: s4 })
+  s4:
+    ExcSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Jump { target_state: s1 })
+  s5:
+    CoreSet(Await { dst: r0, src: r0, resume: s6 })
+  s6:
+    CoreSet(Jump { target_state: s1 })
