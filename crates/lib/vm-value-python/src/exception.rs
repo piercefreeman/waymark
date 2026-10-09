@@ -101,6 +101,12 @@ pub mod classes {
         mro_type_ids: &["LookupError", "Exception", "BaseException"],
     };
 
+    // The three runtime exceptions below have Python proxies in
+    // `python/src/waymark/vm_exceptions.py`, so workflows can spell them.
+    // The proxies mirror these entries - the same name, the same bases in
+    // the same order - and must change together with them;
+    // `python/tests/test_vm_exceptions.py` fails when they drift.
+
     /// `ActionTimeout`: an action call attempt that timed out.
     ///
     /// Derives from `BaseException` directly: the timed-out attempt may
