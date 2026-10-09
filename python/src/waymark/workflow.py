@@ -62,7 +62,8 @@ class RetryPolicy:
             to completion, so it is retried only when one of those names, or
             ``"BaseException"``, is listed. ``ActionExecutionNotStarted`` derives
             from ``Exception``: the attempt provably never ran, so a policy
-            retrying on ``Exception`` retries it.
+            retrying on ``Exception`` retries it. The three are spelled out as
+            proxy classes in :mod:`waymark.vm_exceptions`.
         backoff_seconds: A fixed sleep before each retry, in whole seconds: a
             fractional value is truncated, and under one second means no backoff.
 
@@ -138,9 +139,10 @@ class Workflow:
                 built from ``seconds``, ``minutes``, ``hours`` or ``days`` keywords;
                 whole seconds only (fractions are truncated), and under one second
                 means no timeout. Raced against each attempt; expiry raises
-                ``ActionTimeout``, which derives from ``BaseException`` and is
-                therefore retried only by a policy listing it (or
-                ``"BaseException"``), never by one retrying on ``Exception``.
+                :class:`waymark.vm_exceptions.ActionTimeout`, which derives from
+                ``BaseException`` and is therefore retried only by a policy
+                listing it (or ``"BaseException"``), never by one retrying on
+                ``Exception``.
         """
         # Parameters are intentionally unused at runtime; the workflow compiler
         # inspects the AST to record them.

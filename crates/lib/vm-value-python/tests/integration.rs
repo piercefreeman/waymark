@@ -492,6 +492,34 @@ fn operation_errors_raise_the_class_they_map_to() {
     );
 }
 
+/// The three runtime exceptions have Python proxies in
+/// `python/src/waymark/vm_exceptions.py`, pinned to the same literals by
+/// `python/tests/test_vm_exceptions.py`; this is the Rust side of that
+/// pin, so a change to either table fails a test.
+#[test]
+fn runtime_exception_classes_match_their_python_proxies() {
+    assert_eq!(classes::ACTION_TIMEOUT.type_id, "ActionTimeout");
+    assert_eq!(classes::ACTION_TIMEOUT.mro_type_ids, ["BaseException"]);
+
+    assert_eq!(
+        classes::ACTION_EXECUTION_NOT_STARTED.type_id,
+        "ActionExecutionNotStarted"
+    );
+    assert_eq!(
+        classes::ACTION_EXECUTION_NOT_STARTED.mro_type_ids,
+        ["Exception", "BaseException"]
+    );
+
+    assert_eq!(
+        classes::ACTION_EXECUTION_LOST.type_id,
+        "ActionExecutionLost"
+    );
+    assert_eq!(
+        classes::ACTION_EXECUTION_LOST.mro_type_ids,
+        ["BaseException"]
+    );
+}
+
 #[test]
 fn exceptions_match_handlers_by_class_hierarchy() {
     let key_error = classes::KEY_ERROR.exception(Value::Ready(ReadyValue::None));
