@@ -124,10 +124,14 @@ Rules:
 2. The same sentence as the list and a
    quiet key–value grid: first event, elapsed, promises, driver runs, events.
 3. **Waterfall** (the hero): one row per promise the VM actually called,
-   grouped into strata per driver run. Bars run from call to settlement.
+   grouped into strata per driver run. Use 28px rows with a single-line label;
+   keep promise IDs and modules in the selected promise's details. Sleep
+   labels show only a moon icon and duration in muted gray, without a status
+   dot or the word "sleep"; use the same label in the preview ledger.
+   Bars run from call to settlement.
    Open promises run to now with a hatched tail. Rejections get a red end
-   tick. Snapshots are ◆ on the run band. Inferred retries are marked, never
-   numbered.
+   tick. Snapshots are ◆ on the run band. Inferred retries have an inline
+   icon with the explanation on hover, never an attempt number.
 4. Docked drawer: the selected promise (details, an honest "Not recorded"
    arguments block, events involving it), the raw event log with gap rows,
    and the driver runs with their stop reasons and error text.
