@@ -2958,6 +2958,34 @@ class TestPolicyVariations:
         assert policy.HasField("timeout"), "Should be timeout policy"
         assert policy.timeout.timeout.seconds == 86400  # 1 day
 
+    def test_timeout_fraction_is_carried(self) -> None:
+        """Test: timeout=0.5 is 0.5 seconds, not truncated to none."""
+        from tests.fixtures_policy.policy_variations import PolicyVariationsWorkflow
+
+        program = PolicyVariationsWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_timeout_fraction")
+        assert action is not None, "Should find action_with_timeout_fraction"
+        assert len(action.policies) == 1, "Should have 1 policy"
+
+        policy = action.policies[0]
+        assert policy.HasField("timeout"), "Should be timeout policy"
+        assert policy.timeout.timeout.seconds == 0.5
+
+    def test_backoff_fraction_is_carried(self) -> None:
+        """Test: backoff_seconds=0.5 is 0.5 seconds, not truncated to none."""
+        from tests.fixtures_policy.policy_variations import PolicyVariationsWorkflow
+
+        program = PolicyVariationsWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_retry_backoff_fraction")
+        assert action is not None, "Should find action_with_retry_backoff_fraction"
+        assert len(action.policies) == 1, "Should have 1 policy"
+
+        policy = action.policies[0]
+        assert policy.HasField("retry"), "Should be retry policy"
+        assert policy.retry.backoff.seconds == 0.5
+
     def test_timeout_with_fractional_timedelta_matches_timedelta(self) -> None:
         """Test: timeout=timedelta(minutes=4.1) is 246 seconds, as timedelta says.
 

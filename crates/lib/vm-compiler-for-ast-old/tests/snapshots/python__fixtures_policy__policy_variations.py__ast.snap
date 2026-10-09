@@ -53,7 +53,7 @@ Program {
                                                     Timeout(
                                                         TimeoutPolicy {
                                                             timeout: DurationLiteral {
-                                                                seconds: 60,
+                                                                seconds: 60.0,
                                                             },
                                                         },
                                                     ),
@@ -107,7 +107,7 @@ Program {
                                                     Timeout(
                                                         TimeoutPolicy {
                                                             timeout: DurationLiteral {
-                                                                seconds: 120,
+                                                                seconds: 120.0,
                                                             },
                                                         },
                                                     ),
@@ -166,7 +166,7 @@ Program {
                                                             max_retries: 2,
                                                             backoff: Some(
                                                                 DurationLiteral {
-                                                                    seconds: 5,
+                                                                    seconds: 5.0,
                                                                 },
                                                             ),
                                                         },
@@ -388,7 +388,7 @@ Program {
                                                     Timeout(
                                                         TimeoutPolicy {
                                                             timeout: DurationLiteral {
-                                                                seconds: 3600,
+                                                                seconds: 3600.0,
                                                             },
                                                         },
                                                     ),
@@ -442,7 +442,7 @@ Program {
                                                     Timeout(
                                                         TimeoutPolicy {
                                                             timeout: DurationLiteral {
-                                                                seconds: 86400,
+                                                                seconds: 86400.0,
                                                             },
                                                         },
                                                     ),
@@ -496,7 +496,7 @@ Program {
                                                     Timeout(
                                                         TimeoutPolicy {
                                                             timeout: DurationLiteral {
-                                                                seconds: 246,
+                                                                seconds: 246.0,
                                                             },
                                                         },
                                                     ),
@@ -522,25 +522,195 @@ Program {
                                 },
                             },
                             Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "h",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "action_with_timeout_fraction",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "value",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "g",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 48,
+                                                                start_col: 65,
+                                                                end_line: 48,
+                                                                end_col: 66,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [
+                                                    Timeout(
+                                                        TimeoutPolicy {
+                                                            timeout: DurationLiteral {
+                                                                seconds: 0.5,
+                                                            },
+                                                        },
+                                                    ),
+                                                ],
+                                                module_name: Some(
+                                                    "policy_variations",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 48,
+                                            start_col: 4,
+                                            end_line: 48,
+                                            end_col: 81,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 48,
+                                    start_col: 4,
+                                    end_line: 48,
+                                    end_col: 81,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "i",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "action_with_retry_backoff_fraction",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "value",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "h",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 52,
+                                                                start_col: 49,
+                                                                end_line: 52,
+                                                                end_col: 50,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [
+                                                    Retry(
+                                                        RetryPolicy {
+                                                            exception_types: [
+                                                                "Exception",
+                                                            ],
+                                                            max_retries: 1,
+                                                            backoff: Some(
+                                                                DurationLiteral {
+                                                                    seconds: 0.5,
+                                                                },
+                                                            ),
+                                                        },
+                                                    ),
+                                                ],
+                                                module_name: Some(
+                                                    "policy_variations",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 51,
+                                            start_col: 4,
+                                            end_line: 54,
+                                            end_col: 5,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 51,
+                                    start_col: 4,
+                                    end_line: 54,
+                                    end_col: 5,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "j",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "action_with_retry_backoff_zero",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "value",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "i",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 58,
+                                                                start_col: 45,
+                                                                end_line: 58,
+                                                                end_col: 46,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [
+                                                    Retry(
+                                                        RetryPolicy {
+                                                            exception_types: [
+                                                                "Exception",
+                                                            ],
+                                                            max_retries: 1,
+                                                            backoff: None,
+                                                        },
+                                                    ),
+                                                ],
+                                                module_name: Some(
+                                                    "policy_variations",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 57,
+                                            start_col: 4,
+                                            end_line: 60,
+                                            end_col: 5,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 57,
+                                    start_col: 4,
+                                    end_line: 60,
+                                    end_col: 5,
+                                },
+                            },
+                            Spanned {
                                 value: Return {
                                     value: Some(
                                         Spanned {
                                             value: Variable {
-                                                name: "g",
+                                                name: "j",
                                             },
                                             span: Span {
-                                                start_line: 47,
+                                                start_line: 62,
                                                 start_col: 11,
-                                                end_line: 47,
+                                                end_line: 62,
                                                 end_col: 12,
                                             },
                                         },
                                     ),
                                 },
                                 span: Span {
-                                    start_line: 47,
+                                    start_line: 62,
                                     start_col: 4,
-                                    end_line: 47,
+                                    end_line: 62,
                                     end_col: 12,
                                 },
                             },
@@ -557,7 +727,7 @@ Program {
             span: Span {
                 start_line: 1,
                 start_col: 0,
-                end_line: 47,
+                end_line: 62,
                 end_col: 12,
             },
         },

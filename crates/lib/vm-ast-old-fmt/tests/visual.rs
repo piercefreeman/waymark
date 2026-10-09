@@ -61,7 +61,7 @@ fn fmt_display_prints_program() {
                                 }),
                             )],
                             vec![PolicyBracket::Timeout(TimeoutPolicy {
-                                timeout: DurationLiteral { seconds: 30 },
+                                timeout: DurationLiteral { seconds: 30.0 },
                             })],
                         )),
                         Call::Function(builtin_function_call(
@@ -81,7 +81,7 @@ fn fmt_display_prints_program() {
                     vec![PolicyBracket::Retry(RetryPolicy {
                         exception_types: vec!["ValueError".to_owned()],
                         max_retries: 3,
-                        backoff: Some(DurationLiteral { seconds: 60 }),
+                        backoff: Some(DurationLiteral { seconds: 60.0 }),
                     })],
                 ),
             }),
@@ -182,7 +182,7 @@ fn fmt_display_prints_program() {
                             "finish",
                             vec![kwarg("value", variable("grouped"))],
                             vec![PolicyBracket::Timeout(TimeoutPolicy {
-                                timeout: DurationLiteral { seconds: 30 },
+                                timeout: DurationLiteral { seconds: 30.0 },
                             })],
                         ),
                     }),

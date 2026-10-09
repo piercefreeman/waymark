@@ -43,6 +43,16 @@ fn main(input: [], output: []):
     @notify()[() -> timeout: 30 s]
 "#;
 
+const FRACTIONAL_DURATIONS_SOURCE: &str = r#"
+fn main(input: [], output: []):
+    @notify()[Exception -> retry: 2, backoff: 0.5 s][timeout: 1.5 s]
+"#;
+
+const OVERFLOWING_DURATION_SOURCE: &str = r#"
+fn main(input: [], output: []):
+    @notify()[timeout: 1e305 h]
+"#;
+
 #[test]
 fn parses_the_classes_a_retry_header_lists() {
     let policies = parse_single_action_policies(LISTED_HEADER_SOURCE);
@@ -69,6 +79,38 @@ fn rejects_a_retry_bracket_without_a_header() {
 
     assert!(
         error.to_string().contains("exception header"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn parses_fractional_durations() {
+    let policies = parse_single_action_policies(FRACTIONAL_DURATIONS_SOURCE);
+
+    assert_eq!(policies.len(), 2);
+    let Some(ir::policy_bracket::Kind::Retry(retry)) = &policies[0].kind else {
+        panic!("expected a retry bracket");
+    };
+    assert_eq!(
+        retry.backoff.as_ref().map(|backoff| backoff.seconds),
+        Some(0.5)
+    );
+    let Some(ir::policy_bracket::Kind::Timeout(timeout)) = &policies[1].kind else {
+        panic!("expected a timeout bracket");
+    };
+    assert_eq!(
+        timeout.timeout.as_ref().map(|timeout| timeout.seconds),
+        Some(1.5)
+    );
+}
+
+#[test]
+fn rejects_a_duration_whose_unit_multiply_overflows() {
+    let error = waymark_ir_parser::parse_program(OVERFLOWING_DURATION_SOURCE.trim())
+        .expect_err("a finite value that overflows in hours should not parse");
+
+    assert!(
+        error.to_string().contains("finite duration"),
         "unexpected error: {error}"
     );
 }

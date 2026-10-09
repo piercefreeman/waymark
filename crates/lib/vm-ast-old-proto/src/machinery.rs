@@ -3,7 +3,7 @@ use waymark_vm_ast_old::{self as vm_ast, Spanned};
 
 pub type Result<T> = std::result::Result<T, ConvertError>;
 
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error)]
 pub enum ConvertError {
     #[error("waymark_proto::ast missing required field `{field}`")]
     MissingField { field: &'static str },
@@ -11,6 +11,8 @@ pub enum ConvertError {
     InvalidEnumValue { enum_name: &'static str, value: i32 },
     #[error("waymark_proto::ast contains unspecified value for required enum `{enum_name}`")]
     UnspecifiedEnumValue { enum_name: &'static str },
+    #[error("waymark_proto::ast contains duration `{seconds}` that is not finite and non-negative")]
+    InvalidDuration { seconds: f64 },
 }
 
 pub trait Convert<From> {

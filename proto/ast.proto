@@ -356,7 +356,7 @@ message TimeoutPolicy {
 
 // Duration value (e.g., 30s, 2m, 1h)
 message Duration {
-  uint64 seconds = 1;
+  double seconds = 1;  // May be fractional; the runtime sleeps to its poll granularity
 }
 
 // -----------------------------------------------------------------------------

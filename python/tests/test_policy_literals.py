@@ -42,9 +42,9 @@ REJECTED = [
         "attempts must be at least 1",
     ),
     (
-        "policy_retry_backoff_fraction",
-        "PolicyRetryBackoffFractionWorkflow",
-        "backoff_seconds must be a whole number of seconds",
+        "policy_retry_backoff_negative",
+        "PolicyRetryBackoffNegativeWorkflow",
+        "backoff_seconds must be zero or more seconds",
     ),
     (
         "policy_retry_exception_types_tuple",
@@ -56,8 +56,16 @@ REJECTED = [
         "PolicyTimeoutVariableWorkflow",
         "timeout= must be a number literal",
     ),
-    ("policy_timeout_fraction", "PolicyTimeoutFractionWorkflow", "whole number of seconds"),
-    ("policy_timeout_zero", "PolicyTimeoutZeroWorkflow", "at least one second"),
+    ("policy_timeout_zero", "PolicyTimeoutZeroWorkflow", "more than zero seconds"),
+    ("policy_timeout_negative", "PolicyTimeoutNegativeWorkflow", "more than zero seconds"),
+    ("policy_timeout_too_small", "PolicyTimeoutTooSmallWorkflow", "at least one nanosecond"),
+    ("policy_timeout_too_large", "PolicyTimeoutTooLargeWorkflow", "at most 100 years"),
+    ("policy_timeout_infinite", "PolicyTimeoutInfiniteWorkflow", "at most 100 years"),
+    (
+        "policy_timeout_timedelta_overflow",
+        "PolicyTimeoutTimedeltaOverflowWorkflow",
+        "outside the range timedelta can hold",
+    ),
     (
         "policy_timeout_timedelta_milliseconds",
         "PolicyTimeoutTimedeltaMillisecondsWorkflow",

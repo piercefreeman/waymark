@@ -105,12 +105,12 @@ fn returns_missing_field_error() {
 
     let error = convert(function).expect_err("missing io should fail conversion");
 
-    assert_eq!(
+    assert!(matches!(
         error,
         ConvertError::MissingField {
             field: "FunctionDef.io"
         }
-    );
+    ));
 }
 
 #[test]
@@ -124,12 +124,12 @@ fn returns_missing_sleep_duration_error() {
 
     let error = convert(statement).expect_err("missing sleep duration should fail conversion");
 
-    assert_eq!(
+    assert!(matches!(
         error,
         ConvertError::MissingField {
             field: "SleepStmt.duration"
         }
-    );
+    ));
 }
 
 #[test]
@@ -146,13 +146,13 @@ fn returns_invalid_enum_error() {
 
     let error = convert(expr).expect_err("invalid global function should fail conversion");
 
-    assert_eq!(
+    assert!(matches!(
         error,
         ConvertError::InvalidEnumValue {
             enum_name: "GlobalFunction",
             value: 99,
         }
-    );
+    ));
 }
 
 #[test]
@@ -168,10 +168,23 @@ fn returns_unspecified_required_enum_error() {
 
     let error = convert(expr).expect_err("unspecified binary operator should fail conversion");
 
-    assert_eq!(
+    assert!(matches!(
         error,
         ConvertError::UnspecifiedEnumValue {
             enum_name: "BinaryOperator",
         }
-    );
+    ));
+}
+
+#[test]
+fn rejects_a_negative_or_non_finite_duration() {
+    for seconds in [-1.0, f64::NAN, f64::INFINITY] {
+        let error = convert(ast::Duration { seconds })
+            .expect_err("the AST promises a finite, non-negative duration");
+
+        assert!(
+            matches!(error, ConvertError::InvalidDuration { .. }),
+            "{seconds}: {error:?}"
+        );
+    }
 }

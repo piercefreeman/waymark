@@ -12,9 +12,12 @@ fn main(input: [value], output: []):
     e = @policy_variations.action_with_timeout_hours(value=d_retry_empty) [timeout: 1h]
     f = @policy_variations.action_with_timeout_days(value=e) [timeout: 24h]
     g = @policy_variations.action_with_timeout_fractional_minutes(value=f) [timeout: 246s]
-    return g
+    h = @policy_variations.action_with_timeout_fraction(value=g) [timeout: 0.5s]
+    i = @policy_variations.action_with_retry_backoff_fraction(value=h) [Exception -> retry: 1, backoff: 0.5s]
+    j = @policy_variations.action_with_retry_backoff_zero(value=i) [Exception -> retry: 1]
+    return j
 ---
-f0: [10 registers]
+f0: [13 registers]
   s0:
     CoreSet(Call { dst: r1, function_id: f1, args: [r0] })
     CoreSet(Await { dst: r1, src: r1, resume: s1 })
@@ -43,7 +46,16 @@ f0: [10 registers]
     CoreSet(Call { dst: r9, function_id: f9, args: [r8] })
     CoreSet(Await { dst: r9, src: r9, resume: s9 })
   s9:
-    CoreSet(Return { src: r9 })
+    CoreSet(Call { dst: r10, function_id: f10, args: [r9] })
+    CoreSet(Await { dst: r10, src: r10, resume: s10 })
+  s10:
+    CoreSet(Call { dst: r11, function_id: f11, args: [r10] })
+    CoreSet(Await { dst: r11, src: r11, resume: s11 })
+  s11:
+    CoreSet(Call { dst: r12, function_id: f12, args: [r11] })
+    CoreSet(Await { dst: r12, src: r12, resume: s12 })
+  s12:
+    CoreSet(Return { src: r12 })
 f1: [6 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_timeout_int"), args: [r0], resume: s1 })
@@ -193,3 +205,62 @@ f9: [6 registers]
     CoreSet(Return { src: r4 })
   s4:
     ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
+f10: [6 registers]
+  s0:
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_timeout_fraction"), args: [r0], resume: s1 })
+  s1:
+    PureSet(LoadConst { dst: r2, value: Float(NonNaNFinite(0.5)) })
+    ExtCallSet(Sleep { dst: r3, duration: r2, resume: s2, unskippable: true })
+  s2:
+    CoreSet(Select { arms: [SelectArm { src: r1, dst: r4, resume: s3 }, SelectArm { src: r3, dst: r5, resume: s4 }] })
+  s3:
+    CoreSet(Return { src: r4 })
+  s4:
+    ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
+f11: [11 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: Int(0) })
+    PureSet(LoadConst { dst: r2, value: Int(1) })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_backoff_fraction"), args: [r0], resume: s4 })
+  s2:
+    PureSet(LoadConst { dst: r6, value: Int(1) })
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r7, a: r1, b: r6 } })
+    CoreSet(JumpIf { target_state: s3, cond: r7 })
+    ExcSet(Raise { src: r3 })
+  s3:
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
+    PureSet(LoadConst { dst: r8, value: Float(NonNaNFinite(0.5)) })
+    ExtCallSet(Sleep { dst: r9, duration: r8, resume: s6, unskippable: false })
+  s4:
+    CoreSet(Await { dst: r5, src: r4, resume: s5 })
+  s5:
+    ExcSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Return { src: r5 })
+  s6:
+    CoreSet(Await { dst: r10, src: r9, resume: s7 })
+  s7:
+    CoreSet(Jump { target_state: s1 })
+f12: [8 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: Int(0) })
+    PureSet(LoadConst { dst: r2, value: Int(1) })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_backoff_zero"), args: [r0], resume: s4 })
+  s2:
+    PureSet(LoadConst { dst: r6, value: Int(1) })
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r7, a: r1, b: r6 } })
+    CoreSet(JumpIf { target_state: s3, cond: r7 })
+    ExcSet(Raise { src: r3 })
+  s3:
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
+    CoreSet(Jump { target_state: s1 })
+  s4:
+    CoreSet(Await { dst: r5, src: r4, resume: s5 })
+  s5:
+    ExcSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Return { src: r5 })

@@ -239,7 +239,8 @@ pub struct TimeoutPolicy {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DurationLiteral {
-    pub seconds: u64,
+    /// Seconds, possibly fractional; finite and non-negative.
+    pub seconds: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

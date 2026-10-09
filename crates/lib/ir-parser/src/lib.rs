@@ -780,7 +780,13 @@ impl ExprParser {
     }
 
     fn parse_duration(&mut self) -> Result<ir::Duration, IRParseError> {
-        let value = self.parse_int_value()? as u64;
+        let token = self.stream.expect("NUMBER", None)?;
+        let value: f64 = token
+            .value
+            .parse()
+            .ok()
+            .filter(|value: &f64| *value >= 0.0)
+            .ok_or_else(|| IRParseError("Expected a non-negative duration value".to_string()))?;
         let mut unit = "s".to_string();
         if self.stream.peek().kind == "NAME" {
             let token = self.stream.peek().clone();
@@ -790,9 +796,13 @@ impl ExprParser {
         }
         let mut seconds = value;
         if unit == "m" {
-            seconds *= 60;
+            seconds *= 60.0;
         } else if unit == "h" {
-            seconds *= 3600;
+            seconds *= 3600.0;
+        }
+        // The unit multiply can overflow a finite value, so the check comes after it.
+        if !seconds.is_finite() {
+            return Err(IRParseError("Expected a finite duration value".to_string()));
         }
         Ok(ir::Duration { seconds })
     }

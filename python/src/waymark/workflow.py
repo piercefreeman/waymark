@@ -66,9 +66,9 @@ class RetryPolicy:
             from ``Exception``: the attempt provably never ran, so a policy
             retrying on ``Exception`` retries it. The three are spelled out as
             proxy classes in :mod:`waymark.vm_exceptions`.
-        backoff_seconds: A fixed sleep before each retry, in whole seconds; zero
-            means no backoff, and a fraction or a negative is rejected at compile
-            time.
+        backoff_seconds: A fixed sleep before each retry, in seconds, fractions
+            included; zero means no backoff, and a negative or one above 100
+            years is rejected at compile time.
 
     Every field must be a literal in the workflow body: the workflow compiler reads
     them from the AST at registration and rejects anything it cannot read. The
@@ -142,9 +142,10 @@ class Workflow:
             awaitable: The action coroutine to execute.
             retry: Retry policy: total attempts, exception types, and backoff.
             timeout: Per-attempt timeout as a number of seconds or a ``timedelta``
-                built from ``seconds``, ``minutes``, ``hours`` or ``days`` keywords;
-                a whole number of seconds, at least one, anything else is rejected
-                at compile time. Raced against each attempt; expiry raises
+                built from ``seconds``, ``minutes``, ``hours`` or ``days`` keywords,
+                fractions included; zero or less, or above 100 years, is rejected
+                at compile time.
+                Raced against each attempt; expiry raises
                 :class:`waymark.vm_exceptions.ActionTimeout`, which derives from
                 ``BaseException`` and is therefore retried only by a policy
                 listing it (or ``"BaseException"``), never by one retrying on
