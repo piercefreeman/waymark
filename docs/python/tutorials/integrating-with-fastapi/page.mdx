@@ -33,10 +33,11 @@ and return - you might want to consider Waymark.
 ## Project layout {{ id: 'project-layout' }}
 
 Let's start with the world's simplest FastAPI app. We can ship the code side by
-side because it's helpful to have your workflow code importable by both
-processes (the normal uvicorn web process and the waymark runner).
+side because it's helpful to have your workflow code importable from both
+sides: the uvicorn web process and the Python worker processes that the node
+(the `waymark-start-workers` process) spawns.
 
-Your FastAPI app imports it to start runs; the Waymark worker imports it to register workflows and actions.
+Your FastAPI app imports it to start runs; the node's workers import it to run the actions.
 
 ```text
 app/

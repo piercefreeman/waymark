@@ -67,7 +67,7 @@ class DataSyncWorkflow(Workflow):
     name = "data_sync"
 
     async def run(self, region: str) -> None:
-        ...
+        pass
 
 await schedule_workflow(
     DataSyncWorkflow,

@@ -10,6 +10,7 @@ export const sections = [
   { title: 'Setting up your env', id: 'setting-up-your-env' },
   { title: 'Boot the node', id: 'boot-the-node' },
   { title: 'Kick off a run', id: 'kick-off-a-run' },
+  { title: 'Conclusion', id: 'conclusion' },
   { title: 'Where to look next', id: 'where-to-look-next' },
 ]
 
@@ -192,7 +193,7 @@ async def compute(number: int) -> str:
     return await ParallelMathWorkflow().run(number)
 ```
 
-## Conclusion
+## Conclusion {{ id: 'conclusion' }}
 
 And that's basically it! You can play around with adding `asyncio.sleep()`, stopping
 `waymark-start-workers` while it's still processing a job, and seeing everything resume when you

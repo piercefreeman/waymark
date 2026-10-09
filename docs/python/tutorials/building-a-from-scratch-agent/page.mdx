@@ -5,6 +5,7 @@ export const metadata = {
 }
 
 export const sections = [
+  { title: 'Setting up your environment', id: 'setting-up-your-environment' },
   { title: 'Stub the workflow', id: 'stub-the-workflow' },
   { title: 'Messages and turns', id: 'messages-and-turns' },
   { title: 'Tool actions', id: 'tool-actions' },
@@ -34,7 +35,7 @@ guarantees: every model call and tool call is persisted, so if a node crashes mi
 resumes from its last step on another node, and the calls you give a retry policy are retried
 instead of failing your job. This is exactly what billion-dollar companies are doing today. Let's jump into it!
 
-## Setting up your environment
+## Setting up your environment {{ id: 'setting-up-your-environment' }}
 
 If you haven't already set up Waymark locally, you might want to check out our [Quickstart guide](/python/quickstart)
 to get you running asap. This tutorial assumes you'll be writing this workflow into a new workflow file.
