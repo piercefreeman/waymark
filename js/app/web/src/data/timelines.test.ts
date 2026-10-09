@@ -8,6 +8,7 @@ function instance(vmId: string, sequence = 1): Instance {
   return {
     vm_id: vmId,
     latest_run: null,
+    executable: null,
     outcome: null,
     last_event: {
       node_id: "node",
@@ -25,7 +26,12 @@ function response(instance: Instance): Response {
     payload: {
       vm_id: instance.vm_id,
       run_sequence: instance.last_event.run_sequence,
-      observation: { kind: "vm_started" },
+      observation: {
+        kind: "vm_started",
+        executable_id: "0199b2c4-3d5e-7000-8000-0f1e2d3c4b5a",
+        executable_name: "CheckoutWorkflow",
+        executable_version: "1",
+      },
     },
   };
   return Response.json({ items: [event], next: null });

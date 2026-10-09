@@ -2,7 +2,9 @@ import {
   durationMs,
   isErrorStop,
   type Event,
+  type Executable,
   type Instance,
+  type LastEvent,
   type Observation,
   type OutcomeKind,
   type StopKind,
@@ -57,11 +59,13 @@ export interface DerivedSnapshot {
 
 export interface InstanceSummary {
   vmId: string;
+  /** The executable the latest observed run started; null without a run. */
+  executable: Executable | null;
   state: InstanceState;
   stateAt: Date;
   firstEventAt: Date;
   lastEventAt: Date;
-  lastEvent: Event;
+  lastEvent: LastEvent;
   lastNodeId: string;
   outcome: { kind: OutcomeKind; at: Date } | null;
   runs: DerivedRun[];
@@ -69,8 +73,6 @@ export interface InstanceSummary {
   promises: DerivedPromise[];
   snapshots: DerivedSnapshot[];
   counts: { open: number; resolved: number; rejected: number };
-  /** The first action the VM called. Labeled as derived wherever it is shown. */
-  firstAction: { name: string; module: string | null } | null;
   /** Exception type from the outcome, the latest error stop, or the latest rejection. */
   exceptionType: string | null;
   runErrorMessage: string | null;
@@ -247,6 +249,15 @@ export function deriveInstance(
   const latestRun = runs[runs.length - 1] ?? null;
   const lastEvent = sorted[sorted.length - 1];
   const lastEventAt = toDate(lastEvent.at);
+  const latestStart = [...sorted]
+    .reverse()
+    .map((event) => event.payload.observation)
+    .find(
+      (
+        observation,
+      ): observation is Extract<Observation, { kind: "vm_started" }> =>
+        observation.kind === "vm_started",
+    );
   const counts = { open: 0, resolved: 0, rejected: 0 };
   for (const promise of promises) counts[promise.state] += 1;
   const { state, at } = deriveInstanceState(
@@ -257,7 +268,6 @@ export function deriveInstance(
     freshnessMs,
     counts.open,
   );
-  const firstAction = promises.find((promise) => promise.kind === "action");
   const unhandled = sorted
     .map((event) => event.payload.observation)
     .find(
@@ -276,11 +286,26 @@ export function deriveInstance(
       : null;
   return {
     vmId,
+    executable: latestStart
+      ? {
+          id: latestStart.executable_id,
+          data: {
+            name: latestStart.executable_name,
+            version: latestStart.executable_version,
+          },
+        }
+      : null,
     state,
     stateAt: at,
     firstEventAt: toDate(sorted[0].at),
     lastEventAt,
-    lastEvent,
+    lastEvent: {
+      at: lastEvent.at,
+      node_id: lastEvent.node_id,
+      node_sequence: lastEvent.node_sequence,
+      run_sequence: lastEvent.payload.run_sequence,
+      kind: lastEvent.kind,
+    },
     lastNodeId: lastEvent.node_id,
     outcome,
     runs,
@@ -288,9 +313,6 @@ export function deriveInstance(
     promises,
     snapshots,
     counts,
-    firstAction: firstAction
-      ? { name: firstAction.name, module: firstAction.module }
-      : null,
     exceptionType:
       unhandled && unhandled.effect.kind === "unhandled_exception"
         ? unhandled.effect.exception_type
@@ -341,24 +363,14 @@ export function deriveFromInstance(
     freshnessMs,
   );
   if (events.length === 0) {
-    const placeholder: Event = {
-      node_id: instance.last_event.node_id,
-      node_sequence: instance.last_event.node_sequence,
-      at: instance.last_event.at,
-      kind: instance.last_event.kind,
-      payload: {
-        vm_id: instance.vm_id,
-        run_sequence: instance.last_event.run_sequence,
-        observation: { kind: "vm_started" },
-      },
-    };
     return {
       vmId: instance.vm_id,
+      executable: instance.executable,
       state,
       stateAt: at,
       firstEventAt: dtoRun?.startedAt ?? lastEventAt,
       lastEventAt,
-      lastEvent: placeholder,
+      lastEvent: instance.last_event,
       lastNodeId: instance.last_event.node_id,
       outcome,
       runs: dtoRun ? [dtoRun] : [],
@@ -366,7 +378,6 @@ export function deriveFromInstance(
       promises: [],
       snapshots: [],
       counts: { open: 0, resolved: 0, rejected: 0 },
-      firstAction: null,
       exceptionType: null,
       runErrorMessage: null,
       missingEvents: 0,
@@ -387,6 +398,7 @@ export function deriveFromInstance(
   );
   return {
     ...fromEvents,
+    executable: instance.executable ?? fromEvents.executable,
     state: withPromises.state,
     stateAt: withPromises.at,
     outcome,
@@ -420,6 +432,7 @@ export function toInstanceDto(summary: InstanceSummary): Instance {
   const run = summary.latestRun;
   return {
     vm_id: summary.vmId,
+    executable: summary.executable,
     latest_run: run
       ? {
           node_id: run.nodeId,
@@ -433,13 +446,7 @@ export function toInstanceDto(summary: InstanceSummary): Instance {
     outcome: summary.outcome
       ? { at: summary.outcome.at.toISOString(), kind: summary.outcome.kind }
       : null,
-    last_event: {
-      at: summary.lastEvent.at,
-      node_id: summary.lastEvent.node_id,
-      node_sequence: summary.lastEvent.node_sequence,
-      run_sequence: summary.lastEvent.payload.run_sequence,
-      kind: observationKind(summary.lastEvent.payload.observation),
-    },
+    last_event: summary.lastEvent,
   };
 }
 
