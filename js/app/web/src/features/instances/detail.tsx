@@ -95,6 +95,11 @@ export function InstanceDetail({
           Workflows
         </a>
         <span className="h-4 w-px bg-line" aria-hidden />
+        {summary.workflowName && (
+          <span className="mono-data break-words text-label">
+            {summary.workflowName}
+          </span>
+        )}
         <Identifier value={summary.vmId} full copyable className="text-label" />
         <InstanceStateInk state={summary.state} />
       </div>

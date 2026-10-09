@@ -57,6 +57,7 @@ export interface DerivedSnapshot {
 
 export interface InstanceSummary {
   vmId: string;
+  workflowName: string | null;
   state: InstanceState;
   stateAt: Date;
   firstEventAt: Date;
@@ -69,8 +70,6 @@ export interface InstanceSummary {
   promises: DerivedPromise[];
   snapshots: DerivedSnapshot[];
   counts: { open: number; resolved: number; rejected: number };
-  /** The first action the VM called. Labeled as derived wherever it is shown. */
-  firstAction: { name: string; module: string | null } | null;
   /** Exception type from the outcome, the latest error stop, or the latest rejection. */
   exceptionType: string | null;
   runErrorMessage: string | null;
@@ -257,7 +256,6 @@ export function deriveInstance(
     freshnessMs,
     counts.open,
   );
-  const firstAction = promises.find((promise) => promise.kind === "action");
   const unhandled = sorted
     .map((event) => event.payload.observation)
     .find(
@@ -276,6 +274,9 @@ export function deriveInstance(
       : null;
   return {
     vmId,
+    workflowName:
+      sorted.find((event) => event.payload.workflow_name)?.payload
+        .workflow_name ?? null,
     state,
     stateAt: at,
     firstEventAt: toDate(sorted[0].at),
@@ -288,9 +289,6 @@ export function deriveInstance(
     promises,
     snapshots,
     counts,
-    firstAction: firstAction
-      ? { name: firstAction.name, module: firstAction.module }
-      : null,
     exceptionType:
       unhandled && unhandled.effect.kind === "unhandled_exception"
         ? unhandled.effect.exception_type
@@ -348,12 +346,14 @@ export function deriveFromInstance(
       kind: instance.last_event.kind,
       payload: {
         vm_id: instance.vm_id,
+        workflow_name: instance.workflow_name,
         run_sequence: instance.last_event.run_sequence,
         observation: { kind: "vm_started" },
       },
     };
     return {
       vmId: instance.vm_id,
+      workflowName: instance.workflow_name,
       state,
       stateAt: at,
       firstEventAt: dtoRun?.startedAt ?? lastEventAt,
@@ -366,7 +366,6 @@ export function deriveFromInstance(
       promises: [],
       snapshots: [],
       counts: { open: 0, resolved: 0, rejected: 0 },
-      firstAction: null,
       exceptionType: null,
       runErrorMessage: null,
       missingEvents: 0,
@@ -387,6 +386,7 @@ export function deriveFromInstance(
   );
   return {
     ...fromEvents,
+    workflowName: instance.workflow_name ?? fromEvents.workflowName,
     state: withPromises.state,
     stateAt: withPromises.at,
     outcome,
@@ -420,6 +420,7 @@ export function toInstanceDto(summary: InstanceSummary): Instance {
   const run = summary.latestRun;
   return {
     vm_id: summary.vmId,
+    workflow_name: summary.workflowName,
     latest_run: run
       ? {
           node_id: run.nodeId,

@@ -485,7 +485,8 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
     spawner.spawn("snapshot batcher", snapshot_batcher_loop);
 
     let hooks_provider = waymark_state_vm_runtimes_core::FnHooksProvider::new(
-        move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
+        move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
+              workflow_name: Option<&str>| {
             (
                 waymark_vm_driver_hooks_tracing::Tracing::new(),
                 observability_events.as_ref().map(|observability_events| {
@@ -497,6 +498,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
                         _,
                     >::new(
                         *vm_id,
+                        workflow_name.map(str::to_owned),
                         Arc::clone(&observability_events.emitter),
                         observability_events.vm_driver_hooks_policy,
                     )

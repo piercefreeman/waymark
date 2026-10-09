@@ -104,9 +104,9 @@ Rules:
    Use the range of the displayed data so paused and older pages stay fixed.
    Direct id lookups omit the range because they bypass the time filter.
    State chips with page-local counts sit below it; chips only appear for states present.
-2. The ledger, 40px rows: state ink · the first action the VM called (the
-   closest reported fact to a workflow name) over the short `vm_id` and its
-   module · one plain sentence about now ("Running charge_payment for
+2. The ledger, 40px rows: state ink · the registered workflow name over
+   the short `vm_id` (ID alone when the name is not recorded) · one plain
+   sentence about now ("Running charge_payment for
    3.6 s", "Sleeping until 00:36", "Unhandled PaymentMismatch 6m ago",
    "Effect handling failed: worker reservation timed out") with node and
    notable counts beneath · a 160px mini-timeline · elapsed time. Rows with
@@ -155,7 +155,7 @@ bounded at 20 pages with the footer saying how far the walk got. An exact
 `vm_id` reads the instance directly, ignoring time and state filters, and
 opens its detail page when found. Missing IDs remain in search. Back from
 a match restores the previous list; there is no separate jump box.
-Search matches partial ids, node ids, and
+Search matches workflow names, partial ids, node ids, and
 states, the fields the list endpoint reports; action names would need a
 server-side search.
 
@@ -198,7 +198,7 @@ and `/api/essential-metrics` report (types in `src/domain/api.ts`).
 | --------------------- | ---------------------------------------------------- | ----------------------------------------------- |
 | Instance state        | outcome, then latest run stop reason, then freshness | `deriveInstanceState`; concise meaning on hover |
 | "Failing"             | not a state                                          | rejections counted separately                   |
-| Workflow name         | not reported                                         | short `vm_id`; first action labeled derived     |
+| Workflow name         | registered name retained with observability          | name over short `vm_id`; ID when not recorded   |
 | Node                  | id per boot, no hostname                             | full id in the node list, short id in charts    |
 | Arguments and results | not recorded                                         | explicit "Not recorded" block                   |
 | Exception             | type only                                            | the type, nowhere a message                     |

@@ -127,6 +127,7 @@ export function matchesQuery(
   const needle = query.trim().toLowerCase();
   if (needle === "") return true;
   return (
+    (instance.workflow_name?.toLowerCase().includes(needle) ?? false) ||
     instance.vm_id.toLowerCase().includes(needle) ||
     instance.last_event.node_id.toLowerCase().includes(needle) ||
     (instance.latest_run?.node_id.toLowerCase().includes(needle) ?? false) ||

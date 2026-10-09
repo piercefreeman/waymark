@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Event, Observation } from "./api.ts";
-import { deriveInstance } from "./derive.ts";
+import { deriveFromInstance, deriveInstance, toInstanceDto } from "./derive.ts";
 
 const vmId = "019a7e21-6ad0-7000-8000-a1b2c3d4e5f6";
 const nodeA = "7f3a9c21-5d1e-4c6a-8f0b-1e2d3c4b5a69";
@@ -19,7 +19,12 @@ function stream(
       node_sequence: index + 1,
       at: new Date(base + offset).toISOString(),
       kind: observation.kind,
-      payload: { vm_id: vmId, run_sequence: runSequence, observation },
+      payload: {
+        vm_id: vmId,
+        workflow_name: null,
+        run_sequence: runSequence,
+        observation,
+      },
     };
     runSequence += 1;
     return event;
@@ -45,6 +50,31 @@ const rejected = (id: number, type: string): Observation => ({
   kind: "promise_settled",
   promise_state_id: id,
   settlement: { kind: "rejected", exception_type: type },
+});
+
+test("workflow identity comes from the registered name, never an action", () => {
+  const events = stream([[0, nodeA, call(1, "charge_payment")]]);
+  const now = new Date("2026-09-22T14:00:01Z");
+  const unnamed = deriveInstance(vmId, events, now);
+  assert.equal(unnamed.workflowName, null);
+  events[0].payload.workflow_name = "CheckoutWorkflow";
+  const named = deriveInstance(vmId, events, now);
+  assert.equal(named.workflowName, "CheckoutWorkflow");
+  assert.equal(
+    deriveFromInstance(toInstanceDto(unnamed), events, now).workflowName,
+    "CheckoutWorkflow",
+  );
+  const dto = toInstanceDto(named);
+  // The list's stored name remains available with no timeline or a partial one.
+  events[0].payload.workflow_name = null;
+  assert.equal(
+    deriveFromInstance(dto, events, now).workflowName,
+    "CheckoutWorkflow",
+  );
+  assert.equal(
+    deriveFromInstance(dto, [], now).workflowName,
+    "CheckoutWorkflow",
+  );
 });
 
 test("outcome takes precedence over the latest run's stop reason", () => {
@@ -77,7 +107,7 @@ test("outcome takes precedence over the latest run's stop reason", () => {
   );
   assert.equal(summary.state, "completed");
   assert.equal(summary.counts.resolved, 1);
-  assert.equal(summary.firstAction?.name, "fetch");
+  assert.equal(summary.workflowName, null);
 });
 
 test("an error stop without an outcome is a run error, not a workflow failure", () => {

@@ -25,6 +25,11 @@ export function InstancePeek({
   return (
     <div className="divide-y divide-line">
       <section className="px-gutter py-3">
+        {summary.workflowName && (
+          <p className="mono-data mb-1 break-words text-section">
+            {summary.workflowName}
+          </p>
+        )}
         <Identifier value={summary.vmId} full copyable className="text-label" />
         <KeyValueList
           layout="grid"

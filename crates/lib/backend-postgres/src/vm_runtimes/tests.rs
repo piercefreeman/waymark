@@ -18,6 +18,7 @@ async fn store_and_load_snapshot_happy_path() {
             .expect("load for revive");
     assert_eq!(payload.snapshot, TEST_VM_SNAPSHOT);
     assert_eq!(payload.executable_id, executable_id);
+    assert_eq!(payload.workflow_name, None);
 
     waymark_state_vm_runtimes_backend::StoreSnapshots::store_snapshots(
         &backend,
@@ -34,6 +35,31 @@ async fn store_and_load_snapshot_happy_path() {
             .await
             .expect("load for revive");
     assert_eq!(payload.snapshot, updated_snapshot);
+    assert_eq!(payload.executable_id, executable_id);
+}
+
+#[serial(postgres)]
+#[tokio::test]
+async fn revive_includes_the_registered_workflow_name() {
+    let backend = setup_backend().await;
+    let executable_id =
+        super::super::test_helpers::upsert_test_executable(&backend, "CheckoutWorkflow").await;
+    let vm_id = InstanceId::new_uuid_v4();
+    waymark_workflow_service_vm_runtimes_backend::RegisterVmRuntimes::register_vm_runtimes(
+        &backend,
+        nonempty_collections::nev![waymark_workflow_service_vm_runtimes_backend::register_vm_runtimes::RegisterVmRuntimesItem {
+            vm_id: &vm_id,
+            executable_id: &executable_id,
+            snapshot: TEST_VM_SNAPSHOT,
+        }].as_nonempty_slice(),
+    ).await.expect("register vm");
+
+    let payload =
+        waymark_state_vm_runtimes_backend::LoadForRevive::load_for_revive(&backend, &vm_id)
+            .await
+            .expect("revive");
+    assert_eq!(payload.workflow_name.as_deref(), Some("CheckoutWorkflow"));
+    assert_eq!(payload.snapshot, TEST_VM_SNAPSHOT);
     assert_eq!(payload.executable_id, executable_id);
 }
 

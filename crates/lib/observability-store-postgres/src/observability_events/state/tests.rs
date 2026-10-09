@@ -40,6 +40,7 @@ impl Node {
             at: chrono::DateTime::from_timestamp_secs(at_secs).unwrap(),
             payload: waymark_observability_events_payload::Payload::VmDriver(
                 waymark_observability_events_payload::vm_driver::Payload {
+                    workflow_name: None,
                     vm_id,
                     run_sequence,
                     observation,
@@ -51,6 +52,101 @@ impl Node {
 
 fn at(secs: i64) -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::from_timestamp_secs(secs).unwrap()
+}
+
+#[tokio::test]
+async fn workflow_name_survives_late_batches_and_missing_start_events() {
+    let store = test_store("observability_state_workflow_name").await;
+    let node = Node::new();
+    let vm_id = waymark_ids::InstanceId::new_uuid_v4();
+    let initial = node.event(100, vm_id, 1, snapshot());
+    let mut named = node.event(90, vm_id, 0, complete());
+    let waymark_observability_events_payload::Payload::VmDriver(payload) = &mut named.payload;
+    payload.workflow_name = Some("CheckoutWorkflow".to_owned());
+    let later = node.event(110, vm_id, 2, snapshot());
+    for event in [initial, named, later] {
+        waymark_observability_events_sink_backend::AppendEvents::append_events(
+            &store,
+            nonempty_collections::nev![event].as_nonempty_slice(),
+        )
+        .await
+        .expect("append");
+    }
+
+    let instance = store
+        .get_instance(vm_id)
+        .await
+        .expect("get")
+        .expect("known VM");
+    assert_eq!(instance.workflow_name.as_deref(), Some("CheckoutWorkflow"));
+    assert_eq!(instance.last_event.at, at(110));
+    assert!(instance.latest_run.is_none());
+    assert!(matches!(
+        instance.outcome.unwrap().kind,
+        OutcomeKind::Complete
+    ));
+
+    // The retained instance still names the workflow after its named event expires.
+    waymark_observability_events_retention_backend::ApplyRetention::apply_retention(
+        &store,
+        at(105),
+    )
+    .await
+    .expect("retention");
+    let page = store
+        .list_instances(
+            waymark_observability_state_query_backend::list_instances::Params {
+                from: at(0),
+                to: at(200),
+                after: None,
+                limit: waymark_query_limit::Limit::new(10).expect("within the cap"),
+            },
+        )
+        .await
+        .expect("list")
+        .expect("page");
+    assert_eq!(
+        page.instances.first().workflow_name.as_deref(),
+        Some("CheckoutWorkflow")
+    );
+
+    let unnamed_id = waymark_ids::InstanceId::new_uuid_v4();
+    waymark_observability_events_sink_backend::AppendEvents::append_events(
+        &store,
+        nonempty_collections::nev![node.event(120, unnamed_id, 0, snapshot())].as_nonempty_slice(),
+    )
+    .await
+    .expect("append unnamed VM");
+    assert!(
+        store
+            .get_instance(unnamed_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .workflow_name
+            .is_none()
+    );
+
+    let named_id = waymark_ids::InstanceId::new_uuid_v4();
+    let mut first = node.event(130, named_id, 0, Observation::VmStarted);
+    let waymark_observability_events_payload::Payload::VmDriver(payload) = &mut first.payload;
+    payload.workflow_name = Some("ShippingWorkflow".to_owned());
+    waymark_observability_events_sink_backend::AppendEvents::append_events(
+        &store,
+        nonempty_collections::nev![first].as_nonempty_slice(),
+    )
+    .await
+    .expect("append newly named VM");
+    assert_eq!(
+        store
+            .get_instance(named_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .workflow_name
+            .as_deref(),
+        Some("ShippingWorkflow")
+    );
 }
 
 fn complete() -> Observation {

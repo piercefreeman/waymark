@@ -238,7 +238,7 @@ export function InstanceList({
                   : query || stateFilter.length
                     ? page.capped
                       ? `Searched ${page.scanned} workflows. Choose Keep searching for more, or narrow the time window.`
-                      : "Try a different workflow id, node id, or state, or widen the time window."
+                      : "Try a different workflow name, id, node id, or state, or widen the time window."
                     : "Try a wider time window."
             }
           />
@@ -269,17 +269,16 @@ export function InstanceList({
                   >
                     <InstanceStateInk state={instance.state} size="sm" />
                     <span className="min-w-0">
-                      {/* The API reports no workflow name; the first action the
-                          VM called is the closest reported fact, so it leads. */}
-                      <span className="mono-data block truncate text-label text-fg">
-                        {instance.firstAction
-                          ? instance.firstAction.name
-                          : shortId(instance.vmId)}
+                      <span
+                        className="mono-data block truncate text-label text-fg"
+                        title={instance.workflowName ?? instance.vmId}
+                      >
+                        {instance.workflowName ?? shortId(instance.vmId)}
                       </span>
                       <span className="mono-data block truncate text-micro text-fg-subtle">
-                        {instance.firstAction
-                          ? `${shortId(instance.vmId)}${instance.firstAction.module ? ` · ${instance.firstAction.module}` : ""}`
-                          : "no recorded actions"}
+                        {instance.workflowName
+                          ? shortId(instance.vmId)
+                          : "Name not recorded"}
                       </span>
                     </span>
                     <span className="min-w-0">

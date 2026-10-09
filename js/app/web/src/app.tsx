@@ -7,11 +7,7 @@ import { fetchInstanceSnapshot, type InstanceSnapshot } from "./data/instances";
 import { useLive } from "./data/live";
 import { instanceStates, type InstanceState } from "./domain/status";
 import type { Instance, NodeSample } from "./domain/api";
-import {
-  deriveFromInstance,
-  deriveInstance,
-  type InstanceSummary,
-} from "./domain/derive";
+import { deriveFromInstance, type InstanceSummary } from "./domain/derive";
 import { InstanceDetail } from "./features/instances/detail";
 import { InstanceList, type PageInfo } from "./features/instances/list";
 import { FleetPage } from "./features/fleet/page";
@@ -202,9 +198,7 @@ function DetailRoute({ vmId }: { vmId: string }) {
   );
   const summary = useMemo(() => {
     if (!live.data) return undefined;
-    return live.data.events.length
-      ? deriveInstance(vmId, live.data.events, now)
-      : deriveFromInstance(live.data.dto, [], now);
+    return deriveFromInstance(live.data.dto, live.data.events, now);
   }, [live.data, now, vmId]);
   const source = sourceStatus(live);
   return (

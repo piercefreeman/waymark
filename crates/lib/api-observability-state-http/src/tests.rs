@@ -36,6 +36,7 @@ fn finished(vm_id: waymark_ids::InstanceId) -> waymark_observability_state_core:
     let node_id = waymark_ids::NodeId::new_uuid_v4();
     waymark_observability_state_core::InstanceState {
         vm_id,
+        workflow_name: Some("CheckoutWorkflow".to_owned()),
         latest_run: Some(waymark_observability_state_core::Run {
             node_id,
             started_at: at(0),
@@ -64,6 +65,7 @@ fn finished(vm_id: waymark_ids::InstanceId) -> waymark_observability_state_core:
 fn bare(vm_id: waymark_ids::InstanceId) -> waymark_observability_state_core::InstanceState {
     waymark_observability_state_core::InstanceState {
         vm_id,
+        workflow_name: None,
         latest_run: None,
         outcome: None,
         last_event: waymark_observability_state_core::LastEvent {
@@ -243,6 +245,7 @@ async fn list_serves_the_page_and_its_cursor() {
 
     let finished = &body["items"][0];
     assert!(finished["vm_id"].is_string());
+    assert_eq!(finished["workflow_name"], "CheckoutWorkflow");
     assert_eq!(finished["latest_run"]["started_at"], "2023-11-14T22:13:20Z");
     assert!(finished["latest_run"]["node_id"].is_string());
     assert_eq!(
@@ -264,6 +267,7 @@ async fn list_serves_the_page_and_its_cursor() {
     );
 
     let bare = &body["items"][1];
+    assert_eq!(bare["workflow_name"], serde_json::Value::Null);
     assert_eq!(bare["latest_run"], serde_json::Value::Null);
     assert_eq!(bare["outcome"], serde_json::Value::Null);
     assert_eq!(bare["last_event"]["kind"], "vm_driver.snapshot_persisted");
@@ -391,6 +395,7 @@ async fn get_serves_the_instance() {
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["vm_id"], vm_id.to_string());
+    assert_eq!(body["workflow_name"], "CheckoutWorkflow");
     assert_eq!(body["outcome"]["kind"], "complete");
     assert_eq!(
         body["latest_run"]["stopped"]["reason"],

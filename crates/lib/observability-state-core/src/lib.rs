@@ -13,6 +13,9 @@ pub struct InstanceState {
     /// The VM.
     pub vm_id: waymark_ids::InstanceId,
 
+    /// The registered workflow name, when an event reported it.
+    pub workflow_name: Option<String>,
+
     /// The VM's latest run: the last time a VM driver started it. Absent
     /// when the instance state knows the VM without any run of it.
     pub latest_run: Option<Run>,

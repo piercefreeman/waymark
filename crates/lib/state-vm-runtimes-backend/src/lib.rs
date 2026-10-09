@@ -59,6 +59,9 @@ pub struct RevivePayload<ExecutableId> {
 
     /// The id of the bytecode executable that the VM was running.
     pub executable_id: ExecutableId,
+
+    /// The registered workflow name, when recorded by the backend.
+    pub workflow_name: Option<String>,
 }
 
 /// Load a previously-stored snapshot and the associated executable id

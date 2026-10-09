@@ -30,6 +30,7 @@ test("workflow search navigates safely and held lists keep refreshing workflow d
   });
   const instance: Instance = {
     vm_id: foundId,
+    workflow_name: "CheckoutWorkflow",
     latest_run: null,
     outcome: { at: "2026-10-05T16:00:00Z", kind: "complete" },
     last_event: {
@@ -41,7 +42,11 @@ test("workflow search navigates safely and held lists keep refreshing workflow d
     },
   };
   const requests: string[] = [];
-  const second: Instance = { ...instance, vm_id: secondId };
+  const second: Instance = {
+    ...instance,
+    vm_id: secondId,
+    workflow_name: null,
+  };
   const events: Event[] = [];
   function addEvent(observation: Observation) {
     events.push({
@@ -51,7 +56,12 @@ test("workflow search navigates safely and held lists keep refreshing workflow d
         Date.parse(instance.last_event.at) + events.length * 1000,
       ).toISOString(),
       kind: observation.kind,
-      payload: { vm_id: foundId, run_sequence: events.length, observation },
+      payload: {
+        vm_id: foundId,
+        workflow_name: "CheckoutWorkflow",
+        run_sequence: events.length,
+        observation,
+      },
     });
     instance.last_event = {
       ...instance.last_event,
@@ -122,6 +132,7 @@ test("workflow search navigates safely and held lists keep refreshing workflow d
   );
   assert.equal(window.location.pathname, `/workflows/${foundId}`);
   assert.equal(requests.filter((path) => path.includes("/timeline")).length, 1);
+  assert.match(container.textContent!, /CheckoutWorkflow/);
 
   await act(async () => navigate(`/workflows?q=${delayedId}&paused=1`));
   await act(async () => navigate("/workflows?q=partial&paused=1"));
@@ -146,7 +157,18 @@ test("workflow search navigates safely and held lists keep refreshing workflow d
     },
   });
   listItems = [instance, second];
+  await act(async () => navigate("/workflows?q=checkout"));
+  assert.equal(container.querySelectorAll("a[data-row]").length, 1);
+  assert.equal(
+    container.querySelector('a[data-row] [title="CheckoutWorkflow"]')
+      ?.textContent,
+    "CheckoutWorkflow",
+  );
   await act(async () => navigate("/workflows"));
+  assert.match(
+    container.querySelectorAll("a[data-row]")[1].textContent!,
+    /Name not recorded/,
+  );
   const liveButton = () =>
     container.querySelector<HTMLButtonElement>("header button[aria-pressed]")!;
   const openPreview = () =>
@@ -180,6 +202,10 @@ test("workflow search navigates safely and held lists keep refreshing workflow d
   await act(async () => context.mock.timers.tick(5000));
   const beforePreview = listReads();
   await openPreview();
+  assert.match(
+    container.querySelector("aside")!.textContent!,
+    /CheckoutWorkflow/,
+  );
   assert.equal(pendingList!.signal.aborted, true);
   assert.equal(liveButton().getAttribute("aria-pressed"), "false");
   assert.equal(liveButton().title, "Close preview and resume the list");

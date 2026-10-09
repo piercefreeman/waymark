@@ -7,6 +7,7 @@ import { fetchTimelines, type CachedTimeline } from "./timelines.ts";
 function instance(vmId: string, sequence = 1): Instance {
   return {
     vm_id: vmId,
+    workflow_name: null,
     latest_run: null,
     outcome: null,
     last_event: {
@@ -24,6 +25,7 @@ function response(instance: Instance): Response {
     ...instance.last_event,
     payload: {
       vm_id: instance.vm_id,
+      workflow_name: instance.workflow_name,
       run_sequence: instance.last_event.run_sequence,
       observation: { kind: "vm_started" },
     },

@@ -120,6 +120,7 @@ fn vm_driver_payloads() -> Vec<vm_driver::Payload> {
         .into_iter()
         .enumerate()
         .map(|(run_sequence, observation)| vm_driver::Payload {
+            workflow_name: None,
             vm_id,
             run_sequence: u64::try_from(run_sequence).expect("a handful of observations"),
             observation,
@@ -168,6 +169,7 @@ fn payload_round_trips_through_json() {
 fn json_shape() {
     let vm_id = waymark_ids::InstanceId::new_uuid_v4();
     let payload = Payload::VmDriver(vm_driver::Payload {
+        workflow_name: None,
         vm_id,
         run_sequence: 2,
         observation: vm_driver::Observation::EffectEmitted {
@@ -187,6 +189,7 @@ fn json_shape() {
         serde_json::json!({
             "source": "vm_driver",
             "vm_id": vm_id,
+            "workflow_name": null,
             "run_sequence": 2,
             "observation": {
                 "kind": "effect_emitted",
