@@ -26,7 +26,7 @@ to write - and where they don't, the compiler tells you up front, not at
 recovery time. The few patterns that currently slip through are listed
 under [Known issues](#known-issues).
 
-Every pattern in this guide runs end-to-end against Postgres today.
+Every sample in this guide compiles.
 
 ## Sequential chains {{ id: 'sequential' }}
 
@@ -67,9 +67,7 @@ class ParallelMathWorkflow(Workflow):
 ```
 
 `return_exceptions=True` is required - the compiler rejects a `gather`
-without it. Failures propagate as values, not as raised exceptions, so a
-downstream action can inspect partial results instead of losing the whole
-fan-out to one bad item.
+without it.
 
 You can also spread a list comprehension into `gather` for variable-width
 fan-outs:
