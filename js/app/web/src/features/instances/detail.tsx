@@ -95,6 +95,14 @@ export function InstanceDetail({
           Workflows
         </a>
         <span className="h-4 w-px bg-line" aria-hidden />
+        <span
+          className={cn(
+            "mono-data break-words text-label",
+            !summary.executable?.data && "text-fg-muted",
+          )}
+        >
+          {summary.executable?.data?.name ?? "Name not recorded"}
+        </span>
         <Identifier value={summary.vmId} full copyable className="text-label" />
         <InstanceStateInk state={summary.state} />
       </div>
@@ -107,6 +115,29 @@ export function InstanceDetail({
           layout="grid"
           className="mt-4 max-w-4xl"
           items={[
+            ...(summary.executable?.data
+              ? [
+                  {
+                    label: "Version",
+                    value: (
+                      <Identifier
+                        value={summary.executable.data.version}
+                        copyable
+                      />
+                    ),
+                  },
+                ]
+              : []),
+            ...(summary.executable
+              ? [
+                  {
+                    label: "Executable",
+                    value: (
+                      <Identifier value={summary.executable.id} copyable />
+                    ),
+                  },
+                ]
+              : []),
             {
               label: "First event",
               value: formatClock(summary.firstEventAt),

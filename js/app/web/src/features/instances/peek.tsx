@@ -25,6 +25,14 @@ export function InstancePeek({
   return (
     <div className="divide-y divide-line">
       <section className="px-gutter py-3">
+        <p
+          className={cn(
+            "mono-data mb-1 break-words text-section",
+            !summary.executable?.data && "text-fg-muted",
+          )}
+        >
+          {summary.executable?.data?.name ?? "Name not recorded"}
+        </p>
         <Identifier value={summary.vmId} full copyable className="text-label" />
         <KeyValueList
           layout="grid"

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Event, Observation } from "./api.ts";
-import { deriveInstance } from "./derive.ts";
+import { deriveFromInstance, deriveInstance, toInstanceDto } from "./derive.ts";
 
 const vmId = "019a7e21-6ad0-7000-8000-a1b2c3d4e5f6";
 const nodeA = "7f3a9c21-5d1e-4c6a-8f0b-1e2d3c4b5a69";
@@ -26,6 +26,13 @@ function stream(
   });
 }
 
+const executableId = "0199b2c4-3d5e-7000-8000-0f1e2d3c4b5a";
+const started = (): Observation => ({
+  kind: "vm_started",
+  executable_id: executableId,
+  executable_name: "CheckoutWorkflow",
+  executable_version: "1",
+});
 const call = (id: number, name: string): Observation => ({
   kind: "effect_emitted",
   effect_number: id,
@@ -47,9 +54,54 @@ const rejected = (id: number, type: string): Observation => ({
   settlement: { kind: "rejected", exception_type: type },
 });
 
+test("workflow identity comes from the registered executable, never an action", () => {
+  const now = new Date("2026-09-22T14:00:01Z");
+  const unstarted = deriveInstance(
+    vmId,
+    stream([[0, nodeA, call(1, "charge_payment")]]),
+    now,
+  );
+  assert.equal(unstarted.executable, null);
+  const events = stream([
+    [0, nodeA, started()],
+    [10, nodeA, call(1, "charge_payment")],
+  ]);
+  const withStart = deriveInstance(vmId, events, now);
+  assert.deepEqual(withStart.executable, {
+    id: executableId,
+    data: { name: "CheckoutWorkflow", version: "1" },
+  });
+  // Without the list endpoint's executable, the run's start supplies it.
+  assert.deepEqual(
+    deriveFromInstance(toInstanceDto(unstarted), events, now).executable,
+    withStart.executable,
+  );
+  // The list endpoint's executable stands with a partial timeline or none.
+  const dto = toInstanceDto(withStart);
+  assert.deepEqual(
+    deriveFromInstance(dto, events.slice(1), now).executable,
+    withStart.executable,
+  );
+  assert.deepEqual(
+    deriveFromInstance(dto, [], now).executable,
+    withStart.executable,
+  );
+  // A dropped executables row leaves the id; the start event still has
+  // the data, and without events the id alone remains.
+  const dropped = { ...dto, executable: { id: executableId, data: null } };
+  assert.deepEqual(
+    deriveFromInstance(dropped, events, now).executable,
+    withStart.executable,
+  );
+  assert.deepEqual(
+    deriveFromInstance(dropped, [], now).executable,
+    dropped.executable,
+  );
+});
+
 test("outcome takes precedence over the latest run's stop reason", () => {
   const events = stream([
-    [0, nodeA, { kind: "vm_started" }],
+    [0, nodeA, started()],
     [10, nodeA, call(1, "fetch")],
     [200, nodeA, resolved(1)],
     [
@@ -77,12 +129,12 @@ test("outcome takes precedence over the latest run's stop reason", () => {
   );
   assert.equal(summary.state, "completed");
   assert.equal(summary.counts.resolved, 1);
-  assert.equal(summary.firstAction?.name, "fetch");
+  assert.equal(summary.executable?.data?.name, "CheckoutWorkflow");
 });
 
 test("an error stop without an outcome is a run error, not a workflow failure", () => {
   const events = stream([
-    [0, nodeA, { kind: "vm_started" }],
+    [0, nodeA, started()],
     [10, nodeA, call(1, "extract")],
     [
       30_000,
@@ -106,7 +158,7 @@ test("an error stop without an outcome is a run error, not a workflow failure", 
 
 test("a rejection is counted but never changes state; a repeated call is an inferred retry", () => {
   const events = stream([
-    [0, nodeA, { kind: "vm_started" }],
+    [0, nodeA, started()],
     [10, nodeA, call(1, "deliver")],
     [500, nodeA, rejected(1, "Timeout")],
     [510, nodeA, call(2, "deliver")],
@@ -124,7 +176,7 @@ test("a rejection is counted but never changes state; a repeated call is an infe
 
 test("a fresh run with no stop is active; a stale one with no open promise is unknown", () => {
   const events = stream([
-    [0, nodeA, { kind: "vm_started" }],
+    [0, nodeA, started()],
     [10, nodeA, call(1, "sync")],
     [20, nodeA, resolved(1)],
   ]);
@@ -144,7 +196,7 @@ test("a fresh run with no stop is active; a stale one with no open promise is un
 
 test("runs split on vm_started and sequence gaps are reported", () => {
   const events = stream([
-    [0, nodeA, { kind: "vm_started" }],
+    [0, nodeA, started()],
     [10, nodeA, call(1, "download")],
     [20, nodeA, { kind: "snapshot_persisted", size_in_bytes: 100 }],
     [
@@ -155,7 +207,7 @@ test("runs split on vm_started and sequence gaps are reported", () => {
         reason: { kind: "no_ready_frames_or_waiting_promises" },
       },
     ],
-    [60_000, nodeB, { kind: "vm_started" }],
+    [60_000, nodeB, started()],
     [60_010, nodeB, resolved(1)],
   ]);
   // Drop the snapshot event to simulate a lost observation.
@@ -177,7 +229,7 @@ test("runs split on vm_started and sequence gaps are reported", () => {
 
 test("a quiet VM with an open promise stays active: silence is not death", () => {
   const events = stream([
-    [0, nodeA, { kind: "vm_started" }],
+    [0, nodeA, started()],
     [10, nodeA, call(1, "slow_action")],
   ]);
   const summary = deriveInstance(
