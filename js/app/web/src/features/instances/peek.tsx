@@ -94,14 +94,24 @@ export function InstancePeek({
                 className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 py-1.5 text-micro"
               >
                 <span className="min-w-0">
-                  <span className="mono-data flex items-center gap-1.5 truncate text-fg">
-                    {promise.kind === "sleep" && (
-                      <Moon className="size-3 text-fg-muted" aria-hidden />
+                  <span
+                    className={cn(
+                      "mono-data flex items-center gap-1.5 truncate",
+                      promise.kind === "sleep" ? "text-fg-muted" : "text-fg",
                     )}
-                    {promise.kind === "sleep"
-                      ? `sleep ${formatDuration(promise.sleepMs)}`
-                      : promise.name}
-                    <span className="text-fg-subtle">#{promise.id}</span>
+                  >
+                    {promise.kind === "sleep" ? (
+                      <>
+                        <Moon className="size-3 shrink-0" aria-hidden />
+                        <span className="sr-only">Sleep </span>
+                        {formatDuration(promise.sleepMs)}
+                      </>
+                    ) : (
+                      <>
+                        {promise.name}
+                        <span className="text-fg-subtle">#{promise.id}</span>
+                      </>
+                    )}
                   </span>
                   <span className="mono-data block text-[10px] leading-3 text-fg-subtle">
                     called {formatClock(promise.calledAt)}
