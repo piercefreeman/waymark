@@ -11,7 +11,7 @@ fn main(input: [], output: []):
 ---
 f0: [1 registers]
   s0:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: None }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["Exception"], exception_dst: None }] })
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("risky_action_simple"), args: [], resume: s3 })
   s1:
     CoreSet(Return { src: r0 })

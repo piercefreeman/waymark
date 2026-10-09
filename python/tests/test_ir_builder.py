@@ -2887,6 +2887,21 @@ class TestPolicyVariations:
         policy = action.policies[0]
         assert policy.HasField("retry"), "Should be retry policy"
         assert policy.retry.max_retries == 100
+        assert list(policy.retry.exception_types) == ["Exception"]
+
+    def test_retry_with_empty_exception_types_retries_on_exception(self) -> None:
+        """Test: retry=RetryPolicy(attempts=3, exception_types=[]) retries on Exception."""
+        from tests.fixtures_policy.policy_variations import PolicyVariationsWorkflow
+
+        program = PolicyVariationsWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_retry_empty_exceptions")
+        assert action is not None, "Should find action_with_retry_empty_exceptions"
+        assert len(action.policies) == 1, "Should have 1 policy"
+
+        policy = action.policies[0]
+        assert policy.HasField("retry"), "Should be retry policy"
+        assert list(policy.retry.exception_types) == ["Exception"]
 
     def test_timeout_with_timedelta_hours(self) -> None:
         """Test: timeout=timedelta(hours=1)."""

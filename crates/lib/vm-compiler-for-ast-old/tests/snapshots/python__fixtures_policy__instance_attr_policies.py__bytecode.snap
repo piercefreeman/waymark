@@ -3,9 +3,9 @@ source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_policy/instance_attr_policies.py
 ---
 fn main(input: [value], output: []):
-    a = @instance_attr_policies.action_with_instance_retry(value=value) [retry: 2, backoff: 10s]
+    a = @instance_attr_policies.action_with_instance_retry(value=value) [Exception -> retry: 2, backoff: 10s]
     b = @instance_attr_policies.action_with_instance_timeout(value=a) [timeout: 2m]
-    c = @instance_attr_policies.action_with_both_policies(value=b) [retry: 1] [timeout: 2m]
+    c = @instance_attr_policies.action_with_both_policies(value=b) [Exception -> retry: 1] [timeout: 2m]
     return c
 ---
 f0: [4 registers]
@@ -26,7 +26,7 @@ f1: [11 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["Exception"], exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_instance_retry"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r6, value: Int(2) })
@@ -64,7 +64,7 @@ f3: [11 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["Exception"], exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_both_policies"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r9, value: Int(1) })
@@ -83,5 +83,4 @@ f3: [11 registers]
   s6:
     CoreSet(Select { arms: [SelectArm { src: r4, dst: r7, resume: s5 }, SelectArm { src: r6, dst: r8, resume: s7 }] })
   s7:
-    ExcSet(PopExceptionHandlers { count: 1 })
     ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })

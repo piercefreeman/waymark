@@ -160,7 +160,9 @@ Program {
                                                 policies: [
                                                     Retry(
                                                         RetryPolicy {
-                                                            exception_types: [],
+                                                            exception_types: [
+                                                                "Exception",
+                                                            ],
                                                             max_retries: 2,
                                                             backoff: Some(
                                                                 DurationLiteral {
@@ -275,7 +277,9 @@ Program {
                                                 policies: [
                                                     Retry(
                                                         RetryPolicy {
-                                                            exception_types: [],
+                                                            exception_types: [
+                                                                "Exception",
+                                                            ],
                                                             max_retries: 100,
                                                             backoff: None,
                                                         },
@@ -304,6 +308,62 @@ Program {
                             Spanned {
                                 value: Assignment {
                                     targets: [
+                                        "d_retry_empty",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "action_with_retry_empty_exceptions",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "value",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "d_retry_default",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 30,
+                                                                start_col: 49,
+                                                                end_line: 30,
+                                                                end_col: 64,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [
+                                                    Retry(
+                                                        RetryPolicy {
+                                                            exception_types: [
+                                                                "Exception",
+                                                            ],
+                                                            max_retries: 1,
+                                                            backoff: None,
+                                                        },
+                                                    ),
+                                                ],
+                                                module_name: Some(
+                                                    "policy_variations",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 29,
+                                            start_col: 4,
+                                            end_line: 32,
+                                            end_col: 5,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 29,
+                                    start_col: 4,
+                                    end_line: 32,
+                                    end_col: 5,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
                                         "e",
                                     ],
                                     value: Spanned {
@@ -315,13 +375,13 @@ Program {
                                                         name: "value",
                                                         value: Spanned {
                                                             value: Variable {
-                                                                name: "d_retry_default",
+                                                                name: "d_retry_empty",
                                                             },
                                                             span: Span {
-                                                                start_line: 30,
+                                                                start_line: 36,
                                                                 start_col: 40,
-                                                                end_line: 30,
-                                                                end_col: 55,
+                                                                end_line: 36,
+                                                                end_col: 53,
                                                             },
                                                         },
                                                     },
@@ -341,17 +401,17 @@ Program {
                                             },
                                         },
                                         span: Span {
-                                            start_line: 29,
+                                            start_line: 35,
                                             start_col: 4,
-                                            end_line: 31,
+                                            end_line: 37,
                                             end_col: 5,
                                         },
                                     },
                                 },
                                 span: Span {
-                                    start_line: 29,
+                                    start_line: 35,
                                     start_col: 4,
-                                    end_line: 31,
+                                    end_line: 37,
                                     end_col: 5,
                                 },
                             },
@@ -372,9 +432,9 @@ Program {
                                                                 name: "e",
                                                             },
                                                             span: Span {
-                                                                start_line: 34,
+                                                                start_line: 40,
                                                                 start_col: 61,
-                                                                end_line: 34,
+                                                                end_line: 40,
                                                                 end_col: 62,
                                                             },
                                                         },
@@ -395,17 +455,17 @@ Program {
                                             },
                                         },
                                         span: Span {
-                                            start_line: 34,
+                                            start_line: 40,
                                             start_col: 4,
-                                            end_line: 34,
+                                            end_line: 40,
                                             end_col: 91,
                                         },
                                     },
                                 },
                                 span: Span {
-                                    start_line: 34,
+                                    start_line: 40,
                                     start_col: 4,
-                                    end_line: 34,
+                                    end_line: 40,
                                     end_col: 91,
                                 },
                             },
@@ -426,9 +486,9 @@ Program {
                                                                 name: "f",
                                                             },
                                                             span: Span {
-                                                                start_line: 38,
+                                                                start_line: 44,
                                                                 start_col: 53,
-                                                                end_line: 38,
+                                                                end_line: 44,
                                                                 end_col: 54,
                                                             },
                                                         },
@@ -449,17 +509,17 @@ Program {
                                             },
                                         },
                                         span: Span {
-                                            start_line: 37,
+                                            start_line: 43,
                                             start_col: 4,
-                                            end_line: 39,
+                                            end_line: 45,
                                             end_col: 5,
                                         },
                                     },
                                 },
                                 span: Span {
-                                    start_line: 37,
+                                    start_line: 43,
                                     start_col: 4,
-                                    end_line: 39,
+                                    end_line: 45,
                                     end_col: 5,
                                 },
                             },
@@ -471,18 +531,18 @@ Program {
                                                 name: "g",
                                             },
                                             span: Span {
-                                                start_line: 41,
+                                                start_line: 47,
                                                 start_col: 11,
-                                                end_line: 41,
+                                                end_line: 47,
                                                 end_col: 12,
                                             },
                                         },
                                     ),
                                 },
                                 span: Span {
-                                    start_line: 41,
+                                    start_line: 47,
                                     start_col: 4,
-                                    end_line: 41,
+                                    end_line: 47,
                                     end_col: 12,
                                 },
                             },
@@ -499,7 +559,7 @@ Program {
             span: Span {
                 start_line: 1,
                 start_col: 0,
-                end_line: 41,
+                end_line: 47,
                 end_col: 12,
             },
         },
