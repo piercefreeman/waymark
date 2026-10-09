@@ -1,5 +1,9 @@
 import argparse
 import asyncio
+import os
+import sys
+
+import pytest
 
 from waymark import worker, workflow_runtime
 from waymark.actions import deserialize_action_result
@@ -100,6 +104,63 @@ def test_handle_dispatch_without_metadata_leaves_it_empty(monkeypatch) -> None:
         assert result.metadata == b""
 
     asyncio.run(scenario())
+
+
+def _run_main_with_a_stubbed_worker(monkeypatch) -> list[argparse.Namespace]:
+    ran: list[argparse.Namespace] = []
+
+    async def fake_run_worker(args: argparse.Namespace) -> None:
+        ran.append(args)
+
+    monkeypatch.setattr(worker, "_run_worker", fake_run_worker)
+    worker.main(["--bridge", "127.0.0.1:24118", "--worker-id", "1"])
+    return ran
+
+
+def test_main_puts_the_working_directory_first(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(worker.sys, "path", ["/somewhere/bin", "/somewhere/site-packages"])
+
+    ran = _run_main_with_a_stubbed_worker(monkeypatch)
+
+    assert ran
+    assert worker.sys.path == [os.getcwd(), "/somewhere/bin", "/somewhere/site-packages"]
+
+
+def test_main_keeps_the_working_directory_first_when_already_there(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(worker.sys, "path", [os.getcwd(), "/somewhere/site-packages"])
+
+    _run_main_with_a_stubbed_worker(monkeypatch)
+
+    assert worker.sys.path == [os.getcwd(), "/somewhere/site-packages"]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows cannot remove a process's working directory"
+)
+def test_main_leaves_sys_path_alone_when_the_working_directory_is_gone(
+    monkeypatch, tmp_path
+) -> None:
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    monkeypatch.chdir(gone)
+    gone.rmdir()
+    monkeypatch.setattr(worker.sys, "path", ["/somewhere/bin", "/somewhere/site-packages"])
+
+    ran = _run_main_with_a_stubbed_worker(monkeypatch)
+
+    assert ran
+    assert worker.sys.path == ["/somewhere/bin", "/somewhere/site-packages"]
+
+
+def test_main_keeps_the_empty_entry_python_dash_m_leaves_first(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(worker.sys, "path", ["", "/somewhere/site-packages"])
+
+    _run_main_with_a_stubbed_worker(monkeypatch)
+
+    assert worker.sys.path == ["", "/somewhere/site-packages"]
 
 
 def test_run_worker_configures_grpc_message_limit(monkeypatch) -> None:
