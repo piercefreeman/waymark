@@ -12,7 +12,7 @@ export const sections = [
   { title: 'Defer tool calls', id: 'defer-tool-calls' },
   { title: 'Run tools durably', id: 'run-tools-durably' },
   { title: 'Wire the workflow', id: 'wire-the-workflow' },
-  { title: 'What stays live', id: 'what-stays-live' },
+  { title: 'Production', id: 'production' },
 ]
 
 # Durable Agents with Pydantic AI
@@ -565,7 +565,7 @@ class DurableSupportAgentWorkflow(AgentWorkflowBase[SupportDeps, str]):
         return await self.run_action(require_support_output(state))
 ```
 
-## Production
+## Production {{ id: 'production' }}
 
 At this point you could flesh out your customer support agent to talk to your database, have
 addition tool calls, or retro fit it for some other purpose. But the nice part of all the work that

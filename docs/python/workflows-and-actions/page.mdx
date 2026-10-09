@@ -66,8 +66,7 @@ class ParallelMathWorkflow(Workflow):
 
 The `@workflow` body is the durable thing. The three `@action` calls are
 the distributed work. The `return_exceptions=True` on `gather` isn't
-optional - the compiler requires it, so failures arrive as values you can
-inspect downstream instead of exceptions that tear down the fan-out.
+optional - the compiler requires it.
 
 Running one looks like calling any other async function:
 

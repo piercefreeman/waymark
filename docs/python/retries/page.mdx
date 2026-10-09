@@ -10,6 +10,7 @@ export const sections = [
   { title: 'Filtering by exception', id: 'filtering-by-exception' },
   { title: 'Timeouts', id: 'timeouts' },
   { title: 'How retries and timeouts combine', id: 'what-is-enforced-today' },
+  { title: 'API reference', id: 'api-reference' },
 ]
 
 # Retries & Timeouts
@@ -118,10 +119,9 @@ picks it up, so time spent waiting for a worker counts; a sleep of that
 length is raced against the attempt, and when it wins the attempt fails
 with an `ActionTimeout` exception. The timed-out attempt itself is not
 cancelled: it may still be running on its worker, which is why retrying
-timeouts is an explicit opt-in (below). The value is a number of seconds
-or a `timedelta` built from `seconds`, `minutes`, `hours` or `days`
-keywords, in whole seconds: a fraction is truncated, and under one second
-means no timeout at all.
+timeouts is an explicit opt-in (below). The value is a number of seconds,
+fractions included, or a `timedelta` built from `seconds`, `minutes`,
+`hours` or `days` keywords; it must be more than zero.
 
 ```python
 from datetime import timedelta
@@ -173,7 +173,7 @@ at compile time with `UnsupportedPatternError`. The
 [Control Flow guide](/python/control-flow#limitations) names the
 rejected forms.
 
-## API reference
+## API reference {{ id: 'api-reference' }}
 
 For the precise signatures and field types, see the
 [Python RetryPolicy reference](/python/api/retry).

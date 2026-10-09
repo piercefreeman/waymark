@@ -17,9 +17,9 @@ Semantics to know:
   list retries nothing. `ActionTimeout` and `ActionExecutionLost` derive
   from `BaseException` and are retried only when listed by name or
   through `"BaseException"`.
-- `backoff_seconds` is a fixed sleep before each retry; a fractional
-  value is truncated to whole seconds, so under one second means no
-  backoff. Don't add a sleep inside the action for it: that adds to the
+- `backoff_seconds` is a fixed sleep before each retry, fractions
+  included; zero means no backoff, and a negative is rejected at compile
+  time. Don't add a sleep inside the action for it: that adds to the
   wait and counts against the timeout.
 - Backoff and timeouts are woken by the node's sleep poller, so each
   can wake up to one `WAYMARK_SLEEP_POLL_INTERVAL_MS` (250 ms by
