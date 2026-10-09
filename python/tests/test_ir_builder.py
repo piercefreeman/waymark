@@ -915,6 +915,20 @@ class TestTryExceptConversion:
         assert "ValueError" in all_exception_types, "Expected ValueError handler"
         assert "TypeError" in all_exception_types, "Expected TypeError handler"
 
+    def test_dotted_except_types_resolve_to_the_class_name(self) -> None:
+        """Test: `except waymark.ActionTimeout:` lists `ActionTimeout`; tuple members too."""
+        from tests.fixtures_control_flow.try_except_dotted import TryExceptDottedWorkflow
+
+        program = TryExceptDottedWorkflow.workflow_ir()
+
+        try_except = self._find_try_except(program)
+        assert try_except is not None, "Expected try_except in IR"
+        assert [list(handler.exception_types) for handler in try_except.handlers] == [
+            ["ActionTimeout"],
+            ["KeyError", "ActionExecutionLost"],
+            ["HTTPError"],
+        ]
+
     def test_exception_handler_captures_variable(self) -> None:
         """Test: except ... as var captures exception variable."""
         from tests.fixtures_control_flow.try_except_capture import TryExceptCaptureWorkflow
@@ -3537,6 +3551,55 @@ class TestTryExceptStatefulOutputs:
 class TestUnsupportedPatternValidation:
     """Test that unsupported patterns raise UnsupportedPatternError with helpful messages."""
 
+    def test_except_type_that_is_not_a_class_name_raises_error(self) -> None:
+        """Test: `except errors[0]:` raises instead of compiling to a bare except."""
+        from typing import cast
+
+        import pytest
+
+        from waymark.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.except_subscript import ExceptSubscriptWorkflow
+
+            ExceptSubscriptWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "except clause" in error.message
+        assert "waymark.ActionTimeout" in error.recommendation
+
+    def test_except_type_rooted_in_a_call_raises_error(self) -> None:
+        """Test: `except errors().Primary:` raises; a call-rooted chain is not a class name."""
+        from typing import cast
+
+        import pytest
+
+        from waymark.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.except_call_root import ExceptCallRootWorkflow
+
+            ExceptCallRootWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "except clause" in error.message
+
+    def test_except_type_through_a_self_chain_raises_error(self) -> None:
+        """Test: `except self.errors.Primary:` raises like the one-level `self` form."""
+        from typing import cast
+
+        import pytest
+
+        from waymark.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.except_self_chain import ExceptSelfChainWorkflow
+
+            ExceptSelfChainWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "except clause" in error.message
+
     def test_except_empty_tuple_raises_error(self) -> None:
         """Test: `except ():` raises instead of compiling to a bare except."""
         from typing import cast
@@ -3552,6 +3615,61 @@ class TestUnsupportedPatternValidation:
 
         error = cast(UnsupportedPatternError, exc_info.value)
         assert "catches nothing" in error.message
+
+    def test_except_type_through_self_raises_error(self) -> None:
+        """Test: `except self.error_cls:` raises instead of compiling to `error_cls`."""
+        from typing import cast
+
+        import pytest
+
+        from waymark.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.except_self_attribute import (
+                ExceptSelfAttributeWorkflow,
+            )
+
+            ExceptSelfAttributeWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "except clause" in error.message
+
+    def test_retry_exception_type_that_is_a_class_raises_error(self) -> None:
+        """Test: `exception_types=[ActionTimeout]` raises instead of being dropped."""
+        from typing import cast
+
+        import pytest
+
+        from waymark.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.retry_exception_class import (
+                RetryExceptionClassWorkflow,
+            )
+
+            RetryExceptionClassWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "exception_types" in error.message
+        assert '"ActionTimeout"' in error.recommendation
+
+    def test_retry_exception_type_with_a_module_path_raises_error(self) -> None:
+        """Test: `exception_types=["httpx.ConnectError"]` raises instead of never matching."""
+        from typing import cast
+
+        import pytest
+
+        from waymark.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.retry_exception_dotted_string import (
+                RetryExceptionDottedStringWorkflow,
+            )
+
+            RetryExceptionDottedStringWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "exception_types" in error.message
 
     def test_constructor_return_raises_error(self) -> None:
         """Test: return CustomClass(...) raises UnsupportedPatternError.

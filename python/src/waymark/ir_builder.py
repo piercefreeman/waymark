@@ -121,10 +121,25 @@ RECOMMENDATIONS = {
         "    async def get_length(items: list) -> int:\n"
         "        return len(items)"
     ),
+    "except_type": (
+        "An except clause lists exception classes by name, or dotted through a module, "
+        "which resolves to the class name: the VM matches by class name alone.\n\n"
+        "Use:\n\n"
+        "    except ValueError:\n"
+        "    except (KeyError, waymark.ActionTimeout):\n"
+    ),
     "except_empty_tuple": (
         "`except ():` catches nothing, so the handler is dead code.\n"
         "Drop the handler, or list the classes to catch:\n\n"
         "    except (KeyError, ValueError):\n"
+    ),
+    "retry_exception_types": (
+        "RetryPolicy exception_types takes class names as strings; the VM matches by "
+        "class name alone, so a module path never matches. A string is the name the VM "
+        "sees, so it must already be bare, unlike an except clause, which resolves a "
+        "dotted spelling to its class name.\n\n"
+        "Use:\n\n"
+        '    retry=RetryPolicy(attempts=3, exception_types=["ConnectError", "ActionTimeout"])\n'
     ),
     "fstring": (
         "F-strings are not supported in workflow code because they require "
@@ -2260,6 +2275,30 @@ class IRBuilder(ast.NodeVisitor):
 
         return vars_found
 
+    def _except_handler_type_name(self, node: ast.expr) -> str:
+        """The class name an `except` clause lists, as the VM matches it.
+
+        A dotted spelling such as `except httpx.ConnectError:` resolves to
+        its last segment: the VM matches exceptions by bare class name, so
+        the module path carries nothing it could use. A chain rooted in
+        `self` is a value, not a class name, and any other expression is
+        rejected rather than silently widened into a bare `except:`.
+        """
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            root = node.value
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            if isinstance(root, ast.Name) and root.id != "self":
+                return node.attr
+        raise UnsupportedPatternError(
+            "An except clause must list exception classes by name",
+            RECOMMENDATIONS["except_type"],
+            line=getattr(node, "lineno", None),
+            col=getattr(node, "col_offset", None),
+        )
+
     def _visit_try(self, node: ast.Try) -> List[ir.Statement]:
         """Convert try/except to IR with full block bodies."""
         # Build try body statements (recursively transforms nested structures)
@@ -2273,9 +2312,7 @@ class IRBuilder(ast.NodeVisitor):
         for handler in node.handlers:
             exception_types: List[str] = []
             if handler.type:
-                if isinstance(handler.type, ast.Name):
-                    exception_types.append(handler.type.id)
-                elif isinstance(handler.type, ast.Tuple):
+                if isinstance(handler.type, ast.Tuple):
                     if not handler.type.elts:
                         raise UnsupportedPatternError(
                             "An except clause with an empty tuple catches nothing",
@@ -2284,8 +2321,9 @@ class IRBuilder(ast.NodeVisitor):
                             col=getattr(handler, "col_offset", None),
                         )
                     for elt in handler.type.elts:
-                        if isinstance(elt, ast.Name):
-                            exception_types.append(elt.id)
+                        exception_types.append(self._except_handler_type_name(elt))
+                else:
+                    exception_types.append(self._except_handler_type_name(handler.type))
 
             # Build handler body (recursively transforms nested structures)
             handler_body: List[ir.Statement] = []
@@ -3001,8 +3039,7 @@ class IRBuilder(ast.NodeVisitor):
             elif kw.arg == "exception_types" and isinstance(kw.value, ast.List):
                 exception_types_listed = True
                 for elt in kw.value.elts:
-                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                        policy.exception_types.append(elt.value)
+                    policy.exception_types.append(self._retry_exception_type_name(elt))
             elif kw.arg == "backoff_seconds" and isinstance(kw.value, ast.Constant):
                 policy.backoff.seconds = int(kw.value.value)
 
@@ -3012,6 +3049,27 @@ class IRBuilder(ast.NodeVisitor):
             policy.exception_types.append(DEFAULT_RETRY_POLICY_EXCEPTION_TYPE)
 
         return policy
+
+    def _retry_exception_type_name(self, node: ast.expr) -> str:
+        """One `exception_types` entry: a bare class name as a string literal.
+
+        The VM matches exceptions by bare class name, so a dotted string,
+        or anything else that is not an identifier, would never match; it
+        is rejected rather than ignored, as is any entry that is not a
+        string literal, such as the class itself.
+        """
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.isidentifier()
+        ):
+            return node.value
+        raise UnsupportedPatternError(
+            "RetryPolicy exception_types entries must be bare class names as strings",
+            RECOMMENDATIONS["retry_exception_types"],
+            line=getattr(node, "lineno", None),
+            col=getattr(node, "col_offset", None),
+        )
 
     def _parse_timeout_policy(self, node: ast.expr) -> Optional[ir.TimeoutPolicy]:
         """Parse a timeout value into IR.
