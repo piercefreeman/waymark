@@ -1,0 +1,36 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_control_flow/try_except_alias.py
+---
+fn main(input: [], output: []):
+    try:
+        result = @try_except_alias.flaky_action()
+    except ValueError:
+        result = @try_except_alias.handle_value()
+    except JSONDecodeError, KeyError:
+        result = @try_except_alias.handle_decode()
+    return result
+---
+f0: [1 registers]
+  s0:
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["ValueError"]), exception_dst: None }, ExceptionHandler { handler_state: s3, pattern: Classes(["JSONDecodeError", "KeyError"]), exception_dst: None }] })
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("flaky_action"), args: [], resume: s4 })
+  s1:
+    CoreSet(Return { src: r0 })
+  s2:
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("handle_value"), args: [], resume: s6 })
+  s3:
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("handle_decode"), args: [], resume: s8 })
+  s4:
+    CoreSet(Await { dst: r0, src: r0, resume: s5 })
+  s5:
+    ExcSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Jump { target_state: s1 })
+  s6:
+    CoreSet(Await { dst: r0, src: r0, resume: s7 })
+  s7:
+    CoreSet(Jump { target_state: s1 })
+  s8:
+    CoreSet(Await { dst: r0, src: r0, resume: s9 })
+  s9:
+    CoreSet(Jump { target_state: s1 })

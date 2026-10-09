@@ -929,6 +929,19 @@ class TestTryExceptConversion:
             ["HTTPError"],
         ]
 
+    def test_aliased_except_types_resolve_to_the_class_name(self) -> None:
+        """Test: `except VE:` with `VE = ValueError` lists `ValueError`, the name the VM matches."""
+        from tests.fixtures_control_flow.try_except_alias import TryExceptAliasWorkflow
+
+        program = TryExceptAliasWorkflow.workflow_ir()
+
+        try_except = self._find_try_except(program)
+        assert try_except is not None, "Expected try_except in IR"
+        assert [list(handler.exception_types) for handler in try_except.handlers] == [
+            ["ValueError"],
+            ["JSONDecodeError", "KeyError"],
+        ]
+
     def test_exception_handler_captures_variable(self) -> None:
         """Test: except ... as var captures exception variable."""
         from tests.fixtures_control_flow.try_except_capture import TryExceptCaptureWorkflow
@@ -3009,6 +3022,17 @@ class TestInstanceAttrPolicies:
         assert policy.HasField("timeout"), "Should be timeout policy"
         assert policy.timeout.timeout.seconds == 120
 
+    def test_none_policies_from_instance_attrs_mean_no_policy(self) -> None:
+        """Test: retry=self.x and timeout=self.y with both None in __init__ attach no policy."""
+        from tests.fixtures_policy.instance_attr_none import InstanceAttrNoneWorkflow
+
+        program = InstanceAttrNoneWorkflow.workflow_ir()
+
+        for action_name in ("action_with_none_retry", "action_with_none_timeout"):
+            action = self._find_action_by_name(program, action_name)
+            assert action is not None, f"Should find {action_name}"
+            assert len(action.policies) == 0, "None through self is no policy, as inline None is"
+
     def test_both_policies_from_instance_attrs(self) -> None:
         """Test: both retry and timeout from instance attributes."""
         from tests.fixtures_policy.instance_attr_policies import InstanceAttrPoliciesWorkflow
@@ -3615,6 +3639,70 @@ class TestUnsupportedPatternValidation:
 
         error = cast(UnsupportedPatternError, exc_info.value)
         assert "catches nothing" in error.message
+
+    def test_except_type_rooted_in_a_value_raises_error(self) -> None:
+        """Test: `except cfg.error_cls:` raises instead of compiling to `error_cls`."""
+        from typing import cast
+
+        import pytest
+
+        from waymark.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.except_value_root import ExceptValueRootWorkflow
+
+            ExceptValueRootWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "rooted in a module or a class" in error.message
+
+    def test_except_type_that_is_a_tuple_alias_raises_error(self) -> None:
+        """Test: `except ERRORS:` raises instead of compiling to a class called ERRORS."""
+        from typing import cast
+
+        import pytest
+
+        from waymark.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.except_tuple_alias import ExceptTupleAliasWorkflow
+
+            ExceptTupleAliasWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "not an exception class in scope" in error.message
+
+    def test_except_type_that_is_not_an_exception_class_raises_error(self) -> None:
+        """Test: `except int:` raises; a class that is not an exception never matches."""
+        from typing import cast
+
+        import pytest
+
+        from waymark.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.except_int import ExceptIntWorkflow
+
+            ExceptIntWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "names int, which is not an exception class in scope" in error.message
+
+    def test_except_type_that_is_a_module_value_raises_error(self) -> None:
+        """Test: `except os.sep:` raises; the dotted leaf is resolved, not taken as spelled."""
+        from typing import cast
+
+        import pytest
+
+        from waymark.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.except_module_value import ExceptModuleValueWorkflow
+
+            ExceptModuleValueWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "names os.sep, which is not an exception class in scope" in error.message
 
     def test_except_type_through_self_raises_error(self) -> None:
         """Test: `except self.error_cls:` raises instead of compiling to `error_cls`."""

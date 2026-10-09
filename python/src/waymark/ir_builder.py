@@ -18,9 +18,11 @@ UnsupportedPatternError with clear recommendations for how to rewrite the code.
 from __future__ import annotations
 
 import ast
+import builtins
 import copy
 import inspect
 import textwrap
+import types
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import EnumMeta
@@ -121,9 +123,34 @@ RECOMMENDATIONS = {
         "    async def get_length(items: list) -> int:\n"
         "        return len(items)"
     ),
+    "policy_literal": (
+        "Every retry and timeout field must be a literal in the workflow body: the\n"
+        "compiler reads them from the source, not at runtime.\n\n"
+        "Use:\n\n"
+        '    retry=RetryPolicy(attempts=3, exception_types=["ConnectionError"], backoff_seconds=5)\n'
+        "    timeout=timedelta(minutes=2)\n\n"
+        "or assign a literal to a self attribute once, at the top level of __init__, and\n"
+        "pass self.<attribute>."
+    ),
+    "run_action_keywords": (
+        "run_action() takes the awaitable plus retry= and timeout= only.\n\n"
+        "Use:\n\n"
+        "    await self.run_action(action(), retry=RetryPolicy(attempts=3), timeout=60)"
+    ),
+    "duration_whole_seconds": (
+        "Timeouts and backoffs are whole seconds, and a timeout is at least one: the\n"
+        "IR carries seconds and the compiler does not round.\n\n"
+        "Use:\n\n"
+        "    timeout=timedelta(seconds=30)\n"
+        "    backoff_seconds=5"
+    ),
     "except_type": (
         "An except clause lists exception classes by name, or dotted through a module, "
-        "which resolves to the class name: the VM matches by class name alone.\n\n"
+        "which resolves to the class: the VM matches by the class's own name alone, so an "
+        "alias names the same class. The name must resolve, in the workflow module's "
+        "scope, to an exception class, and a dotted name's root to a module or a class; a "
+        "value, a class that is not an exception, a tuple alias or an undefined name "
+        "would compile into a class that never matches, so it is rejected.\n\n"
         "Use:\n\n"
         "    except ValueError:\n"
         "    except (KeyError, waymark.ActionTimeout):\n"
@@ -291,6 +318,31 @@ GLOBAL_FUNCTIONS = {
 ALLOWED_SYNC_FUNCTIONS = set(GLOBAL_FUNCTIONS)
 DEFAULT_RETRY_POLICY_MAX_RETRIES = 100
 DEFAULT_RETRY_POLICY_EXCEPTION_TYPE = "Exception"
+# `attempts` minus one is the IR's `max_retries`, a uint32.
+MAX_RETRY_POLICY_ATTEMPTS = 2**32
+
+
+def _is_none_literal(node: ast.AST) -> bool:
+    """Whether `node` is the literal `None`."""
+    return isinstance(node, ast.Constant) and node.value is None
+
+
+def _number_literal(node: ast.AST) -> Optional[int | float]:
+    """The number `node` is a literal of, if it is one; a bool is not."""
+    if isinstance(node, ast.Constant) and not isinstance(node.value, bool):
+        if isinstance(node.value, (int, float)):
+            return node.value
+    return None
+
+
+def _call_name(node: ast.Call) -> Optional[str]:
+    """The name a call is spelled with: `f(...)` or `m.f(...)` give `f`."""
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    return None
+
 
 _CURRENT_ACTION_NAMES: set[str] = set()
 
@@ -562,45 +614,80 @@ def _find_workflow_method(workflow_cls: type["Workflow"], name: str) -> Optional
     return None
 
 
-def _extract_instance_attrs(workflow_cls: type["Workflow"]) -> Dict[str, ast.expr]:
-    """Extract self.attr = value assignments from the workflow's __init__ method.
+@dataclass(frozen=True)
+class InstanceAttrs:
+    """What `__init__` assigns to `self`, as far as the compiler can read it."""
 
-    Parses the __init__ method to find assignments like:
+    literals: Dict[str, ast.expr]
+    """Attributes assigned exactly once, at the top level of `__init__`, with the value."""
+
+    ambiguous: Set[str]
+    """Attributes assigned more than once, or under a branch or loop: unreadable."""
+
+
+def _extract_instance_attrs(workflow_cls: type["Workflow"]) -> InstanceAttrs:
+    """Read the `self.attr = value` assignments of the workflow's `__init__`.
+
+    Only an attribute assigned exactly once, at the top level of the method,
+    has a value the compiler can read, such as:
         self.retry_policy = RetryPolicy(attempts=3)
         self.timeout = 30
 
-    Returns a dict mapping attribute names to their AST value nodes.
+    One assigned twice, or inside an `if`, a loop or a `try`, is recorded as
+    ambiguous: the source order would otherwise decide which value wins, so
+    a policy that names it is rejected instead.
     """
     init_method = _find_workflow_method(workflow_cls, "__init__")
     if init_method is None:
-        return {}
+        return InstanceAttrs({}, set())
 
     try:
         source_lines, _ = inspect.getsourcelines(init_method)
         source = textwrap.dedent("".join(source_lines))
         tree = ast.parse(source)
     except (OSError, TypeError, SyntaxError):
-        return {}
+        return InstanceAttrs({}, set())
 
-    attrs: Dict[str, ast.expr] = {}
+    function_def = tree.body[0]
+    if not isinstance(function_def, ast.FunctionDef):
+        return InstanceAttrs({}, set())
 
-    # Walk the __init__ body looking for self.attr = value assignments
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
+    literals: Dict[str, ast.expr] = {}
+    ambiguous: Set[str] = set()
+    for statement in function_def.body:
+        top_level = _self_attribute_assignment(statement)
+        if top_level is not None:
+            name, value = top_level
+            if name in literals or name in ambiguous:
+                literals.pop(name, None)
+                ambiguous.add(name)
+            else:
+                literals[name] = value
             continue
-        # Only handle single-target assignments
-        if len(node.targets) != 1:
-            continue
-        target = node.targets[0]
-        # Check for self.attr pattern
-        if (
-            isinstance(target, ast.Attribute)
-            and isinstance(target.value, ast.Name)
-            and target.value.id == "self"
-        ):
-            attrs[target.attr] = node.value
+        for nested in ast.walk(statement):
+            nested_assignment = _self_attribute_assignment(nested)
+            if nested_assignment is not None:
+                literals.pop(nested_assignment[0], None)
+                ambiguous.add(nested_assignment[0])
 
-    return attrs
+    return InstanceAttrs(literals, ambiguous)
+
+
+def _self_attribute_assignment(node: ast.AST) -> Optional[tuple[str, ast.expr]]:
+    """The name and value of a `self.name = value` assignment, annotated or not; else None."""
+    if isinstance(node, ast.Assign) and len(node.targets) == 1:
+        target, value = node.targets[0], node.value
+    elif isinstance(node, ast.AnnAssign) and node.value is not None:
+        target, value = node.target, node.value
+    else:
+        return None
+    if (
+        isinstance(target, ast.Attribute)
+        and isinstance(target.value, ast.Name)
+        and target.value.id == "self"
+    ):
+        return target.attr, value
+    return None
 
 
 def _discover_action_names(module: Any) -> Dict[str, ActionDefinition]:
@@ -896,7 +983,7 @@ class IRBuilder(ast.NodeVisitor):
         module_functions: Optional[Set[str]] = None,
         model_defs: Optional[Dict[str, ModelDefinition]] = None,
         module_globals: Optional[Mapping[str, Any]] = None,
-        instance_attrs: Optional[Dict[str, ast.expr]] = None,
+        instance_attrs: Optional[InstanceAttrs] = None,
     ):
         self._action_defs = action_defs
         self._ctx = ctx
@@ -904,7 +991,8 @@ class IRBuilder(ast.NodeVisitor):
         self._module_functions = module_functions or set()
         self._model_defs = model_defs or {}
         self._module_globals = module_globals or {}
-        self._instance_attrs = instance_attrs or {}
+        self._instance_attrs = instance_attrs.literals if instance_attrs else {}
+        self._ambiguous_instance_attrs = instance_attrs.ambiguous if instance_attrs else set()
         self.function_def: Optional[ir.FunctionDef] = None
         self._statements: List[ir.Statement] = []
 
@@ -2278,26 +2366,79 @@ class IRBuilder(ast.NodeVisitor):
     def _except_handler_type_name(self, node: ast.expr) -> str:
         """The class name an `except` clause lists, as the VM matches it.
 
-        A dotted spelling such as `except httpx.ConnectError:` resolves to
-        its last segment: the VM matches exceptions by bare class name, so
-        the module path carries nothing it could use. A chain rooted in
-        `self` is a value, not a class name, and any other expression is
-        rejected rather than silently widened into a bare `except:`.
+        The clause's expression is resolved in the workflow module's scope,
+        the builtins included, the way Python resolves it when an exception
+        reaches the clause: a bare name as is, a dotted spelling such as
+        `except httpx.ConnectError:` walked from its root module or class. It
+        must resolve to an exception class, whose own name is what the VM
+        matches by, so an alias names the same class. A value, a class that is
+        not an exception, a tuple alias, an undefined name, a chain rooted in
+        `self` or in a call, and any other expression are rejected rather than
+        compiled into a name that never matches.
         """
         if isinstance(node, ast.Name):
-            return node.id
-        if isinstance(node, ast.Attribute):
+            spelled = node.id
+            resolved = self._module_scope_name(node.id)
+        elif isinstance(node, ast.Attribute):
             root = node.value
+            attrs = [node.attr]
             while isinstance(root, ast.Attribute):
+                attrs.append(root.attr)
                 root = root.value
-            if isinstance(root, ast.Name) and root.id != "self":
-                return node.attr
+            attrs.reverse()
+            if not (
+                isinstance(root, ast.Name)
+                and isinstance(self._module_scope_name(root.id), (types.ModuleType, type))
+            ):
+                raise UnsupportedPatternError(
+                    "An except clause's dotted name must be rooted in a module or a class",
+                    RECOMMENDATIONS["except_type"],
+                    line=node.lineno,
+                    col=node.col_offset,
+                )
+            spelled = ".".join([root.id, *attrs])
+            resolved = self._module_scope_name(root.id)
+            for attr in attrs:
+                resolved = self._static_attribute(resolved, attr)
+        else:
+            raise UnsupportedPatternError(
+                "An except clause must list exception classes by name",
+                RECOMMENDATIONS["except_type"],
+                line=node.lineno,
+                col=node.col_offset,
+            )
+        if isinstance(resolved, type) and issubclass(resolved, BaseException):
+            return resolved.__name__
         raise UnsupportedPatternError(
-            "An except clause must list exception classes by name",
+            f"An except clause names {spelled}, which is not an exception class in scope",
             RECOMMENDATIONS["except_type"],
-            line=getattr(node, "lineno", None),
-            col=getattr(node, "col_offset", None),
+            line=node.lineno,
+            col=node.col_offset,
         )
+
+    def _module_scope_name(self, name: str) -> Any:
+        """What a bare name refers to in the workflow module: its globals, then the builtins."""
+        if name in self._module_globals:
+            return self._module_globals[name]
+        return vars(builtins).get(name)
+
+    @staticmethod
+    def _static_attribute(owner: Any, name: str) -> Any:
+        """`owner.name` read from the namespaces alone: a module's, or a class's and its bases'.
+
+        Anything else, a value included, has no attribute the compiler would
+        read, so the result is None and the caller rejects the spelling. A
+        module's lazy export (through a module-level ``__getattr__``) is not
+        in its namespace and is rejected the same way, on purpose: resolving
+        a name never runs module code.
+        """
+        if isinstance(owner, types.ModuleType):
+            return vars(owner).get(name)
+        if isinstance(owner, type):
+            for klass in owner.__mro__:
+                if name in vars(klass):
+                    return vars(klass)[name]
+        return None
 
     def _visit_try(self, node: ast.Try) -> List[ir.Statement]:
         """Convert try/except to IR with full block bodies."""
@@ -2979,69 +3120,169 @@ class IRBuilder(ast.NodeVisitor):
         - self.run_action(action(), retry=RetryPolicy(attempts=3))
         - self.run_action(action(), timeout=timedelta(seconds=30))
         - self.run_action(action(), timeout=60)
+
+        Every field must be a literal: the compiler reads them from the
+        source, so anything it cannot read is rejected rather than ignored.
+        A policy passed positionally is rejected too: `run_action` takes it
+        by keyword, and the body never runs as Python to say so.
         """
+        if len(run_action_call.args) > 1:
+            raise self._policy_error(
+                "run_action() takes one positional argument, the awaitable; "
+                "pass retry= and timeout= by keyword",
+                "run_action_keywords",
+                run_action_call.args[1],
+            )
         for kw in run_action_call.keywords:
+            if kw.arg not in ("retry", "timeout"):
+                what = "**kwargs" if kw.arg is None else f"a {kw.arg!r} keyword"
+                raise self._policy_error(
+                    f"run_action() does not take {what}", "run_action_keywords", kw.value
+                )
+            literal = self._policy_literal(kw.value, kw.arg)
+            if _is_none_literal(literal):
+                # An explicit None, inline or through a self attribute, is the
+                # parameter's default: no policy.
+                continue
+            policy_bracket = ir.PolicyBracket()
             if kw.arg == "retry":
-                retry_policy = self._parse_retry_policy(kw.value)
-                if retry_policy:
-                    policy_bracket = ir.PolicyBracket()
-                    policy_bracket.retry.CopyFrom(retry_policy)
-                    action_call.policies.append(policy_bracket)
-            elif kw.arg == "timeout":
-                timeout_policy = self._parse_timeout_policy(kw.value)
-                if timeout_policy:
-                    policy_bracket = ir.PolicyBracket()
-                    policy_bracket.timeout.CopyFrom(timeout_policy)
-                    action_call.policies.append(policy_bracket)
+                policy_bracket.retry.CopyFrom(self._parse_retry_policy(literal))
+            else:
+                policy_bracket.timeout.CopyFrom(self._parse_timeout_policy(literal))
+            action_call.policies.append(policy_bracket)
 
-    def _parse_retry_policy(self, node: ast.expr) -> Optional[ir.RetryPolicy]:
-        """Parse a RetryPolicy(...) call into IR.
+    def _policy_error(
+        self, message: str, recommendation: str, node: ast.AST
+    ) -> UnsupportedPatternError:
+        """An error for a policy the compiler cannot read, located at `node`."""
+        return UnsupportedPatternError(
+            message,
+            RECOMMENDATIONS[recommendation],
+            line=getattr(node, "lineno", None),
+            col=getattr(node, "col_offset", None),
+        )
 
-        Supports:
-        - RetryPolicy(attempts=3)
-        - RetryPolicy(attempts=3, exception_types=["ValueError"])
-        - RetryPolicy(attempts=3, backoff_seconds=5)
-        - self.retry_policy (instance attribute reference)
+    def _policy_literal(self, node: ast.expr, keyword: str) -> ast.expr:
+        """The literal a policy keyword carries.
+
+        A `self.<attribute>` resolves to the literal assigned to it once, at
+        the top level of `__init__`; one without such an assignment, or one
+        assigned more than once or under a branch, is rejected. Anything
+        else is returned as is for the caller to read.
         """
-        # Handle self.attr pattern - look up in instance attrs
         if (
             isinstance(node, ast.Attribute)
             and isinstance(node.value, ast.Name)
             and node.value.id == "self"
         ):
-            attr_name = node.attr
-            if attr_name in self._instance_attrs:
-                return self._parse_retry_policy(self._instance_attrs[attr_name])
-            return None
+            if node.attr in self._ambiguous_instance_attrs:
+                raise self._policy_error(
+                    f"{keyword}=self.{node.attr} is assigned more than once or under a "
+                    "branch in __init__",
+                    "policy_literal",
+                    node,
+                )
+            literal = self._instance_attrs.get(node.attr)
+            if literal is None:
+                raise self._policy_error(
+                    f"{keyword}=self.{node.attr} is not assigned a literal in __init__",
+                    "policy_literal",
+                    node,
+                )
+            return literal
+        return node
 
-        if not isinstance(node, ast.Call):
-            return None
+    def _whole_seconds_literal(self, node: ast.expr, what: str, at_least_one: bool) -> int:
+        """A number literal read as whole seconds.
 
-        # Check if it's a RetryPolicy call
-        func_name = None
-        if isinstance(node.func, ast.Name):
-            func_name = node.func.id
-        elif isinstance(node.func, ast.Attribute):
-            func_name = node.func.attr
+        A fraction cannot be carried, since the IR holds seconds, so it is
+        rejected rather than rounded; so is a negative, and a zero where
+        `at_least_one` says the value must be positive.
+        """
+        seconds = _number_literal(node)
+        if seconds is None:
+            raise self._policy_error(f"{what} must be a number literal", "policy_literal", node)
+        if seconds != int(seconds):
+            raise self._policy_error(
+                f"{what} must be a whole number of seconds", "duration_whole_seconds", node
+            )
+        if seconds < 0 or (at_least_one and seconds == 0):
+            bound = "at least one second" if at_least_one else "zero or more seconds"
+            raise self._policy_error(f"{what} must be {bound}", "duration_whole_seconds", node)
+        return int(seconds)
 
-        if func_name != "RetryPolicy":
-            return None
+    def _parse_retry_policy(self, node: ast.expr) -> ir.RetryPolicy:
+        """Parse a RetryPolicy(...) literal into IR.
+
+        Supports:
+        - RetryPolicy(attempts=3)
+        - RetryPolicy(attempts=3, exception_types=["ValueError"])
+        - RetryPolicy(attempts=3, backoff_seconds=5)
+
+        `node` is the literal itself: a `self.` attribute is resolved by the
+        caller. Anything else is rejected: a field the compiler cannot read
+        would otherwise silently take its default.
+        """
+        if not (isinstance(node, ast.Call) and _call_name(node) == "RetryPolicy"):
+            raise self._policy_error(
+                "retry= must be a RetryPolicy(...) literal", "policy_literal", node
+            )
+        if node.args:
+            raise self._policy_error(
+                "RetryPolicy takes keyword arguments only", "policy_literal", node
+            )
 
         # RetryPolicy() defaults to a high retry cap when attempts is omitted.
         policy = ir.RetryPolicy(max_retries=DEFAULT_RETRY_POLICY_MAX_RETRIES)
         exception_types_listed = False
 
         for kw in node.keywords:
-            if kw.arg == "attempts" and isinstance(kw.value, ast.Constant):
+            if kw.arg is None:
+                raise self._policy_error(
+                    "RetryPolicy does not take **kwargs", "policy_literal", kw.value
+                )
+            if _is_none_literal(kw.value):
+                # An explicit None is the field's default.
+                continue
+            if kw.arg == "attempts":
+                attempts = _number_literal(kw.value)
+                if not isinstance(attempts, int):
+                    raise self._policy_error(
+                        "RetryPolicy attempts must be an integer literal",
+                        "policy_literal",
+                        kw.value,
+                    )
+                if attempts < 1:
+                    raise self._policy_error(
+                        "RetryPolicy attempts must be at least 1", "policy_literal", kw.value
+                    )
+                if attempts > MAX_RETRY_POLICY_ATTEMPTS:
+                    raise self._policy_error(
+                        f"RetryPolicy attempts must be at most {MAX_RETRY_POLICY_ATTEMPTS}",
+                        "policy_literal",
+                        kw.value,
+                    )
                 # attempts means total executions, max_retries means retries after first attempt
                 # So attempts=1 -> max_retries=0 (no retries), attempts=3 -> max_retries=2
-                policy.max_retries = kw.value.value - 1
-            elif kw.arg == "exception_types" and isinstance(kw.value, ast.List):
+                policy.max_retries = attempts - 1
+            elif kw.arg == "exception_types":
+                if not isinstance(kw.value, ast.List):
+                    raise self._policy_error(
+                        "RetryPolicy exception_types must be a list literal of class names",
+                        "policy_literal",
+                        kw.value,
+                    )
                 exception_types_listed = True
                 for elt in kw.value.elts:
                     policy.exception_types.append(self._retry_exception_type_name(elt))
-            elif kw.arg == "backoff_seconds" and isinstance(kw.value, ast.Constant):
-                policy.backoff.seconds = int(kw.value.value)
+            elif kw.arg == "backoff_seconds":
+                policy.backoff.seconds = self._whole_seconds_literal(
+                    kw.value, "RetryPolicy backoff_seconds", at_least_one=False
+                )
+            else:
+                raise self._policy_error(
+                    f"RetryPolicy has no field {kw.arg!r}", "policy_literal", kw.value
+                )
 
         # An omitted filter retries on `Exception`, the policy's documented
         # default. A listed one is kept as written: empty retries nothing.
@@ -3071,57 +3312,72 @@ class IRBuilder(ast.NodeVisitor):
             col=getattr(node, "col_offset", None),
         )
 
-    def _parse_timeout_policy(self, node: ast.expr) -> Optional[ir.TimeoutPolicy]:
-        """Parse a timeout value into IR.
+    def _parse_timeout_policy(self, node: ast.expr) -> ir.TimeoutPolicy:
+        """Parse a timeout literal into IR.
+
+        `node` is the literal itself: a `self.` attribute is resolved by the
+        caller.
 
         Supports:
-        - timeout=60 (int seconds)
-        - timeout=30.5 (float seconds)
+        - timeout=60 (whole seconds)
         - timeout=timedelta(seconds=30)
         - timeout=timedelta(minutes=2)
-        - self.timeout (instance attribute reference)
-        """
-        # Handle self.attr pattern - look up in instance attrs
-        if (
-            isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "self"
-        ):
-            attr_name = node.attr
-            if attr_name in self._instance_attrs:
-                return self._parse_timeout_policy(self._instance_attrs[attr_name])
-            return None
 
+        Anything else is rejected, as is a duration that is not a whole
+        number of seconds or is under one: the compiler cannot carry a
+        fraction and does not round.
+        """
         policy = ir.TimeoutPolicy()
 
-        # Direct numeric value (seconds)
-        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-            policy.timeout.seconds = int(node.value)
+        if _number_literal(node) is not None:
+            policy.timeout.seconds = self._whole_seconds_literal(node, "timeout", at_least_one=True)
             return policy
 
-        # timedelta(...) call
-        if isinstance(node, ast.Call):
-            func_name = None
-            if isinstance(node.func, ast.Name):
-                func_name = node.func.id
-            elif isinstance(node.func, ast.Attribute):
-                func_name = node.func.attr
+        if isinstance(node, ast.Call) and _call_name(node) == "timedelta":
+            if node.args:
+                raise self._policy_error(
+                    "timedelta(...) in timeout= takes keyword arguments only",
+                    "policy_literal",
+                    node,
+                )
+            keywords: dict[str, int | float] = {}
+            for kw in node.keywords:
+                if kw.arg not in ("seconds", "minutes", "hours", "days"):
+                    what = "**kwargs" if kw.arg is None else f"a {kw.arg!r} keyword"
+                    raise self._policy_error(
+                        f"timedelta(...) in timeout= does not take {what}: "
+                        "use seconds, minutes, hours or days",
+                        "policy_literal",
+                        kw.value,
+                    )
+                value = _number_literal(kw.value)
+                if value is None:
+                    raise self._policy_error(
+                        f"timedelta(...) in timeout= takes a number literal for {kw.arg}",
+                        "policy_literal",
+                        kw.value,
+                    )
+                keywords[kw.arg] = value
+            # Python's own timedelta arithmetic over the accepted keywords:
+            # minutes=4.1 is 246 seconds, as timedelta says.
+            duration = timedelta(**keywords)
+            if duration % timedelta(seconds=1):
+                raise self._policy_error(
+                    "timeout must be a whole number of seconds", "duration_whole_seconds", node
+                )
+            seconds = duration // timedelta(seconds=1)
+            if seconds < 1:
+                raise self._policy_error(
+                    "timeout must be at least one second", "duration_whole_seconds", node
+                )
+            policy.timeout.seconds = seconds
+            return policy
 
-            if func_name == "timedelta":
-                # Python's own timedelta arithmetic over the accepted keywords,
-                # truncated once to whole seconds: minutes=4.1 is 246 seconds,
-                # as timedelta says, not 240 (per-keyword truncation) or 245
-                # (float summation).
-                keywords = {
-                    kw.arg: kw.value.value
-                    for kw in node.keywords
-                    if kw.arg in ("seconds", "minutes", "hours", "days")
-                    and isinstance(kw.value, ast.Constant)
-                }
-                policy.timeout.seconds = timedelta(**keywords) // timedelta(seconds=1)
-                return policy
-
-        return None
+        raise self._policy_error(
+            "timeout= must be a number literal or a timedelta(...) literal",
+            "policy_literal",
+            node,
+        )
 
     def _is_asyncio_sleep_call(self, node: ast.Call) -> bool:
         """Check if this is an asyncio.sleep(...) call.
