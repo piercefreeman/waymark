@@ -132,6 +132,17 @@ class ZeroDivisionRequest(BaseModel):
     denominator: int = Field(description="Denominator for the in-workflow division")
 
 
+class LookupErrorResult(BaseModel):
+    """Result from the lookup error workflow."""
+
+    caught: bool
+    value: str
+
+
+class LookupErrorRequest(BaseModel):
+    key: str = Field(description="Key to look up in the action's fixed table")
+
+
 class RetryCounterRequest(BaseModel):
     """Request for retry behavior workflow."""
 
@@ -500,6 +511,19 @@ async def build_error_result(
 async def build_zero_division_result(caught: bool, quotient: int) -> ZeroDivisionResult:
     """Build the zero division result."""
     return ZeroDivisionResult(caught=caught, quotient=quotient)
+
+
+@action
+async def lookup_setting(key: str) -> str:
+    """Look a key up in a fixed table; a missing key raises `KeyError`."""
+    settings = {"mode": "fast"}
+    return settings[key]
+
+
+@action
+async def build_lookup_error_result(caught: bool, value: str) -> LookupErrorResult:
+    """Build the lookup error result."""
+    return LookupErrorResult(caught=caught, value=value)
 
 
 # =============================================================================
@@ -913,6 +937,28 @@ class ZeroDivisionWorkflow(Workflow):
             quotient = -1
 
         return await build_zero_division_result(caught, quotient)
+
+
+@workflow
+class LookupErrorWorkflow(Workflow):
+    """
+    Demonstrate catching an exception by one of its base classes.
+
+    The action raises `KeyError`; the handler lists `LookupError`, its base
+    class, and catches it the way Python would.
+    """
+
+    async def run(self, key: str) -> LookupErrorResult:
+        caught = False
+        value = ""
+
+        try:
+            value = await lookup_setting(key=key)
+        except LookupError:
+            caught = True
+            value = "missing"
+
+        return await build_lookup_error_result(caught, value)
 
 
 @workflow
