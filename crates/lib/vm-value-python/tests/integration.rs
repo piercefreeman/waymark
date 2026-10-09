@@ -524,7 +524,7 @@ fn runtime_exception_classes_match_their_python_proxies() {
 fn exceptions_match_handlers_by_class_hierarchy() {
     let key_error = classes::KEY_ERROR.exception(Value::Ready(ReadyValue::None));
 
-    let class = |name: &str| Pattern::from(&vec![name.to_owned()]);
+    let class = |name: &str| Pattern::Classes(vec![name.to_owned()]);
     assert!(key_error.matches(&class("KeyError")));
     assert!(key_error.matches(&class("LookupError")));
     assert!(key_error.matches(&class("Exception")));
@@ -532,19 +532,13 @@ fn exceptions_match_handlers_by_class_hierarchy() {
     assert!(!key_error.matches(&class("IndexError")));
     assert!(!key_error.matches(&class("ArithmeticError")));
 
-    // Any class listed catches; the list lowers as given.
-    let several = Pattern::from(&vec!["ValueError".to_owned(), "LookupError".to_owned()]);
-    assert_eq!(
-        several,
-        Pattern::Classes(nonempty_collections::nev![
-            "ValueError".to_owned(),
-            "LookupError".to_owned()
-        ])
-    );
+    // Any class listed catches.
+    let several = Pattern::Classes(vec!["ValueError".to_owned(), "LookupError".to_owned()]);
     assert!(key_error.matches(&several));
 
-    // No classes listed is the bare `except:`.
-    assert_eq!(Pattern::from(&Vec::<String>::new()), Pattern::Any);
+    // No classes listed catches nothing, as `except ():` does; the bare
+    // `except:` is its own pattern.
+    assert!(!key_error.matches(&Pattern::Classes(Vec::new())));
     assert!(key_error.matches(&Pattern::Any));
 
     // The action exceptions sit directly under `BaseException`: a bare

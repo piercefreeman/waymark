@@ -3,7 +3,9 @@
 
 use std::sync::Arc;
 
-pub use waymark_vm_compiler_for_ast_old_bytecode_consts::{ConstException, ConstValue};
+pub use waymark_vm_compiler_for_ast_old_bytecode_consts::{
+    ConstException, ConstExceptionPattern, ConstValue,
+};
 pub use waymark_vm_value_python::{RaisedException, ReadyValue, Value};
 
 #[cfg(test)]
@@ -51,7 +53,7 @@ impl waymark_vm_instructions_excset::Spec for Spec {
     type RegisterId = waymark_vm_runtime_core::RegisterId;
     type StateId = waymark_vm_bytecode_core::StateId;
     type ConstException = ConstException;
-    type ConstExceptionPattern = Vec<String>;
+    type ConstExceptionPattern = ConstExceptionPattern;
 }
 
 impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::ExtCallSet<Spec> for Lowering
@@ -84,11 +86,15 @@ impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::ExcSet<Spec> for Lowe
 where
     Spec: waymark_vm_instructions_excset::Spec<
             ConstException = ConstException,
-            ConstExceptionPattern = Vec<String>,
+            ConstExceptionPattern = ConstExceptionPattern,
         >,
 {
     fn lower_exception_pattern(class_names: &[String]) -> Spec::ConstExceptionPattern {
         waymark_vm_compiler_for_ast_old_bytecode_consts::lower_exception_pattern(class_names)
+    }
+
+    fn lower_any_exception_pattern() -> Spec::ConstExceptionPattern {
+        waymark_vm_compiler_for_ast_old_bytecode_consts::lower_any_exception_pattern()
     }
 
     fn lower_compiler_emitted_exception(

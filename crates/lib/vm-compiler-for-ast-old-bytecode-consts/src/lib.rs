@@ -59,14 +59,36 @@ pub struct ConstException {
     pub details: ConstValue,
 }
 
-/// What a handler lists in the bytecode: the class names an `except`
-/// clause lists, none for a bare `except:`.
-pub type ConstExceptionPattern = Vec<String>;
+/// What a handler lists in the bytecode: everything for a bare `except:`,
+/// or the class names an `except` clause or a retry bracket lists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum ConstExceptionPattern {
+    /// A bare `except:`: everything.
+    Any,
 
-/// Lowers the class names an `except` clause lists into the bytecode's
-/// handler pattern.
+    /// The listed classes; none listed matches nothing.
+    Classes(Vec<String>),
+}
+
+/// Lowers the class names an `except` clause or a retry bracket lists
+/// into the bytecode's handler pattern.
 pub fn lower_exception_pattern(class_names: &[String]) -> ConstExceptionPattern {
-    class_names.to_vec()
+    ConstExceptionPattern::Classes(class_names.to_vec())
+}
+
+/// Lowers a bare `except:` into the bytecode's handler pattern.
+pub fn lower_any_exception_pattern() -> ConstExceptionPattern {
+    ConstExceptionPattern::Any
+}
+
+impl From<&ConstExceptionPattern> for waymark_vm_value_python::raised_exception::Pattern {
+    fn from(pattern: &ConstExceptionPattern) -> Self {
+        match pattern {
+            ConstExceptionPattern::Any => Self::Any,
+            ConstExceptionPattern::Classes(class_names) => Self::Classes(class_names.clone()),
+        }
+    }
 }
 
 impl ConstException {

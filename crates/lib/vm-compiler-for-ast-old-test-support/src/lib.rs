@@ -24,6 +24,7 @@ pub use waymark_vm_compiler_for_ast_old_bytecode_consts::ConstValue as TestConst
 /// Test const exception type definition as
 /// an actual [`waymark_vm_compiler_for_ast_old_bytecode_consts::ConstException`].
 pub use waymark_vm_compiler_for_ast_old_bytecode_consts::ConstException as TestConstException;
+pub use waymark_vm_compiler_for_ast_old_bytecode_consts::ConstExceptionPattern as TestConstExceptionPattern;
 
 /// Errors produced while lowering literals in tests.
 pub use waymark_vm_compiler_for_ast_old_bytecode_consts::LoweringError as TestLiteralLoweringError;
@@ -60,7 +61,7 @@ impl waymark_vm_instructions_excset::Spec for TestSpec {
     type RegisterId = waymark_vm_runtime_core::RegisterId;
     type StateId = waymark_vm_bytecode_core::StateId;
     type ConstException = TestConstException;
-    type ConstExceptionPattern = Vec<String>;
+    type ConstExceptionPattern = TestConstExceptionPattern;
 }
 
 /// Convenience alias for executables compiled against [`TestSpec`].
@@ -95,11 +96,15 @@ impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::ExcSet<Spec> for Test
 where
     Spec: waymark_vm_instructions_excset::Spec<
             ConstException = TestConstException,
-            ConstExceptionPattern = Vec<String>,
+            ConstExceptionPattern = TestConstExceptionPattern,
         >,
 {
     fn lower_exception_pattern(class_names: &[String]) -> Spec::ConstExceptionPattern {
         waymark_vm_compiler_for_ast_old_bytecode_consts::lower_exception_pattern(class_names)
+    }
+
+    fn lower_any_exception_pattern() -> Spec::ConstExceptionPattern {
+        waymark_vm_compiler_for_ast_old_bytecode_consts::lower_any_exception_pattern()
     }
 
     fn lower_compiler_emitted_exception(

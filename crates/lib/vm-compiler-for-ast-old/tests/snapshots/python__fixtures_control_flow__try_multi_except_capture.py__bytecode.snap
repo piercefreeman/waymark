@@ -15,7 +15,7 @@ fn main(input: [], output: []):
 ---
 f0: [4 registers]
   s0:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["ValueError"], exception_dst: Some(r0) }, ExceptionHandler { handler_state: s3, pattern: ["TypeError"], exception_dst: Some(r1) }, ExceptionHandler { handler_state: s4, pattern: ["Exception"], exception_dst: Some(r2) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["ValueError"]), exception_dst: Some(r0) }, ExceptionHandler { handler_state: s3, pattern: Classes(["TypeError"]), exception_dst: Some(r1) }, ExceptionHandler { handler_state: s4, pattern: Classes(["Exception"]), exception_dst: Some(r2) }] })
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("risky_action_multi_capture"), args: [], resume: s5 })
   s1:
     CoreSet(Return { src: r3 })

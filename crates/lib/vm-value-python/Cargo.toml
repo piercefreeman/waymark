@@ -7,7 +7,7 @@ publish.workspace = true
 [features]
 default = []
 
-serde = ["dep:serde", "waymark-vm-value/serde", "nonempty-collections/serde"]
+serde = ["dep:serde", "waymark-vm-value/serde"]
 
 [dependencies]
 waymark-observability-vm-value-display = { workspace = true }
@@ -15,7 +15,6 @@ waymark-vm-interpreter-pureset = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-value = { workspace = true }
 
-nonempty-collections = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 
 [dev-dependencies]

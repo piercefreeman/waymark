@@ -11,7 +11,7 @@ fn main(input: [], output: []):
 ---
 f0: [1 registers]
   s0:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["LookupError"], exception_dst: None }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["LookupError"]), exception_dst: None }] })
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("lookup_action"), args: [], resume: s3 })
   s1:
     CoreSet(Return { src: r0 })

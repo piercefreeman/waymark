@@ -24,7 +24,7 @@ fn lowers_retry_policies_through_a_wrapper_function() {
         &[],
         vec![policy_action_stmt(vec![
             PolicyBracket::Retry(RetryPolicy {
-                exception_types: Vec::new(),
+                exception_types: vec!["Exception".to_owned()],
                 max_retries: 2,
                 backoff: None,
             }),
@@ -53,7 +53,7 @@ fn lowers_retry_policies_through_a_wrapper_function() {
         PureSet(LoadConst { dst: r1, value: Int(1) })
         CoreSet(Jump { target_state: s1 })
       s1:
-        ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r2) }] })
+        ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r2) }] })
         ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
       s2:
         PureSet(LoadConst { dst: r8, value: Int(2) })

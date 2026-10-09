@@ -6,7 +6,6 @@
 //! handler's pattern matches it, how observability captures it, and how
 //! each failing operation of the interpreter renders as one.
 
-use nonempty_collections::NEVec;
 use waymark_vm_interpreter_pureset::value::{
     AsDictKeyError, AsScalarError, BinaryOperationError, DotOperationError, FromLengthError,
     IndexOperationError, LengthError, ListAppendError, MakeDictError, MakeListError,
@@ -27,18 +26,9 @@ pub enum Pattern {
     Any,
 
     /// `except A:` or `except (A, B):`: an exception of any listed class or
-    /// of a class deriving from one.
-    Classes(NEVec<String>),
-}
-
-/// The bytecode lists class names; none means a bare `except:`.
-impl From<&Vec<String>> for Pattern {
-    fn from(class_names: &Vec<String>) -> Self {
-        match NEVec::try_from_vec(class_names.clone()) {
-            Some(class_names) => Self::Classes(class_names),
-            None => Self::Any,
-        }
-    }
+    /// of a class deriving from one. None listed matches nothing, as
+    /// `except ():` does.
+    Classes(Vec<String>),
 }
 
 impl waymark_vm_runtime_exception::HasMatchPattern for RaisedException {

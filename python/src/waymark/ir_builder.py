@@ -121,6 +121,11 @@ RECOMMENDATIONS = {
         "    async def get_length(items: list) -> int:\n"
         "        return len(items)"
     ),
+    "except_empty_tuple": (
+        "`except ():` catches nothing, so the handler is dead code.\n"
+        "Drop the handler, or list the classes to catch:\n\n"
+        "    except (KeyError, ValueError):\n"
+    ),
     "fstring": (
         "F-strings are not supported in workflow code because they require "
         "runtime string interpolation.\n"
@@ -2271,6 +2276,13 @@ class IRBuilder(ast.NodeVisitor):
                 if isinstance(handler.type, ast.Name):
                     exception_types.append(handler.type.id)
                 elif isinstance(handler.type, ast.Tuple):
+                    if not handler.type.elts:
+                        raise UnsupportedPatternError(
+                            "An except clause with an empty tuple catches nothing",
+                            RECOMMENDATIONS["except_empty_tuple"],
+                            line=getattr(handler, "lineno", None),
+                            col=getattr(handler, "col_offset", None),
+                        )
                     for elt in handler.type.elts:
                         if isinstance(elt, ast.Name):
                             exception_types.append(elt.id)
@@ -2979,6 +2991,7 @@ class IRBuilder(ast.NodeVisitor):
 
         # RetryPolicy() defaults to a high retry cap when attempts is omitted.
         policy = ir.RetryPolicy(max_retries=DEFAULT_RETRY_POLICY_MAX_RETRIES)
+        exception_types_listed = False
 
         for kw in node.keywords:
             if kw.arg == "attempts" and isinstance(kw.value, ast.Constant):
@@ -2986,16 +2999,16 @@ class IRBuilder(ast.NodeVisitor):
                 # So attempts=1 -> max_retries=0 (no retries), attempts=3 -> max_retries=2
                 policy.max_retries = kw.value.value - 1
             elif kw.arg == "exception_types" and isinstance(kw.value, ast.List):
+                exception_types_listed = True
                 for elt in kw.value.elts:
                     if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
                         policy.exception_types.append(elt.value)
             elif kw.arg == "backoff_seconds" and isinstance(kw.value, ast.Constant):
                 policy.backoff.seconds = int(kw.value.value)
 
-        # An omitted or empty filter retries on `Exception`, as an `except
-        # Exception` clause would. An empty list of patterns means retry on
-        # everything in the compiled form, which no policy literal spells.
-        if not policy.exception_types:
+        # An omitted filter retries on `Exception`, the policy's documented
+        # default. A listed one is kept as written: empty retries nothing.
+        if not exception_types_listed:
             policy.exception_types.append(DEFAULT_RETRY_POLICY_EXCEPTION_TYPE)
 
         return policy

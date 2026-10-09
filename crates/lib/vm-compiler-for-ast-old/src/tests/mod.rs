@@ -3,7 +3,8 @@
 use waymark_vm_ast_old::{ActionCall, Literal};
 use waymark_vm_compiler_for_ast_old_core::lowering;
 use waymark_vm_compiler_for_ast_old_test_support::{
-    TestActionRef, TestConstException, TestConstValue, TestLiteralLoweringError, TestLowering,
+    TestActionRef, TestConstException, TestConstExceptionPattern, TestConstValue,
+    TestLiteralLoweringError, TestLowering,
 };
 
 mod conditionals;
@@ -53,11 +54,15 @@ impl<Spec> lowering::ExcSet<Spec> for ActionFailingLowering
 where
     Spec: waymark_vm_instructions_excset::Spec<
             ConstException = TestConstException,
-            ConstExceptionPattern = Vec<String>,
+            ConstExceptionPattern = TestConstExceptionPattern,
         >,
 {
     fn lower_exception_pattern(class_names: &[String]) -> Spec::ConstExceptionPattern {
         <TestLowering as lowering::ExcSet<Spec>>::lower_exception_pattern(class_names)
+    }
+
+    fn lower_any_exception_pattern() -> Spec::ConstExceptionPattern {
+        <TestLowering as lowering::ExcSet<Spec>>::lower_any_exception_pattern()
     }
 
     fn lower_compiler_emitted_exception(

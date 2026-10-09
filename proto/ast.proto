@@ -344,7 +344,7 @@ message PolicyBracket {
 
 // Retry policy: [ExceptionType -> retry: 3, backoff: 60s]
 message RetryPolicy {
-  repeated string exception_types = 1;  // Empty = catch all
+  repeated string exception_types = 1;  // Empty = retries nothing; the SDK lists Exception when omitted
   uint32 max_retries = 2;
   Duration backoff = 3;
 }

@@ -55,11 +55,17 @@ pub trait ExcSet<Spec>
 where
     Spec: waymark_vm_instructions_excset::Spec,
 {
-    /// Lowers the class names an `except` clause lists - none for a bare
-    /// `except:` - into the target spec's const handler pattern.
+    /// Lowers the class names an `except` clause or a retry bracket lists
+    /// into the target spec's const handler pattern; none listed matches
+    /// nothing.
     fn lower_exception_pattern(
         class_names: &[String],
     ) -> <Spec as waymark_vm_instructions_excset::Spec>::ConstExceptionPattern;
+
+    /// Lowers a bare `except:` into the target spec's const handler
+    /// pattern: everything.
+    fn lower_any_exception_pattern()
+    -> <Spec as waymark_vm_instructions_excset::Spec>::ConstExceptionPattern;
 
     /// Lowers one of the compiler's own raises into the target spec's
     /// const exception.

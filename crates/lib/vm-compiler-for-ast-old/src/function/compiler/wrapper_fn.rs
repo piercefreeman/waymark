@@ -22,7 +22,8 @@ use super::{Error, ErrorFor};
 
 /// One digested retry bracket.
 struct RetryPlan {
-    /// The exception types this bracket retries; empty retries everything.
+    /// The exception types this bracket retries; none listed retries
+    /// nothing.
     exception_types: Vec<String>,
 
     /// The retry budget: extra attempts beyond the first.
@@ -523,14 +524,14 @@ mod tests {
     #[test]
     fn generates_the_retrying_wrapper_body() {
         insta::assert_snapshot!(
-            display_wrapper(1, &[retry_policy(2, Vec::new(), None)]),
+            display_wrapper(1, &[retry_policy(2, vec!["Exception"], None)]),
             @r#"
         s0:
           PureSet(LoadConst { dst: r1, value: Int(0) })
           PureSet(LoadConst { dst: r2, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r3) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
           ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("notify"), args: [r0], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r6, value: Int(2) })
@@ -552,14 +553,14 @@ mod tests {
     #[test]
     fn retries_sleep_their_backoff_between_attempts() {
         insta::assert_snapshot!(
-            display_wrapper(0, &[retry_policy(2, Vec::new(), Some(5))]),
+            display_wrapper(0, &[retry_policy(2, vec!["Exception"], Some(5))]),
             @r#"
         s0:
           PureSet(LoadConst { dst: r0, value: Int(0) })
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r5, value: Int(2) })
@@ -590,7 +591,7 @@ mod tests {
                 0,
                 &[
                     retry_policy(1, vec!["ValueError"], None),
-                    retry_policy(3, Vec::new(), None),
+                    retry_policy(3, vec!["Exception"], None),
                 ],
             ),
             @r#"
@@ -599,7 +600,7 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: [], exception_dst: Some(r2) }, ExceptionHandler { handler_state: s3, pattern: ["ValueError"], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r2) }, ExceptionHandler { handler_state: s3, pattern: Classes(["ValueError"]), exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s6 })
         s2:
           PureSet(LoadConst { dst: r5, value: Int(3) })
@@ -627,6 +628,40 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_filter_retries_nothing() {
+        insta::assert_snapshot!(
+            display_wrapper(0, &[retry_policy(2, Vec::new(), None), timeout_policy(30)]),
+            @r#"
+        s0:
+          PureSet(LoadConst { dst: r0, value: Int(0) })
+          PureSet(LoadConst { dst: r1, value: Int(1) })
+          CoreSet(Jump { target_state: s1 })
+        s1:
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes([]), exception_dst: Some(r2) }] })
+          ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
+        s2:
+          PureSet(LoadConst { dst: r8, value: Int(2) })
+          PureSet(Binary { kind: Lt, op: BinaryOp { dst: r9, a: r0, b: r8 } })
+          CoreSet(JumpIf { target_state: s3, cond: r9 })
+          ExcSet(Raise { src: r2 })
+        s3:
+          PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
+          CoreSet(Jump { target_state: s1 })
+        s4:
+          PureSet(LoadConst { dst: r4, value: Int(30) })
+          ExtCallSet(Sleep { dst: r5, duration: r4, resume: s6, unskippable: true })
+        s5:
+          ExcSet(PopExceptionHandlers { count: 1 })
+          CoreSet(Return { src: r6 })
+        s6:
+          CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
+        s7:
+          ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
+        "#
+        );
+    }
+
+    #[test]
     fn keeps_the_exception_filter_as_listed() {
         insta::assert_snapshot!(
             display_wrapper(0, &[retry_policy(1, vec!["Exception"], None)]),
@@ -636,7 +671,7 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["Exception"], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r5, value: Int(1) })
@@ -671,7 +706,7 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["ActionTimeout"], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["ActionTimeout"]), exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r8, value: Int(2) })
@@ -730,7 +765,7 @@ mod tests {
             "notify",
             TestActionRef("notify".to_owned()),
             0,
-            &[retry_policy(1, Vec::new(), Some(u64::MAX))],
+            &[retry_policy(1, vec!["Exception"], Some(u64::MAX))],
         )
         .expect_err("an unrepresentable backoff should fail");
         assert!(matches!(

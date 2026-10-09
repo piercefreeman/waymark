@@ -108,7 +108,11 @@ impl<'a> fmt::Display for Fmt<'a, ast::PolicyBracket> {
             ast::PolicyBracket::Retry(retry) => {
                 f.write_str("[")?;
 
-                if !retry.exception_types.is_empty() {
+                // The header always prints: `()` for no classes, which
+                // retries nothing, so the text never reads as a catch-all.
+                if retry.exception_types.is_empty() {
+                    f.write_str("()")?;
+                } else {
                     for (index, exception_type) in retry.exception_types.iter().enumerate() {
                         if index > 0 {
                             f.write_str(", ")?;
@@ -116,9 +120,9 @@ impl<'a> fmt::Display for Fmt<'a, ast::PolicyBracket> {
 
                         f.write_str(exception_type)?;
                     }
-
-                    f.write_str(" -> ")?;
                 }
+
+                f.write_str(" -> ")?;
 
                 write!(f, "retry: {}", retry.max_retries)?;
 

@@ -56,7 +56,8 @@ class RetryPolicy:
             raised exception's own class or any of its base classes, as an
             ``except`` clause does: ``"OSError"`` covers a ``ConnectionError``, and
             ``"Exception"`` covers every ordinary exception. Omitted, the policy
-            retries on ``Exception``. The runtime's ``ActionTimeout`` and
+            retries on ``Exception``; an explicit empty list retries nothing.
+            The runtime's ``ActionTimeout`` and
             ``ActionExecutionLost`` derive from ``BaseException`` directly, not
             from ``Exception``: the attempt may still be running or may have run
             to completion, so it is retried only when one of those names, or

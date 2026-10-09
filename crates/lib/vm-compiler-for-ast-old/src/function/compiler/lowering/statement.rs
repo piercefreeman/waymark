@@ -180,7 +180,12 @@ where
 
             try_handlers.push(waymark_vm_exception_handler::ExceptionHandler {
                 handler_state,
-                pattern: Lowering::lower_exception_pattern(&handler.value.exception_types),
+                // The IR lists no classes for a bare `except:`.
+                pattern: if handler.value.exception_types.is_empty() {
+                    Lowering::lower_any_exception_pattern()
+                } else {
+                    Lowering::lower_exception_pattern(&handler.value.exception_types)
+                },
                 exception_dst,
             });
         }

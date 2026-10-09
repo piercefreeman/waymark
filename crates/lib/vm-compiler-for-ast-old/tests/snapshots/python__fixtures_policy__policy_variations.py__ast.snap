@@ -333,9 +333,7 @@ Program {
                                                 policies: [
                                                     Retry(
                                                         RetryPolicy {
-                                                            exception_types: [
-                                                                "Exception",
-                                                            ],
+                                                            exception_types: [],
                                                             max_retries: 1,
                                                             backoff: None,
                                                         },

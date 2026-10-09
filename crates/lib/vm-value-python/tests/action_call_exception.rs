@@ -29,7 +29,17 @@ impl waymark_vm_instructions_excset::Spec for TestSpec {
     type RegisterId = RegisterId;
     type StateId = StateId;
     type ConstException = TestConstException;
-    type ConstExceptionPattern = Vec<String>;
+    type ConstExceptionPattern = TestConstExceptionPattern;
+}
+
+/// The bytecode's handler pattern: the class names a handler lists.
+#[derive(Debug)]
+struct TestConstExceptionPattern(Vec<String>);
+
+impl From<&TestConstExceptionPattern> for waymark_vm_value_python::raised_exception::Pattern {
+    fn from(pattern: &TestConstExceptionPattern) -> Self {
+        Self::Classes(pattern.0.clone())
+    }
 }
 
 /// The bytecode's exception: this test raises none, but the spec names one.
@@ -131,7 +141,9 @@ fn guarded_action_call(pattern: Vec<&str>) -> Executable<Instruction> {
                 ExcSet::PushExceptionHandlers {
                     handlers: vec![waymark_vm_exception_handler::ExceptionHandler {
                         handler_state: StateId(3),
-                        pattern: pattern.into_iter().map(ToOwned::to_owned).collect(),
+                        pattern: TestConstExceptionPattern(
+                            pattern.into_iter().map(ToOwned::to_owned).collect(),
+                        ),
                         exception_dst: Some(RegisterId(2)),
                     }],
                 }

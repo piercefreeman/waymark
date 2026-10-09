@@ -26,7 +26,7 @@ f1: [11 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["Exception"], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_instance_retry"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r6, value: Int(2) })
@@ -64,7 +64,7 @@ f3: [11 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["Exception"], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_both_policies"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r9, value: Int(1) })

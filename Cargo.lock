@@ -1936,9 +1936,6 @@ name = "nonempty-collections"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d127e00b37b19c36c28ac00e874240a61faeea14c7b759b1d9c77efa048322a"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "nu-ansi-term"
@@ -6287,7 +6284,6 @@ name = "waymark-vm-value-python"
 version = "0.1.0"
 dependencies = [
  "indexmap",
- "nonempty-collections",
  "serde",
  "static_assertions",
  "typed_floats",

@@ -8,7 +8,7 @@ fn main(input: [value], output: []):
     c = @policy_variations.action_with_retry_backoff(value=b) [Exception -> retry: 2, backoff: 5s]
     d = @policy_variations.action_with_retry_exceptions(value=c) [ValueError, KeyError -> retry: 1]
     d_retry_default = @policy_variations.action_with_retry_default(value=d) [Exception -> retry: 100]
-    d_retry_empty = @policy_variations.action_with_retry_empty_exceptions(value=d_retry_default) [Exception -> retry: 1]
+    d_retry_empty = @policy_variations.action_with_retry_empty_exceptions(value=d_retry_default) [() -> retry: 1]
     e = @policy_variations.action_with_timeout_hours(value=d_retry_empty) [timeout: 1h]
     f = @policy_variations.action_with_timeout_days(value=e) [timeout: 24h]
     g = @policy_variations.action_with_timeout_fractional_minutes(value=f) [timeout: 246s]
@@ -74,7 +74,7 @@ f3: [11 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["Exception"], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_backoff"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r6, value: Int(2) })
@@ -100,7 +100,7 @@ f4: [8 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["ValueError", "KeyError"], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["ValueError", "KeyError"]), exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_exceptions"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r6, value: Int(1) })
@@ -121,7 +121,7 @@ f5: [8 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["Exception"], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_default"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r6, value: Int(100) })
@@ -142,7 +142,7 @@ f6: [8 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: ["Exception"], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes([]), exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_empty_exceptions"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r6, value: Int(1) })

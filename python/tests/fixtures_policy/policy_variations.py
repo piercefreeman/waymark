@@ -91,7 +91,7 @@ class PolicyVariationsWorkflow(Workflow):
             retry=RetryPolicy(),
         )
 
-        # Test an empty exception_types list: retries on Exception
+        # Test an empty exception_types list: kept as written, retries nothing
         d_retry_empty = await self.run_action(
             action_with_retry_empty_exceptions(value=d_retry_default),
             retry=RetryPolicy(attempts=2, exception_types=[]),
