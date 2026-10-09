@@ -30,7 +30,7 @@ struct RetryPlan {
     max_retries: u32,
 
     /// The fixed backoff to sleep before each retry, in seconds.
-    backoff_seconds: Option<u64>,
+    backoff_seconds: Option<f64>,
 }
 
 impl RetryPlan {
@@ -40,13 +40,26 @@ impl RetryPlan {
             .backoff
             .as_ref()
             .map(|backoff| backoff.seconds)
-            .filter(|&seconds| seconds != 0);
+            .filter(|&seconds| seconds != 0.0);
 
         Self {
             exception_types: retry_policy.exception_types.clone(),
             max_retries: retry_policy.max_retries,
             backoff_seconds,
         }
+    }
+}
+
+/// The literal a duration loads as: an integer when the seconds are whole
+/// and fit one, so integer sleeps stay exact, a float otherwise.
+fn duration_literal(seconds: f64) -> Literal {
+    // `i64::MAX as f64` rounds up to 2^63, which does not fit an i64, so the
+    // bound is strict.
+    if seconds.fract() == 0.0 && seconds < i64::MAX as f64 {
+        // `as` is exact here: the value is whole and in range.
+        Literal::Int(seconds as i64)
+    } else {
+        Literal::Float(seconds)
     }
 }
 
@@ -64,7 +77,6 @@ impl RetryPlan {
 /// attempt counter.
 pub fn create<Spec, Lowering>(
     extra_fns: &mut ExtraFunctions<Spec>,
-    action_name: &str,
     action_ref: <Spec as waymark_vm_instructions_extcallset::Spec>::ActionRef,
     kwarg_count: usize,
     policies: &[waymark_vm_ast_old::PolicyBracket],
@@ -73,7 +85,7 @@ where
     Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
     Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
 {
-    let mut timeout_seconds: Option<u64> = None;
+    let mut timeout_seconds: Option<f64> = None;
     let mut retry_plans: Vec<RetryPlan> = Vec::new();
     for policy in policies {
         match policy {
@@ -82,7 +94,7 @@ where
             }
             waymark_vm_ast_old::PolicyBracket::Timeout(timeout_policy) => {
                 let seconds = timeout_policy.timeout.seconds;
-                if seconds == 0 {
+                if seconds == 0.0 {
                     continue;
                 }
                 timeout_seconds = Some(match timeout_seconds {
@@ -121,7 +133,6 @@ where
                 &mut emitter,
                 &mut local_frame,
                 promise_register,
-                action_name,
                 seconds,
             )?,
         }
@@ -129,7 +140,6 @@ where
         emit_retry_loop::<Spec, Lowering>(
             &mut emitter,
             &mut local_frame,
-            action_name,
             action_ref,
             arg_registers,
             timeout_seconds,
@@ -168,19 +178,14 @@ fn emit_timed_tail<Spec, Lowering>(
     emitter: &mut FunctionEmitter<Spec>,
     local_frame: &mut LocalFrame,
     promise_register: Marked<RegisterId, PromiseMarker>,
-    action_name: &str,
-    seconds: u64,
+    seconds: f64,
 ) -> Result<(), ErrorFor<Spec, Lowering>>
 where
     Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
     Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
 {
-    let seconds_literal = i64::try_from(seconds).map_err(|_| Error::TimeoutDurationOutOfRange {
-        action_name: action_name.to_owned(),
-        seconds,
-    })?;
     let duration_value =
-        Lowering::lower_literal(&Literal::Int(seconds_literal)).map_err(Error::LiteralLowering)?;
+        Lowering::lower_literal(&duration_literal(seconds)).map_err(Error::LiteralLowering)?;
     let duration_register = local_frame.allocate_register();
     emitter.emit_load_const(duration_register, duration_value);
 
@@ -240,10 +245,9 @@ where
 fn emit_retry_loop<Spec, Lowering>(
     emitter: &mut FunctionEmitter<Spec>,
     local_frame: &mut LocalFrame,
-    action_name: &str,
     action_ref: <Spec as waymark_vm_instructions_extcallset::Spec>::ActionRef,
     arg_registers: Vec<RegisterId>,
-    timeout_seconds: Option<u64>,
+    timeout_seconds: Option<f64>,
     retry_plans: &[RetryPlan],
 ) -> Result<(), ErrorFor<Spec, Lowering>>
 where
@@ -311,12 +315,7 @@ where
             emitter.emit_return(result_register);
         }
         Some(seconds) => {
-            let seconds_literal =
-                i64::try_from(seconds).map_err(|_| Error::TimeoutDurationOutOfRange {
-                    action_name: action_name.to_owned(),
-                    seconds,
-                })?;
-            let duration_value = Lowering::lower_literal(&Literal::Int(seconds_literal))
+            let duration_value = Lowering::lower_literal(&duration_literal(seconds))
                 .map_err(Error::LiteralLowering)?;
             let duration_register = local_frame.allocate_register();
             emitter.emit_load_const(duration_register, duration_value);
@@ -380,12 +379,7 @@ where
             one_register,
         );
         if let Some(seconds) = retry_plan.backoff_seconds {
-            let seconds_literal =
-                i64::try_from(seconds).map_err(|_| Error::BackoffDurationOutOfRange {
-                    action_name: action_name.to_owned(),
-                    seconds,
-                })?;
-            let backoff_value = Lowering::lower_literal(&Literal::Int(seconds_literal))
+            let backoff_value = Lowering::lower_literal(&duration_literal(seconds))
                 .map_err(Error::LiteralLowering)?;
             let (backoff_duration, backoff_promise, backoff_result) = *backoff_registers
                 .get_or_insert_with(|| {
@@ -420,11 +414,10 @@ mod tests {
     use waymark_vm_bytecode_core::FunctionId;
     use waymark_vm_compiler_for_ast_old_test_support::{TestActionRef, TestLowering, TestSpec};
 
-    use super::super::Error;
     use super::create;
     use crate::function::extras::ExtraFunctions;
 
-    fn timeout_policy(seconds: u64) -> PolicyBracket {
+    fn timeout_policy(seconds: f64) -> PolicyBracket {
         PolicyBracket::Timeout(TimeoutPolicy {
             timeout: DurationLiteral { seconds },
         })
@@ -433,7 +426,7 @@ mod tests {
     fn retry_policy(
         max_retries: u32,
         exception_types: Vec<&str>,
-        backoff_seconds: Option<u64>,
+        backoff_seconds: Option<f64>,
     ) -> PolicyBracket {
         PolicyBracket::Retry(RetryPolicy {
             exception_types: exception_types.into_iter().map(ToOwned::to_owned).collect(),
@@ -447,7 +440,6 @@ mod tests {
         let mut extra_fns = ExtraFunctions::<TestSpec>::new(1);
         create::<TestSpec, TestLowering>(
             &mut extra_fns,
-            "notify",
             TestActionRef("notify".to_owned()),
             kwarg_count,
             policies,
@@ -471,7 +463,7 @@ mod tests {
 
     #[test]
     fn generates_the_timed_action_wrapper_body() {
-        insta::assert_snapshot!(display_wrapper(1, &[timeout_policy(30)]), @r#"
+        insta::assert_snapshot!(display_wrapper(1, &[timeout_policy(30.0)]), @r#"
         s0:
           ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("notify"), args: [r0], resume: s1 })
         s1:
@@ -491,7 +483,7 @@ mod tests {
         insta::assert_snapshot!(
             display_wrapper(
                 0,
-                &[timeout_policy(30), timeout_policy(0), timeout_policy(10)],
+                &[timeout_policy(30.0), timeout_policy(0.0), timeout_policy(10.0)],
             ),
             @r#"
         s0:
@@ -511,7 +503,7 @@ mod tests {
 
     #[test]
     fn ignores_zero_second_timeouts_entirely() {
-        insta::assert_snapshot!(display_wrapper(0, &[timeout_policy(0)]), @r#"
+        insta::assert_snapshot!(display_wrapper(0, &[timeout_policy(0.0)]), @r#"
         s0:
           ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("notify"), args: [], resume: s1 })
         s1:
@@ -553,7 +545,7 @@ mod tests {
     #[test]
     fn retries_sleep_their_backoff_between_attempts() {
         insta::assert_snapshot!(
-            display_wrapper(0, &[retry_policy(2, vec!["Exception"], Some(5))]),
+            display_wrapper(0, &[retry_policy(2, vec!["Exception"], Some(5.0))]),
             @r#"
         s0:
           PureSet(LoadConst { dst: r0, value: Int(0) })
@@ -630,7 +622,7 @@ mod tests {
     #[test]
     fn an_empty_filter_retries_nothing() {
         insta::assert_snapshot!(
-            display_wrapper(0, &[retry_policy(2, Vec::new(), None), timeout_policy(30)]),
+            display_wrapper(0, &[retry_policy(2, Vec::new(), None), timeout_policy(30.0)]),
             @r#"
         s0:
           PureSet(LoadConst { dst: r0, value: Int(0) })
@@ -697,7 +689,7 @@ mod tests {
                 0,
                 &[
                     retry_policy(2, vec!["ActionTimeout"], None),
-                    timeout_policy(30),
+                    timeout_policy(30.0),
                 ],
             ),
             @r#"
@@ -736,7 +728,6 @@ mod tests {
 
         let first = create::<TestSpec, TestLowering>(
             &mut extra_fns,
-            "first",
             TestActionRef("first".to_owned()),
             0,
             &[],
@@ -744,7 +735,6 @@ mod tests {
         .expect("first wrapper should compile");
         let second = create::<TestSpec, TestLowering>(
             &mut extra_fns,
-            "second",
             TestActionRef("second".to_owned()),
             1,
             &[],
@@ -757,21 +747,41 @@ mod tests {
     }
 
     #[test]
-    fn rejects_out_of_range_backoff_durations() {
-        let mut extra_fns = ExtraFunctions::<TestSpec>::new(0);
-
-        let error = create::<TestSpec, TestLowering>(
-            &mut extra_fns,
-            "notify",
-            TestActionRef("notify".to_owned()),
-            0,
-            &[retry_policy(1, vec!["Exception"], Some(u64::MAX))],
-        )
-        .expect_err("an unrepresentable backoff should fail");
-        assert!(matches!(
-            error,
-            Error::BackoffDurationOutOfRange { action_name, seconds }
-                if action_name == "notify" && seconds == u64::MAX
-        ));
+    fn lowers_fractional_durations_as_floats() {
+        insta::assert_snapshot!(
+            display_wrapper(0, &[retry_policy(1, vec!["Exception"], Some(0.5)), timeout_policy(1.5)]),
+            @r#"
+        s0:
+          PureSet(LoadConst { dst: r0, value: Int(0) })
+          PureSet(LoadConst { dst: r1, value: Int(1) })
+          CoreSet(Jump { target_state: s1 })
+        s1:
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r2) }] })
+          ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
+        s2:
+          PureSet(LoadConst { dst: r8, value: Int(1) })
+          PureSet(Binary { kind: Lt, op: BinaryOp { dst: r9, a: r0, b: r8 } })
+          CoreSet(JumpIf { target_state: s3, cond: r9 })
+          ExcSet(Raise { src: r2 })
+        s3:
+          PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
+          PureSet(LoadConst { dst: r10, value: Float(NonNaNFinite(0.5)) })
+          ExtCallSet(Sleep { dst: r11, duration: r10, resume: s8, unskippable: false })
+        s4:
+          PureSet(LoadConst { dst: r4, value: Float(NonNaNFinite(1.5)) })
+          ExtCallSet(Sleep { dst: r5, duration: r4, resume: s6, unskippable: true })
+        s5:
+          ExcSet(PopExceptionHandlers { count: 1 })
+          CoreSet(Return { src: r6 })
+        s6:
+          CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
+        s7:
+          ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
+        s8:
+          CoreSet(Await { dst: r12, src: r11, resume: s9 })
+        s9:
+          CoreSet(Jump { target_state: s1 })
+        "#
+        );
     }
 }

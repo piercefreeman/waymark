@@ -29,7 +29,7 @@ fn lowers_retry_policies_through_a_wrapper_function() {
                 backoff: None,
             }),
             PolicyBracket::Timeout(TimeoutPolicy {
-                timeout: DurationLiteral { seconds: 30 },
+                timeout: DurationLiteral { seconds: 30.0 },
             }),
         ])],
     )]);
@@ -83,7 +83,7 @@ fn lowers_timeout_policies_through_a_wrapper_function() {
         &[],
         vec![policy_action_stmt(vec![PolicyBracket::Timeout(
             TimeoutPolicy {
-                timeout: DurationLiteral { seconds: 30 },
+                timeout: DurationLiteral { seconds: 30.0 },
             },
         )])],
     )]);

@@ -673,7 +673,7 @@ fn drive_to_the_first_timeout(exception_types: &[&str]) -> support::TestRuntime 
                     backoff: None,
                 }),
                 PolicyBracket::Timeout(TimeoutPolicy {
-                    timeout: DurationLiteral { seconds: 30 },
+                    timeout: DurationLiteral { seconds: 30.0 },
                 }),
             ]),
             return_stmt(Some(int(7))),

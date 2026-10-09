@@ -60,6 +60,24 @@ async def action_with_timeout_fractional_minutes(value: str) -> str:
     return f"done({value})"
 
 
+@action
+async def action_with_timeout_fraction(value: str) -> str:
+    """Action with a sub-second timeout."""
+    return f"done({value})"
+
+
+@action
+async def action_with_retry_backoff_fraction(value: str) -> str:
+    """Action with a sub-second retry backoff."""
+    return f"done({value})"
+
+
+@action
+async def action_with_retry_backoff_zero(value: str) -> str:
+    """Action with a zero retry backoff."""
+    return f"done({value})"
+
+
 @workflow
 class PolicyVariationsWorkflow(Workflow):
     """Workflow with various policy configurations."""
@@ -105,9 +123,24 @@ class PolicyVariationsWorkflow(Workflow):
         # Test timeout with timedelta days
         f = await self.run_action(action_with_timeout_days(value=e), timeout=timedelta(days=1))
 
-        # Test timeout with a fractional timedelta: what timedelta says, in whole seconds
+        # Test timeout with a fractional timedelta: what timedelta says
         g = await self.run_action(
             action_with_timeout_fractional_minutes(value=f), timeout=timedelta(minutes=4.1)
         )
 
-        return g
+        # Test a sub-second timeout: carried as a fraction
+        h = await self.run_action(action_with_timeout_fraction(value=g), timeout=0.5)
+
+        # Test a sub-second backoff: carried as a fraction
+        i = await self.run_action(
+            action_with_retry_backoff_fraction(value=h),
+            retry=RetryPolicy(attempts=2, backoff_seconds=0.5),
+        )
+
+        # Test a zero backoff: no backoff at all, the runtime has no zero sleep
+        j = await self.run_action(
+            action_with_retry_backoff_zero(value=i),
+            retry=RetryPolicy(attempts=2, backoff_seconds=0),
+        )
+
+        return j

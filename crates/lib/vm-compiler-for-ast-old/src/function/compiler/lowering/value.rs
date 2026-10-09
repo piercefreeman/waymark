@@ -249,7 +249,7 @@ where
         call: ActionCallPlanFor<'_, Spec>,
         dst: &Marked<RegisterHandle, PromiseMarker>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let (action_ref, kwargs, action_name, policies) = call.into_parts();
+        let (action_ref, kwargs, _, policies) = call.into_parts();
         let args = compile_expr_registers(
             kwargs,
             |kwarg| &kwarg.value,
@@ -260,7 +260,6 @@ where
         if !policies.is_empty() {
             let wrapper_function_id = super::wrapper_fn::create::<Spec, Lowering>(
                 self.context.extra_fns,
-                action_name,
                 action_ref,
                 kwargs.len(),
                 policies,

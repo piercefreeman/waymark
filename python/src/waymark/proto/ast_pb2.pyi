@@ -1646,11 +1646,12 @@ class Duration(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     SECONDS_FIELD_NUMBER: builtins.int
-    seconds: builtins.int
+    seconds: builtins.float
+    """May be fractional; the runtime sleeps to its poll granularity"""
     def __init__(
         self,
         *,
-        seconds: builtins.int = ...,
+        seconds: builtins.float = ...,
     ) -> None: ...
     def ClearField(self, field_name: typing.Literal["seconds", b"seconds"]) -> None: ...
 

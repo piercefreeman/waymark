@@ -58,7 +58,7 @@ Program {
                                                             max_retries: 2,
                                                             backoff: Some(
                                                                 DurationLiteral {
-                                                                    seconds: 10,
+                                                                    seconds: 10.0,
                                                                 },
                                                             ),
                                                         },
@@ -113,7 +113,7 @@ Program {
                                                     Timeout(
                                                         TimeoutPolicy {
                                                             timeout: DurationLiteral {
-                                                                seconds: 120,
+                                                                seconds: 120.0,
                                                             },
                                                         },
                                                     ),
@@ -176,7 +176,7 @@ Program {
                                                     Timeout(
                                                         TimeoutPolicy {
                                                             timeout: DurationLiteral {
-                                                                seconds: 120,
+                                                                seconds: 120.0,
                                                             },
                                                         },
                                                     ),

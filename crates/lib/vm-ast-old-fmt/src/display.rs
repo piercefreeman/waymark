@@ -143,12 +143,14 @@ impl<'a> fmt::Display for Fmt<'a, ast::DurationLiteral> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let seconds = self.0.seconds;
 
-        if seconds != 0 && seconds.is_multiple_of(3600) {
-            return write!(f, "{}h", seconds / 3600);
+        // Whole hours and minutes print as such; anything else, fractions
+        // included, prints in seconds.
+        if seconds != 0.0 && seconds % 3600.0 == 0.0 {
+            return write!(f, "{}h", seconds / 3600.0);
         }
 
-        if seconds != 0 && seconds.is_multiple_of(60) {
-            return write!(f, "{}m", seconds / 60);
+        if seconds != 0.0 && seconds % 60.0 == 0.0 {
+            return write!(f, "{}m", seconds / 60.0);
         }
 
         write!(f, "{seconds}s")
