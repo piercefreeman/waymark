@@ -4,27 +4,63 @@
 
 waymark is a library to let you build durable background tasks that withstand server restarts, task crashes, and long-running jobs. It's built for Python and Postgres without any additional deploy time requirements. More languages are coming soon.
 
-## Usage
+**Documentation: [waymark.sh](https://waymark.sh)**
 
-We ship all client and server wheels as a python package. Install it via your package manager of choice:
+Getting started:
+
+- [Quickstart with Python](https://waymark.sh/python/quickstart) - install, write a workflow, run it
+- [Why Waymark](https://waymark.sh/guides/motivation) - the motivation and the workloads it's built for
+
+Running Waymark:
+
+- [Configuration](https://waymark.sh/guides/configuration) - every environment variable
+- [Webapp](https://waymark.sh/guides/webapp) - the built-in view of your instances and nodes
+- [Production Deployment](https://waymark.sh/guides/production) - images, services, connections, scaling
+
+Python:
+
+- [Workflows & Actions](https://waymark.sh/python/workflows-and-actions) - the two primitives
+- [Control Flow](https://waymark.sh/python/control-flow) - what a workflow body can contain, and its [known issues](https://waymark.sh/python/control-flow#known-issues)
+- [Retries & Timeouts](https://waymark.sh/python/retries) - per-call retry policies and timeouts
+- [Scheduled Workflows](https://waymark.sh/python/scheduling) - cron and interval schedules
+
+## Usage with Python
+
+We ship all client and server binaries in one Python package. Install it via your package manager of choice:
 
 ```bash
 uv add waymark
 ```
 
-Once installed, Waymark exposes `waymark-start-workers` as a runnable bin entrypoint in your environment.
-You can boot the worker pool directly with `uv run`:
+Let's say you need to send welcome emails to a batch of users, but only the active ones. You want to fetch them all, filter out inactive accounts, then fan out emails in parallel. Actions are the distributed work - plain async functions, sent to your workers:
 
-```bash
-export WAYMARK_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/waymark
-uv run waymark-start-workers
+```python
+from typing import Annotated
+
+from waymark import Depends, action
+
+@action
+async def fetch_users(
+    user_ids: list[str],
+    db: Annotated[Database, Depends(get_db)],
+) -> list[User]:
+    return await db.get_many(User, user_ids)
+
+@action
+async def send_email(
+    to: str,
+    subject: str,
+    emailer: Annotated[EmailClient, Depends(get_email_client)],
+) -> EmailResult:
+    return await emailer.send(to=to, subject=subject)
 ```
 
-Let's say you need to send welcome emails to a batch of users, but only the active ones. You want to fetch them all, filter out inactive accounts, then fan out emails in parallel. This is how you write that workflow in waymark:
+The workflow is the durable control flow that orchestrates them:
 
 ```python
 import asyncio
-from waymark import Depends, Workflow, action, workflow
+
+from waymark import Workflow, workflow
 
 @workflow
 class WelcomeEmailWorkflow(Workflow):
@@ -43,201 +79,82 @@ class WelcomeEmailWorkflow(Workflow):
         return results
 ```
 
-And here's how you define the actions distributed to your worker cluster:
+Run the node - the process that executes workflows and their actions - against your database:
 
-```python
-@action
-async def fetch_users(
-    user_ids: list[str],
-    db: Annotated[Database, Depends(get_db)],
-) -> list[User]:
-    return await db.get_many(User, user_ids)
-
-@action
-async def send_email(
-    to: str,
-    subject: str,
-    emailer: Annotated[EmailClient, Depends(get_email_client)],
-) -> EmailResult:
-    return await emailer.send(to=to, subject=subject)
+```bash
+export WAYMARK_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/waymark
+export WAYMARK_HTTP_ENABLED=true  # the webapp, on http://localhost:24119
+uv run waymark-start-workers
 ```
 
-Waymark re-exports `mountaineer-di`'s `Depends(...)` helper directly. The older
-`Depend(...)` name remains available as a compatibility alias.
-
-To kick off a background job and wait for completion:
+Then kick off the workflow from any Python process, and wait for its result:
 
 ```python
 async def welcome_users(user_ids: list[str]):
-    workflow = WelcomeEmailWorkflow()
-    await workflow.run(user_ids)
+    await WelcomeEmailWorkflow().run(user_ids)
 ```
 
-When you call `await workflow.run()`, we parse the AST of your `run()` method and compile it into the Waymark Runtime Language. The `for` loop becomes a loop in the compiled program, the `asyncio.gather` becomes a parallel fan-out. None of this executes inline in your webserver, instead it's queued to Postgres and orchestrated by the Rust runtime across your worker cluster.
+None of this executes inline in your webserver: the run is queued to Postgres and executed by the node.
 
 **Actions** are the distributed work: network calls, database queries, anything that can fail and should be retried independently.
 
 **Workflows** are the control flow: loops, conditionals, parallel branches. They orchestrate actions but don't do heavy lifting themselves.
 
-### Complex Workflows
+## What you can write
 
-Workflows can get much more complex than the example above:
+Workflows are plain async Python. A few of the things they can do:
 
-1. Customizable retry policy
-
-    By default your Python code will execute like native logic would: an action runs once, and an exception it raises fails the workflow. There is no default timeout. Both are per call: `self.run_action(...)` takes a retry policy (total attempts, the exception types to retry, a fixed backoff between retries) and a per-attempt timeout, which raises `ActionTimeout` and is retried only when listed by name.
+1. **Retries and timeouts, per call.** By default an action runs once, like a regular function call. Wrap a call in `self.run_action(...)` to give it a retry policy and a timeout - see [Retries & Timeouts](https://waymark.sh/python/retries).
 
     ```python
-    from waymark import RetryPolicy
     from datetime import timedelta
 
-    async def run(self):
-        await self.run_action(
-            inconsistent_action(0.5),
-            # control handling of failures
-            retry=RetryPolicy(attempts=50, backoff_seconds=5),
-            timeout=timedelta(minutes=10),
+    from waymark import RetryPolicy
+
+    async def run(self, order_id: str) -> Receipt:
+        return await self.run_action(
+            charge_card(order_id),
+            retry=RetryPolicy(attempts=5, backoff_seconds=10),
+            timeout=timedelta(minutes=2),
         )
     ```
 
-1. Branching control flows
-
-    Use if statements, for loops, or any other Python primitives within the control logic. We will automatically detect these branches and compile them into the workflow program, so they're executed by the runtime just like your actions.
+1. **Branches and loops.** `if`/`elif`/`else`, `for` and `while` compile into the workflow program and are executed by the runtime, just like your actions.
 
     ```python
-    async def run(self, user_id: str) -> Summary:
-        # loop + non-action helper call
-        top_spenders: list[float] = []
-        for record in summary.transactions.records:
-            if record.is_high_value:
-                top_spenders.append(record.amount)
+    async def run(self, order_ids: list[str]) -> list[str]:
+        shipped = []
+        for order_id in order_ids:
+            status = await fetch_status(order_id)
+            if status == "shipped":
+                shipped.append(order_id)
+        return shipped
     ```
 
-1. asyncio primitives
-
-    Use asyncio.gather to parallelize tasks. Use asyncio.sleep to sleep for a longer period of time.
+1. **Parallel fan-out and durable sleep.** `asyncio.gather` runs actions in parallel; `asyncio.sleep` pauses the workflow durably, surviving restarts - for a second or for a day.
 
     ```python
     import asyncio
 
-    async def run(self, user_id: str) -> Summary:
-        # parallelize independent actions with gather
-        profile, settings, history = await asyncio.gather(
-            fetch_profile(user_id=user_id),
-            fetch_settings(user_id=user_id),
-            fetch_purchase_history(user_id=user_id),
+    async def run(self, user_id: str) -> str:
+        profile, history = await asyncio.gather(
+            fetch_profile(user_id),
+            fetch_purchase_history(user_id),
             return_exceptions=True,
         )
 
-        # wait before sending email
-        await asyncio.sleep(24*60*60)
-        recommendations = await email_ping(history)
-
-        return Summary(profile=profile, settings=settings, recommendations=recommendations)
+        # wait a day before following up
+        await asyncio.sleep(24 * 60 * 60)
+        return await send_recommendations(profile, history)
     ```
 
-### Error handling
+1. **Schedules.** Run a workflow on a cron expression or a fixed interval, with no extra infrastructure - see [Scheduled Workflows](https://waymark.sh/python/scheduling).
 
-To build truly robust background tasks, you need to consider how things can go wrong. Actions can 'fail' in a couple ways. This is supported by our `.run_action` syntax that allows users to provide additional parameters to modify the execution bounds on each action.
+    ```python
+    await schedule_workflow(DataSyncWorkflow, schedule_name="hourly", schedule="0 * * * *")
+    ```
 
-1. Action explicitly throws an error and we want to retry it. Caused by intermittent database connectivity / overloaded webservers / or simply buggy code will throw an error. This comes from a standard python `raise Exception()`
-1. An attempt outruns its `timeout=`. The attempt fails with a synthetic `ActionTimeout`, whether the worker crashed mid-way or the work is simply still running in the background.
-
-By default an action runs once: an exception fails the workflow, and there is no timeout. A `RetryPolicy` retries the exceptions the action raises; `ActionTimeout` is retried only when the policy lists it by name, because the timed-out attempt may still be running.
-
-### Webapp development
-
-The HTTP server serves an embedded SPA at `/`, alongside `/api` and `/healthz`.
-The initial page is a hello-world placeholder. Enable it with
-`WAYMARK_HTTP_ENABLED=true` (default address: `http://localhost:24119`).
-
-Building from source requires Node.js (version in `.node-version`) and npm:
-
-```sh
-make js-deps
-cargo build --bin waymark-start-workers
-```
-
-### Configuration
-
-Waymark runtime configuration is environment-variable driven.
-Waymark reads the process environment directly; it does not auto-load `.env` files.
-
-### `waymark-start-workers` runtime
-
-#### Commonly customized
-
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| `WAYMARK_DATABASE_URL` | PostgreSQL DSN for worker runtime state/backend | required |
-| `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the main database pool | `25` |
-| `WAYMARK_WORKER_COUNT` | Number of Python worker processes | host CPU count (`available_parallelism`) |
-| `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per Python worker | `10` |
-| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently, per `waymark-start-workers` process | `500` |
-| `WAYMARK_USER_MODULE` | Comma-separated Python modules preloaded in workers | unset |
-| `WAYMARK_MAX_ACTION_LIFECYCLE` | Max actions per worker before worker recycle | unset (no recycle limit) |
-| `WAYMARK_HTTP_ENABLED` | Enable the HTTP interface | `false` |
-| `WAYMARK_HTTP_ADDR` | HTTP server bind address. The HTTP API has no authentication: keep it private with the bind address or the network in front of it | `0.0.0.0:24119` |
-| `WAYMARK_OBSERVABILITY_DATABASE_URL` | DSN for the observability store, backend picked by URL scheme; it gets its own schema and pools even when sharing the main database | `WAYMARK_DATABASE_URL` |
-| `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` | DSN the observability API reads through — the same database, or a read replica of it; must use the same backend as the observability DSN | `WAYMARK_OBSERVABILITY_DATABASE_URL` |
-| `WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS` | Connection cap for the observability write pool (Postgres store); when sharing the main database these are additive to the main pool's connections | `4` |
-| `WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS` | How long one statement on the observability write pool may run before the server ends it; the sinks' flushes, retention sweeps and migrations run there | `600000` |
-| `WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS` | Connection cap for the observability read pool (Postgres store), the one the API's reads can exhaust without touching the write pool; when sharing the main database these too are additive to the main pool's connections | `4` |
-| `WAYMARK_OBSERVABILITY_POSTGRES_READ_STATEMENT_TIMEOUT_MS` | How long one statement on the observability read pool may run before the server ends it | `10000` |
-| `WAYMARK_OBSERVABILITY_EVENTS_RECORD_SNAPSHOT_PERSISTED` | Record a `snapshot_persisted` observability event per persisted VM snapshot; about one event in two of a run | `false` |
-
-#### Advanced tuning
-
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| `WAYMARK_WORKER_GRPC_ADDR` | gRPC bind addr used by the Python worker bridge server | `127.0.0.1:24118` |
-| `WAYMARK_LOCK_TTL_MS` | Workload pinning TTL | `15000` |
-| `WAYMARK_LOCK_HEARTBEAT_MS` | Workload pinning heartbeat interval | `5000` |
-
-If you need to customize Python startup/bootstrap behavior (for example custom boot commands), see `Bootstrap / Python SDK overrides` below.
-
-### `waymark-bridge` runtime
-
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| `WAYMARK_BRIDGE_GRPC_ADDR` | gRPC bind address for bridge server | `127.0.0.1:24117` |
-| `WAYMARK_BRIDGE_IN_MEMORY` | Enables in-memory mode (no Postgres backend) | `false` |
-| `WAYMARK_DATABASE_URL` | PostgreSQL DSN (required unless in-memory mode) | required unless `WAYMARK_BRIDGE_IN_MEMORY` is truthy |
-
-### Bootstrap / Python SDK overrides
-
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| `WAYMARK_BOOT_COMMAND` | Full command used by Python SDK to boot singleton bridge | unset |
-| `WAYMARK_BOOT_BINARY` | Boot binary used when `WAYMARK_BOOT_COMMAND` is unset | `waymark-boot-singleton` |
-| `WAYMARK_BRIDGE_GRPC_ADDR` | Explicit bridge gRPC target (`host:port`) for Python SDK + singleton helper | unset |
-| `WAYMARK_BRIDGE_GRPC_HOST` | Bridge gRPC host used by singleton probing/boot + Python SDK | `127.0.0.1` |
-| `WAYMARK_BRIDGE_GRPC_PORT` | Bridge gRPC base port used by singleton probing/boot + Python SDK | `24117` |
-| `WAYMARK_BRIDGE_BASE_PORT` | Fallback alias for `WAYMARK_BRIDGE_GRPC_PORT` in singleton helper | unset |
-| `WAYMARK_SKIP_WAIT_FOR_INSTANCE` | Python SDK: return immediately after queueing workflow run | `false` |
-| `WAYMARK_LOG_LEVEL` | Python SDK logger level (`DEBUG`, `INFO`, etc.) | `INFO` |
-
-### Worker Recycling
-
-The `WAYMARK_MAX_ACTION_LIFECYCLE` setting controls how many actions a Python worker process can execute before being automatically recycled (shut down and replaced with a fresh process). This can help mitigate memory leaks in third-party libraries that may accumulate memory over time.
-
-When a worker reaches its action limit, waymark spawns a replacement worker before retiring the old one. Any in-flight actions on the old worker will complete normally before the process terminates. This ensures zero downtime during recycling.
-
-By default, this is set to `None` (no limit), meaning workers run indefinitely. If you notice memory growth in your workers over time, try setting this to a value like `1000` or `10000` depending on your action characteristics.
-
-## Project Status
-
-> [!IMPORTANT]
-> Right now you shouldn't use waymark in any production applications. The spec is changing too quickly and we don't guarantee backwards compatibility before 1.0.0. But we would love if you try it out in your side project and see how you find it.
-
-Waymark is in an early alpha. Particular areas of focus include:
-
-1. Finalizing the Waymark Runtime Language
-1. Extending AST parsing logic to handle most core control flows
-1. Performance tuning
-1. Unit and integration tests
-
-If you have a particular workflow that you think should be working but isn't yet compiling correctly, please file an issue.
+1. **A built-in webapp.** `waymark-start-workers` serves a [webapp](https://waymark.sh/guides/webapp) showing every workflow instance, each one's timeline of calls, and the load on your nodes.
 
 ## Philosophy
 
@@ -253,20 +170,20 @@ On the point of control flow, we shouldn't be forced into a DAG definition (deco
 
 Nothing on the market provides this balance - `waymark` aims to try. We don't expect ourselves to reach best in class functionality for load performance. Instead we intend for this to scale _most_ applications well past product market fit.
 
-### How It Works
+## How It Works
 
 Waymark takes a different approach from replay-based workflow engines like Temporal or Vercel Workflow.
 
 | Approach | How it works | Constraint on users |
-|----------|-------------|-------------------|
+| --- | --- | --- |
 | **Temporal/Vercel Workflows** | Replay-based. Your workflow code re-executes from the beginning on each step; completed activities return cached results. | Code must be deterministic. No `random()`, no `datetime.now()`, no side effects in workflow logic. |
 | **Waymark** | Compile-once. Parse your Python AST → intermediate representation → bytecode. A durable VM executes the bytecode. Your code never re-runs. | Code must use supported patterns. But once compiled, the runtime always knows exactly where the workflow is in its execution. |
 
-When you decorate a class with `@workflow`, Waymark parses the `run()` method's AST and compiles it to an intermediate representation (IR). This IR captures your control flow—loops, conditionals, parallel branches—and is lowered to bytecode for a durable virtual machine. The bytecode is stored in Postgres and executed by the Rust runtime, which snapshots VM state as it goes. Your original Python run definition is never re-executed during workflow recovery.
+The first time a workflow is run or scheduled, the Python SDK parses its `run()` method's AST and compiles it to an intermediate representation (IR). This IR captures your control flow - loops, conditionals, parallel branches - and is lowered to bytecode for a durable virtual machine. The Rust runtime executes the bytecode and snapshots the VM's state to Postgres as it goes, so a workflow resumes from where it was after a crash. Your original Python `run()` definition is never re-executed during workflow recovery.
 
-This is convenient in practice because it means that if your workflow compiles, your workflow will run as advertised. There's no need to hack around stdlib functions that are non-deterministic (like time/uuid/etc) because you'll get an error on compilation to switch these into an explicit `@action` where all non-determinism should live.
+This is convenient in practice because it means that if your workflow compiles, your workflow will run as advertised. There's no need to hack around stdlib functions that are non-deterministic (like time/uuid/etc) because you'll get an error on compilation to switch these into an explicit `@action`. The few patterns that currently slip past the compiler are listed under [known issues](https://waymark.sh/python/control-flow#known-issues) and tracked in [#772](https://github.com/piercefreeman/waymark/issues/772).
 
-### Other options
+## When to use it
 
 **When should you use Waymark?**
 
@@ -276,7 +193,7 @@ This is convenient in practice because it means that if your workflow compiles, 
 - You want background job code to plug and play with your existing unit test & static analysis stack
 - You are focused on getting to product market fit versus scale
 
-Performance is a top priority of waymark. That's why it's written with a Rust core, is lightweight on your database connection by isolating them to ~1 pool per machine host, and runs continuous benchmarks on CI. But it's not the _only_ priority. After all there's only so much we can do with Postgres as an ACID backing store. Once you start to tax Postgres' capabilities you're probably at the scale where you should switch to a more complicated architecture.
+Performance is a top priority of waymark. That's why it's written with a Rust core and runs continuous benchmarks on CI. But it's not the _only_ priority. After all there's only so much we can do with Postgres as an ACID backing store. Once you start to tax Postgres' capabilities you're probably at the scale where you should switch to a more complicated architecture.
 
 **When shouldn't you?**
 
@@ -289,6 +206,22 @@ There is no shortage of robust background queues in Python, including ones like 
 Almost all of these require a dedicated task broker that you host alongside your app. This usually isn't a huge deal during POCs but can get complex as you need to performance tune it for production. Cloud hosting of most of these are billed per-event and can get very expensive depending on how you orchestrate your jobs. They also typically force you to migrate your logic to fit the conventions of the framework.
 
 Open source solutions like RabbitMQ have been battle tested over decades & large companies like Temporal are able to throw a lot of resources towards optimization. Both of these solutions are great choices - just intended to solve for different scopes. Expect an associated higher amount of setup and management complexity.
+
+## Project Status
+
+> [!IMPORTANT]
+> Right now you shouldn't use waymark in any production applications. The spec is changing too quickly and we don't guarantee backwards compatibility before 1.0.0. But we would love if you try it out in your side project and see how you find it.
+
+If you have a particular workflow that you think should be working but isn't yet compiling correctly, please file an issue.
+
+## Building from source
+
+The webapp is compiled into `waymark-start-workers`, so building from source requires Node.js (version in `.node-version`) and npm:
+
+```sh
+make js-deps
+cargo build --bin waymark-start-workers
+```
 
 ## Contributing
 

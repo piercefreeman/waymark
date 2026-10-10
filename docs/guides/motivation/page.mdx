@@ -9,6 +9,7 @@ export const sections = [
   { title: 'Compile-once vs replay', id: 'compile-once-vs-replay' },
   { title: 'When to reach for Waymark', id: 'when-to-reach-for-waymark' },
   { title: 'When not to', id: 'when-not-to' },
+  { title: 'Status', id: 'status' },
 ]
 
 # Why Waymark
@@ -57,10 +58,11 @@ class WelcomeEmailWorkflow(Workflow):
         users = await fetch_users(user_ids)
         active_users = [user for user in users if user.active]
 
-        return await asyncio.gather(
+        results = await asyncio.gather(
             *[send_email(to=user.email, subject="Welcome") for user in active_users],
             return_exceptions=True,
         )
+        return results
 ```
 
 Waymark parses the AST of `run()` and compiles it like you would in a language like Rust or C++:
@@ -84,11 +86,12 @@ side effects in the workflow body or call any functions that do. Get any of that
 up at recovery time instead of registration time. If you have large workflows this replay within a Python
 interpreter can also be relatively inefficient to resume state.
 
-Waymark inverts the tradeoff. Your code is compiled *once* - at
-registration - into a program the runtime executes directly. We'll tell you the supported
+Waymark inverts the tradeoff. Your code is compiled *once* - the first time the workflow
+is run or scheduled - into a program the runtime executes directly. We'll tell you the supported
 patterns and violations up front. Want
 non-determinism? That's exactly what an `@action` is for. If it compiles with Waymark, it's guaranteed
-to work as you expect in production.
+to work as you expect in production. The few patterns that still slip past the compiler are
+listed under [Known issues](/python/control-flow#known-issues) and are being closed.
 
 ## When to reach for Waymark {{ id: 'when-to-reach-for-waymark' }}
 
@@ -120,11 +123,11 @@ products like Temporal bundle SLA guarantees with their cloud packages.
 Both are great choices for those scopes. But they can bring significant setup,
 operational, and per-event-billing costs.
 
-## Status
+## Status {{ id: 'status' }}
 
 Waymark is in early alpha. The runtime spec is changing quickly and we don't
 guarantee backward compatibility before 1.0.0. If you hit a workflow that you
 think should compile but doesn't, please file an issue - the compiler error
 includes the offending pattern and line, which is exactly what we need.
 
-Ready to try it? Start with the [Quickstart](/guides/quickstart).
+Ready to try it? Start with the [Quickstart with Python](/python/quickstart).

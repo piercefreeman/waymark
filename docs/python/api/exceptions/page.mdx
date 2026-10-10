@@ -1,17 +1,16 @@
 # Exceptions
 
-The exception classes Waymark raises out of the SDK. You'll hit these at
-registration time, at the call site of `workflow.run(...)`, or when
-managing schedules.
+The exception classes Waymark raises out of the SDK. You'll hit these
+when a workflow is compiled or at the call site of `workflow.run(...)`.
 
 ## Unsupported patterns
 
-Raised at registration when the compiler hits something in your `run()`
-body it can't lower to IR. This is the exception you'll see most while
-authoring: it carries the offending pattern, the source line, and a
-recommendation for how to restructure. See
-[Control Flow](/guides/control-flow) for the full list of supported and
-rejected patterns.
+Raised when the compiler hits something in your `run()` body it can't
+lower to IR - the first time the workflow is run or scheduled. This is
+the exception you'll see most while authoring: it carries a message, the
+source line and column, and a recommendation for how to restructure. See
+[Control Flow](/python/control-flow) for the supported and rejected
+patterns.
 
 ::: waymark.ir_builder.UnsupportedPatternError
 
@@ -30,12 +29,31 @@ as the unexpected case.
 
 ::: waymark.serialization.ExceptionValue
 
+## VM runtime exceptions
+
+Proxies for the three exceptions the VM raises inside a workflow when an
+action attempt times out, is lost, or never starts. Nothing in this
+module matters at runtime: the real exceptions are defined in Rust and
+exist only in the VM, which matches them against `except` clauses by
+class name and bases. The classes exist so a workflow body can spell
+them in an `except` clause and so type hints have something to point at;
+Waymark never raises them in Python. The retry consequences are in
+[Retries & Timeouts](/python/retries#filtering-by-exception).
+
+::: waymark.vm_exceptions.ActionTimeout
+
+::: waymark.vm_exceptions.ActionExecutionLost
+
+::: waymark.vm_exceptions.ActionExecutionNotStarted
+
+---
+
 ## Retry exhaustion
 
-Defined for retry-budget exhaustion. Today, exhausting a `RetryPolicy`
-surfaces the action's own final exception through the workflow rather
-than raising this class; catch the underlying exception type in your
-workflow `try/except`.
+Defined for retry-budget exhaustion, and exported as `ExhaustedRetries`
+too. Today, exhausting a `RetryPolicy` surfaces the action's own final
+exception through the workflow rather than raising this class; catch the
+underlying exception type in your workflow `try/except`.
 
 ::: waymark.exceptions.ExhaustedRetriesError
 
@@ -43,9 +61,9 @@ workflow `try/except`.
 
 ## Schedule conflicts
 
-Raised by `schedule_workflow(...)` when the bridge reports a conflicting
-schedule for the same `(workflow_name, schedule_name)`. In the common
-path, re-registering an existing schedule updates it in place; see
-[Scheduled Workflows](/guides/scheduling).
+Defined, but not raised today: registering a schedule name that already
+exists replaces that schedule rather than conflicting with it, and a
+failed schedule call raises `RuntimeError`. See
+[Scheduled Workflows](/python/scheduling).
 
 ::: waymark.exceptions.ScheduleAlreadyExistsError

@@ -1,0 +1,195 @@
+export const metadata = {
+  title: 'Scheduled Workflows',
+  description:
+    'Run workflows on a cron expression or a fixed interval, with pause, resume, and overlap suppression.',
+}
+
+export const sections = [
+  { title: 'Schedule names', id: 'schedule-names' },
+  { title: 'What a schedule runs', id: 'what-a-schedule-runs' },
+  { title: 'Cron schedules', id: 'cron-schedules' },
+  { title: 'Interval schedules', id: 'interval-schedules' },
+  { title: 'Pause, resume, delete', id: 'pause-resume-delete' },
+  { title: 'Re-registering', id: 're-registering' },
+  { title: 'List schedules', id: 'list-schedules' },
+  { title: 'Overlap suppression', id: 'overlap-suppression' },
+]
+
+# Scheduled Workflows
+
+Waymark workflows can run on a recurring cadence - a cron expression or a
+fixed interval - without any extra infrastructure. The scheduler is part
+of `waymark-start-workers`, which you already run. Schedules live in Postgres, so a
+schedule survives restarts of every component. They need the Postgres
+backend: a bridge running with `WAYMARK_BRIDGE_IN_MEMORY` refuses the
+schedule calls.
+
+## Schedule names {{ id: 'schedule-names' }}
+
+Schedule names form one flat namespace on the server. To keep workflows
+from colliding in it, `schedule_workflow` scopes a plain string under the
+workflow: `schedule_name="hourly-us-east"` on `DataSyncWorkflow` becomes
+`data_sync/hourly-us-east`, where `data_sync` is the workflow's short
+name - the class attribute `name` if you set one, the lowercased class
+name otherwise.
+
+`schedule_workflow` returns the normalized name. To control the name
+exactly, pass one of the two `ScheduleName` forms instead of a string:
+
+```python
+from waymark import Absolute, WorkflowScoped
+
+WorkflowScoped(DataSyncWorkflow, "hourly-us-east")  # "data_sync/hourly-us-east"
+WorkflowScoped("data_sync", "hourly-us-east")       # same, without importing the workflow
+Absolute("global-nightly")                           # "global-nightly", as written
+```
+
+The management calls - pause, resume, delete - take a `ScheduleName`.
+One workflow can run on several cadences under different schedule names,
+e.g. `hourly-us-east` and `hourly-us-west` for the same `DataSyncWorkflow`.
+
+## What a schedule runs {{ id: 'what-a-schedule-runs' }}
+
+Registering a schedule compiles the workflow and pins that compiled
+version, together with the arguments you pass. Every fire runs exactly
+that version with exactly those arguments. Redeploying changed workflow
+code does not change what an existing schedule runs: call
+`schedule_workflow(...)` again on deploy to point the schedule at the new
+version.
+
+## Cron schedules {{ id: 'cron-schedules' }}
+
+```python
+from waymark import Workflow, workflow, schedule_workflow
+
+@workflow
+class DataSyncWorkflow(Workflow):
+    name = "data_sync"
+
+    async def run(self, region: str) -> None:
+        pass
+
+await schedule_workflow(
+    DataSyncWorkflow,
+    schedule_name="hourly-us-east",
+    schedule="0 * * * *",
+    arguments={"region": "us-east"},
+)
+```
+
+Standard 5-field cron syntax is accepted, evaluated in UTC at second 0 of
+each match. A 6-field expression with a leading seconds column is
+accepted too; a 7-field expression with a year column is rejected. An
+invalid expression is rejected when you register it. The day-of-week
+field counts Sunday as 1 through Saturday as 7, so `1` is Sunday and `0`
+is rejected; day names such as `MON` or `MON-FRI` are accepted and are
+the safer choice. Common shapes:
+
+| Cron | Cadence |
+| --- | --- |
+| `0 * * * *` | Every hour, on the hour |
+| `*/15 * * * *` | Every 15 minutes |
+| `0 0 * * *` | Daily at midnight UTC |
+| `0 0 * * MON` | Every Monday at midnight UTC |
+
+## Interval schedules {{ id: 'interval-schedules' }}
+
+If you'd rather express "every N seconds", pass a `timedelta`:
+
+```python
+from datetime import timedelta
+
+await schedule_workflow(
+    DataSyncWorkflow,
+    schedule_name="every-5-min",
+    schedule=timedelta(minutes=5),
+    arguments={"region": "us-west"},
+)
+```
+
+The interval is truncated to whole seconds and must be at least one
+second after that. The first run fires at registration time plus the
+interval, plus jitter if any. Each next fire is computed at each due
+fire, whether the run starts or overlap suppression skips it - the time
+of the scheduler poll, plus the interval - so how long a run takes never
+shifts the cadence. A fire can land up to one scheduler poll late
+(`WAYMARK_SCHEDULER_POLL_INTERVAL_MS`, 1 s by default), and that
+lateness carries into the next fire. What prevents pile-up when runs
+outlast the interval is overlap suppression, covered below.
+
+You can add `jitter=timedelta(seconds=N)` to delay each fire, the first
+included, by a random 0 to N whole seconds; a jitter under one second is
+truncated to none. It's useful when many schedules share a cadence and
+you want to spread the load. Jitter works for cron schedules too. On an
+interval schedule, a fire's jitter carries into the next interval, since
+the next fire counts from the poll that fired; on a cron schedule it
+doesn't, since each next fire is the expression's next match after that
+poll.
+
+## Pause, resume, delete {{ id: 'pause-resume-delete' }}
+
+```python
+from waymark import WorkflowScoped, delete_schedule, pause_schedule, resume_schedule
+
+name = WorkflowScoped(DataSyncWorkflow, "hourly-us-east")
+
+await pause_schedule(name)
+await resume_schedule(name)
+await delete_schedule(name)
+```
+
+Each returns `True` if the schedule existed and `False` otherwise.
+Pausing keeps the schedule but stops it firing; instances already
+running are not affected. Deleting removes the schedule entirely - you
+can recreate it under the same name later.
+
+<Note>
+Resuming flips the schedule back to active. Missed fires are not
+replayed, but if the next fire time passed while paused, the schedule
+fires once immediately and then returns to its cadence.
+</Note>
+
+The older `pause_schedule(DataSyncWorkflow, schedule_name="hourly-us-east")`
+form still works, but is deprecated and emits a `DeprecationWarning`.
+
+## Re-registering {{ id: 're-registering' }}
+
+Calling `schedule_workflow(...)` with a name that already exists replaces
+the schedule entirely: the pinned workflow version, the arguments, the
+cadence and flags, and the next fire time, which is computed afresh from
+now. The schedule becomes active again even if it was paused. Only the
+record of the last run it started is kept, so overlap suppression still
+sees a run started before the re-registration.
+
+A deployment script that re-registers its schedules on every deploy is
+the intended way to roll them onto new code. Keep in mind that each
+re-registration restarts the cadence: an interval schedule's next fire
+moves to the deploy time plus the interval.
+
+## List schedules {{ id: 'list-schedules' }}
+
+```python
+from waymark import list_schedules
+
+all_schedules = await list_schedules()
+active_only = await list_schedules(status_filter="active")
+paused_only = await list_schedules(status_filter="paused")
+```
+
+Each result is a `ScheduleInfo` with the workflow and schedule names, the
+cadence (`schedule_type`, `cron_expression` or `interval_seconds`,
+`jitter_seconds`), `allow_duplicate`, the `status`, `next_run_at`, and
+`last_instance_id`, the instance the schedule started most recently.
+
+## Overlap suppression {{ id: 'overlap-suppression' }}
+
+By default a schedule with `allow_duplicate=False` won't start a new run
+while the last run it started is still unfinished. A suppressed fire is
+skipped, not postponed: the schedule moves on to its next fire time. The
+check runs in Postgres, under a lock on the schedule's row, so two nodes
+racing to fire the same schedule are serialized and only one of them
+fires it.
+
+If you genuinely want concurrent runs (e.g., scrape multiple sources
+independently), set `allow_duplicate=True` when calling
+`schedule_workflow(...)`.

@@ -1,94 +1,120 @@
 export const metadata = {
   title: 'Webapp',
   description:
-    'The webapp that ships inside the worker pool: live run inspection, worker throughput, and schedule management.',
+    'The webapp that ships inside waymark-start-workers: live workflow instances, their promise timelines, and fleet load.',
 }
 
 export const sections = [
   { title: 'Enable it', id: 'enable-it' },
-  { title: 'Invocations', id: 'invocations' },
-  { title: 'Run detail', id: 'run-detail' },
-  { title: 'Workers', id: 'workers' },
-  { title: 'Schedules', id: 'schedules' },
+  { title: 'What it shows', id: 'what-it-shows' },
+  { title: 'Instances', id: 'instances' },
+  { title: 'Instance detail', id: 'instance-detail' },
+  { title: 'Fleet', id: 'fleet' },
   { title: 'Operating notes', id: 'operating-notes' },
 ]
 
 # Webapp
 
-Waymark ships a webapp inside the worker pool. There's nothing to
-install and nothing to wire up: the same `waymark-start-workers` process
-that executes your actions serves the webapp, reading from the same Postgres.
-Use it to watch runs progress, debug a failed action down to its inputs
-and logs, and manage schedules without touching a Python shell.
-
-![The Waymark webapp showing a workflow run](/waymark/webapp_demo.png)
+Waymark ships a webapp inside `waymark-start-workers`. There's nothing to install
+and nothing to wire up: the same process that runs your workflows serves
+it, next to the HTTP API it reads from. Use it to see which workflow
+instances are running, waiting or stuck, follow one instance call by
+call, and watch how loaded your nodes are.
 
 ## Enable it {{ id: 'enable-it' }}
 
-Two environment variables on the worker pool:
+Two environment variables on `waymark-start-workers`:
 
 ```bash
 export WAYMARK_HTTP_ENABLED=true
 export WAYMARK_HTTP_ADDR=0.0.0.0:24119  # the default
 ```
 
-Restart `waymark-start-workers` and the webapp is live on port
-`24119`. A `/healthz` endpoint is included for load balancer checks.
+Restart `waymark-start-workers` and the webapp is live on port `24119`. The same
+port serves the HTTP API under `/api`, with interactive API docs at
+`/api/docs`, and a `/healthz` endpoint for load balancer checks.
 
 <Note>
-The webapp binds to `0.0.0.0` by default and has no built-in auth.
+The HTTP server binds to `0.0.0.0` by default and has no built-in auth.
 Keep the port on your private network or behind your existing auth
 proxy.
 </Note>
 
-## Invocations {{ id: 'invocations' }}
+## What it shows {{ id: 'what-it-shows' }}
 
-The home view lists every workflow run: status, version, timing, and
-pagination through history. The search bar takes structured queries -
-quoted phrases, `AND` / `OR`, and parentheses - so you can find "the
-failed `data_sync` runs from the bad deploy" rather than scrolling for
-them.
+The webapp is a read-only view of what the nodes record: an event for
+every step of every workflow instance, and a periodic load sample from
+every node. It shows those facts and nothing it would have to guess:
 
-## Run detail {{ id: 'run-detail' }}
+- **No arguments, results or exception messages.** They aren't recorded,
+  so the webapp says "Not recorded" rather than showing an empty value.
+  An exception appears by its type only.
+- **No workflow names.** They aren't recorded either. An instance is
+  shown by a short id and, as a hint, the first action it called.
+- **Retries are inferred.** Attempt numbers aren't recorded; a call that
+  repeats an earlier one is marked as an inferred retry.
+- **No controls.** There's no requeue, cancel or schedule management.
+  Manage schedules with the [scheduling API](/python/scheduling).
 
-Click into a run and you get the full picture of one instance:
+Everything live is polled every few seconds, and every view shows how
+fresh its data is. The global bar picks the time window (15 minutes to
+24 hours) and pauses live updates.
 
-- **Execution graph.** A rendered view of the compiled workflow with
-  each step's live status - the actual shape the runtime is executing,
-  not a diagram you drew separately.
-- **Execution timeline.** When each action started, how long it ran,
-  and what ran in parallel.
-- **Execution log and attempt history.** Every attempt of every action
-  with its inputs, output or exception, and logs. When something failed
-  at 3am, this is where you find out why.
-- **Requeue.** One click re-runs the workflow against the latest
-  registered version - the natural follow-up after you've shipped a
-  fix.
-- **Export JSON.** Download the entire instance (state, actions,
-  results) to attach to an issue or diff against another run.
+## Instances {{ id: 'instances' }}
 
-## Workers {{ id: 'workers' }}
+The home view lists the workflow instances active in the time window,
+trouble first. Each row shows the instance's state, the first action it
+called, its short id, a one-line summary of what it's doing right now
+(running an action, sleeping until a time, or the exception it stopped
+on), the node running it, a small timeline of its life, and how long it
+has been going. Filter by state, or search by instance id, node id or
+state; selecting a row opens a summary panel beside the list.
 
-The workers view shows throughput stats for every active pool: actions
-per second, throughput per minute, queue depth, and queue latency. When
-you're deciding whether to scale out or raise
-`WAYMARK_CONCURRENT_PER_WORKER`, the numbers you need are here.
+An instance's state is derived from its events, and the rule behind each
+state is shown when you hover it:
 
-## Schedules {{ id: 'schedules' }}
+| State | Meaning |
+| --- | --- |
+| Active | Running now, with recent events. |
+| Suspended | Waiting on an action call or a sleep. |
+| Completed | Finished with a result. |
+| Unhandled exception | Finished with an exception nothing caught. |
+| Run error | Its last run stopped with an error. The workflow has no outcome yet and may be picked up again. |
+| Cancelled | Its last run was cancelled. This doesn't mean the workflow was cancelled. |
+| Unknown | No outcome, and no recent events. |
 
-Every schedule, searchable with the same query syntax as invocations.
-Each schedule has a detail view, and you can pause, resume, or delete
-directly from the UI - the same operations as the
-[scheduling API](/guides/scheduling), without opening a Python shell.
+A failed action that the workflow catches doesn't make the instance
+failed, so there's no "failing" state: rejected calls are counted next
+to the state instead.
+
+## Instance detail {{ id: 'instance-detail' }}
+
+Open an instance for its whole story. A waterfall shows every action
+call and sleep as a bar from the moment it was issued to the moment it
+settled - so a bar includes the time spent queued - grouped by the runs
+that drove the instance, with persisted snapshots and inferred retries
+marked. Select a call to see its own events. Alongside are the raw event
+log, where any gap in the recorded events is shown as one, and the list
+of runs with the reason each one stopped.
+
+## Fleet {{ id: 'fleet' }}
+
+The Fleet view shows load across your nodes: action calls in flight
+against total worker capacity, calls queued for a worker slot (with the
+95th percentile wait), completions per second, and action handling time.
+Below are one row per node boot and charts of in-flight and queued calls
+over the time window. When you're deciding whether to add nodes or raise
+`WAYMARK_CONCURRENT_PER_WORKER`, these are the numbers to look at.
 
 ## Operating notes {{ id: 'operating-notes' }}
 
-Run history is bounded by the garbage collector: finished instances are
-purged after 24 hours by default. If you want the webapp to look
-further back, raise `WAYMARK_GARBAGE_COLLECTOR_RETENTION_HOURS` - see
-[Configuration](/guides/configuration).
+How far back the webapp can look is bounded by the observability
+retention: seven days by default, set by
+`WAYMARK_OBSERVABILITY_EVENTS_RETENTION_MS` and
+`WAYMARK_ESSENTIAL_METRICS_RETENTION_MS` - see
+[Configuration](/guides/configuration#observability).
 
-In a multi-container deployment, enable the webapp on the worker
-service and publish port `24119`; the
+In a multi-container deployment, enable the webapp where
+`waymark-start-workers` runs and publish port `24119`; the
 [Production Deployment](/guides/production) compose file does exactly
 this.

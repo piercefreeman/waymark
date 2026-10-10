@@ -2,13 +2,28 @@
 
 The scheduling API creates, pauses, resumes, deletes, and lists
 recurring workflow runs. See the
-[Scheduled Workflows guide](/guides/scheduling) for the conceptual
+[Scheduled Workflows guide](/python/scheduling) for the conceptual
 walk-through with examples.
 
 ```python
 await schedule_workflow(DataSyncWorkflow, schedule_name="hourly", schedule="0 * * * *")
 await schedule_workflow(DataSyncWorkflow, schedule_name="fast", schedule=timedelta(minutes=5))
+await pause_schedule(WorkflowScoped(DataSyncWorkflow, "hourly"))
 ```
+
+Schedule names form one flat namespace on the server. `schedule_workflow`
+scopes a plain string under the workflow, as `"{workflow}/{name}"`, and
+returns the normalized name; the management calls take a `ScheduleName`.
+
+## Schedule names
+
+::: waymark.schedule.WorkflowScoped
+
+---
+
+::: waymark.schedule.Absolute
+
+---
 
 ## Schedule a workflow
 
