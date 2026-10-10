@@ -1,7 +1,7 @@
 export const metadata = {
   title: 'Production Deployment',
   description:
-    'Deploy Waymark to production: one image, waymark-start-workers, your app, and the Postgres you already run.',
+    'Deploy Waymark to production: one image, waymark-executor, your app, and the Postgres you already run.',
 }
 
 export const sections = [
@@ -28,7 +28,7 @@ kill and restart at will.
   script, a cron job. It queues workflows when it wants to delegate processing to the job cluster. The SDK boots a singleton
   `waymark-bridge` inside the container on first use, so the app needs
   nothing beyond a connection to the database.
-- **The node** is one container running `waymark-start-workers`. It runs your
+- **The node** is one container running `waymark-executor`. It runs your
   workflows, dispatches their actions to a pool of Python worker
   processes, and persists every step in Postgres. It also runs the
   scheduler and, if you enable it, serves the HTTP API and the webapp.
@@ -44,10 +44,10 @@ them, and deploy them independently.
 Build a single image that contains your application code and the
 waymark package. They're both referencing the same underlying workflow and
 action code, so it makes sense for the image to have parity. The app and
-`waymark-start-workers` only need different commands in the entrypoint.
+`waymark-executor` only need different commands in the entrypoint.
 
 If you already have Dockerfile, you just need a new service that mounts
-with `waymark-start-workers`. If you don't already have one, this basic one should
+with `waymark-executor`. If you don't already have one, this basic one should
 get you started.
 
 ```dockerfile
@@ -62,7 +62,7 @@ COPY src ./src
 
 ENV PATH="/app/.venv/bin:${PATH}"
 
-# The default command serves the app; `waymark-start-workers`
+# The default command serves the app; `waymark-executor`
 # overrides it.
 CMD ["uvicorn", "yourapp.web:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
@@ -86,9 +86,9 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
-  workers:
+  executor:
     build: .
-    command: ["waymark-start-workers"]
+    command: ["waymark-executor"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -102,7 +102,7 @@ services:
   app:
     build: .
     depends_on:
-      workers:
+      executor:
         condition: service_started
     environment:
       WAYMARK_DATABASE_URL: postgresql://app:app@postgres:5432/app
@@ -163,7 +163,7 @@ serves Prometheus metrics on port `9118` (`METRICS_ADDR`). Setting
 <Note>
 Neither port has authentication, and both bind to `0.0.0.0` by default.
 Keep them on your private network, or firewall the hosts running
-`waymark-start-workers` so they are not exposed to the open Internet. We
+`waymark-executor` so they are not exposed to the open Internet. We
 suggest the latter since there's usually no reason why nodes have to be
 externally accessible.
 </Note>

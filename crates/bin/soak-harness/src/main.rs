@@ -2,10 +2,10 @@
 //!
 //! The harness can:
 //! - Boot local Postgres via docker compose
-//! - Start the standard `waymark-start-workers` runtime as a child process
+//! - Start the standard `waymark-executor` runtime as a child process
 //! - Continuously queue synthetic workloads with configurable timeout/failure mix
 //! - Detect sustained stall conditions (near-zero actions/sec with large ready queue)
-//! - Capture diagnostics (DB snapshots + worker log tail) on exit/issue
+//! - Capture diagnostics (DB snapshots + executor log tail) on exit/issue
 
 mod cli;
 mod common;
@@ -13,8 +13,8 @@ mod data;
 mod diag;
 mod flow;
 mod setup_db;
+mod setup_executor;
 mod setup_observability_db;
-mod setup_workers;
 mod setup_workflows;
 mod shutdown;
 
@@ -115,35 +115,39 @@ async fn run(
     }
     let services = setup_workflows::soak_services(&backend);
 
-    let mut worker = if args.skip_worker_launch {
+    let mut executor = if args.skip_executor_launch {
         None
     } else {
         Some(
             common::run_unless_cancelled(
                 &stop_token,
-                "starting the worker",
-                setup_workers::start_workers(&args, &run_dir),
+                "starting the executor",
+                setup_executor::start_executor(&args, &run_dir),
             )
             .await?,
         )
     };
-    let worker_stop_timeout = args.worker_stop_timeout();
+    let executor_stop_timeout = args.executor_stop_timeout();
 
-    if let Some(worker_process) = worker.as_mut()
+    if let Some(executor_process) = executor.as_mut()
         && let Err(err) = common::run_unless_cancelled(
             &stop_token,
             "waiting for the first node sample",
-            setup_workers::wait_for_node_sample(
+            setup_executor::wait_for_node_sample(
                 &observability_store,
                 Duration::from_secs(60),
                 Duration::from_secs(args.startup_log_interval_secs.get()),
-                worker_process,
+                executor_process,
             ),
         )
         .await
     {
-        setup_workers::shutdown_worker_if_running(&mut worker, worker_stop_timeout, &abort_token)
-            .await;
+        setup_executor::shutdown_executor_if_running(
+            &mut executor,
+            executor_stop_timeout,
+            &abort_token,
+        )
+        .await;
         return Err(err);
     }
 
@@ -161,9 +165,9 @@ async fn run(
     {
         Ok(workflow) => workflow,
         Err(err) => {
-            setup_workers::shutdown_worker_if_running(
-                &mut worker,
-                worker_stop_timeout,
+            setup_executor::shutdown_executor_if_running(
+                &mut executor,
+                executor_stop_timeout,
                 &abort_token,
             )
             .await;
@@ -193,7 +197,7 @@ async fn run(
         &pool,
         &observability_store,
         &workflow,
-        &mut worker,
+        &mut executor,
         &stop_token,
     )
     .await;
@@ -208,7 +212,7 @@ async fn run(
         }
     };
 
-    // The worker is stopped whatever the capture did: a failed or
+    // The executor is stopped whatever the capture did: a failed or
     // aborted capture must not leave the child behind.
     let diagnostics_result = common::run_unless_cancelled(
         &abort_token,
@@ -220,14 +224,15 @@ async fn run(
             &workflow,
             &reason,
             &samples,
-            worker.as_ref().map(|process| process.log_path.as_path()),
+            executor.as_ref().map(|process| process.log_path.as_path()),
             &run_dir,
         ),
     )
     .await;
-    let shutdown_result = match worker.take() {
-        Some(worker_process) => {
-            setup_workers::shutdown_worker(worker_process, worker_stop_timeout, &abort_token).await
+    let shutdown_result = match executor.take() {
+        Some(executor_process) => {
+            setup_executor::shutdown_executor(executor_process, executor_stop_timeout, &abort_token)
+                .await
         }
         None => Ok(()),
     };
@@ -235,19 +240,19 @@ async fn run(
         Ok(diagnostics_path) => diagnostics_path,
         Err(err) => {
             if let Err(shutdown_err) = shutdown_result {
-                warn!(error = %shutdown_err, "failed to stop worker process during error cleanup");
+                warn!(error = %shutdown_err, "failed to stop executor process during error cleanup");
             }
             return Err(err);
         }
     };
-    // The run's issue outranks a failed stop: a worker that would not stop
+    // The run's issue outranks a failed stop: an executor that would not stop
     // cleanly after the run already found an issue is a consequence,
     // logged, and the issue is what the exit reports.
     if let Err(shutdown_err) = shutdown_result {
         if !reason.is_error_exit() {
             return Err(shutdown_err);
         }
-        warn!(error = %shutdown_err, "failed to stop worker process after the run's issue");
+        warn!(error = %shutdown_err, "failed to stop executor process after the run's issue");
     }
 
     info!(

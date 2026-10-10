@@ -34,7 +34,7 @@ uv add waymark
 ```
 
 This wheel ships with our Python library, which lets you write your workflows. It also ships with
-our rust backend which allows you to run your code: you can call this with `uv run waymark-start-workers`.
+our rust backend which allows you to run your code: you can call this with `uv run waymark-executor`.
 
 ## Define a workflow {{ id: 'define-a-workflow' }}
 
@@ -131,9 +131,9 @@ export WAYMARK_USER_MODULE=workflows  # or "yourpkg.workflows"
 
 Each worker imports an action's module itself when it first runs one of
 its actions, so `workflows.py` only has to be importable by the workers:
-from the directory you start `waymark-start-workers` in, as here, or installed in
+from the directory you start `waymark-executor` in, as here, or installed in
 its environment. `WAYMARK_USER_MODULE` makes each worker import it at
-startup instead: an import error then stops `waymark-start-workers` from starting,
+startup instead: an import error then stops `waymark-executor` from starting,
 after its 15 second worker attach timeout, rather than failing the first
 action.
 
@@ -143,7 +143,7 @@ With the environment in place, the node - the process that runs your
 workflows and their workers - is one command:
 
 ```bash
-source .env && uv run waymark-start-workers
+source .env && uv run waymark-executor
 ```
 
 ## Kick off a run {{ id: 'kick-off-a-run' }}
@@ -174,7 +174,7 @@ asyncio.run(main())
 
 <Note>
 If the script hangs instead of printing: check that Postgres is up, and
-that `waymark-start-workers` is running against the same database. If it raises
+that `waymark-executor` is running against the same database. If it raises
 `WorkflowFailedError` instead, an action failed; the error carries the
 action's exception.
 </Note>
@@ -196,14 +196,14 @@ async def compute(number: int) -> str:
 ## Conclusion {{ id: 'conclusion' }}
 
 And that's basically it! You can play around with adding `asyncio.sleep()`, stopping
-`waymark-start-workers` while it's still processing a job, and seeing everything resume when you
+`waymark-executor` while it's still processing a job, and seeing everything resume when you
 start it again. Just like what you want in production when you're running longer jobs, agents, or
 long duration sleeps.
 
 ## Where to look next {{ id: 'where-to-look-next' }}
 
 - [Production Deployment](/guides/production) covers shipping this for
-  real: one image, `waymark-start-workers`, your app, and the Postgres you already
+  real: one image, `waymark-executor`, your app, and the Postgres you already
   run.
 - [Introduction to Python](/python/authoring) covers the
   Python-specific surface - pydantic for inputs and outputs, `Depends`
