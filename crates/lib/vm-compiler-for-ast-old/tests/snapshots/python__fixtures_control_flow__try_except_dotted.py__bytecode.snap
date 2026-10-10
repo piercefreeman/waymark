@@ -1,0 +1,44 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_control_flow/try_except_dotted.py
+---
+fn main(input: [], output: []):
+    try:
+        result = @try_except_dotted.flaky_action()
+    except ActionTimeout:
+        result = @try_except_dotted.handle_timeout()
+    except KeyError, ActionExecutionLost:
+        result = @try_except_dotted.handle_lookup()
+    except HTTPError:
+        result = @try_except_dotted.handle_lookup()
+    return result
+---
+f0: [1 registers]
+  s0:
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["ActionTimeout"]), exception_dst: None }, ExceptionHandler { handler_state: s3, pattern: Classes(["KeyError", "ActionExecutionLost"]), exception_dst: None }, ExceptionHandler { handler_state: s4, pattern: Classes(["HTTPError"]), exception_dst: None }] })
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("flaky_action"), args: [], resume: s5 })
+  s1:
+    CoreSet(Return { src: r0 })
+  s2:
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("handle_timeout"), args: [], resume: s7 })
+  s3:
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("handle_lookup"), args: [], resume: s9 })
+  s4:
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("handle_lookup"), args: [], resume: s11 })
+  s5:
+    CoreSet(Await { dst: r0, src: r0, resume: s6 })
+  s6:
+    ExcSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Jump { target_state: s1 })
+  s7:
+    CoreSet(Await { dst: r0, src: r0, resume: s8 })
+  s8:
+    CoreSet(Jump { target_state: s1 })
+  s9:
+    CoreSet(Await { dst: r0, src: r0, resume: s10 })
+  s10:
+    CoreSet(Jump { target_state: s1 })
+  s11:
+    CoreSet(Await { dst: r0, src: r0, resume: s12 })
+  s12:
+    CoreSet(Jump { target_state: s1 })

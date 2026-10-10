@@ -27,6 +27,7 @@ expression: python_test_files
     "fixtures_control_flow/if_with_accumulator.py",
     "fixtures_control_flow/try_except_capture.py",
     "fixtures_control_flow/try_except_catch_all.py",
+    "fixtures_control_flow/try_except_dotted.py",
     "fixtures_control_flow/try_except_hierarchy.py",
     "fixtures_control_flow/try_multi_action.py",
     "fixtures_control_flow/try_multi_except.py",
