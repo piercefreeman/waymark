@@ -108,6 +108,7 @@ test("workflow search navigates safely and held lists keep refreshing workflow d
     logLevel: "silent",
   });
   const container = document.createElement("div");
+  document.body.append(container);
   const root = createRoot(container);
   context.after(async () => {
     await act(async () => root.unmount());
@@ -312,4 +313,61 @@ test("workflow search navigates safely and held lists keep refreshing workflow d
   const beforeMissing = listReads();
   await act(async () => context.mock.timers.tick(5000));
   assert.ok(listReads() > beforeMissing);
+
+  // Promise inspection stays separate from the page's Events/Runs tabs.
+  await act(async () => navigate(`/workflows/${foundId}?tab=runs`));
+  const promiseRow = container.querySelector<HTMLAnchorElement>(
+    '[aria-label="Promise timeline"] a[data-row]',
+  )!;
+  promiseRow.focus();
+  await act(async () => promiseRow.click());
+  assert.match(
+    container.querySelector("aside")!.textContent!,
+    /charge_payment/,
+  );
+  assert.match(
+    container.querySelector('[role="tab"][aria-selected="true"]')!.textContent!,
+    /Runs/,
+  );
+  assert.equal(new URLSearchParams(window.location.search).get("promise"), "1");
+  const closePromise = container.querySelector<HTMLButtonElement>(
+    'aside button[aria-label="Close"]',
+  )!;
+  closePromise.focus();
+  await act(async () => context.mock.timers.tick(5000));
+  assert.equal(
+    document.activeElement,
+    closePromise,
+    "refreshes must not steal focus",
+  );
+  await act(async () =>
+    window.document.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    ),
+  );
+  assert.equal(container.querySelector("aside"), null);
+  assert.equal(document.activeElement, promiseRow);
+  assert.equal(new URLSearchParams(window.location.search).get("tab"), "runs");
+  assert.equal(
+    new URLSearchParams(window.location.search).has("promise"),
+    false,
+  );
+
+  await act(async () => navigate(`/workflows/${foundId}?promise=1`));
+  assert.ok(
+    container.querySelector("aside"),
+    "shared promise links open the panel",
+  );
+  await act(async () =>
+    container
+      .querySelector<HTMLButtonElement>('aside button[aria-label="Close"]')!
+      .click(),
+  );
+  assert.equal(container.querySelector("aside"), null);
+  await act(async () => navigate(`/workflows/${foundId}?promise=999`));
+  assert.equal(
+    container.querySelector("aside"),
+    null,
+    "missing promises have no panel",
+  );
 });

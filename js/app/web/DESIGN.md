@@ -132,9 +132,14 @@ Rules:
    Open promises run to now with a hatched tail. Rejections get a red end
    tick. Snapshots are ◆ on the run band. Inferred retries have an inline
    icon with the explanation on hover, never an attempt number.
-4. Docked drawer: the selected promise (details, an honest "Not recorded"
-   arguments block, events involving it), the raw event log with gap rows,
-   and the driver runs with their stop reasons and error text.
+4. Selecting a promise opens a non-modal panel fixed to the bottom of the
+   viewport, with a persistent close control and its own scrolling body.
+   Limit its height to 45% of the viewport or 384px, whichever is smaller,
+   and reserve matching space below the page so its last rows remain reachable.
+   Show the promise details, arguments/result availability, and related events
+   here. Keep the full Events and Runs tabs in the page; selecting a promise
+   preserves their active tab. Escape closes the panel and restores focus;
+   polling must not move keyboard focus back into it.
 
 ### Fleet (`/fleet`)
 
