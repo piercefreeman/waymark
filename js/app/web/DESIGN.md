@@ -192,6 +192,6 @@ each instance's timeline, cached by its last event so a poll refetches
 only rows that changed. A per-instance summary endpoint and server-side
 filtering would remove those reads.
 
-The compiled SPA is embedded in `waymark-start-workers` by the
+The compiled SPA is embedded in `waymark-executor` by the
 `waymark-http-webapp` build script and served next to `/api`; `make webapp-dev`
 proxies `/api` to a running server at `127.0.0.1:24119`.
