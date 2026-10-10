@@ -142,7 +142,12 @@ async fn every_hook_becomes_one_summarized_event_in_run_order() {
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let (emitter, task, shutdown_tx) = recording_emitter(&seen);
     let vm_id = waymark_ids::InstanceId::new_uuid_v4();
-    let hooks = TestHooks::new(vm_id, emitter, EVERYTHING);
+    let hooks = TestHooks::new(
+        vm_id,
+        Some("CheckoutWorkflow".to_owned()),
+        emitter,
+        EVERYTHING,
+    );
 
     hooks.vm_started();
     hooks.effect_emitted(EffectNumber(0), &action_call());
@@ -177,6 +182,7 @@ async fn every_hook_becomes_one_summarized_event_in_run_order() {
         .map(|event| {
             let payload = vm_driver(event);
             assert_eq!(payload["vm_id"], serde_json::json!(vm_id));
+            assert_eq!(payload["workflow_name"], "CheckoutWorkflow");
             (
                 payload["run_sequence"].clone(),
                 payload["observation"].clone(),
@@ -245,7 +251,12 @@ async fn a_failed_run_renders_the_collaborator_error_once() {
         u8,
         TestException,
         waymark_vm_driver::Error<(), (), &'static str, (), ()>,
-    >::new(waymark_ids::InstanceId::new_uuid_v4(), emitter, EVERYTHING);
+    >::new(
+        waymark_ids::InstanceId::new_uuid_v4(),
+        None,
+        emitter,
+        EVERYTHING,
+    );
 
     hooks.vm_stopped(&waymark_vm_driver::Error::SnapshotPersistence("disk full"));
 
@@ -265,8 +276,8 @@ async fn two_vms_share_the_node_stream_with_their_own_run_positions() {
     let (emitter, task, shutdown_tx) = recording_emitter(&seen);
     let first_vm = waymark_ids::InstanceId::new_uuid_v4();
     let second_vm = waymark_ids::InstanceId::new_uuid_v4();
-    let first = TestHooks::new(first_vm, Arc::clone(&emitter), EVERYTHING);
-    let second = TestHooks::new(second_vm, emitter, EVERYTHING);
+    let first = TestHooks::new(first_vm, None, Arc::clone(&emitter), EVERYTHING);
+    let second = TestHooks::new(second_vm, None, emitter, EVERYTHING);
 
     first.vm_started();
     second.vm_started();
@@ -310,6 +321,7 @@ async fn unrecorded_snapshots_leave_no_event_and_no_gap() {
     let vm_id = waymark_ids::InstanceId::new_uuid_v4();
     let hooks = TestHooks::new(
         vm_id,
+        None,
         emitter,
         Policy {
             snapshot_persisted: false,

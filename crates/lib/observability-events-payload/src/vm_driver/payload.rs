@@ -17,6 +17,9 @@ pub struct Payload {
     #[schemars(schema_with = "uuid_schema")]
     pub vm_id: waymark_ids::InstanceId,
 
+    /// The registered workflow name, retained independently of runtime cleanup.
+    pub workflow_name: Option<String>,
+
     /// The event's position within its VM driver run: 0 at the start of
     /// the run, one more per event of the same run. Runs restart the count,
     /// so a run's own completeness shows regardless of what its node

@@ -6,6 +6,9 @@ pub struct Instance {
     /// The VM's id.
     pub vm_id: waymark_http_api_types::UuidId<waymark_ids::InstanceId>,
 
+    /// The registered workflow name, or null when it has not been recorded.
+    pub workflow_name: Option<String>,
+
     /// The VM's latest run: the last time a VM driver started it. Null
     /// when the instance state knows the VM without any run of it.
     pub latest_run: Option<Run>,
@@ -21,6 +24,7 @@ impl From<waymark_observability_state_core::InstanceState> for Instance {
     fn from(state: waymark_observability_state_core::InstanceState) -> Self {
         Self {
             vm_id: state.vm_id.into(),
+            workflow_name: state.workflow_name,
             latest_run: state.latest_run.map(Into::into),
             outcome: state.outcome.map(Into::into),
             last_event: state.last_event.into(),

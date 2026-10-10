@@ -29,6 +29,7 @@ export type StopKind =
 
 export interface Instance {
   vm_id: Uuid;
+  workflow_name: string | null;
   latest_run: Run | null;
   outcome: Outcome | null;
   last_event: LastEvent;
@@ -113,6 +114,7 @@ export type Observation =
 
 export interface EventPayload {
   vm_id: Uuid;
+  workflow_name: string | null;
   run_sequence: number;
   observation: Observation;
 }

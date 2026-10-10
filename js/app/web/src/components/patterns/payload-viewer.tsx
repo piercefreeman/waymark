@@ -9,7 +9,7 @@ import { CopyButton } from "./identifier";
  */
 export type Payload =
   | { kind: "recorded"; value: unknown }
-  | { kind: "not-recorded"; reason: string }
+  | { kind: "not-recorded" }
   | { kind: "pending" };
 
 export function PayloadViewer({
@@ -66,13 +66,10 @@ export function PayloadViewer({
       {payload.kind === "not-recorded" && (
         <div className="hatched p-3">
           <p className="text-label text-fg">Not recorded</p>
-          <p className="mt-0.5 text-micro text-fg-muted">{payload.reason}</p>
         </div>
       )}
       {payload.kind === "pending" && (
-        <p className="p-3 text-micro text-fg-muted">
-          Nothing to show yet. The promise is still open.
-        </p>
+        <p className="p-3 text-micro text-fg-muted">Awaiting settlement</p>
       )}
     </section>
   );

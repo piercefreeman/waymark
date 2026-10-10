@@ -2,13 +2,14 @@ import { ApiError, getInstance, listInstances } from "@/api/client";
 import type { Instance } from "@/domain/api";
 import { deriveFromInstance } from "@/domain/derive";
 import { instanceStates, type InstanceState } from "@/domain/status";
+import { fetchTimelines, type CachedTimeline } from "./timelines";
 
 /**
  * One page of the instance ledger, read through the list endpoint's own
  * cursor. Search and state filters have no server-side parameters, so they
  * walk the cursor across the window page by page and keep the matches;
  * the walk is bounded and the page says how far it got. An exact `vm_id`
- * skips the walk and reads the instance directly.
+ * skips the filters and reads the instance directly so search can open it.
  */
 
 export const PAGE_SIZE = 100;
@@ -36,6 +37,78 @@ export interface InstancePage {
   direct: boolean;
 }
 
+export interface InstanceSnapshot extends InstancePage {
+  from: Date;
+  to: Date;
+  preview: Instance | null;
+  timelines: Map<string, CachedTimeline>;
+  complete: boolean;
+}
+
+/** Refresh held rows by ID so activity outside the list window cannot remove them. */
+async function refreshInstances(instances: Instance[], signal: AbortSignal) {
+  const items = [...instances];
+  const queue = instances.entries();
+  let complete = true;
+  await Promise.all(
+    Array.from({ length: Math.min(6, items.length) }, async () => {
+      for (const [index, instance] of queue) {
+        signal.throwIfAborted();
+        try {
+          items[index] = await getInstance(instance.vm_id, signal);
+        } catch {
+          signal.throwIfAborted();
+          complete = false;
+        }
+      }
+    }),
+  );
+  signal.throwIfAborted();
+  return { items, complete };
+}
+
+export async function fetchInstanceSnapshot(
+  query: InstancePageQuery,
+  previous: InstanceSnapshot | null,
+  holdList: boolean,
+  previewId: string | null,
+  signal: AbortSignal,
+): Promise<InstanceSnapshot> {
+  const page =
+    holdList && previous
+      ? { ...previous, ...(await refreshInstances(previous.items, signal)) }
+      : {
+          ...(await fetchInstancePage(query, signal)),
+          from: query.from,
+          to: query.to,
+          complete: true,
+        };
+  let preview =
+    page.items.find((instance) => instance.vm_id === previewId) ?? null;
+  if (previewId && !preview) {
+    try {
+      preview = await getInstance(previewId, signal);
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) throw error;
+    }
+  }
+  const timelineItems = page.direct ? [] : [...page.items];
+  if (preview && !timelineItems.some((item) => item.vm_id === preview.vm_id))
+    timelineItems.push(preview);
+  const timelines = await fetchTimelines(
+    timelineItems,
+    previous?.timelines ?? new Map(),
+    signal,
+  );
+  signal.throwIfAborted();
+  return {
+    ...page,
+    preview,
+    ...timelines,
+    complete: page.complete && timelines.complete,
+  };
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isExactId(query: string): boolean {
@@ -54,6 +127,7 @@ export function matchesQuery(
   const needle = query.trim().toLowerCase();
   if (needle === "") return true;
   return (
+    (instance.workflow_name?.toLowerCase().includes(needle) ?? false) ||
     instance.vm_id.toLowerCase().includes(needle) ||
     instance.last_event.node_id.toLowerCase().includes(needle) ||
     (instance.latest_run?.node_id.toLowerCase().includes(needle) ?? false) ||
@@ -72,11 +146,8 @@ export async function fetchInstancePage(
   if (isExactId(text)) {
     try {
       const instance = await getInstance(text, signal);
-      const keep =
-        query.states.length === 0 ||
-        matchesQuery(instance, "", query.states, query.now);
       return {
-        items: keep ? [instance] : [],
+        items: [instance],
         next: null,
         scanned: 1,
         capped: false,

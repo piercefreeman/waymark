@@ -93,9 +93,10 @@ impl waymark_state_vm_runtimes_backend::LoadForRevive for PostgresBackend {
         Self::count_query(&self.query_counts, "select:vm_runtime_snapshots_for_revive");
         let row = sqlx::query(
             r#"
-            SELECT snapshot, executable_id
-            FROM vm_runtime_snapshots
-            WHERE vm_id = $1
+            SELECT runtime.snapshot, runtime.executable_id, NULLIF(executable.name, '') AS workflow_name
+            FROM vm_runtime_snapshots AS runtime
+            LEFT JOIN vm_executables AS executable ON executable.id = runtime.executable_id
+            WHERE runtime.vm_id = $1
             "#,
         )
         .bind(vm_id)
@@ -113,6 +114,7 @@ impl waymark_state_vm_runtimes_backend::LoadForRevive for PostgresBackend {
         Ok(waymark_state_vm_runtimes_backend::RevivePayload {
             snapshot,
             executable_id,
+            workflow_name: row.get("workflow_name"),
         })
     }
 }

@@ -51,6 +51,7 @@ impl waymark_cursor_core::DecodeCursor for InstanceCursor {
 /// The instance view's columns, as the instances table holds them.
 const INSTANCE_COLUMNS: &str = r#"
     vm_id,
+    workflow_name,
     last_at,
     last_node_id,
     last_node_sequence,
@@ -137,6 +138,7 @@ fn decode_instance(row: &sqlx::postgres::PgRow) -> Result<InstanceState, sqlx::E
 
     Ok(InstanceState {
         vm_id,
+        workflow_name: row.try_get("workflow_name")?,
         latest_run,
         outcome,
         last_event,

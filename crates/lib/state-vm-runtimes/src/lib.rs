@@ -265,7 +265,7 @@ where
             .map_err(SpawningError::Load)?;
 
 
-        let waymark_state_vm_runtimes_backend::RevivePayload { snapshot, executable_id } = revive_payload;
+        let waymark_state_vm_runtimes_backend::RevivePayload { snapshot, executable_id, workflow_name } = revive_payload;
 
         let executable_handle = self
             .executable_provider
@@ -296,7 +296,7 @@ where
             runtime,
             self.effector_provider.provide_effector(key),
             snapshotter,
-            self.hooks_provider.provide_hooks(key),
+            self.hooks_provider.provide_hooks(key, workflow_name.as_deref()),
             vec![Box::new(executable_handle)],
         )
         .instrument(tracing::info_span!("drive_runtime", ?key))

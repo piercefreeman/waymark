@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { ArrowUpRight, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   formatClock,
   formatDuration,
   formatRelative,
+  formatTimeRange,
   shortId,
 } from "@/lib/format";
 import {
@@ -32,19 +33,17 @@ import {
 } from "@/components/patterns/source-notice";
 import { InstanceStateInk } from "@/components/patterns/status-ink";
 import { Duration } from "@/components/patterns/time";
-import { Input } from "@/components/ui/input";
 import { PeekPanel } from "@/components/layout/peek-panel";
-import { PAGE_SIZE, SCAN_PAGE_CAP, isExactId } from "@/data/instances";
+import { PAGE_SIZE, isExactId } from "@/data/instances";
 import { InstancePeek } from "./peek";
+import { WorkflowSearch } from "./search";
 
 export interface PageInfo {
   next: string | null;
   after: string | null;
-  pinnedTo: Date | null;
   scanned: number;
   capped: boolean;
   direct: boolean;
-  loadingRows: number;
 }
 
 /**
@@ -59,34 +58,35 @@ export interface PageInfo {
  */
 export function InstanceList({
   instances,
+  selected,
   now,
-  windowLabel,
+  range,
   source,
   page,
-  fetchedTo,
 }: {
   instances: InstanceSummary[];
+  selected: InstanceSummary | null;
   now: Date;
-  windowLabel: string;
+  range: { from: Date; to: Date };
   source: SourceStatus;
   page: PageInfo;
-  fetchedTo: Date | null;
 }) {
   const { pathname, search } = useLocation();
   const [stateParam] = useSearchParam("state");
-  const [query, setQuery] = useSearchParam("q");
+  const [query] = useSearchParam("q");
+  const [customFrom] = useSearchParam("from");
   const [selectedId, setSelectedId] = useSearchParam("vm");
   const rows = useRef<HTMLAnchorElement[]>([]);
-  const [draft, setDraft] = useState(query ?? "");
-  useEffect(() => setDraft(query ?? ""), [query]);
-  useEffect(() => {
-    if (draft === (query ?? "")) return;
-    const timer = window.setTimeout(
-      () => setQuery(draft.trim() || null, { replace: true }),
-      isExactId(draft) ? 0 : 350,
-    );
-    return () => window.clearTimeout(timer);
-  }, [draft, query, setQuery]);
+  const setFilters = useCallback(
+    (patch: Record<string, string | null>) => {
+      navigate(
+        withSearch(pathname, search, { ...patch, after: null, vm: null }),
+        // A full-ID search becomes a detail route; Back should restore this list.
+        { replace: !isExactId(patch.q ?? "") },
+      );
+    },
+    [pathname, search],
+  );
 
   const stateFilter = useMemo(
     () =>
@@ -105,12 +105,17 @@ export function InstanceList({
 
   const visible = instances;
 
-  const selected =
-    visible.find((instance) => instance.vmId === selectedId) ?? null;
   const closePeek = useCallback(() => setSelectedId(null), [setSelectedId]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      )
+        return;
       const target = event.target as HTMLElement | null;
       if (
         target instanceof HTMLInputElement ||
@@ -129,7 +134,7 @@ export function InstanceList({
         rows.current[next]?.focus();
       } else if (event.key === "o" && focused >= 0) {
         event.preventDefault();
-        navigate(`/instances/${visible[focused].vmId}`);
+        navigate(`/workflows/${visible[focused].vmId}`);
       } else if (event.key === "y" && focused >= 0) {
         void navigator.clipboard
           .writeText(visible[focused].vmId)
@@ -153,27 +158,28 @@ export function InstanceList({
     <div className="flex min-h-[calc(100svh-var(--spacing-bar))] min-w-0 flex-col">
       <div className="px-gutter pt-5">
         <SectionHeader
-          title="Instances"
+          title="Workflows"
           count={page.after ? undefined : instances.length}
           description={
-            page.pinnedTo
-              ? `active in the ${windowLabel} before ${formatClock(page.pinnedTo)}`
-              : `active in the last ${windowLabel}`
+            page.direct ? undefined : formatTimeRange(range.from, range.to)
           }
           actions={
-            <div className="relative w-64">
-              <Search
-                className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-fg-subtle"
-                aria-hidden
-              />
-              <Input
-                aria-label="Search the window by instance id, node id, or state"
-                placeholder="Search id, node, state…"
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                className="pl-8"
-              />
-            </div>
+            <WorkflowSearch
+              query={query ?? ""}
+              range={range}
+              customRange={customFrom !== null}
+              states={stateFilter}
+              onQueryChange={(next) => setFilters({ q: next || null })}
+              onRangeChange={(next) =>
+                setFilters({
+                  from: next.from.toISOString(),
+                  to: next.to.toISOString(),
+                })
+              }
+              onStatesChange={(next) =>
+                setFilters({ state: next.length ? next.join(",") : null })
+              }
+            />
           }
         />
         {chipOptions.length > 0 && (
@@ -183,13 +189,7 @@ export function InstanceList({
             options={chipOptions}
             value={stateFilter}
             onChange={(next) =>
-              navigate(
-                withSearch(pathname, search, {
-                  state: next.length ? next.join(",") : null,
-                  after: null,
-                }),
-                { replace: true },
-              )
+              setFilters({ state: next.length ? next.join(",") : null })
             }
           />
         )}
@@ -203,14 +203,18 @@ export function InstanceList({
           className="grid h-8 min-w-[880px] grid-cols-[130px_minmax(220px,1fr)_minmax(260px,1.5fr)_168px_96px] items-center gap-x-5 border-b border-line px-gutter text-micro text-fg-subtle"
         >
           <span role="columnheader">State</span>
-          <span role="columnheader">Instance</span>
+          <span role="columnheader">Workflow</span>
           <span role="columnheader">Now</span>
           <span role="columnheader">Timeline</span>
           <span role="columnheader" className="text-right">
             Elapsed
           </span>
         </div>
-        {visible.length === 0 ? (
+        {source.loading && !source.fetchedAt && !source.error ? (
+          <p role="status" className="px-gutter py-6 text-label text-fg-muted">
+            Loading workflows…
+          </p>
+        ) : visible.length === 0 ? (
           <EmptyState
             variant={
               source.error && instances.length === 0
@@ -221,19 +225,21 @@ export function InstanceList({
             }
             title={
               source.error && instances.length === 0
-                ? "Instances unavailable"
+                ? "Workflows unavailable"
                 : query || stateFilter.length
-                  ? "No instances match"
-                  : `No instances in the last ${windowLabel}`
+                  ? "No workflows match"
+                  : "No workflows in this time window"
             }
             description={
               source.error && instances.length === 0
                 ? source.error.message
-                : query || stateFilter.length
-                  ? page.capped
-                    ? `Searched ${page.scanned} instances before stopping; page onward to keep searching, or narrow the window.`
-                    : `Searched ${page.scanned} instances in the window. Search covers ids, node ids, and states; action names need a timeline read.`
-                  : "Instances appear once a driver run reports an event. Try a wider window."
+                : page.direct
+                  ? "Check the workflow id. Its history may no longer be available."
+                  : query || stateFilter.length
+                    ? page.capped
+                      ? `Searched ${page.scanned} workflows. Choose Keep searching for more, or narrow the time window.`
+                      : "Try a different workflow name, id, node id, or state, or widen the time window."
+                    : "Try a wider time window."
             }
           />
         ) : (
@@ -263,17 +269,16 @@ export function InstanceList({
                   >
                     <InstanceStateInk state={instance.state} size="sm" />
                     <span className="min-w-0">
-                      {/* The API reports no workflow name; the first action the
-                          VM called is the closest reported fact, so it leads. */}
-                      <span className="mono-data block truncate text-label text-fg">
-                        {instance.firstAction
-                          ? instance.firstAction.name
-                          : shortId(instance.vmId)}
+                      <span
+                        className="mono-data block truncate text-label text-fg"
+                        title={instance.workflowName ?? instance.vmId}
+                      >
+                        {instance.workflowName ?? shortId(instance.vmId)}
                       </span>
                       <span className="mono-data block truncate text-micro text-fg-subtle">
-                        {instance.firstAction
-                          ? `${shortId(instance.vmId)}${instance.firstAction.module ? ` · ${instance.firstAction.module}` : ""}`
-                          : "no action called yet"}
+                        {instance.workflowName
+                          ? shortId(instance.vmId)
+                          : "Name not recorded"}
                       </span>
                     </span>
                     <span className="min-w-0">
@@ -307,18 +312,17 @@ export function InstanceList({
       <div className="sticky bottom-0 mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface px-gutter py-2 text-micro text-fg-subtle">
         <span>
           {page.direct
-            ? "Direct lookup by id"
+            ? `${instances.length} workflow${instances.length === 1 ? "" : "s"}`
             : query || stateFilter.length
-              ? `${instances.length} match${instances.length === 1 ? "" : "es"} in ${page.scanned} scanned${page.capped ? ` · stopped at ${SCAN_PAGE_CAP} pages` : page.next ? "" : " · whole window"}`
+              ? `${instances.length} match${instances.length === 1 ? "" : "es"} in ${page.scanned} searched${page.capped ? " · more to search" : page.next ? "" : " · end of time window"}`
               : `${instances.length} on this page${page.after ? "" : page.next ? ` · newest ${PAGE_SIZE}` : ""}`}
-          {page.loadingRows > 0 && ` · loading ${page.loadingRows} timelines`}
         </span>
         <span className="flex items-center gap-2">
           {page.after && (
             <a
               href={withSearch(pathname, search, {
                 after: null,
-                to: null,
+                to: customFrom ? range.to.toISOString() : null,
                 vm: null,
               })}
               onClick={onLinkClick}
@@ -332,7 +336,7 @@ export function InstanceList({
             <a
               href={withSearch(pathname, search, {
                 after: page.next,
-                to: (page.pinnedTo ?? fetchedTo ?? now).toISOString(),
+                to: range.to.toISOString(),
                 vm: null,
               })}
               onClick={onLinkClick}
@@ -366,7 +370,7 @@ export function InstanceList({
         actions={
           selected && (
             <a
-              href={`/instances/${selected.vmId}`}
+              href={`/workflows/${selected.vmId}`}
               onClick={onLinkClick}
               className="inline-flex h-6 items-center gap-1 rounded-control border border-line-strong px-2 text-micro text-fg transition-colors duration-fast hover:bg-surface-raised"
             >

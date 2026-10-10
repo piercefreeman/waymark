@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { ListTree, Moon, Server, Sun } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatClock, formatRelative } from "@/lib/format";
@@ -10,7 +10,6 @@ import {
   withSearch,
 } from "@/lib/router";
 import { useTheme } from "@/providers/theme";
-import { Kbd } from "../patterns/kbd";
 import type { SourceStatus } from "../patterns/source-notice";
 import { StatusDot } from "../patterns/status-ink";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
@@ -24,28 +23,39 @@ export const timeWindows = [
 export type TimeWindowId = (typeof timeWindows)[number]["id"];
 
 export function useTimeWindow() {
-  const [raw, setRaw] = useSearchParam("w");
+  const { pathname, search } = useLocation();
+  const raw = search.get("w");
   const current =
     timeWindows.find((window) => window.id === raw) ?? timeWindows[0];
   return [
     current,
-    (id: TimeWindowId) => setRaw(id === "15m" ? null : id, { replace: true }),
+    (id: TimeWindowId) =>
+      navigate(
+        withSearch(pathname, search, {
+          w: id === "15m" ? null : id,
+          after: null,
+          from: null,
+          to: null,
+          vm: null,
+        }),
+        { replace: true },
+      ),
   ] as const;
 }
 
 const railItems = [
   {
-    href: "/instances",
-    label: "Instances",
+    href: "/workflows",
+    label: "Workflows",
     icon: ListTree,
-    match: "/instances",
+    match: "/workflows",
   },
   { href: "/fleet", label: "Fleet", icon: Server, match: "/fleet" },
 ] as const;
 
 /**
  * One 40px global bar carries identity, environment, page title, the time
- * window, live state, a jump box, and theme. A 48px icon rail navigates.
+ * window and live state, and theme. A 48px icon rail navigates.
  * The workspace gets everything else.
  */
 export function AppShell({
@@ -53,40 +63,24 @@ export function AppShell({
   now,
   source,
   pinnedTo = null,
+  previewOpen = false,
   children,
 }: {
   title: ReactNode;
   now: Date;
   source: SourceStatus;
-  /** When set, the page is frozen at this instant and does not poll. */
+  /** When set, list membership is held within this time range. */
   pinnedTo?: Date | null;
+  /** A preview holds the list in place while its workflow data keeps updating. */
+  previewOpen?: boolean;
   children: ReactNode;
 }) {
   const { pathname, search } = useLocation();
   const [window, setWindow] = useTimeWindow();
   const [pausedParam, setPaused] = useSearchParam("paused");
-  const live = pausedParam !== "1";
+  const live = pausedParam !== "1" && !previewOpen;
+  const workflowList = pathname === "/workflows";
   const { theme, setTheme } = useTheme();
-  const jump = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      const typing =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement;
-      if (
-        (event.key === "k" && (event.metaKey || event.ctrlKey)) ||
-        (event.key === "/" && !typing)
-      ) {
-        event.preventDefault();
-        jump.current?.focus();
-        jump.current?.select();
-      }
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
 
   return (
     <div className="grid min-h-svh grid-rows-[var(--spacing-bar)_minmax(0,1fr)] bg-canvas">
@@ -98,7 +92,7 @@ export function AppShell({
       </a>
       <header className="sticky top-0 z-30 flex h-bar items-center gap-3 border-b border-line bg-surface px-3">
         <a
-          href="/instances"
+          href="/workflows"
           onClick={onLinkClick}
           className="flex items-center gap-2 pr-1 text-label font-semibold text-fg"
           aria-label="Waymark home"
@@ -108,45 +102,52 @@ export function AppShell({
           </span>
           Waymark
         </a>
-        <span className="text-micro text-fg-subtle">local</span>
         <span className="h-4 w-px bg-line" aria-hidden />
         <h1 className="min-w-0 truncate text-label font-medium text-fg">
           {title}
         </h1>
         <div className="ml-auto flex items-center gap-2">
-          <div
-            role="group"
-            aria-label="Time window"
-            className="flex h-control items-center rounded-control border border-line-strong bg-surface p-0.5"
-          >
-            {timeWindows.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                aria-pressed={option.id === window.id}
-                onClick={() => setWindow(option.id)}
-                className={cn(
-                  "mono-data h-full rounded-[3px] px-2 text-micro text-fg-muted transition-colors duration-fast hover:text-fg",
-                  option.id === window.id && "bg-surface-raised text-fg",
-                )}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          {pathname === "/fleet" && (
+            <div
+              role="group"
+              aria-label="Time window"
+              className="flex h-control items-center rounded-control border border-line-strong bg-surface p-0.5"
+            >
+              {timeWindows.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={option.id === window.id}
+                  onClick={() => setWindow(option.id)}
+                  className={cn(
+                    "mono-data h-full rounded-[3px] px-2 text-micro text-fg-muted transition-colors duration-fast hover:text-fg",
+                    option.id === window.id && "bg-surface-raised text-fg",
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
           {pinnedTo ? (
             <button
               type="button"
               onClick={() =>
                 navigate(
-                  withSearch(pathname, search, { to: null, after: null }),
+                  withSearch(pathname, search, {
+                    from: null,
+                    to: null,
+                    after: null,
+                    vm: null,
+                    paused: null,
+                  }),
                 )
               }
               className="flex h-control items-center gap-2 rounded-control border border-waiting/50 bg-waiting/10 px-2 text-micro text-fg transition-colors duration-fast hover:bg-waiting/20"
-              title="This page is frozen at the moment you paged. Click to return to live."
+              title="Return to the newest workflows"
             >
               <StatusDot tone="waiting" />
-              <span className="font-medium">Frozen</span>
+              <span className="font-medium">Fixed range</span>
               <span className="mono-data hidden sm:inline">
                 {formatClock(pinnedTo)}
               </span>
@@ -156,12 +157,25 @@ export function AppShell({
             <button
               type="button"
               aria-pressed={live}
-              onClick={() => setPaused(live ? "1" : null, { replace: true })}
+              onClick={() => {
+                if (previewOpen)
+                  navigate(
+                    withSearch(pathname, search, { vm: null, paused: null }),
+                    { replace: true },
+                  );
+                else setPaused(live ? "1" : null, { replace: true });
+              }}
               className="flex h-control items-center gap-2 rounded-control border border-line-strong bg-surface px-2 text-micro text-fg-muted transition-colors duration-fast hover:text-fg"
               title={
-                live
-                  ? "Polling every 5 s. Click to pause."
-                  : "Paused. Click to resume."
+                previewOpen
+                  ? "Close preview and resume the list"
+                  : workflowList
+                    ? live
+                      ? "Hold the list in place; workflow details keep updating"
+                      : "Resume the list"
+                    : live
+                      ? "Pause live updates"
+                      : "Resume live updates"
               }
             >
               <StatusDot
@@ -169,7 +183,7 @@ export function AppShell({
                 pulse={live && !source.error}
               />
               <span className="font-medium text-fg">
-                {live ? "Live" : "Paused"}
+                {live ? "Live" : workflowList ? "List paused" : "Paused"}
               </span>
               <span className="mono-data hidden sm:inline">
                 {source.fetchedAt
@@ -180,30 +194,6 @@ export function AppShell({
               </span>
             </button>
           )}
-          <form
-            className="relative hidden md:block"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const value = jump.current?.value.trim() ?? "";
-              if (!value) return;
-              if (/^[0-9a-f-]{36}$/i.test(value))
-                navigate(`/instances/${value}`);
-              else navigate(`/instances?q=${encodeURIComponent(value)}`);
-              jump.current?.blur();
-            }}
-          >
-            <input
-              ref={jump}
-              type="search"
-              aria-label="Jump to instance by id"
-              placeholder="Jump to vm_id"
-              className="mono-data h-control w-52 rounded-control border border-line-strong bg-surface pl-2.5 pr-12 text-micro text-fg placeholder:text-fg-subtle focus-visible:border-focus"
-            />
-            <span className="pointer-events-none absolute right-1.5 top-1/2 flex -translate-y-1/2 gap-0.5">
-              <Kbd>⌘</Kbd>
-              <Kbd>K</Kbd>
-            </span>
-          </form>
           <button
             type="button"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}

@@ -100,6 +100,7 @@ async fn events_round_trip_through_the_store() {
             at: started_at,
             payload: waymark_observability_events_payload::Payload::VmDriver(
                 waymark_observability_events_payload::vm_driver::Payload {
+                    workflow_name: None,
                     vm_id,
                     run_sequence: 0,
                     observation: waymark_observability_events_payload::vm_driver::Observation::VmStarted,
@@ -112,6 +113,7 @@ async fn events_round_trip_through_the_store() {
             at: emitted_at,
             payload: waymark_observability_events_payload::Payload::VmDriver(
                 waymark_observability_events_payload::vm_driver::Payload {
+                    workflow_name: None,
                     vm_id,
                     run_sequence: 1,
                     observation: waymark_observability_events_payload::vm_driver::Observation::EffectEmitted {
@@ -248,6 +250,7 @@ fn vm_driver_event(
         at: chrono::DateTime::from_timestamp_secs(at_secs).unwrap(),
         payload: waymark_observability_events_payload::Payload::VmDriver(
             waymark_observability_events_payload::vm_driver::Payload {
+                workflow_name: None,
                 vm_id,
                 run_sequence,
                 observation,
@@ -436,6 +439,7 @@ async fn retention_deletes_in_chunks() {
             at: chrono::DateTime::from_timestamp_secs(second).unwrap(),
             payload: waymark_observability_events_payload::Payload::VmDriver(
                 waymark_observability_events_payload::vm_driver::Payload {
+                    workflow_name: None,
                     vm_id,
                     run_sequence: 0,
                     observation:
@@ -542,6 +546,7 @@ async fn retention_chunks_split_rows_sharing_a_timestamp() {
             at: chrono::DateTime::from_timestamp_secs(second).unwrap(),
             payload: waymark_observability_events_payload::Payload::VmDriver(
                 waymark_observability_events_payload::vm_driver::Payload {
+                    workflow_name: None,
                     vm_id,
                     run_sequence: 0,
                     observation:

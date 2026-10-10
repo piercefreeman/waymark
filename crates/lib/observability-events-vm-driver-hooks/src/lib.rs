@@ -46,6 +46,7 @@ pub struct Policy {
 /// its VM driver error, which it only ever summarizes.
 pub struct Hooks<EffectSummarizer, Value, RaisedException, DriverError> {
     vm_id: waymark_ids::InstanceId,
+    workflow_name: Option<String>,
     run_sequence: AtomicU64,
     emitter: Arc<Emitter>,
     policy: Policy,
@@ -62,9 +63,15 @@ impl<EffectSummarizer, Value, RaisedException, DriverError>
 {
     /// The hooks for one run of `vm_id`, emitting through `emitter` what
     /// `policy` asks for; the run's positions start at zero.
-    pub fn new(vm_id: waymark_ids::InstanceId, emitter: Arc<Emitter>, policy: Policy) -> Self {
+    pub fn new(
+        vm_id: waymark_ids::InstanceId,
+        workflow_name: Option<String>,
+        emitter: Arc<Emitter>,
+        policy: Policy,
+    ) -> Self {
         Self {
             vm_id,
+            workflow_name,
             run_sequence: AtomicU64::new(0),
             emitter,
             policy,
@@ -80,6 +87,7 @@ impl<EffectSummarizer, Value, RaisedException, DriverError>
             .emit(waymark_observability_events_payload::Payload::VmDriver(
                 waymark_observability_events_payload::vm_driver::Payload {
                     vm_id: self.vm_id,
+                    workflow_name: self.workflow_name.clone(),
                     run_sequence,
                     observation,
                 },

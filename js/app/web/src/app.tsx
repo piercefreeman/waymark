@@ -1,22 +1,18 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { getInstance, nodeSeries, nodesLatest, vmTimeline } from "./api/client";
 import { AppShell, useTimeWindow } from "./components/layout/app-shell";
 import type { SourceStatus } from "./components/patterns/source-notice";
 import { TooltipProvider } from "./components/ui/tooltip";
-import { fetchInstancePage } from "./data/instances";
+import { fetchInstanceSnapshot, type InstanceSnapshot } from "./data/instances";
 import { useLive } from "./data/live";
-import { useTimelines } from "./data/timelines";
 import { instanceStates, type InstanceState } from "./domain/status";
 import type { Instance, NodeSample } from "./domain/api";
-import {
-  deriveFromInstance,
-  deriveInstance,
-  type InstanceSummary,
-} from "./domain/derive";
+import { deriveFromInstance, type InstanceSummary } from "./domain/derive";
 import { InstanceDetail } from "./features/instances/detail";
 import { InstanceList, type PageInfo } from "./features/instances/list";
 import { FleetPage } from "./features/fleet/page";
 import { shortId } from "./lib/format";
+import { parseTimeRange } from "./lib/time-range";
 import { matchPath, navigate, useLocation, useSearchParam } from "./lib/router";
 import { useNow } from "./lib/use-now";
 import { ThemeProvider } from "./providers/theme";
@@ -40,21 +36,24 @@ function Router() {
   const { pathname } = useLocation();
   useEffect(() => {
     if (pathname === "/" || pathname === "")
-      navigate("/instances", { replace: true });
+      navigate("/workflows", { replace: true });
   }, [pathname]);
 
-  const detail = matchPath("/instances/:vmId", pathname);
+  const detail = matchPath("/workflows/:vmId", pathname);
   if (detail) return <DetailRoute vmId={detail.vmId} />;
   if (matchPath("/fleet", pathname)) return <FleetRoute />;
   return <InstancesRoute />;
 }
 
 function InstancesRoute() {
+  const snapshot = useRef<{ key: string; data: InstanceSnapshot } | null>(null);
   const now = useNow();
   const [timeWindow] = useTimeWindow();
   const [paused] = useSearchParam("paused");
+  const [previewId] = useSearchParam("vm");
   const [after] = useSearchParam("after");
   const [pinnedTo] = useSearchParam("to");
+  const [customFrom] = useSearchParam("from");
   const [query] = useSearchParam("q");
   const [stateParam] = useSearchParam("state");
   const states = useMemo(
@@ -64,69 +63,121 @@ function InstancesRoute() {
         .filter((value): value is InstanceState => value in instanceStates),
     [stateParam],
   );
-  const pinned = pinnedTo ? new Date(pinnedTo) : null;
+  const pinned =
+    pinnedTo && Number.isFinite(Date.parse(pinnedTo))
+      ? new Date(pinnedTo)
+      : null;
+  const customRange = parseTimeRange(customFrom, pinnedTo);
   const key = [
     timeWindow.id,
     after ?? "",
     pinnedTo ?? "",
+    customFrom ?? "",
     query ?? "",
     stateParam ?? "",
   ].join("|");
+  const previous = snapshot.current?.key === key ? snapshot.current.data : null;
+  const previewOpen = Boolean(
+    previewId &&
+    (previous?.preview?.vm_id === previewId ||
+      previous?.items.some((item) => item.vm_id === previewId)),
+  );
+  const holdList = paused === "1" || pinnedTo !== null || previewOpen;
 
   const live = useLive(
     async (signal) => {
+      if (
+        (customFrom !== null && !customRange) ||
+        (pinnedTo !== null && !pinned)
+      ) {
+        throw new Error(
+          "Choose a valid time range with the end after the start.",
+        );
+      }
       const to = pinned ?? new Date();
-      const page = await fetchInstancePage(
+      const from = customRange?.from ?? new Date(to.getTime() - timeWindow.ms);
+      const data = await fetchInstanceSnapshot(
         {
-          from: new Date(to.getTime() - timeWindow.ms),
+          from,
           to,
           after,
           query: query ?? "",
           states,
           now: new Date(),
         },
+        previous,
+        holdList,
+        previewId,
         signal,
       );
-      return { ...page, to, complete: true };
+      signal.throwIfAborted();
+      snapshot.current = { key, data };
+      return data;
     },
     {
       intervalMs: POLL_MS,
-      // A pinned `to` is a frozen page: nothing after it can appear, so
-      // there is nothing to poll for.
-      enabled: paused !== "1" && pinned === null,
+      enabled: true,
       key,
+      restartKey: `${holdList}:${previewId ?? ""}`,
     },
   );
 
-  const dtos = useMemo(() => live.data?.items ?? [], [live.data]);
-  const timelines = useTimelines(dtos);
+  const matchedId = live.data?.direct ? live.data.items[0]?.vm_id : undefined;
+  useEffect(() => {
+    if (matchedId) navigate(`/workflows/${matchedId}`, { replace: true });
+  }, [matchedId]);
 
   const instances = useMemo<InstanceSummary[]>(() => {
-    return dtos.map((dto: Instance) =>
-      deriveFromInstance(dto, timelines.get(dto.vm_id)?.events ?? [], now),
+    return (live.data?.items ?? []).map((dto: Instance) =>
+      deriveFromInstance(
+        dto,
+        live.data?.timelines.get(dto.vm_id)?.events ?? [],
+        now,
+      ),
     );
-    // `timelines.version` is the cache's change counter.
-  }, [dtos, now, timelines.version]);
+  }, [live.data, now]);
+
+  const preview = live.data?.preview;
+  const selected =
+    instances.find((instance) => instance.vmId === previewId) ??
+    (preview && preview.vm_id === previewId
+      ? deriveFromInstance(
+          preview,
+          live.data?.timelines.get(preview.vm_id)?.events ?? [],
+          now,
+        )
+      : null);
 
   const source = sourceStatus(live);
   const page: PageInfo = {
     next: live.data?.next ?? null,
     after,
-    pinnedTo: pinned,
     scanned: live.data?.scanned ?? 0,
     capped: live.data?.capped ?? false,
     direct: live.data?.direct ?? false,
-    loadingRows: timelines.pending,
   };
+  const to = live.data?.to ?? pinned ?? now;
   return (
-    <AppShell title="Instances" now={now} source={source} pinnedTo={pinned}>
+    <AppShell
+      title="Workflows"
+      now={now}
+      source={source}
+      pinnedTo={pinned}
+      previewOpen={selected !== null}
+    >
       <InstanceList
         instances={instances}
+        selected={selected}
         now={now}
-        windowLabel={timeWindow.label}
+        range={{
+          from:
+            live.data?.from ??
+            customRange?.from ??
+            new Date(to.getTime() - timeWindow.ms),
+          to,
+        }}
         source={source}
         page={page}
-        fetchedTo={live.data?.to ?? null}
       />
     </AppShell>
   );
@@ -147,13 +198,11 @@ function DetailRoute({ vmId }: { vmId: string }) {
   );
   const summary = useMemo(() => {
     if (!live.data) return undefined;
-    return live.data.events.length
-      ? deriveInstance(vmId, live.data.events, now)
-      : deriveFromInstance(live.data.dto, [], now);
+    return deriveFromInstance(live.data.dto, live.data.events, now);
   }, [live.data, now, vmId]);
   const source = sourceStatus(live);
   return (
-    <AppShell title={`Instance ${shortId(vmId)}`} now={now} source={source}>
+    <AppShell title={`Workflow ${shortId(vmId)}`} now={now} source={source}>
       <InstanceDetail summary={summary} now={now} source={source} />
     </AppShell>
   );

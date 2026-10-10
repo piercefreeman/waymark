@@ -16,45 +16,79 @@ export interface LiveState<T> {
 
 export function useLive<T>(
   fetcher: (signal: AbortSignal) => Promise<T>,
-  options: { intervalMs: number; enabled: boolean; key: string },
+  options: {
+    intervalMs: number;
+    enabled: boolean;
+    key: string;
+    /** Restart an in-flight read without discarding this query's displayed data. */
+    restartKey?: string;
+  },
 ): LiveState<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<Error | null>(null);
-  const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<
+    Omit<LiveState<T>, "refresh"> & { key: string; tick: number }
+  >({
+    key: options.key,
+    tick: 0,
+    data: null,
+    error: null,
+    fetchedAt: null,
+    loading: true,
+  });
   const [tick, setTick] = useState(0);
   const latest = useRef(fetcher);
   latest.current = fetcher;
+  const wasEnabled = useRef(options.enabled);
 
   const refresh = useCallback(() => setTick((value) => value + 1), []);
 
   useEffect(() => {
+    const pausing = wasEnabled.current && !options.enabled;
+    wasEnabled.current = options.enabled;
     let controller: AbortController | null = null;
     let timer: number | null = null;
     let cancelled = false;
 
     async function run() {
-      controller?.abort();
+      if (cancelled || controller) return;
+      if (timer !== null) window.clearTimeout(timer);
       controller = new AbortController();
       const { signal } = controller;
-      setLoading(true);
+      setState((previous) => ({
+        key: options.key,
+        tick,
+        data: previous.key === options.key ? previous.data : null,
+        error: previous.key === options.key ? previous.error : null,
+        fetchedAt: previous.key === options.key ? previous.fetchedAt : null,
+        loading: true,
+      }));
       try {
         const result = await latest.current(signal);
         if (signal.aborted || cancelled) return;
-        setData(result);
-        setError(null);
-        setFetchedAt(new Date());
+        setState({
+          key: options.key,
+          tick,
+          data: result,
+          error: null,
+          fetchedAt: new Date(),
+          loading: false,
+        });
       } catch (caught) {
         if (signal.aborted || cancelled) return;
-        setError(caught instanceof Error ? caught : new Error(String(caught)));
+        setState((previous) => ({
+          ...previous,
+          error: caught instanceof Error ? caught : new Error(String(caught)),
+          loading: false,
+        }));
       } finally {
-        if (!signal.aborted && !cancelled) setLoading(false);
+        controller = null;
       }
     }
 
     function schedule() {
+      // An aborted fetch can settle after cleanup. It must not revive its
+      // polling loop or overlap a fetch triggered by returning to the tab.
+      if (cancelled || controller || !options.enabled) return;
       if (timer !== null) window.clearTimeout(timer);
-      if (!options.enabled) return;
       timer = window.setTimeout(() => {
         if (document.visibilityState === "visible") void run().then(schedule);
         else schedule();
@@ -66,7 +100,16 @@ export function useLive<T>(
         void run().then(schedule);
     }
 
-    void run().then(schedule);
+    // Pausing stops background work without fetching once more. A new query
+    // or an explicit retry still loads once, even when polling is paused.
+    if (
+      options.enabled ||
+      state.key !== options.key ||
+      state.tick !== tick ||
+      (!state.fetchedAt && !state.error && !pausing)
+    )
+      void run().then(schedule);
+    else setState((previous) => ({ ...previous, loading: false }));
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
@@ -76,7 +119,22 @@ export function useLive<T>(
     };
     // `key` names the inputs that should restart polling; the fetcher itself
     // is read through a ref so a new closure per render doesn't refetch.
-  }, [options.key, options.enabled, options.intervalMs, tick]);
+    // State changes record the result; they must not restart the effect.
+  }, [
+    options.key,
+    options.restartKey,
+    options.enabled,
+    options.intervalMs,
+    tick,
+  ]);
 
-  return { data, error, fetchedAt, loading, refresh };
+  // Keep data during same-query refreshes, never across pages or identities.
+  const current = state.key === options.key ? state : null;
+  return {
+    data: current?.data ?? null,
+    error: current?.error ?? null,
+    fetchedAt: current?.fetchedAt ?? null,
+    loading: current?.loading ?? true,
+    refresh,
+  };
 }

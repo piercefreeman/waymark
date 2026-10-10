@@ -199,51 +199,57 @@ function PromiseRow({
       href={href}
       onClick={onLinkClick}
       aria-current={selected ? "true" : undefined}
+      title={settledOnly ? "Called in an earlier run" : undefined}
       data-row
       className={cn(
-        "grid grid-cols-[minmax(200px,260px)_minmax(0,1fr)] border-l-2 border-transparent transition-colors duration-fast hover:bg-surface-raised",
+        "grid h-7 grid-cols-[minmax(200px,260px)_minmax(0,1fr)] border-l-2 border-transparent transition-colors duration-fast hover:bg-surface-raised",
         selected && "border-fg bg-surface-selected",
       )}
     >
-      <span className="flex min-w-0 items-center gap-2 px-gutter py-1.5">
+      <span className="flex min-w-0 items-center gap-2 px-gutter">
+        {promise.kind !== "sleep" && (
+          <span
+            aria-hidden
+            className={cn(
+              "size-1.5 shrink-0 rounded-full",
+              toneBackground[tone],
+            )}
+          />
+        )}
         <span
-          aria-hidden
-          className={cn("size-1.5 shrink-0 rounded-full", toneBackground[tone])}
-        />
-        <span className="min-w-0">
-          <span className="mono-data block truncate text-label text-fg">
-            {promise.kind === "sleep" ? (
-              <span className="inline-flex items-center gap-1">
-                <Moon className="size-3 text-fg-muted" aria-hidden />
-                sleep {formatDuration(promise.sleepMs)}
-              </span>
-            ) : (
-              promise.name
-            )}
-          </span>
-          <span className="block truncate text-[10px] leading-3 text-fg-subtle">
-            #{promise.id}
-            {promise.possibleRetryOf !== null && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span
-                    className="ml-1 inline-flex items-center gap-0.5 text-waiting"
-                    tabIndex={0}
-                  >
-                    <RotateCcw className="size-2.5" aria-hidden />
-                    retry of #{promise.possibleRetryOf}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  Inferred: the same action name was called again after a
-                  rejection. The API reports no attempt number.
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {promise.module && ` · ${promise.module}`}
-            {settledOnly && " · called in an earlier run"}
-          </span>
+          className={cn(
+            "mono-data min-w-0 truncate text-label",
+            promise.kind === "sleep"
+              ? "inline-flex items-center gap-1 text-fg-muted"
+              : "text-fg",
+          )}
+        >
+          {promise.kind === "sleep" ? (
+            <>
+              <Moon className="size-3 shrink-0" aria-hidden />
+              <span className="sr-only">Sleep </span>
+              {formatDuration(promise.sleepMs)}
+            </>
+          ) : (
+            promise.name
+          )}
         </span>
+        {promise.possibleRetryOf !== null && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex shrink-0 text-waiting" tabIndex={0}>
+                <RotateCcw className="size-2.5" aria-hidden />
+                <span className="sr-only">
+                  Possible retry of #{promise.possibleRetryOf}
+                </span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              Possible retry of #{promise.possibleRetryOf}. Inferred: same
+              action called again after a rejection.
+            </TooltipContent>
+          </Tooltip>
+        )}
       </span>
       <span className="relative flex items-center">
         <span

@@ -64,52 +64,93 @@ Rules:
 - Motion 120ms for hover and 180ms for panels; nothing continuous except
   the live dot, which respects `prefers-reduced-motion`.
 
+### Copy
+
+- Keep copy that identifies an operational fact, scopes a metric, explains
+  a specific exception, or helps the user act. Latency, throughput, queue
+  size, actual freshness, and "completed since boot" help an operator.
+- Remove ambient explanations of polling intervals, stale thresholds,
+  storage, API schemas, and missing capabilities. "Try a wider time window"
+  helps; explaining when a driver emits its first event does not.
+- Keep qualifications beside the value they affect: stale data, excluded
+  nodes, incomplete history, queue time included in a duration, and possible
+  retries. "Not recorded" is enough for an absent payload; do not repeat an
+  inventory of what the API records.
+- Use concise status help on hover instead of repeating state derivation
+  rules below a headline. Show missing-event warnings when there are gaps;
+  omit routine confirmations such as "sequence complete".
+- Call workflow executions "Workflows" in navigation, headings, and controls
+  ("Search workflows", not "Search vm_id"). Use `/workflows` for frontend
+  routes; keep API identifiers in their existing technical vocabulary.
+  Show an environment label only when its value is known.
+
 ## Screen anatomy
 
-- **Global bar**: mark, environment, page title, time window
-  (15m/1h/6h/24h), Live/Paused with freshness, jump box (`⌘K` or `/`), theme.
-- **Rail**: Instances, Fleet.
+- **Global bar**: mark, environment when known, page title, Live/Paused with
+  freshness, theme. Fleet retains its chart time
+  control (15m/1h/6h/24h); workflow time filters live in the search dropdown.
+- **Rail**: Workflows, Fleet.
 - **Workspace**: one `minmax(0,1fr)` column. The peek panel (480px) overlays
   it and never pushes columns. Detail is a route, not a sidebar.
 - Filters, the selected instance, the selected promise, and the time window
-  live in the URL (`?state=…&q=…&vm=…`, `/instances/:vm_id?promise=…&tab=…`).
+  live in the URL (`?state=…&q=…&vm=…`, `/workflows/:vm_id?promise=…&tab=…`).
 
-### Instances (`/instances`)
+### Workflows (`/workflows`)
 
-1. Title, count, window, and a text filter on one line. State chips with
-   page-local counts below it; chips only appear for states present.
-2. The ledger, 40px rows: state ink · the first action the VM called (the
-   closest reported fact to a workflow name) over the short `vm_id` and its
-   module · one plain sentence about now ("Running charge_payment for
+1. Title, count, actual UTC time range, and search on one line. Focusing
+   search opens a dropdown with time and state filter suggestions. The
+   current time window stays visible inside the search control. Show
+   the date and both time bounds, including both dates across midnight.
+   Use the range of the displayed data so paused and older pages stay fixed.
+   Direct id lookups omit the range because they bypass the time filter.
+   State chips with page-local counts sit below it; chips only appear for states present.
+2. The ledger, 40px rows: state ink · the registered workflow name over
+   the short `vm_id` (ID alone when the name is not recorded) · one plain
+   sentence about now ("Running charge_payment for
    3.6 s", "Sleeping until 00:36", "Unhandled PaymentMismatch 6m ago",
    "Effect handling failed: worker reservation timed out") with node and
    notable counts beneath · a 160px mini-timeline · elapsed time. Rows with
    an error carry a red left rule. Nothing else: raw event kinds, promise
    counts, and node columns moved into the peek.
 3. `j`/`k` move, `Enter` peeks, `o` opens, `y` copies the id.
+   `⌘K`/`Ctrl+K` or `/` focuses the workflow search field.
+4. The peek centers the Promise ledger: calls, settlements, durations, and
+   outstanding work. Keep raw event logs on the workflow detail page for
+   debugging; do not duplicate a recent-event slice in the peek.
 
-### Instance (`/instances/:vm_id`)
+### Workflow (`/workflows/:vm_id`)
 
 1. Identity bar: full id with copy, state ink.
-2. The same sentence as the list, the rule that produced the state, and a
-   quiet key–value grid: started, elapsed, promises, driver runs, events.
+2. The same sentence as the list and a
+   quiet key–value grid: first event, elapsed, promises, driver runs, events.
 3. **Waterfall** (the hero): one row per promise the VM actually called,
-   grouped into strata per driver run. Bars run from call to settlement.
+   grouped into strata per driver run. Use 28px rows with a single-line label;
+   keep promise IDs and modules in the selected promise's details. Sleep
+   labels show only a moon icon and duration in muted gray, without a status
+   dot or the word "sleep"; use the same label in the preview ledger.
+   Bars run from call to settlement.
    Open promises run to now with a hatched tail. Rejections get a red end
-   tick. Snapshots are ◆ on the run band. Inferred retries are marked, never
-   numbered.
-4. Docked drawer: the selected promise (details, an honest "Not recorded"
-   arguments block, events involving it), the raw event log with gap rows,
-   and the driver runs with their stop reasons and error text.
+   tick. Snapshots are ◆ on the run band. Inferred retries have an inline
+   icon with the explanation on hover, never an attempt number.
+4. Selecting a promise opens a non-modal panel fixed to the bottom of the
+   viewport, with a persistent close control and its own scrolling body.
+   Limit its height to 45% of the viewport or 384px, whichever is smaller,
+   and reserve matching space below the page so its last rows remain reachable.
+   Show the promise details, arguments/result availability, and related events
+   here. Keep the full Events and Runs tabs in the page; selecting a promise
+   preserves their active tab. Escape closes the panel and restores focus;
+   polling must not move keyboard focus back into it.
 
 ### Fleet (`/fleet`)
 
 1. Four numbers with their scope: in flight of capacity, queued (with
    dequeue p95), completions per second, handling p50 (with p95).
-2. One row per node boot that reads as a sentence: identity and sample age,
+2. One row per node boot that reads as a sentence: full node id and sample age,
    an in-flight meter, "8 workers · 19 resident VMs · 4 queued · 31.5 done/s"
    with latency percentiles beneath. Stale boots dim and are excluded from
-   the numbers above.
+   the numbers above. Node ids wrap on narrow screens; keep shortened ids
+   for compact chart legends. Sort by UUID before assigning chart colors so
+   rows and legends stay in place as timestamps and metrics refresh.
 3. Two charts on one shared axis with gaps for missing samples: in flight
    against capacity, and queued dispatches.
 
@@ -117,38 +158,64 @@ Rules:
 
 The ledger follows the list endpoint's cursor, 100 per page. Paging past the
 head freezes the window's `to` bound (kept in the URL) so the older pages
-stay put; the bar shows "Frozen" with a way back to live. Search and state
+stay put; the bar shows "Fixed range" with a way back to live. Search and state
 chips walk the cursor across the window page by page and keep the matches,
 bounded at 20 pages with the footer saying how far the walk got. An exact
-`vm_id` reads the instance directly. Search matches ids, node ids, and
+`vm_id` reads the instance directly, ignoring time and state filters, and
+opens its detail page when found. Missing IDs remain in search. Back from
+a match restores the previous list; there is no separate jump box.
+Search matches workflow names, partial ids, node ids, and
 states, the fields the list endpoint reports; action names would need a
 server-side search.
 
+Time and state choices are available from the workflow search dropdown;
+state chips also provide page-local counts and quick toggles. Changing time
+starts from the newest page in that window while preserving the text and
+state filters. Changing text or state clears the page cursor and selected
+row, retaining a frozen time bound when inspecting historical results.
+Custom ranges use UTC datetime inputs and store both `from` and `to` in
+the URL. The end must be after the start. Both bounds stay fixed through
+pagination, including a return to the newest page. Selecting a preset or
+resuming live clears the custom bounds.
+
 ### Sources and refresh
 
-Pages poll `/api` every 5 s while Live; `?paused=1` stops polling. A
+Pages poll `/api` every 5 s. On the workflow list, a preview, `?paused=1`,
+or a fixed time range holds the visible workflow IDs, their order, the
+pagination cursor, and the displayed range steady. Every held workflow and
+the preview still refresh by ID, including workflows whose activity moves
+outside the range. Cancel pending membership changes when holding the list.
+The live control shows "List paused" while a preview or manual pause holds
+the rows. Closing a preview restores the prior list setting. A preview URL
+also loads its workflow when it is outside the current page; a missing
+workflow must not leave the list paused without a preview. Opening a preview
+does not change `paused` or the time bounds in the URL. Fleet and workflow
+detail pages still stop polling on `?paused=1`. A
 refresh failure never empties a view: the previous data stays, with a notice
 that names the error and the last successful time. Empty responses and
 unavailable APIs have explicit states; the app never substitutes fake data.
+Instance pages and their timelines are published together so a refresh does
+not replace row details in stages. A different page, filter, or instance
+loads independently; data from the previous query is never shown as its result.
 
 ## Data honesty
 
 The UI shows only what `/api/observability-state`, `/api/observability-events`
 and `/api/essential-metrics` report (types in `src/domain/api.ts`).
 
-| Fact                  | Source                                               | Treatment                                   |
-| --------------------- | ---------------------------------------------------- | ------------------------------------------- |
-| Instance state        | outcome, then latest run stop reason, then freshness | `deriveInstanceState`; rule shown on hover  |
-| "Failing"             | not a state                                          | rejections counted separately               |
-| Workflow name         | not reported                                         | short `vm_id`; first action labeled derived |
-| Node                  | id per boot, no hostname                             | short id, boot time, retired marker         |
-| Arguments and results | not recorded                                         | explicit "Not recorded" block               |
-| Exception             | type only                                            | the type, nowhere a message                 |
-| Retries               | no attempt number                                    | "retry of #n, inferred"                     |
-| Duration per promise  | call → settlement                                    | labeled as including queueing               |
-| Completion rate       | counter deltas per boot                              | never the raw counter                       |
-| Percentiles           | bucket counts                                        | summed across nodes, never averaged         |
-| Missing events        | gaps in `run_sequence`                               | hatched rows and counts                     |
+| Fact                  | Source                                               | Treatment                                       |
+| --------------------- | ---------------------------------------------------- | ----------------------------------------------- |
+| Instance state        | outcome, then latest run stop reason, then freshness | `deriveInstanceState`; concise meaning on hover |
+| "Failing"             | not a state                                          | rejections counted separately                   |
+| Workflow name         | registered name retained with observability          | name over short `vm_id`; ID when not recorded   |
+| Node                  | id per boot, no hostname                             | full id in the node list, short id in charts    |
+| Arguments and results | not recorded                                         | explicit "Not recorded" block                   |
+| Exception             | type only                                            | the type, nowhere a message                     |
+| Retries               | no attempt number                                    | "possible retry of #n"                          |
+| Duration per promise  | call → settlement                                    | labeled as including queueing                   |
+| Completion rate       | counter deltas per boot                              | never the raw counter                           |
+| Percentiles           | bucket counts                                        | summed across nodes, never averaged             |
+| Missing events        | gaps in `run_sequence`                               | hatched rows and counts                         |
 
 ## Components
 
@@ -159,7 +226,7 @@ callbacks and never fetches.
 
 | Pattern                                            | Responsibility                                         |
 | -------------------------------------------------- | ------------------------------------------------------ |
-| `StatusInk`, `InstanceStateInk`, `PromiseStateInk` | State vocabulary with the rule on hover                |
+| `StatusInk`, `InstanceStateInk`, `PromiseStateInk` | State vocabulary with concise help on hover            |
 | `SectionHeader`                                    | Title, quiet count, description, actions               |
 | `MetricStrip`, `MetricTile`                        | Flat tiles; label, ≤20px value, unit, scope            |
 | `Meter`                                            | Used-of-capacity; unavailable is not 0%                |

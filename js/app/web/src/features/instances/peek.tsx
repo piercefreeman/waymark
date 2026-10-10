@@ -3,11 +3,10 @@ import { cn } from "@/lib/cn";
 import { formatClock, formatDuration, shortId } from "@/lib/format";
 import { stopKindLabels } from "@/domain/api";
 import type { InstanceSummary } from "@/domain/derive";
-import { instanceStates, promiseStates, toneBackground } from "@/domain/status";
+import { promiseStates, toneBackground } from "@/domain/status";
 import { Identifier } from "@/components/patterns/identifier";
 import { KeyValueList } from "@/components/patterns/key-value-list";
 import { SectionHeader } from "@/components/patterns/section-header";
-import { EventLog } from "@/components/patterns/event-log";
 import { TimeAgo } from "@/components/patterns/time";
 
 /**
@@ -26,10 +25,12 @@ export function InstancePeek({
   return (
     <div className="divide-y divide-line">
       <section className="px-gutter py-3">
+        {summary.workflowName && (
+          <p className="mono-data mb-1 break-words text-section">
+            {summary.workflowName}
+          </p>
+        )}
         <Identifier value={summary.vmId} full copyable className="text-label" />
-        <p className="mt-1 text-micro text-fg-muted">
-          {instanceStates[summary.state].rule}
-        </p>
         <KeyValueList
           layout="grid"
           className="mt-3"
@@ -93,21 +94,31 @@ export function InstancePeek({
                 className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 py-1.5 text-micro"
               >
                 <span className="min-w-0">
-                  <span className="mono-data flex items-center gap-1.5 truncate text-fg">
-                    {promise.kind === "sleep" && (
-                      <Moon className="size-3 text-fg-muted" aria-hidden />
+                  <span
+                    className={cn(
+                      "mono-data flex items-center gap-1.5 truncate",
+                      promise.kind === "sleep" ? "text-fg-muted" : "text-fg",
                     )}
-                    {promise.kind === "sleep"
-                      ? `sleep ${formatDuration(promise.sleepMs)}`
-                      : promise.name}
-                    <span className="text-fg-subtle">#{promise.id}</span>
+                  >
+                    {promise.kind === "sleep" ? (
+                      <>
+                        <Moon className="size-3 shrink-0" aria-hidden />
+                        <span className="sr-only">Sleep </span>
+                        {formatDuration(promise.sleepMs)}
+                      </>
+                    ) : (
+                      <>
+                        {promise.name}
+                        <span className="text-fg-subtle">#{promise.id}</span>
+                      </>
+                    )}
                   </span>
                   <span className="mono-data block text-[10px] leading-3 text-fg-subtle">
                     called {formatClock(promise.calledAt)}
                     {promise.possibleRetryOf !== null && (
                       <span className="ml-1 inline-flex items-center gap-0.5 text-waiting">
-                        <RotateCcw className="size-2.5" aria-hidden /> retry of
-                        #{promise.possibleRetryOf}, inferred
+                        <RotateCcw className="size-2.5" aria-hidden /> possible
+                        retry of #{promise.possibleRetryOf}
                       </span>
                     )}
                   </span>
@@ -163,20 +174,10 @@ export function InstancePeek({
           })}
           {summary.promises.length === 0 && (
             <li className="py-3 text-center text-micro text-fg-subtle">
-              No promises called yet
+              No recorded promises
             </li>
           )}
         </ol>
-      </section>
-
-      <section className="py-3">
-        <SectionHeader
-          as="h3"
-          title="Recent events"
-          count={summary.events.length}
-          className="px-gutter"
-        />
-        <EventLog events={summary.events.slice(-8)} className="mt-1" />
       </section>
     </div>
   );

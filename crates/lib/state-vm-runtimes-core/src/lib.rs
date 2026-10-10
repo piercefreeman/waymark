@@ -37,7 +37,7 @@ pub trait HooksProvider {
     type Hooks;
 
     /// Provide the hooks for the given VM.
-    fn provide_hooks(&self, vm_id: &Self::VmId) -> Self::Hooks;
+    fn provide_hooks(&self, vm_id: &Self::VmId, workflow_name: Option<&str>) -> Self::Hooks;
 }
 
 /// Provides an interpreter for a given VM.
@@ -132,12 +132,12 @@ impl<F, VmId> FnHooksProvider<F, VmId> {
 
 impl<F, VmId, Hooks> HooksProvider for FnHooksProvider<F, VmId>
 where
-    F: Fn(&VmId) -> Hooks,
+    F: Fn(&VmId, Option<&str>) -> Hooks,
 {
     type VmId = VmId;
     type Hooks = Hooks;
 
-    fn provide_hooks(&self, vm_id: &Self::VmId) -> Self::Hooks {
-        (self.f)(vm_id)
+    fn provide_hooks(&self, vm_id: &Self::VmId, workflow_name: Option<&str>) -> Self::Hooks {
+        (self.f)(vm_id, workflow_name)
     }
 }
