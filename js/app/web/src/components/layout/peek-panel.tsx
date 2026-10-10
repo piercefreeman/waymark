@@ -13,6 +13,7 @@ export function PeekPanel({
   title,
   actions,
   children,
+  side = "right",
   className,
 }: {
   open: boolean;
@@ -20,10 +21,16 @@ export function PeekPanel({
   title: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
+  side?: "right" | "bottom";
   className?: string;
 }) {
   const panel = useRef<HTMLElement>(null);
   const opener = useRef<Element | null>(null);
+  const close = useRef(onClose);
+
+  useEffect(() => {
+    close.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -32,7 +39,7 @@ export function PeekPanel({
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        close.current();
       }
     }
     document.addEventListener("keydown", onKey);
@@ -41,7 +48,7 @@ export function PeekPanel({
       if (opener.current instanceof HTMLElement)
         opener.current.focus({ preventScroll: true });
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return (
@@ -51,7 +58,10 @@ export function PeekPanel({
       role="complementary"
       aria-label="Selected item"
       className={cn(
-        "fixed bottom-0 right-0 top-bar z-20 flex w-peek max-w-[calc(100vw-var(--spacing-rail))] flex-col border-l border-line bg-surface shadow-[-12px_0_24px_-16px_rgba(0,0,0,0.6)] outline-none animate-in slide-in-from-right-4 fade-in-0 duration-panel",
+        "fixed bottom-0 right-0 z-20 flex flex-col border-line bg-surface outline-none",
+        side === "bottom"
+          ? "left-rail h-[min(45svh,24rem)] border-t"
+          : "top-bar w-peek max-w-[calc(100vw-var(--spacing-rail))] border-l shadow-[-12px_0_24px_-16px_rgba(0,0,0,0.6)] animate-in slide-in-from-right-4 fade-in-0 duration-panel",
         className,
       )}
     >
@@ -67,7 +77,9 @@ export function PeekPanel({
           <X className="size-3.5" aria-hidden />
         </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      <div tabIndex={0} className="min-h-0 flex-1 overflow-y-auto">
+        {children}
+      </div>
     </aside>
   );
 }

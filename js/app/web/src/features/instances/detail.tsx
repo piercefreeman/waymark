@@ -1,4 +1,6 @@
 import { ArrowLeft } from "lucide-react";
+import { cn } from "@/lib/cn";
+import { PeekPanel } from "@/components/layout/peek-panel";
 import { formatClock, formatDuration, shortId } from "@/lib/format";
 import {
   onLinkClick,
@@ -29,8 +31,7 @@ import { describeNow, elapsedMs } from "./list";
 
 /**
  * The instance page. A sentence and a few facts up top, the waterfall as
- * the hero, and a docked drawer beneath it for the selected promise, the
- * raw event log, and the driver runs.
+ * the hero, inline event/run tabs, and a bottom panel for the selected promise.
  */
 export function InstanceDetail({
   summary,
@@ -76,15 +77,11 @@ export function InstanceDetail({
     summary.promises.find((item) => item.id === selectedId) ?? null;
   const settled = summary.counts.resolved + summary.counts.rejected;
   const latest = summary.latestRun;
-  const activeTab = promise
-    ? (tab ?? "promise")
-    : tab === "promise"
-      ? "events"
-      : (tab ?? "events");
+  const activeTab = tab === "runs" ? "runs" : "events";
   const sentence = describeNow(summary, now);
 
   return (
-    <div className="min-w-0">
+    <div className={cn("min-w-0", promise && "pb-[min(45svh,24rem)]")}>
       <div className="flex flex-wrap items-center gap-3 border-b border-line px-gutter py-2">
         <a
           href="/workflows"
@@ -175,7 +172,7 @@ export function InstanceDetail({
             now={now}
             selectedId={selectedId}
             hrefFor={(id) =>
-              withSearch(pathname, search, { promise: String(id), tab: null })
+              withSearch(pathname, search, { promise: String(id) })
             }
           />
         )}
@@ -184,29 +181,11 @@ export function InstanceDetail({
       <Tabs
         value={activeTab}
         onValueChange={(value) =>
-          setTab(value === "promise" ? null : value, { replace: true })
+          setTab(value === "events" ? null : value, { replace: true })
         }
         className="px-gutter pt-2"
       >
         <TabsList>
-          {promise && (
-            <TabsTrigger value="promise">
-              <span className="mono-data">
-                #{promise.id} {promise.name}
-              </span>
-              <button
-                type="button"
-                aria-label="Deselect promise"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setPromiseParam(null);
-                }}
-                className="ml-1 text-fg-subtle hover:text-fg"
-              >
-                ×
-              </button>
-            </TabsTrigger>
-          )}
           <TabsTrigger value="events">
             Events{" "}
             <span className="mono-data text-fg-subtle">
@@ -221,8 +200,70 @@ export function InstanceDetail({
           </TabsTrigger>
         </TabsList>
 
+        <TabsContent value="events" className="py-2">
+          <EventLog
+            events={summary.events}
+            highlightPromiseId={selectedId}
+            className="-mx-gutter"
+          />
+        </TabsContent>
+
+        <TabsContent value="runs" className="py-4">
+          <ol className="divide-y divide-line border-y border-line">
+            {summary.runs.map((run) => {
+              const error = run.stopReason
+                ? stopReasonError(run.stopReason)
+                : null;
+              return (
+                <li
+                  key={run.index}
+                  className="grid gap-x-6 gap-y-1 py-2 text-label sm:grid-cols-[80px_220px_minmax(0,1fr)]"
+                >
+                  <span className="font-medium text-fg">Run {run.index}</span>
+                  <span className="mono-data text-fg-muted">
+                    node {shortId(run.nodeId)}
+                    <span className="block text-micro text-fg-subtle">
+                      {formatClock(run.startedAt)} →{" "}
+                      {run.stoppedAt ? formatClock(run.stoppedAt) : "running"}
+                    </span>
+                  </span>
+                  <span className="min-w-0">
+                    <span className={error ? "text-danger" : "text-fg"}>
+                      {run.stopReason
+                        ? stopKindLabels[run.stopReason.kind]
+                        : "Not stopped"}
+                    </span>
+                    {error && (
+                      <span className="mono-data block truncate text-danger">
+                        {error}
+                      </span>
+                    )}
+                    <span className="block text-micro text-fg-subtle">
+                      {run.events.length} events
+                      {run.missingEvents > 0 &&
+                        ` · ${run.missingEvents} missing`}
+                    </span>
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </TabsContent>
+      </Tabs>
+      <PeekPanel
+        side="bottom"
+        open={promise !== null}
+        onClose={() => setPromiseParam(null)}
+        title={
+          promise && (
+            <h2 className="mono-data truncate text-label">
+              #{promise.id} {promise.name}
+            </h2>
+          )
+        }
+      >
         {promise && (
-          <TabsContent value="promise" className="py-4">
+          <div className="px-gutter py-4">
             <div className="grid gap-8 lg:grid-cols-[minmax(280px,1fr)_minmax(0,2fr)]">
               <div>
                 <SectionHeader
@@ -343,59 +384,9 @@ export function InstanceDetail({
                 </div>
               </div>
             </div>
-          </TabsContent>
+          </div>
         )}
-
-        <TabsContent value="events" className="py-2">
-          <EventLog
-            events={summary.events}
-            highlightPromiseId={selectedId}
-            className="-mx-gutter"
-          />
-        </TabsContent>
-
-        <TabsContent value="runs" className="py-4">
-          <ol className="divide-y divide-line border-y border-line">
-            {summary.runs.map((run) => {
-              const error = run.stopReason
-                ? stopReasonError(run.stopReason)
-                : null;
-              return (
-                <li
-                  key={run.index}
-                  className="grid gap-x-6 gap-y-1 py-2 text-label sm:grid-cols-[80px_220px_minmax(0,1fr)]"
-                >
-                  <span className="font-medium text-fg">Run {run.index}</span>
-                  <span className="mono-data text-fg-muted">
-                    node {shortId(run.nodeId)}
-                    <span className="block text-micro text-fg-subtle">
-                      {formatClock(run.startedAt)} →{" "}
-                      {run.stoppedAt ? formatClock(run.stoppedAt) : "running"}
-                    </span>
-                  </span>
-                  <span className="min-w-0">
-                    <span className={error ? "text-danger" : "text-fg"}>
-                      {run.stopReason
-                        ? stopKindLabels[run.stopReason.kind]
-                        : "Not stopped"}
-                    </span>
-                    {error && (
-                      <span className="mono-data block truncate text-danger">
-                        {error}
-                      </span>
-                    )}
-                    <span className="block text-micro text-fg-subtle">
-                      {run.events.length} events
-                      {run.missingEvents > 0 &&
-                        ` · ${run.missingEvents} missing`}
-                    </span>
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
-        </TabsContent>
-      </Tabs>
+      </PeekPanel>
     </div>
   );
 }
