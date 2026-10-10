@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import importlib
 import logging
+import os
 import sys
 import time
 from typing import Any, AsyncIterator, cast
@@ -154,7 +155,34 @@ async def _run_worker(args: argparse.Namespace) -> None:
             raise
 
 
+def _put_working_directory_first() -> None:
+    """Make the working directory the first import location, as ``python -m`` does.
+
+    Each action call carries the module name the client resolved from its own
+    first import location: the script's directory for ``python client.py``,
+    the working directory under ``python -m``. The node is expected to run
+    from that directory, the project root, and the worker then resolves names
+    the same way: a local module shadowing an installed one wins on both
+    sides, or the two processes would run different code under one name. The
+    ``waymark-worker`` console script starts with its own directory first
+    instead; ``python -m waymark.worker`` already has the working directory
+    there. A working directory that no longer exists is left off, as CPython
+    leaves it off. Safe-path mode (``PYTHONSAFEPATH``, ``-P``) is not
+    honoured: the flag the worker sees is the node's, not the client's, and
+    the client side's resolution is what the worker has to match, so the
+    directory goes first regardless.
+    """
+    try:
+        working_directory = os.getcwd()
+    except OSError:
+        return
+    if sys.path and sys.path[0] in ("", working_directory):
+        return
+    sys.path.insert(0, working_directory)
+
+
 def main(argv: list[str] | None = None) -> None:
+    _put_working_directory_first()
     args = _parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="[worker] %(message)s", stream=sys.stderr)
     try:
