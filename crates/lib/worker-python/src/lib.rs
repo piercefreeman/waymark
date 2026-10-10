@@ -2,20 +2,91 @@
 
 #![warn(missing_docs)]
 
-use std::{path::PathBuf, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 mod config;
+mod default_runner;
 
-pub use config::Config;
+pub use config::{Config, Runner};
+
+/// Prepare the Python worker process spec from the config, detecting the
+/// runner if the config has none.
+pub async fn prepare(config: Config) -> Result<PreparedSpec, std::env::JoinPathsError> {
+    let Config {
+        runner,
+        user_modules,
+        extra_python_paths,
+    } = config;
+
+    let runner = match runner {
+        Some(runner) => runner,
+        None => {
+            let detected_runner = tokio::task::spawn_blocking(default_runner::detect).await;
+            // Nothing here cancels the task, so a join error is only ever
+            // a panic.
+            match detected_runner {
+                Ok(runner) => runner,
+                Err(join_error) => std::panic::resume_unwind(join_error.into_panic()),
+            }
+        }
+    };
+
+    let mut python_paths = Vec::new();
+    if let Some(existing) = std::env::var_os("PYTHONPATH")
+        && !existing.is_empty()
+    {
+        python_paths.extend(std::env::split_paths(&existing));
+    }
+    python_paths.extend(extra_python_paths);
+
+    let python_path = std::env::join_paths(python_paths)?;
+
+    tracing::info!(
+        script_path = ?runner.script_path,
+        script_args = ?runner.script_args,
+        ?python_path,
+        "prepared python worker spec"
+    );
+
+    Ok(PreparedSpec {
+        runner,
+        user_modules,
+        python_path,
+    })
+}
+
+/// Python worker process spec, prepared and not yet bound to a bridge server.
+#[derive(Debug)]
+pub struct PreparedSpec {
+    runner: Runner,
+
+    user_modules: Vec<String>,
+
+    python_path: std::ffi::OsString,
+}
+
+impl PreparedSpec {
+    /// Bind the prepared spec to the bridge server the workers connect to.
+    pub fn bind(self: Arc<Self>, bridge_server_addr: std::net::SocketAddr) -> Spec {
+        Spec {
+            bridge_server_addr,
+            prepared_spec: self,
+        }
+    }
+
+    /// Turn the prepared spec into a fn that binds it to a bridge server.
+    pub fn into_binder(self) -> impl Fn(std::net::SocketAddr) -> Spec {
+        let prepared_spec = Arc::new(self);
+        move |bridge_server_addr| Arc::clone(&prepared_spec).bind(bridge_server_addr)
+    }
+}
 
 /// Python worker process spec.
-// TODO: rewrite to fully cache effective values, like workdir, as constructor.
+#[derive(Debug)]
 pub struct Spec {
-    /// The address of the bridge server to connect the worker to.
-    pub bridge_server_addr: std::net::SocketAddr,
+    bridge_server_addr: std::net::SocketAddr,
 
-    /// The worker config.
-    pub config: Config,
+    prepared_spec: Arc<PreparedSpec>,
 }
 
 impl waymark_worker_process_spec::Spec for Spec {
@@ -23,70 +94,19 @@ impl waymark_worker_process_spec::Spec for Spec {
         &self,
         reservation_id: waymark_worker_reservation::Id,
     ) -> waymark_worker_process::SpawnParams {
-        // Determine working directory and module paths
-        let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python");
-        let working_dir = if package_root.is_dir() {
-            Some(package_root.clone())
-        } else {
-            None
-        };
-
-        // Build PYTHONPATH with all necessary directories
-        let mut module_paths = Vec::new();
-        if let Some(root) = working_dir.as_ref() {
-            module_paths.push(root.clone());
-            let src_dir = root.join("src");
-            if src_dir.exists() {
-                module_paths.push(src_dir);
-            }
-            let proto_dir = root.join("proto");
-            if proto_dir.exists() {
-                module_paths.push(proto_dir);
-            }
-        }
-        module_paths.extend(self.config.extra_python_paths.clone());
-
-        let joined_python_path = module_paths
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(":");
-
-        let python_path = match std::env::var("PYTHONPATH") {
-            Ok(existing) if !existing.is_empty() => format!("{existing}:{joined_python_path}"),
-            _ => joined_python_path,
-        };
-
-        tracing::debug!(python_path = %python_path, ?reservation_id, "configured python path for worker");
-
-        // Build the command
-        let mut command = tokio::process::Command::new(&self.config.script_path);
-        command.args(&self.config.script_args);
+        let mut command = tokio::process::Command::new(&self.prepared_spec.runner.script_path);
+        command.args(&self.prepared_spec.runner.script_args);
         command
             .arg("--bridge")
             .arg(self.bridge_server_addr.to_string())
             .arg("--worker-id")
             .arg(reservation_id.to_string());
 
-        // Add user modules
-        for module in &self.config.user_modules {
+        for module in &self.prepared_spec.user_modules {
             command.arg("--user-module").arg(module);
         }
 
-        command.env("PYTHONPATH", python_path);
-
-        if let Some(dir) = working_dir {
-            tracing::debug!(?dir, "using package root for worker process");
-            command.current_dir(dir);
-        } else {
-            // TODO: move this fallible initialization outside of this impl.
-            let cwd = std::env::current_dir().expect("failed to resolve current directory");
-            tracing::debug!(
-                ?cwd,
-                "package root missing, using current directory for worker process"
-            );
-            command.current_dir(cwd);
-        }
+        command.env("PYTHONPATH", &self.prepared_spec.python_path);
 
         waymark_worker_process::SpawnParams {
             command,
