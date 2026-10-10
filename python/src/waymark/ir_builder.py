@@ -66,6 +66,21 @@ class UnsupportedPatternError(Exception):
         super().__init__(full_message)
 
 
+GLOBAL_FUNCTIONS = {
+    "enumerate": ir.GlobalFunction.GLOBAL_FUNCTION_ENUMERATE,
+    "isexception": ir.GlobalFunction.GLOBAL_FUNCTION_ISEXCEPTION,
+    "len": ir.GlobalFunction.GLOBAL_FUNCTION_LEN,
+    "range": ir.GlobalFunction.GLOBAL_FUNCTION_RANGE,
+}
+ALLOWED_SYNC_FUNCTIONS = set(GLOBAL_FUNCTIONS)
+
+# The builtins a workflow body may call, as the help text lists them;
+# `isexception` is what `isinstance` lowers to, not a name users write.
+_CALLABLE_BUILTINS = sorted(name for name in GLOBAL_FUNCTIONS if name != "isexception")
+_CALLABLE_BUILTINS_TEXT = (
+    ", ".join(f"{name}()" for name in _CALLABLE_BUILTINS[:-1]) + f" and {_CALLABLE_BUILTINS[-1]}()"
+)
+
 # Recommendations for common unsupported patterns
 RECOMMENDATIONS = {
     "constructor_return": (
@@ -103,26 +118,15 @@ RECOMMENDATIONS = {
         "    await asyncio.sleep(1)\n"
     ),
     "sync_function_call": (
-        "Calling a synchronous function directly in workflow code is not supported.\n"
-        "All computation must happen inside @action decorated async functions.\n\n"
-        "Wrap your logic in an @action:\n\n"
+        "Workflow code can only call actions (with await), the workflow's own methods, "
+        "awaited asyncio.sleep() and asyncio.gather(), pydantic models and dataclasses as "
+        f"constructors, and the builtins {_CALLABLE_BUILTINS_TEXT} - len() anywhere, "
+        "range() and enumerate() as a for loop's iterable, and range() assigned to a name "
+        "or returned.\n"
+        "Move other calls into an @action:\n\n"
         "    @action\n"
         "    async def compute(x: int) -> int:\n"
-        "        return some_sync_function(x)"
-    ),
-    "method_call_non_self": (
-        "Calling methods on objects other than 'self' is not supported in workflow code.\n"
-        "Use an @action to perform method calls:\n\n"
-        "    @action\n"
-        "    async def call_method(obj: MyClass) -> Result:\n"
-        "        return obj.some_method()"
-    ),
-    "builtin_call": (
-        "Calling built-in functions like len(), str(), int() directly is not supported.\n"
-        "Use an @action to perform these operations:\n\n"
-        "    @action\n"
-        "    async def get_length(items: list) -> int:\n"
-        "        return len(items)"
+        "        return some_function(x)"
     ),
     "policy_literal": (
         "Every retry and timeout field must be a literal in the workflow body: the\n"
@@ -184,11 +188,6 @@ RECOMMENDATIONS = {
         "    async def remove_key(data: dict, key: str) -> dict:\n"
         "        del data[key]\n"
         "        return data"
-    ),
-    "while_loop": (
-        "While loops are not supported in workflow code because they can run "
-        "indefinitely.\n"
-        "Use a for loop with a fixed range, or restructure as recursive workflow calls."
     ),
     "with_statement": (
         "Context managers (with statements) are not supported in workflow code.\n"
@@ -292,10 +291,6 @@ RECOMMENDATIONS = {
         "Yield statements are not supported in workflow code.\n"
         "Workflows must return a complete result, not generate values incrementally."
     ),
-    "continue_statement": (
-        "Continue statements are not supported in workflow code.\n"
-        "Restructure your loop using if/else to skip iterations."
-    ),
     "unsupported_statement": (
         "This statement type is not supported in workflow code.\n"
         "Move the logic into an @action or rewrite using supported statements."
@@ -310,13 +305,6 @@ RECOMMENDATIONS = {
     ),
 }
 
-GLOBAL_FUNCTIONS = {
-    "enumerate": ir.GlobalFunction.GLOBAL_FUNCTION_ENUMERATE,
-    "isexception": ir.GlobalFunction.GLOBAL_FUNCTION_ISEXCEPTION,
-    "len": ir.GlobalFunction.GLOBAL_FUNCTION_LEN,
-    "range": ir.GlobalFunction.GLOBAL_FUNCTION_RANGE,
-}
-ALLOWED_SYNC_FUNCTIONS = set(GLOBAL_FUNCTIONS)
 DEFAULT_RETRY_POLICY_MAX_RETRIES = 100
 DEFAULT_RETRY_POLICY_EXCEPTION_TYPE = "Exception"
 # `attempts` minus one is the IR's `max_retries`, a uint32.
@@ -3027,64 +3015,6 @@ class IRBuilder(ast.NodeVisitor):
                     col=col,
                 )
 
-    def _check_sync_function_call(self, node: ast.Call) -> None:
-        """Check for synchronous function calls that should be in actions.
-
-        Common patterns like len(), str(), etc. are not supported in workflow code.
-        """
-        func_name = None
-        if isinstance(node.func, ast.Name):
-            func_name = node.func.id
-        elif isinstance(node.func, ast.Attribute):
-            # Method calls on objects - check the method name
-            func_name = node.func.attr
-
-        if not func_name:
-            return
-
-        # Builtins that users commonly try to use
-        common_builtins = {
-            "len",
-            "str",
-            "int",
-            "float",
-            "bool",
-            "list",
-            "dict",
-            "set",
-            "tuple",
-            "sum",
-            "min",
-            "max",
-            "sorted",
-            "reversed",
-            "enumerate",
-            "zip",
-            "map",
-            "filter",
-            "range",
-            "abs",
-            "round",
-            "print",
-            "type",
-            "isinstance",
-            "hasattr",
-            "getattr",
-            "setattr",
-            "open",
-            "format",
-        }
-
-        if func_name in common_builtins:
-            line = getattr(node, "lineno", None)
-            col = getattr(node, "col_offset", None)
-            raise UnsupportedPatternError(
-                f"Calling built-in function '{func_name}()' directly is not supported",
-                RECOMMENDATIONS["builtin_call"],
-                line=line,
-                col=col,
-            )
-
     def _extract_action_call(self, node: ast.expr) -> Optional[ir.ActionCall]:
         """Extract an action call from an expression if present.
 
@@ -4154,6 +4084,9 @@ def _try_convert_isinstance_to_isexception(
     Returns None if this is not an isinstance call or if the class is not an exception.
     Raises UnsupportedPatternError if isinstance is used with a non-exception class.
     """
+    # FIXME(#790): the VM has no lowering for `isexception` yet, so every hint
+    # below says the call does not run.
+
     # Check if this is an isinstance call
     func_name = _get_func_name(expr.func)
     if func_name != "isinstance":
@@ -4165,7 +4098,8 @@ def _try_convert_isinstance_to_isexception(
         col = expr.col_offset if hasattr(expr, "col_offset") else None
         raise UnsupportedPatternError(
             "isinstance() requires exactly 2 positional arguments",
-            RECOMMENDATIONS["sync_function_call"],
+            "isinstance() compiles only as isinstance(value, ExceptionClass) and does not run "
+            "yet; catch the class with an except clause instead.",
             line=line,
             col=col,
         )
@@ -4182,7 +4116,8 @@ def _try_convert_isinstance_to_isexception(
             col = expr.col_offset if hasattr(expr, "col_offset") else None
             raise UnsupportedPatternError(
                 f"isinstance() with non-exception class '{class_name}' is not supported in workflows",
-                "isinstance() can only be used to check exception types in workflow code. "
+                "isinstance() compiles only for exception classes in workflow code, and does "
+                "not run yet. "
                 "Move other type checks to an @action.",
                 line=line,
                 col=col,
@@ -4196,7 +4131,9 @@ def _try_convert_isinstance_to_isexception(
                 col = expr.col_offset if hasattr(expr, "col_offset") else None
                 raise UnsupportedPatternError(
                     "isinstance() class argument must be a simple name or tuple of names",
-                    "Use simple class names like ValueError or (ValueError, TypeError).",
+                    "isinstance() compiles only with simple class names like ValueError or "
+                    "(ValueError, TypeError), and does not run yet; catch the class with an "
+                    "except clause instead.",
                     line=line,
                     col=col,
                 )
@@ -4206,7 +4143,8 @@ def _try_convert_isinstance_to_isexception(
                 col = expr.col_offset if hasattr(expr, "col_offset") else None
                 raise UnsupportedPatternError(
                     f"isinstance() with non-exception class '{class_name}' is not supported in workflows",
-                    "isinstance() can only be used to check exception types in workflow code. "
+                    "isinstance() compiles only for exception classes in workflow code, and does "
+                    "not run yet. "
                     "Move other type checks to an @action.",
                     line=line,
                     col=col,
@@ -4217,7 +4155,9 @@ def _try_convert_isinstance_to_isexception(
         col = expr.col_offset if hasattr(expr, "col_offset") else None
         raise UnsupportedPatternError(
             "isinstance() class argument must be a simple name or tuple of names",
-            "Use simple class names like ValueError or (ValueError, TypeError).",
+            "isinstance() compiles only with simple class names like ValueError or "
+            "(ValueError, TypeError), and does not run yet; catch the class with an "
+            "except clause instead.",
             line=line,
             col=col,
         )
@@ -4536,7 +4476,7 @@ def _expr_to_ir(
                 line = expr.lineno if hasattr(expr, "lineno") else None
                 col = expr.col_offset if hasattr(expr, "col_offset") else None
                 raise UnsupportedPatternError(
-                    f"Calling synchronous function '{func_name}()' directly is not supported",
+                    f"Calling '{func_name}()' is not supported in workflow code",
                     RECOMMENDATIONS["sync_function_call"],
                     line=line,
                     col=col,
@@ -4545,7 +4485,7 @@ def _expr_to_ir(
                 line = expr.lineno if hasattr(expr, "lineno") else None
                 col = expr.col_offset if hasattr(expr, "col_offset") else None
                 raise UnsupportedPatternError(
-                    f"Calling synchronous function '{func_name}()' directly is not supported",
+                    f"Calling '{func_name}()' is not supported in workflow code",
                     RECOMMENDATIONS["sync_function_call"],
                     line=line,
                     col=col,
