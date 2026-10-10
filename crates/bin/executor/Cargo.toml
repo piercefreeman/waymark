@@ -1,5 +1,5 @@
 [package]
-name = "waymark-start-workers"
+name = "waymark-executor"
 version.workspace = true
 publish.workspace = true
 edition = "2024"

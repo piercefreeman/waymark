@@ -84,7 +84,7 @@ Run the node - the process that executes workflows and their actions - against y
 ```bash
 export WAYMARK_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/waymark
 export WAYMARK_HTTP_ENABLED=true  # the webapp, on http://localhost:24119
-uv run waymark-start-workers
+uv run waymark-executor
 ```
 
 Then kick off the workflow from any Python process, and wait for its result:
@@ -154,7 +154,7 @@ Workflows are plain async Python. A few of the things they can do:
     await schedule_workflow(DataSyncWorkflow, schedule_name="hourly", schedule="0 * * * *")
     ```
 
-1. **A built-in webapp.** `waymark-start-workers` serves a [webapp](https://waymark.sh/guides/webapp) showing every workflow instance, each one's timeline of calls, and the load on your nodes.
+1. **A built-in webapp.** `waymark-executor` serves a [webapp](https://waymark.sh/guides/webapp) showing every workflow instance, each one's timeline of calls, and the load on your nodes.
 
 ## Philosophy
 
@@ -216,11 +216,11 @@ If you have a particular workflow that you think should be working but isn't yet
 
 ## Building from source
 
-The webapp is compiled into `waymark-start-workers`, so building from source requires Node.js (version in `.node-version`) and npm:
+The webapp is compiled into `waymark-executor`, so building from source requires Node.js (version in `.node-version`) and npm:
 
 ```sh
 make js-deps
-cargo build --bin waymark-start-workers
+cargo build --bin waymark-executor
 ```
 
 ## Contributing

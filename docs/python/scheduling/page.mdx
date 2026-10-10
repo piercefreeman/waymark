@@ -19,7 +19,7 @@ export const sections = [
 
 Waymark workflows can run on a recurring cadence - a cron expression or a
 fixed interval - without any extra infrastructure. The scheduler is part
-of `waymark-start-workers`, which you already run. Schedules live in Postgres, so a
+of `waymark-executor`, which you already run. Schedules live in Postgres, so a
 schedule survives restarts of every component. They need the Postgres
 backend: a bridge running with `WAYMARK_BRIDGE_IN_MEMORY` refuses the
 schedule calls.

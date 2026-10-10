@@ -1,7 +1,7 @@
 export const metadata = {
   title: 'Configuration',
   description:
-    'Reference for every environment variable that configures waymark-start-workers, the bridge, the observability store, and the Python SDK.',
+    'Reference for every environment variable that configures waymark-executor, the bridge, the observability store, and the Python SDK.',
 }
 
 export const sections = [
@@ -24,17 +24,17 @@ else has a default tuned for a single-host deployment.
 
 Configuration is entirely through environment variables. The runtime
 reads them directly from the process environment - there's no auto-loading
-of `.env` files, so set them before launching `waymark-start-workers` (or
+of `.env` files, so set them before launching `waymark-executor` (or
 import `python-dotenv` yourself if that's your preference).
 
 The variables are grouped by which process reads them:
-`waymark-start-workers`, the bridge, and the Python SDK / boot helpers.
+`waymark-executor`, the bridge, and the Python SDK / boot helpers.
 Durations are in milliseconds unless the name says otherwise.
 
 ## Node {{ id: 'node' }}
 
 These are the variables you'll touch most often when running
-`waymark-start-workers`, the node.
+`waymark-executor`, the node.
 
 | Variable | Description | Default |
 | --- | --- | --- |
@@ -54,9 +54,9 @@ These are the variables you'll touch most often when running
 `WAYMARK_USER_MODULE` is optional. A worker imports an action's module
 itself the first time it is asked to run one of its actions, so the
 module only has to be importable by the workers: from the directory
-`waymark-start-workers` is started in, or installed in its environment. Listing
+`waymark-executor` is started in, or installed in its environment. Listing
 modules here imports them when each worker starts instead: a module that
-fails to import then stops `waymark-start-workers` from starting, after its
+fails to import then stops `waymark-executor` from starting, after its
 15 second worker attach timeout, rather than failing the first action
 that needs it.
 </Note>
@@ -192,7 +192,7 @@ base port and the nine ports after it and starts one if there is none.
 
 ## Building from source {{ id: 'building-from-source' }}
 
-The webapp is compiled into `waymark-start-workers` at build time. This only
+The webapp is compiled into `waymark-executor` at build time. This only
 matters when you build the binaries yourself; the published wheels always
 include it.
 
