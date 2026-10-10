@@ -63,7 +63,22 @@ def _normalize_schedule_name(schedule_name: ScheduleName) -> str:
 
 @dataclass
 class ScheduleInfo:
-    """Information about a registered schedule."""
+    """Information about a registered schedule.
+
+    Attributes:
+        workflow_name: The short name of the workflow the schedule runs.
+        schedule_name: The normalized schedule name, e.g. ``"data_sync/hourly"``.
+        schedule_type: ``"cron"`` or ``"interval"``.
+        cron_expression: The cron expression as registered, for a cron schedule.
+        interval_seconds: The interval, for an interval schedule.
+        jitter_seconds: The upper bound of the random delay added to each run.
+        allow_duplicate: Whether a run starts while the last one is unfinished.
+        status: ``"active"`` or ``"paused"``.
+        next_run_at: When the schedule fires next. Not advanced while the
+            schedule is paused, so stale until it resumes, when it fires once
+            right away.
+        last_instance_id: The instance the schedule started most recently, if any.
+    """
 
     workflow_name: str
     schedule_name: str

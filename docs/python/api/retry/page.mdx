@@ -2,7 +2,7 @@
 
 `RetryPolicy` configures how Waymark responds when an action raises an
 exception. It's passed to `Workflow.run_action(...)` per call. See the
-[Retries & Timeouts guide](/guides/retries) for the conceptual
+[Retries & Timeouts guide](/python/retries) for the conceptual
 walk-through; this page is the precise API surface.
 
 Semantics to know:
@@ -11,13 +11,23 @@ Semantics to know:
   plus up to four retries, and `attempts=1` means fail immediately.
 - Omitting `attempts` compiles to a budget of 100 retries. Set it
   explicitly unless you want that.
-- `backoff_seconds` is a fixed sleep before each retry; a fractional
-  value is truncated to whole seconds, so under one second means no
-  backoff. Don't add a sleep inside the action for it: that adds to the
+- `exception_types` names are matched against the raised exception's
+  class and its base classes, as an `except` clause matches: `"OSError"`
+  covers a `ConnectionError`. No list retries on `Exception`; an empty
+  list retries nothing. `ActionTimeout` and `ActionExecutionLost` derive
+  from `BaseException` and are retried only when listed by name or
+  through `"BaseException"`.
+- `backoff_seconds` is a fixed sleep before each retry, fractions
+  included; zero means no backoff, and a negative is rejected at compile
+  time. Don't add a sleep inside the action for it: that adds to the
   wait and counts against the timeout.
-- Field values must be literal constants in the workflow body. The
-  compiler reads them from the AST at registration, so a policy built
-  from a runtime variable won't be picked up. The exception:
-  `self.retry_policy` instance attributes resolve fine.
+- Backoff and timeouts are woken by the node's sleep poller, so each
+  can wake up to one `WAYMARK_SLEEP_POLL_INTERVAL_MS` (250 ms by
+  default) late.
+- Field values must be literals in the workflow body, read from the AST
+  the first time the workflow is run or scheduled; the docstring below
+  states the rule, and the
+  [Control Flow guide](/python/control-flow#limitations) names the forms
+  the compiler rejects.
 
 ::: waymark.workflow.RetryPolicy
