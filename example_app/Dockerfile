@@ -103,7 +103,4 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --no-cache-dir --no-sources --no-deps .
 
-ENV WAYMARK_HTTP_PORT=24117 \
-    WAYMARK_GRPC_PORT=24118
-
 CMD ["uvicorn", "example_app.web:app", "--host", "0.0.0.0", "--port", "8000"]
