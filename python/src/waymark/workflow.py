@@ -50,8 +50,9 @@ class RetryPolicy:
     Maps to IR RetryPolicy: [ExceptionType -> retry: N, backoff: Xs]
 
     Args:
-        attempts: Total executions, the first try included: ``attempts=1`` never
-            retries. Omitted, the policy compiles to a budget of 100 retries.
+        attempts: Total executions, the first try included, as an integer literal:
+            ``attempts=1`` never retries. Omitted, the policy compiles to a budget
+            of 100 retries.
         exception_types: Exception class names to retry on. A name matches the
             raised exception's own class or any of its base classes, as an
             ``except`` clause does: ``"OSError"`` covers a ``ConnectionError``, and
@@ -65,12 +66,16 @@ class RetryPolicy:
             from ``Exception``: the attempt provably never ran, so a policy
             retrying on ``Exception`` retries it. The three are spelled out as
             proxy classes in :mod:`waymark.vm_exceptions`.
-        backoff_seconds: A fixed sleep before each retry, in whole seconds: a
-            fractional value is truncated, and under one second means no backoff.
+        backoff_seconds: A fixed sleep before each retry, in whole seconds; zero
+            means no backoff, and a fraction or a negative is rejected at compile
+            time.
 
     Every field must be a literal in the workflow body: the workflow compiler reads
-    them from the AST at registration. The whole policy may instead be a ``self.``
-    attribute assigned a literal ``RetryPolicy(...)`` in ``__init__``.
+    them from the AST at registration and rejects anything it cannot read. The
+    whole policy may instead be a ``self.`` attribute assigned a literal
+    ``RetryPolicy(...)`` once, at the top level of ``__init__``; one assigned more
+    than once or under a branch is rejected too. Pass it by keyword: a policy
+    passed to ``run_action`` positionally is rejected as well.
     """
 
     attempts: Optional[int] = None
@@ -138,8 +143,8 @@ class Workflow:
             retry: Retry policy: total attempts, exception types, and backoff.
             timeout: Per-attempt timeout as a number of seconds or a ``timedelta``
                 built from ``seconds``, ``minutes``, ``hours`` or ``days`` keywords;
-                whole seconds only (fractions are truncated), and under one second
-                means no timeout. Raced against each attempt; expiry raises
+                a whole number of seconds, at least one, anything else is rejected
+                at compile time. Raced against each attempt; expiry raises
                 :class:`waymark.vm_exceptions.ActionTimeout`, which derives from
                 ``BaseException`` and is therefore retried only by a policy
                 listing it (or ``"BaseException"``), never by one retrying on
