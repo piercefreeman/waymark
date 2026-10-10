@@ -47,10 +47,10 @@ fn write_file_with_mode(path: &Path, mode: u32) {
 #[test]
 fn test_find_beside_finds_the_sibling() {
     let root = fresh_temp_dir("beside-finds");
-    write_file_with_mode(&root.join("waymark-start-workers"), 0o755);
+    write_file_with_mode(&root.join("waymark-executor"), 0o755);
     write_file_with_mode(&root.join("tool"), 0o755);
 
-    let found = find_beside(&root.join("waymark-start-workers"), Path::new("tool"));
+    let found = find_beside(&root.join("waymark-executor"), Path::new("tool"));
 
     let expected = std::fs::canonicalize(root.join("tool")).unwrap();
     std::fs::remove_dir_all(&root).unwrap();
@@ -61,9 +61,9 @@ fn test_find_beside_finds_the_sibling() {
 #[test]
 fn test_find_beside_misses_an_absent_sibling() {
     let root = fresh_temp_dir("beside-misses");
-    write_file_with_mode(&root.join("waymark-start-workers"), 0o755);
+    write_file_with_mode(&root.join("waymark-executor"), 0o755);
 
-    let found = find_beside(&root.join("waymark-start-workers"), Path::new("tool"));
+    let found = find_beside(&root.join("waymark-executor"), Path::new("tool"));
 
     std::fs::remove_dir_all(&root).unwrap();
     assert_eq!(found, None);
@@ -73,10 +73,10 @@ fn test_find_beside_misses_an_absent_sibling() {
 #[test]
 fn test_find_beside_skips_a_non_executable_sibling() {
     let root = fresh_temp_dir("beside-non-executable");
-    write_file_with_mode(&root.join("waymark-start-workers"), 0o755);
+    write_file_with_mode(&root.join("waymark-executor"), 0o755);
     write_file_with_mode(&root.join("tool"), 0o644);
 
-    let found = find_beside(&root.join("waymark-start-workers"), Path::new("tool"));
+    let found = find_beside(&root.join("waymark-executor"), Path::new("tool"));
 
     std::fs::remove_dir_all(&root).unwrap();
     assert_eq!(found, None);
@@ -90,15 +90,15 @@ fn test_find_beside_resolves_the_executable_symlink() {
     let link_dir = root.join("link");
     std::fs::create_dir_all(&target_dir).unwrap();
     std::fs::create_dir_all(&link_dir).unwrap();
-    write_file_with_mode(&target_dir.join("waymark-start-workers"), 0o755);
+    write_file_with_mode(&target_dir.join("waymark-executor"), 0o755);
     write_file_with_mode(&target_dir.join("tool"), 0o755);
     std::os::unix::fs::symlink(
-        target_dir.join("waymark-start-workers"),
-        link_dir.join("waymark-start-workers"),
+        target_dir.join("waymark-executor"),
+        link_dir.join("waymark-executor"),
     )
     .unwrap();
 
-    let found = find_beside(&link_dir.join("waymark-start-workers"), Path::new("tool"));
+    let found = find_beside(&link_dir.join("waymark-executor"), Path::new("tool"));
 
     let expected = std::fs::canonicalize(target_dir.join("tool")).unwrap();
     std::fs::remove_dir_all(&root).unwrap();

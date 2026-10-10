@@ -1,7 +1,7 @@
 export const metadata = {
   title: 'Webapp',
   description:
-    'The webapp that ships inside waymark-start-workers: live workflow instances, their promise timelines, and fleet load.',
+    'The webapp that ships inside waymark-executor: live workflow instances, their promise timelines, and fleet load.',
 }
 
 export const sections = [
@@ -15,7 +15,7 @@ export const sections = [
 
 # Webapp
 
-Waymark ships a webapp inside `waymark-start-workers`. There's nothing to install
+Waymark ships a webapp inside `waymark-executor`. There's nothing to install
 and nothing to wire up: the same process that runs your workflows serves
 it, next to the HTTP API it reads from. Use it to see which workflow
 instances are running, waiting or stuck, follow one instance call by
@@ -23,14 +23,14 @@ call, and watch how loaded your nodes are.
 
 ## Enable it {{ id: 'enable-it' }}
 
-Two environment variables on `waymark-start-workers`:
+Two environment variables on `waymark-executor`:
 
 ```bash
 export WAYMARK_HTTP_ENABLED=true
 export WAYMARK_HTTP_ADDR=0.0.0.0:24119  # the default
 ```
 
-Restart `waymark-start-workers` and the webapp is live on port `24119`. The same
+Restart `waymark-executor` and the webapp is live on port `24119`. The same
 port serves the HTTP API under `/api`, with interactive API docs at
 `/api/docs`, and a `/healthz` endpoint for load balancer checks.
 
@@ -115,6 +115,6 @@ retention: seven days by default, set by
 [Configuration](/guides/configuration#observability).
 
 In a multi-container deployment, enable the webapp where
-`waymark-start-workers` runs and publish port `24119`; the
+`waymark-executor` runs and publish port `24119`; the
 [Production Deployment](/guides/production) compose file does exactly
 this.
