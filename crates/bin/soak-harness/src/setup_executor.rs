@@ -10,19 +10,19 @@ use tracing::{info, warn};
 
 use crate::data;
 
-/// How long to wait for the worker to exit once it has been killed.
+/// How long to wait for the executor to exit once it has been killed.
 const KILL_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
-pub struct WorkerProcess {
+pub struct ExecutorProcess {
     /// The handle, until the exit is observed: a poll that sees the exit
     /// takes it, and so does the stop. `None` once it is gone.
     pub child: Option<waymark_managed_process::Child>,
     pub log_path: PathBuf,
 }
 
-impl WorkerProcess {
-    /// Polls the worker. Its exit status once the exit is observed, the
+impl ExecutorProcess {
+    /// Polls the executor. Its exit status once the exit is observed, the
     /// handle gone with it; `None` while it runs, or once the handle is
     /// gone. A failed poll leaves the handle in place, for the stop to
     /// deal with.
@@ -37,7 +37,7 @@ impl WorkerProcess {
 pub async fn start_executor(
     args: &crate::cli::SoakArgs,
     run_dir: &Path,
-) -> Result<WorkerProcess, color_eyre::eyre::Report> {
+) -> Result<ExecutorProcess, color_eyre::eyre::Report> {
     let http_enabled = !args.disable_http;
     let log_path = run_dir.join("executor.log");
     // `CARGO_MANIFEST_DIR` here is `crates/bin/soak-harness`, while the soak action module lives at
@@ -47,10 +47,10 @@ pub async fn start_executor(
     // remains importable.
     let repo_root = repo_root();
     let log_file = File::create(&log_path)
-        .wrap_err_with(|| format!("create worker log file {}", log_path.display()))?;
+        .wrap_err_with(|| format!("create executor log file {}", log_path.display()))?;
     let log_file_err = log_file
         .try_clone()
-        .wrap_err_with(|| format!("clone worker log handle {}", log_path.display()))?;
+        .wrap_err_with(|| format!("clone executor log handle {}", log_path.display()))?;
 
     let mut cmd = executor_command();
     cmd.current_dir(&repo_root);
@@ -80,16 +80,15 @@ pub async fn start_executor(
     cmd.stdout(Stdio::from(log_file));
     cmd.stderr(Stdio::from(log_file_err));
 
-    let child =
-        waymark_managed_process::spawn(cmd).wrap_err("spawn waymark-executor process")?;
+    let child = waymark_managed_process::spawn(cmd).wrap_err("spawn waymark-executor process")?;
     info!(
         log_path = %log_path.display(),
         http_enabled,
         http_addr = %args.http_addr,
-        "started worker process"
+        "started executor process"
     );
 
-    Ok(WorkerProcess {
+    Ok(ExecutorProcess {
         child: Some(child),
         log_path,
     })
@@ -164,57 +163,57 @@ fn find_executable(bin: &str) -> Option<PathBuf> {
     None
 }
 
-/// Asks the worker process to stop and waits for it, killing it when
+/// Asks the executor process to stop and waits for it, killing it when
 /// `stop_timeout` runs out. An abort drops the process handle instead,
-/// which kills the worker without waiting for it. A worker that exited
+/// which kills the executor without waiting for it. An executor that exited
 /// unsuccessfully, or that had to be killed on a platform where it could
 /// have stopped on its own, is an error. Where the platform has no
 /// graceful stop, the kill is the stop.
-pub async fn shutdown_worker(
-    worker: WorkerProcess,
+pub async fn shutdown_executor(
+    executor: ExecutorProcess,
     stop_timeout: Duration,
     abort_token: &tokio_util::sync::CancellationToken,
 ) -> Result<(), color_eyre::eyre::Report> {
     // The exit was observed already: there is nothing left to stop.
-    let Some(child) = worker.child else {
+    let Some(child) = executor.child else {
         return Ok(());
     };
-    warn!(?stop_timeout, "stopping worker process");
+    warn!(?stop_timeout, "stopping executor process");
     let shutdown = child.shutdown(stop_timeout, KILL_WAIT_TIMEOUT);
     let shutdown_result = abort_token.run_until_cancelled(shutdown).await;
     let outcome = match shutdown_result {
         Some(outcome) => outcome?,
-        None => bail!("aborted while stopping the worker process; it was killed"),
+        None => bail!("aborted while stopping the executor process; it was killed"),
     };
 
     match outcome {
         waymark_managed_process::ShutdownOutcome::Exited(status) if status.success() => {
-            info!(status = %status, "worker process stopped");
+            info!(status = %status, "executor process stopped");
         }
         waymark_managed_process::ShutdownOutcome::Exited(status) => {
-            bail!("worker process stopped with {status}");
+            bail!("executor process stopped with {status}");
         }
         waymark_managed_process::ShutdownOutcome::KillSent(status)
             if waymark_managed_process::Child::CAN_GRACEFULLY_TERMINATE =>
         {
-            bail!("worker process did not stop within the timeout and was killed; {status}");
+            bail!("executor process did not stop within the timeout and was killed; {status}");
         }
         waymark_managed_process::ShutdownOutcome::KillSent(status) => {
-            info!(status = %status, "worker process killed, as this platform has no graceful stop");
+            info!(status = %status, "executor process killed, as this platform has no graceful stop");
         }
     }
     Ok(())
 }
 
-pub async fn shutdown_worker_if_running(
-    worker: &mut Option<WorkerProcess>,
+pub async fn shutdown_executor_if_running(
+    executor: &mut Option<ExecutorProcess>,
     stop_timeout: Duration,
     abort_token: &tokio_util::sync::CancellationToken,
 ) {
-    if let Some(worker_process) = worker.take()
-        && let Err(err) = shutdown_worker(worker_process, stop_timeout, abort_token).await
+    if let Some(executor_process) = executor.take()
+        && let Err(err) = shutdown_executor(executor_process, stop_timeout, abort_token).await
     {
-        warn!(error = %err, "failed to stop worker process during error cleanup");
+        warn!(error = %err, "failed to stop executor process during error cleanup");
     }
 }
 
@@ -222,25 +221,25 @@ pub async fn wait_for_node_sample(
     store: &waymark_observability_store_postgres::Store,
     timeout: Duration,
     startup_log_interval: Duration,
-    worker: &mut WorkerProcess,
+    executor: &mut ExecutorProcess,
 ) -> Result<(), color_eyre::eyre::Report> {
     let deadline = Instant::now() + timeout;
     let started = Instant::now();
     let mut last_log_at = Instant::now();
 
     while Instant::now() < deadline {
-        if let Some(status) = worker
+        if let Some(status) = executor
             .poll_exit()
-            .wrap_err("check worker status during startup wait")?
+            .wrap_err("check executor status during startup wait")?
         {
-            let tail = crate::common::read_tail_lines(&worker.log_path, 80).unwrap_or_default();
+            let tail = crate::common::read_tail_lines(&executor.log_path, 80).unwrap_or_default();
             let tail_text = if tail.is_empty() {
-                "worker log unavailable".to_string()
+                "executor log unavailable".to_string()
             } else {
                 tail.join("\n")
             };
             bail!(
-                "worker process exited before its first node sample: {status}\nlog tail:\n{tail_text}"
+                "executor process exited before its first node sample: {status}\nlog tail:\n{tail_text}"
             );
         }
 
@@ -263,5 +262,5 @@ pub async fn wait_for_node_sample(
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    bail!("timed out waiting for node samples; worker may not have started successfully")
+    bail!("timed out waiting for node samples; executor may not have started successfully")
 }

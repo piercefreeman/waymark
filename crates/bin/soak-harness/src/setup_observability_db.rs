@@ -3,16 +3,16 @@ use std::time::Duration;
 use color_eyre::eyre::WrapErr as _;
 use waymark_secret_string::SecretString;
 
-/// The schema the worker's observability bringup provisions its store
+/// The schema the executor's observability bringup provisions its store
 /// in. Hardcoded for now — mirrors `waymark-observability-bringup`.
 const OBSERVABILITY_SCHEMA: &str = "observability";
 
-/// Connect the observability store the worker writes to, waiting up to
+/// Connect the observability store the executor writes to, waiting up to
 /// `timeout` for its database to accept connections.
 ///
-/// The database is resolved the way the worker resolves it — from the
+/// The database is resolved the way the executor resolves it — from the
 /// environment, with `dsn` as the default — so the harness resets and
-/// reads the store the worker writes to.
+/// reads the store the executor writes to.
 pub async fn connect(
     dsn: &SecretString,
     timeout: Duration,
