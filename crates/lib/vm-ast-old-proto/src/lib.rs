@@ -444,6 +444,12 @@ impl Convert<ast::Duration> for Converter {
     type To = vm_ast::DurationLiteral;
 
     fn convert(from: ast::Duration) -> Result<Self::To> {
+        // The AST promises a finite, non-negative duration; the wire does not.
+        if !(from.seconds.is_finite() && from.seconds >= 0.0) {
+            return Err(ConvertError::InvalidDuration {
+                seconds: from.seconds,
+            });
+        }
         Ok(vm_ast::DurationLiteral {
             seconds: from.seconds,
         })

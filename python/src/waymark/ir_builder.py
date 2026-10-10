@@ -21,6 +21,7 @@ import ast
 import builtins
 import copy
 import inspect
+import math
 import textwrap
 import types
 from dataclasses import dataclass
@@ -137,12 +138,12 @@ RECOMMENDATIONS = {
         "Use:\n\n"
         "    await self.run_action(action(), retry=RetryPolicy(attempts=3), timeout=60)"
     ),
-    "duration_whole_seconds": (
-        "Timeouts and backoffs are whole seconds, and a timeout is at least one: the\n"
-        "IR carries seconds and the compiler does not round.\n\n"
+    "duration_range": (
+        "A timeout is more than zero seconds and a backoff is zero or more; fractions\n"
+        "are fine, the runtime sleeps to its poll granularity.\n\n"
         "Use:\n\n"
         "    timeout=timedelta(seconds=30)\n"
-        "    backoff_seconds=5"
+        "    backoff_seconds=0.5"
     ),
     "except_type": (
         "An except clause lists exception classes by name, or dotted through a module, "
@@ -328,11 +329,21 @@ def _is_none_literal(node: ast.AST) -> bool:
 
 
 def _number_literal(node: ast.AST) -> Optional[int | float]:
-    """The number `node` is a literal of, if it is one; a bool is not."""
+    """The number `node` is a literal of, if it is one; a bool is not, a negated one is."""
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        operand = _number_literal(node.operand)
+        return None if operand is None else -operand
     if isinstance(node, ast.Constant) and not isinstance(node.value, bool):
         if isinstance(node.value, (int, float)):
             return node.value
     return None
+
+
+# A sleep's wake time must fit the runtime's clock, which the sleep handlers
+# add the duration to. A literal past that range would compile and then
+# fail every run; the cap is a round figure far inside it.
+_MAX_DURATION_YEARS = 100
+_MAX_DURATION_SECONDS = _MAX_DURATION_YEARS * 365 * 24 * 60 * 60
 
 
 def _call_name(node: ast.Call) -> Optional[str]:
@@ -3192,24 +3203,39 @@ class IRBuilder(ast.NodeVisitor):
             return literal
         return node
 
-    def _whole_seconds_literal(self, node: ast.expr, what: str, at_least_one: bool) -> int:
-        """A number literal read as whole seconds.
+    def _seconds_literal(self, node: ast.expr, what: str, positive: bool) -> float:
+        """A number literal read as seconds, fractions included.
 
-        A fraction cannot be carried, since the IR holds seconds, so it is
-        rejected rather than rounded; so is a negative, and a zero where
-        `at_least_one` says the value must be positive.
+        A negative is rejected, and so is a zero where `positive` says the
+        value must be more than that. So is a value the runtime cannot sleep:
+        one that is not finite, or a positive one that rounds to zero at
+        nanosecond precision. So is a value above the 100-year cap, a round
+        figure far inside what the runtime can sleep.
         """
         seconds = _number_literal(node)
         if seconds is None:
             raise self._policy_error(f"{what} must be a number literal", "policy_literal", node)
-        if seconds != int(seconds):
+        if seconds < 0 or (positive and seconds == 0):
+            bound = "more than zero seconds" if positive else "zero or more seconds"
+            raise self._policy_error(f"{what} must be {bound}", "duration_range", node)
+        return self._runnable_seconds(seconds, what, node)
+
+    def _runnable_seconds(self, seconds: int | float, what: str, node: ast.expr) -> float:
+        """`seconds` as the runtime can sleep it, or the error that says why not."""
+        try:
+            seconds = float(seconds)
+        except OverflowError:
+            # An integer literal too large for a float is too large for a sleep.
+            seconds = math.inf
+        if not math.isfinite(seconds) or seconds > _MAX_DURATION_SECONDS:
             raise self._policy_error(
-                f"{what} must be a whole number of seconds", "duration_whole_seconds", node
+                f"{what} must be at most {_MAX_DURATION_YEARS} years", "duration_range", node
             )
-        if seconds < 0 or (at_least_one and seconds == 0):
-            bound = "at least one second" if at_least_one else "zero or more seconds"
-            raise self._policy_error(f"{what} must be {bound}", "duration_whole_seconds", node)
-        return int(seconds)
+        if seconds > 0 and round(seconds * 1e9) == 0:
+            raise self._policy_error(
+                f"{what} must be at least one nanosecond", "duration_range", node
+            )
+        return seconds
 
     def _parse_retry_policy(self, node: ast.expr) -> ir.RetryPolicy:
         """Parse a RetryPolicy(...) literal into IR.
@@ -3276,9 +3302,12 @@ class IRBuilder(ast.NodeVisitor):
                 for elt in kw.value.elts:
                     policy.exception_types.append(self._retry_exception_type_name(elt))
             elif kw.arg == "backoff_seconds":
-                policy.backoff.seconds = self._whole_seconds_literal(
-                    kw.value, "RetryPolicy backoff_seconds", at_least_one=False
+                seconds = self._seconds_literal(
+                    kw.value, "RetryPolicy backoff_seconds", positive=False
                 )
+                # A zero backoff is no backoff: the runtime has no zero sleep.
+                if seconds > 0:
+                    policy.backoff.seconds = seconds
             else:
                 raise self._policy_error(
                     f"RetryPolicy has no field {kw.arg!r}", "policy_literal", kw.value
@@ -3319,18 +3348,16 @@ class IRBuilder(ast.NodeVisitor):
         caller.
 
         Supports:
-        - timeout=60 (whole seconds)
+        - timeout=60 (seconds, fractions included)
         - timeout=timedelta(seconds=30)
         - timeout=timedelta(minutes=2)
 
-        Anything else is rejected, as is a duration that is not a whole
-        number of seconds or is under one: the compiler cannot carry a
-        fraction and does not round.
+        Anything else is rejected, as is a duration of zero or less.
         """
         policy = ir.TimeoutPolicy()
 
         if _number_literal(node) is not None:
-            policy.timeout.seconds = self._whole_seconds_literal(node, "timeout", at_least_one=True)
+            policy.timeout.seconds = self._seconds_literal(node, "timeout", positive=True)
             return policy
 
         if isinstance(node, ast.Call) and _call_name(node) == "timedelta":
@@ -3360,17 +3387,17 @@ class IRBuilder(ast.NodeVisitor):
                 keywords[kw.arg] = value
             # Python's own timedelta arithmetic over the accepted keywords:
             # minutes=4.1 is 246 seconds, as timedelta says.
-            duration = timedelta(**keywords)
-            if duration % timedelta(seconds=1):
+            try:
+                seconds = timedelta(**keywords).total_seconds()
+            except OverflowError:
                 raise self._policy_error(
-                    "timeout must be a whole number of seconds", "duration_whole_seconds", node
-                )
-            seconds = duration // timedelta(seconds=1)
-            if seconds < 1:
+                    "timeout is outside the range timedelta can hold", "duration_range", node
+                ) from None
+            if seconds <= 0:
                 raise self._policy_error(
-                    "timeout must be at least one second", "duration_whole_seconds", node
+                    "timeout must be more than zero seconds", "duration_range", node
                 )
-            policy.timeout.seconds = seconds
+            policy.timeout.seconds = self._runnable_seconds(seconds, "timeout", node)
             return policy
 
         raise self._policy_error(
