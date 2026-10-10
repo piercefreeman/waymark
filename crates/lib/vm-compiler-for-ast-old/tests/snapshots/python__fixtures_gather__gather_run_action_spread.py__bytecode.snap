@@ -3,7 +3,7 @@ source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_gather/gather_run_action_spread.py
 ---
 fn main(input: [items], output: []):
-    results = spread items:item -> @gather_run_action_spread.process_item(item=item) [retry: 2] [timeout: 30s]
+    results = spread items:item -> @gather_run_action_spread.process_item(item=item) [Exception -> retry: 2] [timeout: 30s]
     _return_tmp = @gather_run_action_spread.combine_results(results=results)
     return _return_tmp
 ---
@@ -51,19 +51,19 @@ f0: [9 registers]
     CoreSet(Await { dst: r8, src: r8, resume: s11 })
   s11:
     CoreSet(Return { src: r8 })
-f1: [14 registers]
+f1: [11 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: Int(0) })
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("process_item"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r9, value: Int(2) })
     PureSet(Binary { kind: Lt, op: BinaryOp { dst: r10, a: r1, b: r9 } })
     CoreSet(JumpIf { target_state: s3, cond: r10 })
-    CoreSet(Raise { src: r3 })
+    ExcSet(Raise { src: r3 })
   s3:
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
     CoreSet(Jump { target_state: s1 })
@@ -71,13 +71,9 @@ f1: [14 registers]
     PureSet(LoadConst { dst: r5, value: Int(30) })
     ExtCallSet(Sleep { dst: r6, duration: r5, resume: s6, unskippable: true })
   s5:
-    CoreSet(PopExceptionHandlers { count: 1 })
+    ExcSet(PopExceptionHandlers { count: 1 })
     CoreSet(Return { src: r7 })
   s6:
     CoreSet(Select { arms: [SelectArm { src: r4, dst: r7, resume: s5 }, SelectArm { src: r6, dst: r8, resume: s7 }] })
   s7:
-    CoreSet(PopExceptionHandlers { count: 1 })
-    PureSet(LoadConst { dst: r11, value: String("ActionTimeout") })
-    PureSet(LoadConst { dst: r12, value: None })
-    PureSet(MakeException { dst: r13, type_id: r11, details: r12 })
-    CoreSet(Raise { src: r13 })
+    ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })

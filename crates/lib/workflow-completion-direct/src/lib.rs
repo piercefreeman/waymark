@@ -15,8 +15,7 @@
 #![warn(missing_docs)]
 
 use tokio::sync::oneshot;
-use waymark_vm_interpreter_coreset::Effect as CoreSetEffect;
-use waymark_vm_runtime_exception::Exception;
+use waymark_fullset_effect_handler::TerminalEffect;
 use waymark_workflow_completion_core::Outcome;
 
 /// An [`waymark_vm_driver_core::EffectHandler`] that sends the workflow
@@ -26,13 +25,13 @@ use waymark_workflow_completion_core::Outcome;
 /// This is useful for transient / in-memory execution where no durable
 /// persistence is needed and the caller wants to await the result directly
 /// rather than polling a backend.
-pub struct DirectHandler<ReadyValue> {
-    sender: Option<oneshot::Sender<Outcome<ReadyValue>>>,
+pub struct DirectHandler<ReadyValue, RaisedException> {
+    sender: Option<oneshot::Sender<Outcome<ReadyValue, RaisedException>>>,
 }
 
-impl<ReadyValue> DirectHandler<ReadyValue> {
+impl<ReadyValue, RaisedException> DirectHandler<ReadyValue, RaisedException> {
     /// Create a new handler that will send the outcome through `sender`.
-    pub fn new(sender: oneshot::Sender<Outcome<ReadyValue>>) -> Self {
+    pub fn new(sender: oneshot::Sender<Outcome<ReadyValue, RaisedException>>) -> Self {
         Self {
             sender: Some(sender),
         }
@@ -47,12 +46,13 @@ pub enum DirectHandleEffectError {
     AlreadyCompleted,
 }
 
-impl<ReadyValue> waymark_vm_driver_core::EffectHandler for DirectHandler<ReadyValue>
+impl<ReadyValue, RaisedException> waymark_vm_driver_core::EffectHandler
+    for DirectHandler<ReadyValue, RaisedException>
 where
     ReadyValue: Send,
-    Exception<ReadyValue>: Send,
+    RaisedException: Send + core::fmt::Debug,
 {
-    type Effect = CoreSetEffect<ReadyValue>;
+    type Effect = TerminalEffect<ReadyValue, RaisedException>;
     type Error = DirectHandleEffectError;
 
     async fn handle_effect(
@@ -60,15 +60,12 @@ where
         emitted_effect: waymark_vm_runtime_effect::EmittedEffect<Self::Effect>,
     ) -> Result<(), Self::Error> {
         let outcome = match emitted_effect.effect {
-            CoreSetEffect::Complete(value) => {
+            TerminalEffect::Complete(value) => {
                 tracing::debug!("workflow completed successfully");
                 Outcome::Completion(value)
             }
-            CoreSetEffect::UnhandledException(exception) => {
-                tracing::debug!(
-                    exception_type = %exception.type_id,
-                    "workflow terminated with unhandled exception",
-                );
+            TerminalEffect::UnhandledException(exception) => {
+                tracing::debug!(?exception, "workflow terminated with unhandled exception");
                 Outcome::Exception(exception)
             }
         };

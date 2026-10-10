@@ -3,8 +3,10 @@
 
 use std::sync::Arc;
 
-pub use waymark_vm_compiler_for_ast_old_const_value::ConstValue;
-pub use waymark_vm_value_python::{ReadyValue, Value};
+pub use waymark_vm_compiler_for_ast_old_bytecode_consts::{
+    ConstException, ConstExceptionPattern, ConstValue,
+};
+pub use waymark_vm_value_python::{RaisedException, ReadyValue, Value};
 
 #[cfg(test)]
 static_assertions::assert_impl_all!(Value: waymark_vm_interpreter_fullset::Value);
@@ -13,10 +15,15 @@ pub type InstructionSet = waymark_vm_instructions_fullset::FullSet<Spec>;
 
 pub type Executable = waymark_vm_bytecode::Executable<InstructionSet>;
 
-pub type Interpreter =
-    waymark_vm_interpreter_fullset::FullSetInterpreter<Spec, Arc<Executable>, Value>;
+pub type Interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter<
+    Spec,
+    Arc<Executable>,
+    Value,
+    RaisedException,
+>;
 
-pub type Runtime = waymark_vm_runtime::Runtime<Arc<Executable>, Interpreter, Value>;
+pub type Runtime =
+    waymark_vm_runtime::Runtime<Arc<Executable>, Interpreter, Value, RaisedException>;
 
 pub type CallSpec = waymark_vm_runtime::CallSpec<waymark_vm_bytecode_core::FunctionId, Value>;
 
@@ -42,6 +49,13 @@ impl waymark_vm_instructions_pureset::Spec for Spec {
     type ConstValue = ConstValue;
 }
 
+impl waymark_vm_instructions_excset::Spec for Spec {
+    type RegisterId = waymark_vm_runtime_core::RegisterId;
+    type StateId = waymark_vm_bytecode_core::StateId;
+    type ConstException = ConstException;
+    type ConstExceptionPattern = ConstExceptionPattern;
+}
+
 impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::ExtCallSet<Spec> for Lowering
 where
     Spec: waymark_vm_instructions_extcallset::Spec<ActionRef = waymark_action_core::ActionRef>,
@@ -59,11 +73,33 @@ impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::PureSet<Spec> for Low
 where
     Spec: waymark_vm_instructions_pureset::Spec<ConstValue = ConstValue>,
 {
-    type LiteralError = waymark_vm_compiler_for_ast_old_const_value::LoweringError;
+    type LiteralError = waymark_vm_compiler_for_ast_old_bytecode_consts::LoweringError;
 
     fn lower_literal(
         literal: &waymark_vm_ast_old::Literal,
     ) -> Result<Spec::ConstValue, Self::LiteralError> {
         ConstValue::lower(literal)
+    }
+}
+
+impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::ExcSet<Spec> for Lowering
+where
+    Spec: waymark_vm_instructions_excset::Spec<
+            ConstException = ConstException,
+            ConstExceptionPattern = ConstExceptionPattern,
+        >,
+{
+    fn lower_exception_pattern(class_names: &[String]) -> Spec::ConstExceptionPattern {
+        waymark_vm_compiler_for_ast_old_bytecode_consts::lower_exception_pattern(class_names)
+    }
+
+    fn lower_any_exception_pattern() -> Spec::ConstExceptionPattern {
+        waymark_vm_compiler_for_ast_old_bytecode_consts::lower_any_exception_pattern()
+    }
+
+    fn lower_compiler_emitted_exception(
+        exception: &waymark_vm_compiler_for_ast_old_core::lowering::CompilerEmittedException,
+    ) -> Spec::ConstException {
+        ConstException::lower(exception)
     }
 }

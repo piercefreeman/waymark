@@ -1594,7 +1594,7 @@ class RetryPolicy(google.protobuf.message.Message):
     def exception_types(
         self,
     ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
-        """Empty = catch all"""
+        """Empty = retries nothing; the SDK lists Exception when omitted"""
 
     @property
     def backoff(self) -> Global___Duration: ...

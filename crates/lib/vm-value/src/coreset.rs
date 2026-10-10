@@ -16,6 +16,7 @@ impl<Flavor: crate::Flavor> waymark_vm_interpreter_coreset::value::CaptureCallAr
     for ReadyValue<Flavor>
 where
     Flavor::Extension: Clone,
+    Flavor::ExceptionValue: Clone,
 {
     fn capture_call_argument(&self) -> Self {
         self.clone()

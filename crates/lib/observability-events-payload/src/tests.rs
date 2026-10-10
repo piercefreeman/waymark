@@ -51,7 +51,9 @@ fn vm_driver_payloads() -> Vec<vm_driver::Payload> {
         vm_driver::Observation::EffectEmitted {
             effect_number: EffectNumber(1),
             effect: vm_driver::EffectSummary::UnhandledException {
-                exception_type: "ValueError".to_owned(),
+                exception: waymark_observability_vm_value_display::RaisedExceptionSummary {
+                    exception_type: "ValueError".to_owned(),
+                },
             },
         },
         vm_driver::Observation::EffectEmitted {
@@ -77,7 +79,9 @@ fn vm_driver_payloads() -> Vec<vm_driver::Payload> {
         vm_driver::Observation::PromiseSettled {
             promise_state_id: PromiseStateId(5),
             settlement: vm_driver::Settlement::Rejected {
-                exception_type: "TimeoutError".to_owned(),
+                exception: waymark_observability_vm_value_display::RaisedExceptionSummary {
+                    exception_type: "TimeoutError".to_owned(),
+                },
             },
         },
         vm_driver::Observation::SnapshotPersisted {

@@ -10,7 +10,6 @@ default = []
 serde = [
   "dep:serde",
   "waymark-vm-runtime-promise-value/serde",
-  "waymark-vm-runtime-exception/serde",
   "typed_floats/serde",
   "indexmap/serde",
 ]

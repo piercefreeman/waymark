@@ -115,6 +115,38 @@ def test_zero_division_workflow_divides_normally_when_denominator_is_nonzero(
     assert payload["quotient"] == 2
 
 
+def test_lookup_error_workflow_catches_a_key_error_by_its_base_class(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The action raises `KeyError`; the workflow's `except LookupError` catches it."""
+    _require_real_cluster()
+    _enable_real_cluster(monkeypatch)
+
+    client = TestClient(app)
+    response = client.post("/api/lookup-error", json={"key": "absent"})
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["caught"] is True
+    assert payload["value"] == "missing"
+
+
+def test_lookup_error_workflow_returns_a_present_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A present key takes the ordinary path."""
+    _require_real_cluster()
+    _enable_real_cluster(monkeypatch)
+
+    client = TestClient(app)
+    response = client.post("/api/lookup-error", json={"key": "mode"})
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["caught"] is False
+    assert payload["value"] == "fast"
+
+
 def test_retry_counter_workflow_eventual_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

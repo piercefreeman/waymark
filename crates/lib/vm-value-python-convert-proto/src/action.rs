@@ -5,7 +5,7 @@ use std::convert::Infallible;
 
 use waymark_convert_core::{Convert as _, TryConvert};
 use waymark_proto::python_value as proto_value;
-use waymark_vm_value_python::ReadyValue;
+use waymark_vm_value_python::{RaisedException, ReadyValue, Value};
 
 use waymark_vm_value_convert_core::PendingPromiseError;
 
@@ -105,14 +105,17 @@ pub enum ActionOutcomeError {
 impl
     TryConvert<
         Option<proto_value::action_outcome::Outcome>,
-        waymark_action_runtime_core::ActionCallOutcome<ReadyValue>,
+        waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
     > for ActionOutcomeConverter
 {
     type Error = MissingOutcomeError;
 
     fn try_convert(
         outcome: Option<proto_value::action_outcome::Outcome>,
-    ) -> Result<waymark_action_runtime_core::ActionCallOutcome<ReadyValue>, Self::Error> {
+    ) -> Result<
+        waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
+        Self::Error,
+    > {
         use proto_value::action_outcome::Outcome;
 
         let outcome = match outcome.ok_or(MissingOutcomeError)? {
@@ -132,14 +135,18 @@ impl
 
 /// Read how an action call completed from the result payload: the
 /// outcome message, decoded and interpreted.
-impl TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<ReadyValue>>
+impl
+    TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>>
     for ActionOutcomeConverter
 {
     type Error = ActionOutcomeError;
 
     fn try_convert(
         bytes: Vec<u8>,
-    ) -> Result<waymark_action_runtime_core::ActionCallOutcome<ReadyValue>, Self::Error> {
+    ) -> Result<
+        waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
+        Self::Error,
+    > {
         let message: proto_value::ActionOutcome =
             prost::Message::decode(bytes.as_slice()).map_err(ActionOutcomeError::Decode)?;
         Self::try_convert(message.outcome).map_err(ActionOutcomeError::Outcome)
@@ -151,14 +158,14 @@ impl TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<ReadyVal
 /// the `exception` arm.
 impl
     TryConvert<
-        waymark_action_runtime_core::ActionCallOutcome<ReadyValue>,
+        waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
         proto_value::ActionOutcome,
     > for ActionOutcomeConverter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
-        outcome: waymark_action_runtime_core::ActionCallOutcome<ReadyValue>,
+        outcome: waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
     ) -> Result<proto_value::ActionOutcome, Self::Error> {
         use proto_value::action_outcome::Outcome;
 
@@ -179,34 +186,41 @@ impl
 
 /// Convert how an action call completed into the bytes the result
 /// payload carries: the outcome message, encoded.
-impl TryConvert<waymark_action_runtime_core::ActionCallOutcome<ReadyValue>, Vec<u8>>
+impl
+    TryConvert<waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>, Vec<u8>>
     for ActionOutcomeConverter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
-        outcome: waymark_action_runtime_core::ActionCallOutcome<ReadyValue>,
+        outcome: waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
     ) -> Result<Vec<u8>, Self::Error> {
         let message: proto_value::ActionOutcome = Self::try_convert(outcome)?;
         Ok(prost::Message::encode_to_vec(&message))
     }
 }
 
-/// Render an action-call loss as this flavor's exception details: none.
-///
-/// The loss semantics — that a loss settles the promise raised as
-/// `ActionExecutionNotStarted` or `ActionExecutionLost` by the stage the
-/// call provably reached — belong to the action runtime's converter, and
-/// the type id carries the whole fact; this flavor has nothing to add.
-impl TryConvert<waymark_action_runtime_core::ActionCallLossError, ReadyValue>
+/// Render an action-call loss as this flavor's raised exception:
+/// `ActionExecutionNotStarted` when the call provably never started,
+/// `ActionExecutionLost` when nothing is known about how far it got. The
+/// class carries the whole fact; the details are none.
+impl TryConvert<waymark_action_runtime_core::ActionCallLossError, RaisedException>
     for ActionOutcomeConverter
 {
     type Error = Infallible;
 
     fn try_convert(
-        _loss: waymark_action_runtime_core::ActionCallLossError,
-    ) -> Result<ReadyValue, Self::Error> {
-        Ok(ReadyValue::None)
+        loss: waymark_action_runtime_core::ActionCallLossError,
+    ) -> Result<RaisedException, Self::Error> {
+        let class = match loss.stage {
+            waymark_action_runtime_core::ActionCallStage::NotStarted => {
+                waymark_vm_value_python::exception::classes::ACTION_EXECUTION_NOT_STARTED
+            }
+            waymark_action_runtime_core::ActionCallStage::Unknown => {
+                waymark_vm_value_python::exception::classes::ACTION_EXECUTION_LOST
+            }
+        };
+        Ok(class.exception(Value::Ready(ReadyValue::None)))
     }
 }
 
@@ -251,18 +265,19 @@ impl TryConvert<Vec<u8>, std::collections::HashMap<String, ReadyValue>>
 #[cfg(test)]
 mod tests {
     use indexmap::IndexMap;
-    use waymark_vm_runtime_exception::Exception;
-    use waymark_vm_value_python::Value;
+    use waymark_vm_value_python::{Exception, Value};
 
     use super::*;
 
     fn outcome_payload(
-        outcome: waymark_action_runtime_core::ActionCallOutcome<ReadyValue>,
+        outcome: waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
     ) -> Vec<u8> {
         ActionOutcomeConverter::try_convert(outcome).expect("no pending promise in the outcome")
     }
 
-    fn read_outcome(payload: &[u8]) -> waymark_action_runtime_core::ActionCallOutcome<ReadyValue> {
+    fn read_outcome(
+        payload: &[u8],
+    ) -> waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException> {
         ActionOutcomeConverter::try_convert(payload.to_vec()).expect("the encoded outcome decodes")
     }
 
@@ -284,6 +299,7 @@ mod tests {
         // Returning an exception is not raising it: it arrives as a value.
         let exception = Exception {
             type_id: "ValueError".to_owned(),
+            mro_type_ids: vec!["Exception".to_owned(), "BaseException".to_owned()],
             details: Value::Ready(ReadyValue::String("boom".to_owned())),
         };
         let returned = outcome_payload(waymark_action_runtime_core::ActionCallOutcome::Value(
@@ -303,8 +319,10 @@ mod tests {
         // bury that.
         let empty = prost::Message::encode_to_vec(&proto_value::ActionOutcome { outcome: None });
 
-        let converted: Result<waymark_action_runtime_core::ActionCallOutcome<ReadyValue>, _> =
-            ActionOutcomeConverter::try_convert(empty);
+        let converted: Result<
+            waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
+            _,
+        > = ActionOutcomeConverter::try_convert(empty);
 
         assert!(
             matches!(converted, Err(ActionOutcomeError::Outcome(_))),
@@ -313,16 +331,21 @@ mod tests {
     }
 
     #[test]
-    fn raised_exception_keeps_its_type_id_and_details() {
+    fn raised_exception_keeps_its_class_bases_and_details() {
         let raised = outcome_payload(waymark_action_runtime_core::ActionCallOutcome::Exception(
             Exception {
                 type_id: "RetryCounterError".to_owned(),
-                details: ReadyValue::Dict(IndexMap::from([(
+                mro_type_ids: vec![
+                    "RuntimeError".to_owned(),
+                    "Exception".to_owned(),
+                    "BaseException".to_owned(),
+                ],
+                details: Value::Ready(ReadyValue::Dict(IndexMap::from([(
                     "message".to_owned(),
                     Value::Ready(ReadyValue::String(
                         "attempt 1 has not reached success".to_owned(),
                     )),
-                )])),
+                )]))),
             },
         ));
 
@@ -333,7 +356,11 @@ mod tests {
         };
 
         assert_eq!(exception.type_id, "RetryCounterError");
-        let ReadyValue::Dict(details) = exception.details else {
+        assert_eq!(
+            exception.mro_type_ids,
+            ["RuntimeError", "Exception", "BaseException"]
+        );
+        let Value::Ready(ReadyValue::Dict(details)) = exception.details else {
             panic!("the exception's details are its own value");
         };
         assert_eq!(
@@ -345,13 +372,26 @@ mod tests {
     }
 
     #[test]
-    fn a_loss_renders_as_no_details() {
-        let details: ReadyValue =
+    fn a_loss_renders_as_the_stage_s_class_with_no_details() {
+        let not_started: RaisedException =
             ActionOutcomeConverter::convert(waymark_action_runtime_core::ActionCallLossError {
                 stage: waymark_action_runtime_core::ActionCallStage::NotStarted,
             });
+        let lost: RaisedException =
+            ActionOutcomeConverter::convert(waymark_action_runtime_core::ActionCallLossError {
+                stage: waymark_action_runtime_core::ActionCallStage::Unknown,
+            });
 
-        assert_eq!(details, ReadyValue::None);
+        assert_eq!(
+            not_started,
+            waymark_vm_value_python::exception::classes::ACTION_EXECUTION_NOT_STARTED
+                .exception(Value::Ready(ReadyValue::None))
+        );
+        assert_eq!(
+            lost,
+            waymark_vm_value_python::exception::classes::ACTION_EXECUTION_LOST
+                .exception(Value::Ready(ReadyValue::None))
+        );
     }
     /// The encoded arguments of a dispatch for `names` paired with
     /// `values`.

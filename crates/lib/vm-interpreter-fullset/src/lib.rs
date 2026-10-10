@@ -11,6 +11,9 @@ pub use self::value::Value;
 type FunctionIdFor<Spec> = <Spec as waymark_vm_instructions_coreset::Spec>::FunctionId;
 type StateIdFor<Spec> = <Spec as waymark_vm_instructions_coreset::Spec>::StateId;
 type ActionRefFor<Spec> = <Spec as waymark_vm_instructions_extcallset::Spec>::ActionRef;
+type ConstExceptionFor<Spec> = <Spec as waymark_vm_instructions_excset::Spec>::ConstException;
+type ConstExceptionPatternFor<Spec> =
+    <Spec as waymark_vm_instructions_excset::Spec>::ConstExceptionPattern;
 
 /// The runtime view for the [`FullSetInterpreter`].
 pub use waymark_vm_runtime_core::FullRuntimeView as RuntimeView;
@@ -20,13 +23,19 @@ pub use waymark_vm_runtime_core::FullRuntimeView as RuntimeView;
 #[derive(waymark_vm_interpreter_composite::Interpreter)]
 #[interpreter(
     instruction = waymark_vm_instructions_fullset::FullSet<Spec>,
-    frame = waymark_vm_runtime_core::Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Value>,
+    frame = waymark_vm_runtime_core::Frame<
+        FunctionIdFor<Spec>,
+        StateIdFor<Spec>,
+        Value,
+        RaisedException,
+    >,
     view = waymark_vm_runtime_core::FullRuntimeView<
         'r,
         Executable,
         FunctionIdFor<Spec>,
         StateIdFor<Spec>,
         Value,
+        RaisedException,
     >,
     bound(
         Executable: 'static,
@@ -41,6 +50,10 @@ pub use waymark_vm_runtime_core::FullRuntimeView as RuntimeView;
         Spec: waymark_vm_instructions_pureset::Spec<
             RegisterId = waymark_vm_runtime_core::RegisterId,
         >,
+        Spec: waymark_vm_instructions_excset::Spec<
+            RegisterId = waymark_vm_runtime_core::RegisterId,
+            StateId = StateIdFor<Spec>,
+        >,
         Spec: 'static,
         FunctionIdFor<Spec>: Copy,
         StateIdFor<Spec>: Copy + Default + PartialEq,
@@ -49,21 +62,37 @@ pub use waymark_vm_runtime_core::FullRuntimeView as RuntimeView;
         Value: waymark_vm_interpreter_coreset::Value,
         Value: waymark_vm_interpreter_extcallset::Value,
         Value: waymark_vm_interpreter_pureset::Value,
-        Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
-        Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,
         Value: for<'a> waymark_vm_interpreter_pureset::value::LoadConst<&'a Spec::ConstValue>,
+        Value: waymark_vm_runtime_exception::ValueToRaisedException<RaisedException>,
+        Value: waymark_vm_runtime_exception::RaisedExceptionToValue<RaisedException>,
         Value: waymark_vm_runtime_promise_core::Resolvable,
         Value: waymark_vm_runtime_promise_core::Suspendable,
         Value::ReadyValue: Clone,
+        RaisedException: Clone + 'static,
+        RaisedException: waymark_vm_runtime_exception::Match,
+        RaisedException: waymark_vm_interpreter_pureset::RaisedException,
+        RaisedException: for<'a> waymark_vm_interpreter_excset::LoadConstException<&'a ConstExceptionFor<Spec>>,
+        waymark_vm_runtime_exception::MatchPatternOf<RaisedException>:
+            for<'a> waymark_vm_interpreter_excset::LoadConstExceptionPattern<&'a ConstExceptionPatternFor<Spec>>,
     ),
 )]
-pub struct FullSetInterpreter<Spec: waymark_vm_instructions_fullset::Spec, Executable, Value> {
+pub struct FullSetInterpreter<
+    Spec: waymark_vm_instructions_fullset::Spec,
+    Executable,
+    Value,
+    RaisedException,
+> {
     /// The coreset interpreter used for core instructions.
     #[interpreter(
         variant = CoreSet,
         instruction = waymark_vm_instructions_coreset::CoreSet<Spec>,
     )]
-    pub core_set: waymark_vm_interpreter_coreset::CoreSetInterpreter<Spec, Executable, Value>,
+    pub core_set: waymark_vm_interpreter_coreset::CoreSetInterpreter<
+        Spec,
+        Executable,
+        Value,
+        RaisedException,
+    >,
 
     /// The extcallset interpreter used for extcall instructions.
     #[interpreter(
@@ -75,6 +104,7 @@ pub struct FullSetInterpreter<Spec: waymark_vm_instructions_fullset::Spec, Execu
         FunctionIdFor<Spec>,
         StateIdFor<Spec>,
         Value,
+        RaisedException,
     >,
 
     /// The pureset interpreter used for pure instructions.
@@ -87,5 +117,18 @@ pub struct FullSetInterpreter<Spec: waymark_vm_instructions_fullset::Spec, Execu
         FunctionIdFor<Spec>,
         StateIdFor<Spec>,
         Value,
+        RaisedException,
+    >,
+
+    /// The excset interpreter used for exception instructions.
+    #[interpreter(
+        variant = ExcSet,
+        instruction = waymark_vm_instructions_excset::ExcSet<Spec>,
+    )]
+    pub exc_set: waymark_vm_interpreter_excset::ExcSetInterpreter<
+        Spec,
+        FunctionIdFor<Spec>,
+        Value,
+        RaisedException,
     >,
 }

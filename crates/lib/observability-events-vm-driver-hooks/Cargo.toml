@@ -9,6 +9,7 @@ waymark-ids = { workspace = true }
 waymark-observability-events-emitter = { workspace = true }
 waymark-observability-events-payload = { workspace = true }
 waymark-observability-events-vm-driver-hooks-core = { workspace = true }
+waymark-observability-vm-value-display = { workspace = true }
 waymark-vm-driver = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
 waymark-vm-driver-hooks = { workspace = true }
@@ -22,10 +23,9 @@ waymark-lossy-batcher = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-observability-events-core = { workspace = true }
 waymark-observability-events-vm-driver-hooks-fullset = { workspace = true }
-waymark-vm-interpreter-coreset = { workspace = true }
+waymark-vm-interpreter-excset = { workspace = true }
 waymark-vm-interpreter-extcallset = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
-waymark-vm-runtime-exception = { workspace = true }
 
 nonempty-collections = { workspace = true }
 serde_json = { workspace = true }

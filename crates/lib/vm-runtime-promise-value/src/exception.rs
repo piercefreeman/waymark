@@ -1,57 +1,48 @@
 //! [`waymark_vm_runtime_exception`] trait implementations.
 
-use waymark_vm_runtime_exception::{
-    AsException, Exception, FromException, IntoException, NotAnExceptionError,
-    NotAnOwnedExceptionError,
-};
+use waymark_vm_runtime_promise_core::UnresolvedPromiseError;
 
 use crate::PromiseValue;
 
-impl<T> AsException for PromiseValue<T>
-where
-    T: AsException,
-{
-    fn as_exception(&self) -> Result<&Exception<Self::RootValue>, NotAnExceptionError> {
-        let value = self.require_ready_ref().map_err(|_| NotAnExceptionError)?;
-        value.as_exception()
-    }
+/// Why a promise value cannot be raised.
+#[derive(Debug, thiserror::Error)]
+pub enum ValueToRaisedExceptionError<ReadyValueError> {
+    /// A pending promise is not an exception.
+    #[error("a pending promise cannot be raised: {0}")]
+    Pending(#[source] UnresolvedPromiseError),
+
+    /// The ready value cannot be raised.
+    #[error("ready value: {0}")]
+    Ready(#[source] ReadyValueError),
 }
 
-impl<T> IntoException for PromiseValue<T>
+impl<T, RaisedException> waymark_vm_runtime_exception::ValueToRaisedException<RaisedException>
+    for PromiseValue<T>
 where
-    T: IntoException,
+    T: waymark_vm_runtime_exception::ValueToRaisedException<RaisedException>,
 {
-    fn into_exception(self) -> Result<Exception<Self::RootValue>, NotAnOwnedExceptionError<Self>> {
+    type Error = ValueToRaisedExceptionError<T::Error>;
+
+    fn into_raised(self) -> Result<RaisedException, Self::Error> {
         match self {
             Self::Ready(value) => value
-                .into_exception()
-                .map_err(|err| NotAnOwnedExceptionError {
-                    value: Self::Ready(err.value),
-                }),
-            Self::Pending(promise_state_id) => Err(NotAnOwnedExceptionError {
-                value: Self::Pending(promise_state_id),
-            }),
+                .into_raised()
+                .map_err(ValueToRaisedExceptionError::Ready),
+            Self::Pending(promise_state_id) => Err(ValueToRaisedExceptionError::Pending(
+                UnresolvedPromiseError { promise_state_id },
+            )),
         }
     }
 }
 
-impl<T> FromException for PromiseValue<T>
+impl<T, RaisedException> waymark_vm_runtime_exception::RaisedExceptionToValue<RaisedException>
+    for PromiseValue<T>
 where
-    T: FromException,
+    T: waymark_vm_runtime_exception::RaisedExceptionToValue<RaisedException>,
 {
-    fn from_exception(exception: Exception<Self::RootValue>) -> Self {
-        Self::Ready(T::from_exception(exception))
-    }
-}
+    type Error = T::Error;
 
-impl<T, IntermediateDetails>
-    waymark_vm_runtime_exception::ExceptionFromIntermediate<IntermediateDetails> for PromiseValue<T>
-where
-    T: waymark_vm_runtime_exception::ExceptionFromIntermediate<IntermediateDetails>,
-{
-    fn from_intermediate_exception(
-        exception: Exception<IntermediateDetails>,
-    ) -> Exception<Self::RootValue> {
-        T::from_intermediate_exception(exception)
+    fn from_raised(raised: RaisedException) -> Result<Self, Self::Error> {
+        T::from_raised(raised).map(Self::Ready)
     }
 }

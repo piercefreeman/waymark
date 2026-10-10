@@ -9,12 +9,12 @@ use nonempty_collections::NEVec;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
 /// A single promise settlement, ready to be applied to a VM.
-pub struct PromiseSettlement<Value, Ack> {
+pub struct PromiseSettlement<Value, RaisedException, Ack> {
     /// Identifies the pending promise in the VM's state.
     pub promise_state_id: PromiseStateId,
 
     /// Whether to resolve or reject the promise.
-    pub resolution: PromiseResolution<Value>,
+    pub resolution: PromiseResolution<Value, RaisedException>,
 
     /// Opaque acknowledgement handle.
     ///
@@ -27,18 +27,21 @@ pub struct PromiseSettlement<Value, Ack> {
 }
 
 /// A promise resolution.
-pub enum PromiseResolution<Value> {
+pub enum PromiseResolution<Value, RaisedException> {
     /// Resolve the promise successfully.
     Resolved(Value),
 
-    /// Reject the promise with an exception.
-    Rejected(waymark_vm_runtime_exception::Exception<Value>),
+    /// Reject the promise with a raised exception.
+    Rejected(RaisedException),
 }
 
 /// Convenience alias for the [`PromiseSettlement`] type for a given
 /// [`PromiseSettler`].
-pub type PromiseSettlementFor<T> =
-    PromiseSettlement<<T as PromiseSettler>::Value, <T as PromiseSettler>::Ack>;
+pub type PromiseSettlementFor<T> = PromiseSettlement<
+    <T as PromiseSettler>::Value,
+    <T as PromiseSettler>::RaisedException,
+    <T as PromiseSettler>::Ack,
+>;
 
 /// Supplies promise settlements to a suspended VM.
 ///
@@ -48,6 +51,9 @@ pub type PromiseSettlementFor<T> =
 pub trait PromiseSettler {
     /// The value type that the promise can be resolved with.
     type Value;
+
+    /// The raised exception type that the promise can be rejected with.
+    type RaisedException;
 
     /// The error returned by
     /// [`get_promise_settlements`](PromiseSettler::get_promise_settlements).
@@ -127,6 +133,7 @@ where
     B: PromiseSettler,
 {
     type Value = B::Value;
+    type RaisedException = B::RaisedException;
     type Error = B::Error;
     type Ack = B::Ack;
 
@@ -146,13 +153,16 @@ impl PromiseSettlementAck for tokio::sync::oneshot::Sender<()> {
 }
 
 #[cfg(feature = "tokio")]
-impl<Value, Ack> PromiseSettler for tokio::sync::mpsc::Receiver<PromiseSettlement<Value, Ack>>
+impl<Value, RaisedException, Ack> PromiseSettler
+    for tokio::sync::mpsc::Receiver<PromiseSettlement<Value, RaisedException, Ack>>
 where
     Value: Send,
+    RaisedException: Send,
     Ack: Send,
     Ack: PromiseSettlementAck,
 {
     type Value = Value;
+    type RaisedException = RaisedException;
     type Error = ();
     type Ack = Ack;
 

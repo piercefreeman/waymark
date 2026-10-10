@@ -13,6 +13,10 @@ mockall::mock! {
         type Value = u8;
     }
 
+    impl waymark_vm_driver_hooks::promise_settled::HasRaisedException for Hooks {
+        type RaisedException = &'static str;
+    }
+
     impl waymark_vm_driver_hooks::vm_stopped::HasError for Hooks {
         type Error = &'static str;
     }
@@ -29,7 +33,7 @@ mockall::mock! {
         fn promise_settled(
             &self,
             promise_state_id: PromiseStateId,
-            resolution: &PromiseResolution<u8>,
+            resolution: &PromiseResolution<u8, &'static str>,
         );
     }
 
@@ -47,7 +51,7 @@ pub fn drive_all<Hooks>(hooks: &Hooks)
 where
     Hooks: waymark_vm_driver_hooks::VmStarted
         + waymark_vm_driver_hooks::EffectEmitted<Effect = &'static str>
-        + waymark_vm_driver_hooks::PromiseSettled<Value = u8>
+        + waymark_vm_driver_hooks::PromiseSettled<Value = u8, RaisedException = &'static str>
         + waymark_vm_driver_hooks::SnapshotPersisted
         + waymark_vm_driver_hooks::VmStopped<Error = &'static str>,
 {

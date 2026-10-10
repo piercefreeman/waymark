@@ -47,6 +47,9 @@ from example_app.workflows import (
     KwOnlyLocationWorkflow,
     LoopExceptionRequest,
     LoopExceptionResult,
+    LookupErrorRequest,
+    LookupErrorResult,
+    LookupErrorWorkflow,
     LoopExceptionWorkflow,
     LoopReturnRequest,
     LoopReturnResult,
@@ -215,6 +218,15 @@ async def run_zero_division_workflow(
     """Run the zero division workflow demonstrating VM-raised exceptions."""
     workflow = ZeroDivisionWorkflow()
     return await workflow.run(denominator=payload.denominator)
+
+
+@app.post("/api/lookup-error", response_model=LookupErrorResult)
+async def run_lookup_error_workflow(
+    payload: LookupErrorRequest,
+) -> LookupErrorResult:
+    """Run the lookup error workflow demonstrating catching by a base class."""
+    workflow = LookupErrorWorkflow()
+    return await workflow.run(key=payload.key)
 
 
 # =============================================================================
@@ -409,6 +421,7 @@ WORKFLOW_REGISTRY = {
     "ErrorHandlingWorkflow": ErrorHandlingWorkflow,
     "ExceptionMetadataWorkflow": ExceptionMetadataWorkflow,
     "ZeroDivisionWorkflow": ZeroDivisionWorkflow,
+    "LookupErrorWorkflow": LookupErrorWorkflow,
     "RetryCounterWorkflow": RetryCounterWorkflow,
     "TimeoutProbeWorkflow": TimeoutProbeWorkflow,
     "DurableSleepWorkflow": DurableSleepWorkflow,

@@ -4,7 +4,8 @@ use support::{compile_program, runtime, runtime_with_args};
 
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_ast_old::{
-    BinaryOperator, Call, Expr, FunctionCall, GlobalFunction, Literal, Spanned, UnaryOperator,
+    BinaryOperator, Call, DurationLiteral, Expr, FunctionCall, GlobalFunction, Literal,
+    PolicyBracket, RetryPolicy, Spanned, Statement, TimeoutPolicy, UnaryOperator,
 };
 use waymark_vm_ast_old_helpers::{
     action_call, action_expr, assignment, assignment_targets, binary_expr, break_stmt,
@@ -13,18 +14,20 @@ use waymark_vm_ast_old_helpers::{
     unary_expr, variable, while_stmt,
 };
 use waymark_vm_bytecode_core::{FunctionId, InstructionId, StateId};
-use waymark_vm_compiler_for_ast_old_test_support::{TestActionRef, TestReadyValue, TestValue};
+use waymark_vm_compiler_for_ast_old_test_support::{
+    TestActionRef, TestRaisedException, TestReadyValue, TestValue,
+};
 use waymark_vm_interpreter_fullset::Effect;
 
-fn completed_int(
-    emitted_effect: waymark_vm_runtime_effect::EmittedEffect<
-        Effect<
-            waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
-            waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
-            core::convert::Infallible,
-        >,
-    >,
-) -> i64 {
+/// The effect the test runtime emits: the fullset's, over the test types.
+type TestEffect = Effect<
+    waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
+    waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
+    core::convert::Infallible,
+    waymark_vm_interpreter_excset::Effect<TestRaisedException>,
+>;
+
+fn completed_int(emitted_effect: waymark_vm_runtime_effect::EmittedEffect<TestEffect>) -> i64 {
     match completed_value(emitted_effect) {
         TestReadyValue::Int(value) => value,
         other => panic!("unexpected runtime effect: {other:?}"),
@@ -32,13 +35,7 @@ fn completed_int(
 }
 
 fn completed_value(
-    emitted_effect: waymark_vm_runtime_effect::EmittedEffect<
-        Effect<
-            waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
-            waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
-            core::convert::Infallible,
-        >,
-    >,
+    emitted_effect: waymark_vm_runtime_effect::EmittedEffect<TestEffect>,
 ) -> TestReadyValue {
     match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => value,
@@ -648,6 +645,102 @@ fn compiles_sleep_statements_into_resumable_sleep_effects() {
         ),
         7
     );
+}
+
+/// A bare `notify` action call statement carrying `policies`.
+fn policy_action_stmt(policies: Vec<PolicyBracket>) -> Spanned<Statement> {
+    let mut call = action_call("notify", Vec::new());
+    call.policies = policies;
+    spanned(Statement::ActionCall { call })
+}
+
+/// Compiles a `notify` call retried once on `exception_types` under a
+/// timeout, and drives it to the point where the timeout has won the race:
+/// the call is issued, the timeout sleep is started, and the sleep resolves
+/// first.
+fn drive_to_the_first_timeout(exception_types: &[&str]) -> support::TestRuntime {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![
+            policy_action_stmt(vec![
+                PolicyBracket::Retry(RetryPolicy {
+                    exception_types: exception_types
+                        .iter()
+                        .map(|exception_type| (*exception_type).to_owned())
+                        .collect(),
+                    max_retries: 1,
+                    backoff: None,
+                }),
+                PolicyBracket::Timeout(TimeoutPolicy {
+                    timeout: DurationLiteral { seconds: 30 },
+                }),
+            ]),
+            return_stmt(Some(int(7))),
+        ],
+    )]);
+
+    let executable = compile_program(&program);
+    let mut runtime = runtime(executable);
+
+    let emitted_effect = runtime
+        .run()
+        .expect("the attempt should issue the action call");
+    assert!(matches!(
+        emitted_effect.effect,
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. })
+    ));
+
+    let emitted_effect = runtime
+        .run()
+        .expect("the attempt should start the timeout sleep");
+    let sleep_promise_state_id = match emitted_effect.effect {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::Sleep {
+            promise_state_id,
+            ..
+        }) => promise_state_id,
+        other => panic!("unexpected runtime effect: {other:?}"),
+    };
+
+    // The race between the call and the sleep has nothing to resume on yet.
+    assert!(matches!(
+        runtime.run(),
+        Err(waymark_vm_runtime::RunError::NoReadyFrame)
+    ));
+
+    runtime
+        .resolve_promise(sleep_promise_state_id, TestReadyValue::None)
+        .expect("the timeout sleep should resolve");
+
+    runtime
+}
+
+#[test]
+fn a_timeout_passes_a_retry_bracket_on_exception() {
+    let mut runtime = drive_to_the_first_timeout(&["Exception"]);
+
+    let emitted_effect = runtime.run().expect("the timeout should surface unhandled");
+
+    match emitted_effect.effect {
+        Effect::ExcSet(waymark_vm_interpreter_excset::Effect::UnhandledException(exception)) => {
+            assert_eq!(exception.type_id, "ActionTimeout");
+        }
+        other => panic!("unexpected runtime effect: {other:?}"),
+    }
+}
+
+#[test]
+fn a_timeout_is_retried_by_a_bracket_listing_it() {
+    let mut runtime = drive_to_the_first_timeout(&["ActionTimeout"]);
+
+    let emitted_effect = runtime
+        .run()
+        .expect("the bracket should start a second attempt");
+
+    assert!(matches!(
+        emitted_effect.effect,
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. })
+    ));
 }
 
 #[test]

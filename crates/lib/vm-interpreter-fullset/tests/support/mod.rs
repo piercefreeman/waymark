@@ -1,9 +1,10 @@
 //! Test harness for the fullset interpreter integration tests.
 //!
-//! Defines a [`TestSpec`] that wires the pure, core, and extcall instruction
-//! sets onto common id types, a hand-rolled promise-aware [`TestValue`] that
-//! implements every trait the interpreter requires, and helpers for building
-//! a [`Runtime`] from a single-function `Executable`.
+//! Defines a [`TestSpec`] that wires the pure, core, extcall, and exception
+//! instruction sets onto common id types, a hand-rolled promise-aware
+//! [`TestValue`] that implements every trait the interpreter requires, the
+//! [`TestException`] the runtime raises, and helpers for building a
+//! [`Runtime`] from a single-function `Executable`.
 //!
 //! # Why not `PromiseValue`?
 //!
@@ -21,15 +22,21 @@ use waymark_vm_instructions_pureset::{BinaryOpKind, UnaryOpKind};
 use waymark_vm_interpreter_fullset::FullSetInterpreter;
 use waymark_vm_runtime::{CallSpec, Runtime};
 use waymark_vm_runtime_core::RegisterId;
-use waymark_vm_runtime_exception::{
-    Exception, FromException, IntoException, NotAnOwnedExceptionError,
-};
 use waymark_vm_runtime_promise_core::{PromiseStateId, UnresolvedPromiseError};
 use waymark_vm_runtime_test::{FunctionId, StateId};
 
 pub type Instruction = FullSet<TestSpec>;
-pub type Interpreter = FullSetInterpreter<TestSpec, Executable<Instruction>, TestValue>;
-pub type TestRuntime = Runtime<Executable<Instruction>, Interpreter, TestValue>;
+pub type Interpreter =
+    FullSetInterpreter<TestSpec, Executable<Instruction>, TestValue, TestException>;
+pub type TestRuntime = Runtime<Executable<Instruction>, Interpreter, TestValue, TestException>;
+
+/// The effect the test runtime emits: the fullset's, over the test types.
+pub type TestEffect = waymark_vm_interpreter_fullset::Effect<
+    waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
+    waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
+    core::convert::Infallible,
+    waymark_vm_interpreter_excset::Effect<TestException>,
+>;
 
 // --- Spec ---
 
@@ -53,12 +60,197 @@ impl waymark_vm_instructions_pureset::Spec for TestSpec {
     type ConstValue = TestConstValue;
 }
 
+impl waymark_vm_instructions_excset::Spec for TestSpec {
+    type RegisterId = RegisterId;
+    type StateId = StateId;
+    type ConstException = TestConstException;
+    type ConstExceptionPattern = TestExceptionPattern;
+}
+
 // --- Constants & action refs ---
 
 #[derive(Debug, Clone)]
 pub enum TestConstValue {
     Int(i64),
 }
+
+/// An exception as the bytecode embeds it for `RaiseConst`.
+#[derive(Debug, Clone)]
+pub struct TestConstException {
+    pub type_id: &'static str,
+    pub details: TestConstValue,
+}
+
+// --- Raised exception ---
+
+/// The raised exception of the test runtime: a class name and the details.
+///
+/// Also the exception value: a raised exception is captured as-is and an
+/// exception value is raised as-is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestException {
+    pub type_id: String,
+    pub details: TestValue,
+}
+
+/// What a handler lists: any exception, or one class name, matched by
+/// equality. The bytecode carries the same type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TestExceptionPattern {
+    Any,
+    TypeId(String),
+}
+
+impl TestExceptionPattern {
+    pub fn type_id(type_id: &str) -> Self {
+        Self::TypeId(type_id.to_owned())
+    }
+}
+
+impl From<&TestExceptionPattern> for TestExceptionPattern {
+    fn from(pattern: &TestExceptionPattern) -> Self {
+        pattern.clone()
+    }
+}
+
+impl waymark_vm_runtime_exception::HasMatchPattern for TestException {
+    type Pattern = TestExceptionPattern;
+}
+
+impl waymark_vm_runtime_exception::Match for TestException {
+    fn matches(&self, pattern: &Self::Pattern) -> bool {
+        match pattern {
+            TestExceptionPattern::Any => true,
+            TestExceptionPattern::TypeId(type_id) => self.type_id == *type_id,
+        }
+    }
+}
+
+impl From<&TestConstException> for TestException {
+    fn from(exception: &TestConstException) -> Self {
+        Self {
+            type_id: exception.type_id.to_owned(),
+            details: TestValue::Ready(TestReadyValue::from(&exception.details)),
+        }
+    }
+}
+
+impl TestException {
+    fn from_operation_error(type_id: &str, error: impl std::fmt::Display) -> Self {
+        Self {
+            type_id: type_id.to_owned(),
+            details: TestValue::Ready(TestReadyValue::Text(error.to_string())),
+        }
+    }
+}
+
+impl From<waymark_vm_interpreter_pureset::value::AsScalarError> for TestException {
+    fn from(error: waymark_vm_interpreter_pureset::value::AsScalarError) -> Self {
+        Self::from_operation_error("TypeError", error)
+    }
+}
+
+impl From<waymark_vm_interpreter_pureset::value::BinaryOperationError> for TestException {
+    fn from(error: waymark_vm_interpreter_pureset::value::BinaryOperationError) -> Self {
+        use waymark_vm_interpreter_pureset::value::BinaryOperationError;
+        let type_id = match &error {
+            BinaryOperationError::UnsupportedOperation { .. } => "TypeError",
+            BinaryOperationError::ResultOutOfBounds { .. } => "OverflowError",
+            BinaryOperationError::DivisionByZero { .. } => "ZeroDivisionError",
+        };
+        Self::from_operation_error(type_id, error)
+    }
+}
+
+impl From<waymark_vm_interpreter_pureset::value::UnaryOperationError> for TestException {
+    fn from(error: waymark_vm_interpreter_pureset::value::UnaryOperationError) -> Self {
+        use waymark_vm_interpreter_pureset::value::UnaryOperationError;
+        let type_id = match &error {
+            UnaryOperationError::UnsupportedOperation { .. } => "TypeError",
+            UnaryOperationError::ResultOutOfBounds { .. } => "OverflowError",
+        };
+        Self::from_operation_error(type_id, error)
+    }
+}
+
+impl From<waymark_vm_interpreter_pureset::value::LengthError> for TestException {
+    fn from(error: waymark_vm_interpreter_pureset::value::LengthError) -> Self {
+        Self::from_operation_error("TypeError", error)
+    }
+}
+
+impl From<waymark_vm_interpreter_pureset::value::FromLengthError> for TestException {
+    fn from(error: waymark_vm_interpreter_pureset::value::FromLengthError) -> Self {
+        Self::from_operation_error("OverflowError", error)
+    }
+}
+
+impl From<waymark_vm_interpreter_pureset::value::MakeListError> for TestException {
+    fn from(error: waymark_vm_interpreter_pureset::value::MakeListError) -> Self {
+        use waymark_vm_interpreter_pureset::value::MakeListError;
+        let type_id = match &error {
+            MakeListError::NotListable => "TypeError",
+            MakeListError::ResultOutOfBounds => "OverflowError",
+        };
+        Self::from_operation_error(type_id, error)
+    }
+}
+
+impl From<waymark_vm_interpreter_pureset::value::ListAppendError> for TestException {
+    fn from(error: waymark_vm_interpreter_pureset::value::ListAppendError) -> Self {
+        use waymark_vm_interpreter_pureset::value::ListAppendError;
+        let type_id = match &error {
+            ListAppendError::NotListable => "TypeError",
+            ListAppendError::ResultOutOfBounds => "OverflowError",
+        };
+        Self::from_operation_error(type_id, error)
+    }
+}
+
+impl From<waymark_vm_interpreter_pureset::value::AsDictKeyError> for TestException {
+    fn from(error: waymark_vm_interpreter_pureset::value::AsDictKeyError) -> Self {
+        Self::from_operation_error("TypeError", error)
+    }
+}
+
+impl From<waymark_vm_interpreter_pureset::value::MakeDictError> for TestException {
+    fn from(error: waymark_vm_interpreter_pureset::value::MakeDictError) -> Self {
+        use waymark_vm_interpreter_pureset::value::MakeDictError;
+        let type_id = match &error {
+            MakeDictError::NotDictable => "TypeError",
+            MakeDictError::ResultOutOfBounds => "OverflowError",
+        };
+        Self::from_operation_error(type_id, error)
+    }
+}
+
+impl From<waymark_vm_interpreter_pureset::value::IndexOperationError> for TestException {
+    fn from(error: waymark_vm_interpreter_pureset::value::IndexOperationError) -> Self {
+        use waymark_vm_interpreter_pureset::value::IndexOperationError;
+        let type_id = match &error {
+            IndexOperationError::UnsupportedOperation => "TypeError",
+            IndexOperationError::IndexOutOfBounds => "IndexError",
+            IndexOperationError::MissingKey => "KeyError",
+        };
+        Self::from_operation_error(type_id, error)
+    }
+}
+
+impl From<waymark_vm_interpreter_pureset::value::DotOperationError> for TestException {
+    fn from(error: waymark_vm_interpreter_pureset::value::DotOperationError) -> Self {
+        use waymark_vm_interpreter_pureset::value::DotOperationError;
+        let type_id = match &error {
+            DotOperationError::UnsupportedOperation => "TypeError",
+            DotOperationError::MissingAttribute => "AttributeError",
+        };
+        Self::from_operation_error(type_id, error)
+    }
+}
+
+/// The value a `Raise` named is not an exception.
+#[derive(Debug, thiserror::Error)]
+#[error("the value is not an exception")]
+pub struct NotAnExceptionError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestActionRef(pub usize);
@@ -85,7 +277,7 @@ pub enum TestReadyValue {
     Bool(bool),
     Text(String),
     List(Vec<TestValue>),
-    Exception(Box<Exception<TestValue>>),
+    Exception(Box<TestException>),
 }
 
 impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
@@ -219,29 +411,6 @@ impl waymark_vm_interpreter_pureset::value::MakeDict for TestReadyValue {
     {
         let _ = entries;
         Err(waymark_vm_interpreter_pureset::value::MakeDictError::NotDictable)
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::AsExceptionTypeId for TestReadyValue {
-    fn as_exception_type_id(
-        &self,
-    ) -> Result<&str, waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError> {
-        Err(waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError::UnsupportedTypeIdType)
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::MakeException for TestReadyValue {
-    fn make_exception(type_id: String, details: Self::RootValue) -> Self {
-        Self::Exception(Box::new(Exception { type_id, details }))
-    }
-}
-
-impl waymark_vm_runtime_exception::ExceptionFromIntermediate<String> for TestReadyValue {
-    fn from_intermediate_exception(exception: Exception<String>) -> Exception<Self::RootValue> {
-        Exception {
-            type_id: exception.type_id,
-            details: TestValue::Ready(Self::Text(exception.details)),
-        }
     }
 }
 
@@ -386,18 +555,22 @@ impl waymark_vm_runtime_promise_core::Resolvable for TestValue {
     }
 }
 
-impl FromException for TestValue {
-    fn from_exception(exception: Exception<Self::RootValue>) -> Self {
-        Self::Ready(TestReadyValue::Exception(Box::new(exception)))
+impl waymark_vm_runtime_exception::ValueToRaisedException<TestException> for TestValue {
+    type Error = NotAnExceptionError;
+
+    fn into_raised(self) -> Result<TestException, Self::Error> {
+        match self {
+            Self::Ready(TestReadyValue::Exception(exception)) => Ok(*exception),
+            Self::Ready(_) | Self::Pending(_) => Err(NotAnExceptionError),
+        }
     }
 }
 
-impl IntoException for TestValue {
-    fn into_exception(self) -> Result<Exception<Self::RootValue>, NotAnOwnedExceptionError<Self>> {
-        match self {
-            Self::Ready(TestReadyValue::Exception(exception)) => Ok(*exception),
-            value => Err(NotAnOwnedExceptionError { value }),
-        }
+impl waymark_vm_runtime_exception::RaisedExceptionToValue<TestException> for TestValue {
+    type Error = core::convert::Infallible;
+
+    fn from_raised(raised: TestException) -> Result<Self, Self::Error> {
+        Ok(Self::Ready(TestReadyValue::Exception(Box::new(raised))))
     }
 }
 
@@ -539,37 +712,6 @@ impl waymark_vm_interpreter_pureset::value::MakeDict for TestValue {
     {
         let _ = entries;
         Err(waymark_vm_interpreter_pureset::value::MakeDictError::NotDictable)
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::AsExceptionTypeId for TestValue {
-    fn as_exception_type_id(
-        &self,
-    ) -> Result<&str, waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError> {
-        let value = self.require_ready_ref().map_err(|_| {
-            waymark_vm_interpreter_pureset::value::AsExceptionTypeIdError::UnsupportedTypeIdType
-        })?;
-        value.as_exception_type_id()
-    }
-}
-
-impl waymark_vm_interpreter_pureset::value::MakeException for TestValue {
-    fn make_exception(type_id: String, details: Self::RootValue) -> Self {
-        Self::Ready(TestReadyValue::make_exception(type_id, details))
-    }
-}
-
-impl<IntermediateDetails>
-    waymark_vm_runtime_exception::ExceptionFromIntermediate<IntermediateDetails> for TestValue
-where
-    TestReadyValue: waymark_vm_runtime_exception::ExceptionFromIntermediate<IntermediateDetails>,
-{
-    fn from_intermediate_exception(
-        exception: Exception<IntermediateDetails>,
-    ) -> Exception<Self::RootValue> {
-        <TestReadyValue as waymark_vm_runtime_exception::ExceptionFromIntermediate<
-            IntermediateDetails,
-        >>::from_intermediate_exception(exception)
     }
 }
 

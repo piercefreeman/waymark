@@ -1,14 +1,16 @@
+use derive_where::derive_where;
+
 /// The settled outcome of a promise.
 ///
 /// A promise settles at most once, with either of the two kinds of outcomes.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum SettledPromiseState<Value> {
+pub enum SettledPromiseState<Value, RaisedException> {
     /// The promise has been resolved successfully with a value.
     Resolved(Value),
 
-    /// The promise has been rejected with an exception.
-    Rejected(waymark_vm_runtime_exception::Exception<Value>),
+    /// The promise has been rejected with a raised exception.
+    Rejected(RaisedException),
 }
 
 /// An error that occurs when an attempt to settle an already settled
@@ -28,22 +30,56 @@ pub struct SettlingAlreadySettledPromiseError<Value> {
 }
 
 /// A runtime internal state associated with a promise.
-#[derive(Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum PromiseState<FunctionId, StateId, Value> {
+#[derive_where(
+    Debug;
+    FunctionId, StateId, Value, RaisedException,
+    waymark_vm_runtime_exception::MatchPatternOf<RaisedException>,
+)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "
+            FunctionId: serde::Serialize,
+            StateId: serde::Serialize,
+            Value: serde::Serialize,
+            RaisedException: serde::Serialize,
+            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
+        ",
+        deserialize = "
+            FunctionId: serde::Deserialize<'de>,
+            StateId: serde::Deserialize<'de>,
+            Value: serde::Deserialize<'de>,
+            RaisedException: serde::Deserialize<'de>,
+            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Deserialize<'de>,
+        ",
+    ))
+)]
+pub enum PromiseState<FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     /// A list of waiters to notify when a promise settles.
     ///
     /// Awaiting on it will add the frame to the list of waiters.
-    Waiting(Vec<crate::PromiseWaiter<FunctionId, StateId, Value>>),
+    Waiting(Vec<crate::PromiseWaiter<FunctionId, StateId, Value, RaisedException>>),
 
     /// A promise that has settled.
     ///
     /// Awaiting on it will resume immediately - with the value on
     /// a resolution, or by raising the exception on a rejection.
-    Settled(SettledPromiseState<Value>),
+    Settled(SettledPromiseState<Value, RaisedException>),
 }
 
-impl<FunctionId, StateId, Value> PromiseState<FunctionId, StateId, Value> {
+/// The frames waiting on a promise.
+pub(crate) type WaitersFor<FunctionId, StateId, Value, RaisedException> =
+    Vec<crate::PromiseWaiter<FunctionId, StateId, Value, RaisedException>>;
+
+impl<FunctionId, StateId, Value, RaisedException>
+    PromiseState<FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     /// Idempotently resolve a promise.
     ///
     /// Returns a list of waiters to notify, or an error if this promise
@@ -52,7 +88,7 @@ impl<FunctionId, StateId, Value> PromiseState<FunctionId, StateId, Value> {
         &mut self,
         value: Value,
     ) -> Result<
-        Vec<crate::PromiseWaiter<FunctionId, StateId, Value>>,
+        WaitersFor<FunctionId, StateId, Value, RaisedException>,
         SettlingAlreadySettledPromiseError<Value>,
     > {
         let replaced = std::mem::replace(self, Self::Settled(SettledPromiseState::Resolved(value)));
@@ -79,16 +115,12 @@ impl<FunctionId, StateId, Value> PromiseState<FunctionId, StateId, Value> {
     ///
     /// Returns a list of waiters to notify, or an error if this promise
     /// has already settled.
-    #[expect(
-        clippy::type_complexity,
-        reason = "we purposely avoid alias for the error"
-    )]
     pub fn reject(
         &mut self,
-        exception: waymark_vm_runtime_exception::Exception<Value>,
+        exception: RaisedException,
     ) -> Result<
-        Vec<crate::PromiseWaiter<FunctionId, StateId, Value>>,
-        SettlingAlreadySettledPromiseError<waymark_vm_runtime_exception::Exception<Value>>,
+        WaitersFor<FunctionId, StateId, Value, RaisedException>,
+        SettlingAlreadySettledPromiseError<RaisedException>,
     > {
         let replaced = std::mem::replace(
             self,
@@ -116,10 +148,10 @@ impl<FunctionId, StateId, Value> PromiseState<FunctionId, StateId, Value> {
 
 #[cfg(test)]
 mod tests {
-    use waymark_vm_runtime_exception::Exception;
     use waymark_vm_runtime_promise_value::PromiseValue;
 
     use super::{PromiseState, SettledPromiseState};
+    use crate::test_helpers::TestException;
     use crate::{
         Continuation, ExceptionHandlers, Frame, FrameKind, PromiseWaiter, RegisterId, Registers,
     };
@@ -138,7 +170,7 @@ mod tests {
     fn continuation(
         dst: RegisterId,
         resume_state: usize,
-    ) -> Continuation<&'static str, usize, TestValue, crate::ResumeWithValue> {
+    ) -> Continuation<&'static str, usize, TestValue, TestException, crate::ResumeWithValue> {
         Continuation::capture(
             Frame {
                 func: "example",
@@ -185,7 +217,7 @@ mod tests {
 
     #[test]
     fn resolve_settled_promise_returns_error_and_preserves_original_settlement() {
-        let mut state = PromiseState::<&'static str, usize, TestValue>::Settled(
+        let mut state = PromiseState::<&'static str, usize, TestValue, TestException>::Settled(
             SettledPromiseState::Resolved(PromiseValue::Ready(TestReadyValue::Int(5))),
         );
 
@@ -212,34 +244,22 @@ mod tests {
             PromiseState::Waiting(vec![PromiseWaiter::Await(continuation(RegisterId(1), 3))]);
 
         let continuations = state
-            .reject(Exception {
-                type_id: "ValueError".to_owned(),
-                details: PromiseValue::Ready(TestReadyValue::Int(17)),
-            })
+            .reject(TestException("ValueError"))
             .expect("waiting promise should settle exceptionally");
 
         assert!(matches!(
             &state,
-            PromiseState::Settled(SettledPromiseState::Rejected(Exception { type_id, details }))
-                if type_id == "ValueError"
-                    && *details == PromiseValue::Ready(TestReadyValue::Int(17))
+            PromiseState::Settled(SettledPromiseState::Rejected(TestException("ValueError")))
         ));
 
         let Some(PromiseWaiter::Await(continuation)) = continuations.into_iter().next() else {
             panic!("continuation waiter is returned");
         };
-        let resumed = continuation.raise_exception(Exception {
-            type_id: "ValueError".to_owned(),
-            details: PromiseValue::Ready(TestReadyValue::Int(17)),
-        });
+        let resumed = continuation.raise_exception(TestException("ValueError"));
 
         let Some(exception) = resumed.exception else {
             panic!("exceptional resume should raise into the frame");
         };
-        assert_eq!(exception.type_id, "ValueError");
-        assert_eq!(
-            exception.details,
-            PromiseValue::Ready(TestReadyValue::Int(17))
-        );
+        assert_eq!(exception, TestException("ValueError"));
     }
 }

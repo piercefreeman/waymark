@@ -33,7 +33,6 @@ waymark-state-vm-runtimes-core = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
 waymark-vm-codec-rmp = { workspace = true }
 waymark-vm-driver-hooks-tracing = { workspace = true }
-waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-value-python = { workspace = true }
 waymark-vm-value-python-convert-proto = { workspace = true }
 waymark-worker-core = { workspace = true }

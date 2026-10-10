@@ -1,0 +1,15 @@
+[package]
+name = "waymark-observability-vm-value-display"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+
+schemars = ["dep:schemars"]
+serde = ["dep:serde"]
+
+[dependencies]
+schemars = { workspace = true, optional = true }
+serde = { workspace = true, optional = true, features = ["derive"] }

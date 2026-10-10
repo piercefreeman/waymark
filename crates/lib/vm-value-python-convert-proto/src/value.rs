@@ -18,8 +18,7 @@ use indexmap::IndexMap;
 use typed_floats::NonNaNFinite;
 use waymark_convert_core::{Convert as _, TryConvert};
 use waymark_proto::python_value as proto_value;
-use waymark_vm_runtime_exception::Exception;
-use waymark_vm_value_python::{ReadyValue, Value};
+use waymark_vm_value_python::{Exception, RaisedException, ReadyValue, Value};
 
 use waymark_vm_value_convert_core::PendingPromiseError;
 
@@ -82,23 +81,18 @@ impl TryConvert<&Value, proto_value::Value> for Converter {
     }
 }
 
-/// Write an exception, whatever its details are a value of.
+/// Write a Python exception: the class, its bases, and the details.
 ///
-/// The details ride as an ordinary value, so this holds for both the
-/// promise-aware [`Value`] an exception carries inside a value tree and
-/// the [`ReadyValue`] a settled outcome carries.
-impl<'d, Details> TryConvert<&'d Exception<Details>, proto_value::ExceptionValue> for Converter
-where
-    Converter: TryConvert<&'d Details, proto_value::Value>,
-{
-    type Error = <Converter as TryConvert<&'d Details, proto_value::Value>>::Error;
+/// One type serves both the exception held inside a value tree and the
+/// raised one a settled outcome carries.
+impl TryConvert<&Exception, proto_value::ExceptionValue> for Converter {
+    type Error = PendingPromiseError;
 
-    fn try_convert(
-        exception: &'d Exception<Details>,
-    ) -> Result<proto_value::ExceptionValue, Self::Error> {
+    fn try_convert(exception: &Exception) -> Result<proto_value::ExceptionValue, Self::Error> {
         Ok(proto_value::ExceptionValue {
             type_id: exception.type_id.clone(),
             details: Some(Box::new(Self::try_convert(&exception.details)?)),
+            mro_type_ids: exception.mro_type_ids.clone(),
         })
     }
 }
@@ -186,27 +180,22 @@ impl TryConvert<&proto_value::DictValue, ReadyValue> for Converter {
     }
 }
 
-/// Read an exception into whatever its details are a value of.
+/// Read a Python exception.
 ///
 /// An exception naming no details carries the value the flavor has for
 /// nothing at all.
-impl<'d, Details> TryConvert<&'d proto_value::ExceptionValue, Exception<Details>> for Converter
-where
-    Converter: TryConvert<&'d proto_value::Value, Details, Error = Infallible>,
-    Details: From<ReadyValue>,
-{
+impl TryConvert<&proto_value::ExceptionValue, Exception> for Converter {
     type Error = Infallible;
 
-    fn try_convert(
-        exception: &'d proto_value::ExceptionValue,
-    ) -> Result<Exception<Details>, Self::Error> {
+    fn try_convert(exception: &proto_value::ExceptionValue) -> Result<Exception, Self::Error> {
         Ok(Exception {
             type_id: exception.type_id.clone(),
+            mro_type_ids: exception.mro_type_ids.clone(),
             details: exception
                 .details
                 .as_deref()
                 .map(Self::convert)
-                .unwrap_or_else(|| ReadyValue::None.into()),
+                .unwrap_or(Value::Ready(ReadyValue::None)),
         })
     }
 }
@@ -227,10 +216,10 @@ impl TryConvert<Vec<u8>, ReadyValue> for Converter {
 /// The exception payload is carried as an encoded
 /// [`proto_value::ExceptionValue`], a message of its own rather than a
 /// value.
-impl TryConvert<Vec<u8>, Exception<ReadyValue>> for Converter {
+impl TryConvert<Vec<u8>, RaisedException> for Converter {
     type Error = prost::DecodeError;
 
-    fn try_convert(bytes: Vec<u8>) -> Result<Exception<ReadyValue>, Self::Error> {
+    fn try_convert(bytes: Vec<u8>) -> Result<RaisedException, Self::Error> {
         let message: proto_value::ExceptionValue = prost::Message::decode(bytes.as_slice())?;
         Ok(Self::convert(&message))
     }
@@ -319,6 +308,7 @@ mod tests {
         // a promise raised rather than with a value.
         let exception = ReadyValue::Exception(Box::new(Exception {
             type_id: "ValueError".to_owned(),
+            mro_type_ids: vec!["Exception".to_owned(), "BaseException".to_owned()],
             details: ready(ReadyValue::Dict(IndexMap::from([(
                 "message".to_owned(),
                 ready(ReadyValue::String("boom".to_owned())),

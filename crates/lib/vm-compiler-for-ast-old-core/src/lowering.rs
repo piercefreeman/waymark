@@ -30,9 +30,53 @@ where
     ) -> Result<<Spec as waymark_vm_instructions_pureset::Spec>::ConstValue, Self::LiteralError>;
 }
 
+/// An exception the compiler raises on its own, with no AST node behind it.
+///
+/// The compiler's vocabulary, the way [`waymark_vm_ast_old::Literal`] is
+/// the AST's: the lowering turns each into the target spec's const
+/// exception, and the VM never sees this type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompilerEmittedException {
+    /// An unpacking assignment's value does not have as many items as
+    /// there are targets.
+    UnpackMismatch,
+
+    /// An action call's per-attempt timeout fired.
+    ActionTimeout,
+}
+
+/// [`waymark_vm_instructions_excset`] lowering from [`waymark_vm_ast_old`]
+/// specification.
+///
+/// The AST lists exception classes; what a handler lists in the bytecode
+/// and what the compiler's own raises embed are the target spec's const
+/// exception types, so the lowering spells them out.
+pub trait ExcSet<Spec>
+where
+    Spec: waymark_vm_instructions_excset::Spec,
+{
+    /// Lowers the class names an `except` clause or a retry bracket lists
+    /// into the target spec's const handler pattern; none listed matches
+    /// nothing.
+    fn lower_exception_pattern(
+        class_names: &[String],
+    ) -> <Spec as waymark_vm_instructions_excset::Spec>::ConstExceptionPattern;
+
+    /// Lowers a bare `except:` into the target spec's const handler
+    /// pattern: everything.
+    fn lower_any_exception_pattern()
+    -> <Spec as waymark_vm_instructions_excset::Spec>::ConstExceptionPattern;
+
+    /// Lowers one of the compiler's own raises into the target spec's
+    /// const exception.
+    fn lower_compiler_emitted_exception(
+        exception: &CompilerEmittedException,
+    ) -> <Spec as waymark_vm_instructions_excset::Spec>::ConstException;
+}
+
 /// Combined lowering for the full instruction set.
 #[waymark_blanket_impl_macros::blanket_impl]
-pub trait FullSet<Spec>: ExtCallSet<Spec> + PureSet<Spec>
+pub trait FullSet<Spec>: ExtCallSet<Spec> + PureSet<Spec> + ExcSet<Spec>
 where
     Spec: waymark_vm_instructions_fullset::Spec,
 {

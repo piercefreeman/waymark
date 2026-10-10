@@ -2887,6 +2887,21 @@ class TestPolicyVariations:
         policy = action.policies[0]
         assert policy.HasField("retry"), "Should be retry policy"
         assert policy.retry.max_retries == 100
+        assert list(policy.retry.exception_types) == ["Exception"]
+
+    def test_retry_with_empty_exception_types_retries_nothing(self) -> None:
+        """Test: retry=RetryPolicy(attempts=2, exception_types=[]) keeps the empty filter."""
+        from tests.fixtures_policy.policy_variations import PolicyVariationsWorkflow
+
+        program = PolicyVariationsWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_retry_empty_exceptions")
+        assert action is not None, "Should find action_with_retry_empty_exceptions"
+        assert len(action.policies) == 1, "Should have 1 policy"
+
+        policy = action.policies[0]
+        assert policy.HasField("retry"), "Should be retry policy"
+        assert list(policy.retry.exception_types) == []
 
     def test_timeout_with_timedelta_hours(self) -> None:
         """Test: timeout=timedelta(hours=1)."""
@@ -3521,6 +3536,22 @@ class TestTryExceptStatefulOutputs:
 
 class TestUnsupportedPatternValidation:
     """Test that unsupported patterns raise UnsupportedPatternError with helpful messages."""
+
+    def test_except_empty_tuple_raises_error(self) -> None:
+        """Test: `except ():` raises instead of compiling to a bare except."""
+        from typing import cast
+
+        import pytest
+
+        from waymark.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.except_empty_tuple import ExceptEmptyTupleWorkflow
+
+            ExceptEmptyTupleWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "catches nothing" in error.message
 
     def test_constructor_return_raises_error(self) -> None:
         """Test: return CustomClass(...) raises UnsupportedPatternError.

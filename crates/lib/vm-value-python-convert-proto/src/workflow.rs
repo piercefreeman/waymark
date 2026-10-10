@@ -3,7 +3,7 @@
 
 use waymark_convert_core::TryConvert;
 use waymark_proto::python_value as proto_value;
-use waymark_vm_value_python::{ReadyValue, Value};
+use waymark_vm_value_python::{RaisedException, ReadyValue, Value};
 
 use waymark_vm_value_convert_core::PendingPromiseError;
 
@@ -71,13 +71,16 @@ impl TryConvert<(&[u8], &[String]), Vec<Value>> for WorkflowArgumentsConverter {
 /// Convert how a workflow completed into this flavor's outcome message:
 /// the returned value in the `value` arm, the ending exception in the
 /// `exception` arm.
-impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, proto_value::WorkflowOutcome>
-    for WorkflowOutcomeConverter
+impl
+    TryConvert<
+        waymark_workflow_completion_core::Outcome<ReadyValue, RaisedException>,
+        proto_value::WorkflowOutcome,
+    > for WorkflowOutcomeConverter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
-        outcome: waymark_workflow_completion_core::Outcome<ReadyValue>,
+        outcome: waymark_workflow_completion_core::Outcome<ReadyValue, RaisedException>,
     ) -> Result<proto_value::WorkflowOutcome, Self::Error> {
         use proto_value::workflow_outcome::Outcome;
 
@@ -98,13 +101,13 @@ impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, proto_val
 
 /// Convert how a workflow completed into the bytes the completion
 /// payload carries: the outcome message, encoded.
-impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, Vec<u8>>
+impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue, RaisedException>, Vec<u8>>
     for WorkflowOutcomeConverter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
-        outcome: waymark_workflow_completion_core::Outcome<ReadyValue>,
+        outcome: waymark_workflow_completion_core::Outcome<ReadyValue, RaisedException>,
     ) -> Result<Vec<u8>, Self::Error> {
         let message: proto_value::WorkflowOutcome = Self::try_convert(outcome)?;
         Ok(prost::Message::encode_to_vec(&message))
@@ -114,6 +117,7 @@ impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue>, Vec<u8>>
 #[cfg(test)]
 mod tests {
     use proto_value::workflow_outcome::Outcome as ProtoOutcome;
+    use waymark_vm_value_python::Exception;
     use waymark_workflow_completion_core::Outcome;
 
     use super::*;
@@ -141,20 +145,22 @@ mod tests {
     fn an_exception_writes_the_exception_arm() {
         use proto_value::{primitive_value::Kind as PrimitiveKind, value::Kind};
 
-        let exception = waymark_vm_runtime_exception::Exception {
+        let exception = Exception {
             type_id: "ValueError".to_owned(),
-            details: ReadyValue::String("boom".to_owned()),
+            mro_type_ids: vec!["Exception".to_owned(), "BaseException".to_owned()],
+            details: Value::Ready(ReadyValue::String("boom".to_owned())),
         };
         let message: proto_value::WorkflowOutcome =
             WorkflowOutcomeConverter::try_convert(Outcome::Exception(exception))
                 .expect("no pending promise");
 
-        // The exception arm is the exception itself: the type id and the
-        // details it carries.
+        // The exception arm is the exception itself: the class, its bases
+        // and the details it carries.
         let Some(ProtoOutcome::Exception(exception)) = &message.outcome else {
             panic!("an exception is the exception arm, got {message:?}");
         };
         assert_eq!(exception.type_id, "ValueError");
+        assert_eq!(exception.mro_type_ids, ["Exception", "BaseException"]);
         let Some(Kind::Primitive(primitive)) = exception
             .details
             .as_ref()

@@ -62,13 +62,23 @@ pub type ErrorFor<Interpreter, Codec, Persister, Effector> = Error<
 >;
 
 /// Inputs required to run the driver loop.
-pub struct Params<Executable, Interpreter, Value, Effector, Persister, Codec, Hooks>
-where
+pub struct Params<
+    Executable,
+    Interpreter,
+    Value,
+    RaisedException,
+    Effector,
+    Persister,
+    Codec,
+    Hooks,
+> where
     Executable: waymark_vm_executable::FunctionStates,
-    Interpreter: waymark_vm_interpreter::Interpreter<Frame = FrameFor<Executable, Value>>,
+    Interpreter:
+        waymark_vm_interpreter::Interpreter<Frame = FrameFor<Executable, Value, RaisedException>>,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
 {
     /// Runtime instance to drive.
-    pub runtime: Runtime<Executable, Interpreter, Value>,
+    pub runtime: Runtime<Executable, Interpreter, Value, RaisedException>,
 
     /// Handler for effects and promise settlements.
     pub effector: Effector,
@@ -92,8 +102,26 @@ where
 /// the effector, and settles pending promises with values received from the
 /// effector. Returns [`Error::Cancelled`] when the [`CancellationToken`] is
 /// triggered, or another error variant when a fatal error occurs.
-pub async fn run<Executable, Interpreter, Value, Effector, Persister, Codec, Hooks>(
-    params: Params<Executable, Interpreter, Value, Effector, Persister, Codec, Hooks>,
+pub async fn run<
+    Executable,
+    Interpreter,
+    Value,
+    RaisedException,
+    Effector,
+    Persister,
+    Codec,
+    Hooks,
+>(
+    params: Params<
+        Executable,
+        Interpreter,
+        Value,
+        RaisedException,
+        Effector,
+        Persister,
+        Codec,
+        Hooks,
+    >,
 ) -> Result<core::convert::Infallible, ErrorFor<Interpreter, Codec, Persister, Effector>>
 where
     Executable: waymark_vm_executable::InstructionsProvider,
@@ -101,7 +129,7 @@ where
     Executable::StateId: Copy + PartialEq + serde::Serialize,
     Executable: 'static,
     Interpreter: waymark_vm_interpreter::Interpreter<
-            Frame = waymark_vm_runtime::FrameFor<Executable, Value>,
+            Frame = waymark_vm_runtime::FrameFor<Executable, Value, RaisedException>,
             Instruction = Executable::Instruction,
         >,
     for<'view, 'runtime> <Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'view>:
@@ -113,20 +141,29 @@ where
                     Executable::FunctionId,
                     Executable::StateId,
                     Value,
+                    RaisedException,
                 >,
             >,
     Value: Clone + 'static + serde::Serialize,
     Value: waymark_vm_runtime_promise_core::Resolvable,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+    RaisedException: Clone + 'static,
+    RaisedException: serde::Serialize,
+    waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
     Effector: waymark_vm_driver_core::EffectHandler<Effect = Interpreter::Effect>,
-    Effector: waymark_vm_driver_core::PromiseSettler<Value = Value::ReadyValue>,
+    Effector: waymark_vm_driver_core::PromiseSettler<
+            Value = Value::ReadyValue,
+            RaisedException = RaisedException,
+        >,
     Persister: waymark_vm_driver_core::SnapshotPersister,
     Codec: waymark_vm_codec_core::SerializerProvider<Ok = ()>,
-    Hooks: crate::HooksFor<Interpreter, Value, Effector, Persister, Codec>,
+    Hooks: crate::HooksFor<Interpreter, Value, RaisedException, Effector, Persister, Codec>,
     // Debug
     Interpreter::Instruction: core::fmt::Debug,
     Interpreter::Effect: core::fmt::Debug,
     Value: core::fmt::Debug,
     Value::ReadyValue: core::fmt::Debug,
+    RaisedException: core::fmt::Debug,
 {
     let Params {
         mut runtime,

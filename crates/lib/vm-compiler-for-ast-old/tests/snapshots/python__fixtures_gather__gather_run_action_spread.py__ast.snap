@@ -65,7 +65,9 @@ Program {
                                                     policies: [
                                                         Retry(
                                                             RetryPolicy {
-                                                                exception_types: [],
+                                                                exception_types: [
+                                                                    "Exception",
+                                                                ],
                                                                 max_retries: 2,
                                                                 backoff: None,
                                                             },

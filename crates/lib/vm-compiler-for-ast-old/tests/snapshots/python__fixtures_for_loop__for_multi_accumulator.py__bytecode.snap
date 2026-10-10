@@ -13,7 +13,7 @@ fn main(input: [items], output: []):
             invalid_items = invalid_items + [processed]
     return {"valid": valid_items, "invalid": invalid_items}
 ---
-f0: [20 registers]
+f0: [17 registers]
   s0:
     PureSet(MakeList { dst: r1, items: [] })
     PureSet(MakeList { dst: r2, items: [] })
@@ -35,9 +35,9 @@ f0: [20 registers]
     CoreSet(Jump { target_state: s1 })
   s4:
     PureSet(LoadConst { dst: r6, value: String("valid") })
-    PureSet(LoadConst { dst: r18, value: String("invalid") })
-    PureSet(MakeDict { dst: r19, entries: [DictEntry { key: r6, value: r1 }, DictEntry { key: r18, value: r2 }] })
-    CoreSet(Return { src: r19 })
+    PureSet(LoadConst { dst: r15, value: String("invalid") })
+    PureSet(MakeDict { dst: r16, entries: [DictEntry { key: r6, value: r1 }, DictEntry { key: r15, value: r2 }] })
+    CoreSet(Return { src: r16 })
   s5:
     CoreSet(Await { dst: r6, src: r6, resume: s6 })
   s6:
@@ -45,15 +45,12 @@ f0: [20 registers]
     PureSet(LoadConst { dst: r11, value: Int(2) })
     PureSet(Binary { kind: Eq, op: BinaryOp { dst: r12, a: r10, b: r11 } })
     CoreSet(JumpIf { target_state: s7, cond: r12 })
-    PureSet(LoadConst { dst: r13, value: String("ValueError") })
-    PureSet(LoadConst { dst: r14, value: None })
-    PureSet(MakeException { dst: r15, type_id: r13, details: r14 })
-    CoreSet(Raise { src: r15 })
+    ExcSet(RaiseConst { exception: ConstException { type_id: "ValueError", mro_type_ids: ["Exception", "BaseException"], details: None } })
   s7:
-    PureSet(LoadConst { dst: r16, value: Int(0) })
-    PureSet(Index { dst: r8, object: r6, index: r16 })
-    PureSet(LoadConst { dst: r17, value: Int(1) })
-    PureSet(Index { dst: r9, object: r6, index: r17 })
+    PureSet(LoadConst { dst: r13, value: Int(0) })
+    PureSet(Index { dst: r8, object: r6, index: r13 })
+    PureSet(LoadConst { dst: r14, value: Int(1) })
+    PureSet(Index { dst: r9, object: r6, index: r14 })
     CoreSet(JumpIf { target_state: s9, cond: r8 })
     PureSet(MakeList { dst: r6, items: [r9] })
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r2, a: r2, b: r6 } })

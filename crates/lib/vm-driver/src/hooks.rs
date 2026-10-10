@@ -23,13 +23,15 @@ impl<T> Hooks for T where
 
 /// [`Hooks`] for the driver loop over the given higher-level types, the
 /// ones [`run`](crate::run) takes: they observe the interpreter's effects,
-/// the value's ready values and the driver's terminal error.
+/// the value's ready values, the raised exceptions promises are rejected
+/// with, and the driver's terminal error.
 ///
 /// Implemented for every [`Hooks`] whose types match.
-pub trait HooksFor<Interpreter, Value, Effector, Persister, Codec>:
+pub trait HooksFor<Interpreter, Value, RaisedException, Effector, Persister, Codec>:
     Hooks
     + waymark_vm_driver_hooks::effect_emitted::HasEffect<Effect = Interpreter::Effect>
     + waymark_vm_driver_hooks::promise_settled::HasValue<Value = Value::ReadyValue>
+    + waymark_vm_driver_hooks::promise_settled::HasRaisedException<RaisedException = RaisedException>
     + waymark_vm_driver_hooks::vm_stopped::HasError<
         Error = crate::ErrorFor<Interpreter, Codec, Persister, Effector>,
     >
@@ -42,13 +44,15 @@ where
 {
 }
 
-impl<T, Interpreter, Value, Effector, Persister, Codec>
-    HooksFor<Interpreter, Value, Effector, Persister, Codec> for T
+impl<T, Interpreter, Value, RaisedException, Effector, Persister, Codec>
+    HooksFor<Interpreter, Value, RaisedException, Effector, Persister, Codec> for T
 where
     T: Hooks
         + waymark_vm_driver_hooks::effect_emitted::HasEffect<Effect = Interpreter::Effect>
         + waymark_vm_driver_hooks::promise_settled::HasValue<Value = Value::ReadyValue>
-        + waymark_vm_driver_hooks::vm_stopped::HasError<
+        + waymark_vm_driver_hooks::promise_settled::HasRaisedException<
+            RaisedException = RaisedException,
+        > + waymark_vm_driver_hooks::vm_stopped::HasError<
             Error = crate::ErrorFor<Interpreter, Codec, Persister, Effector>,
         >,
     Interpreter: waymark_vm_interpreter::Interpreter,

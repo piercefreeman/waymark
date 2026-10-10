@@ -5,15 +5,16 @@ expression: bytecode for python/tests/fixtures_policy/policy_variations.py
 fn main(input: [value], output: []):
     a = @policy_variations.action_with_timeout_int(value=value) [timeout: 1m]
     b = @policy_variations.action_with_timeout_minutes(value=a) [timeout: 2m]
-    c = @policy_variations.action_with_retry_backoff(value=b) [retry: 2, backoff: 5s]
+    c = @policy_variations.action_with_retry_backoff(value=b) [Exception -> retry: 2, backoff: 5s]
     d = @policy_variations.action_with_retry_exceptions(value=c) [ValueError, KeyError -> retry: 1]
-    d_retry_default = @policy_variations.action_with_retry_default(value=d) [retry: 100]
-    e = @policy_variations.action_with_timeout_hours(value=d_retry_default) [timeout: 1h]
+    d_retry_default = @policy_variations.action_with_retry_default(value=d) [Exception -> retry: 100]
+    d_retry_empty = @policy_variations.action_with_retry_empty_exceptions(value=d_retry_default) [() -> retry: 1]
+    e = @policy_variations.action_with_timeout_hours(value=d_retry_empty) [timeout: 1h]
     f = @policy_variations.action_with_timeout_days(value=e) [timeout: 24h]
     g = @policy_variations.action_with_timeout_fractional_minutes(value=f) [timeout: 246s]
     return g
 ---
-f0: [9 registers]
+f0: [10 registers]
   s0:
     CoreSet(Call { dst: r1, function_id: f1, args: [r0] })
     CoreSet(Await { dst: r1, src: r1, resume: s1 })
@@ -39,8 +40,11 @@ f0: [9 registers]
     CoreSet(Call { dst: r8, function_id: f8, args: [r7] })
     CoreSet(Await { dst: r8, src: r8, resume: s8 })
   s8:
-    CoreSet(Return { src: r8 })
-f1: [9 registers]
+    CoreSet(Call { dst: r9, function_id: f9, args: [r8] })
+    CoreSet(Await { dst: r9, src: r9, resume: s9 })
+  s9:
+    CoreSet(Return { src: r9 })
+f1: [6 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_timeout_int"), args: [r0], resume: s1 })
   s1:
@@ -51,11 +55,8 @@ f1: [9 registers]
   s3:
     CoreSet(Return { src: r4 })
   s4:
-    PureSet(LoadConst { dst: r6, value: String("ActionTimeout") })
-    PureSet(LoadConst { dst: r7, value: None })
-    PureSet(MakeException { dst: r8, type_id: r6, details: r7 })
-    CoreSet(Raise { src: r8 })
-f2: [9 registers]
+    ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
+f2: [6 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_timeout_minutes"), args: [r0], resume: s1 })
   s1:
@@ -66,23 +67,20 @@ f2: [9 registers]
   s3:
     CoreSet(Return { src: r4 })
   s4:
-    PureSet(LoadConst { dst: r6, value: String("ActionTimeout") })
-    PureSet(LoadConst { dst: r7, value: None })
-    PureSet(MakeException { dst: r8, type_id: r6, details: r7 })
-    CoreSet(Raise { src: r8 })
+    ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
 f3: [11 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: Int(0) })
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_backoff"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r6, value: Int(2) })
     PureSet(Binary { kind: Lt, op: BinaryOp { dst: r7, a: r1, b: r6 } })
     CoreSet(JumpIf { target_state: s3, cond: r7 })
-    CoreSet(Raise { src: r3 })
+    ExcSet(Raise { src: r3 })
   s3:
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
     PureSet(LoadConst { dst: r8, value: Int(5) })
@@ -90,7 +88,7 @@ f3: [11 registers]
   s4:
     CoreSet(Await { dst: r5, src: r4, resume: s5 })
   s5:
-    CoreSet(PopExceptionHandlers { count: 1 })
+    ExcSet(PopExceptionHandlers { count: 1 })
     CoreSet(Return { src: r5 })
   s6:
     CoreSet(Await { dst: r10, src: r9, resume: s7 })
@@ -102,20 +100,20 @@ f4: [8 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ValueError", "KeyError"], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["ValueError", "KeyError"]), exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_exceptions"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r6, value: Int(1) })
     PureSet(Binary { kind: Lt, op: BinaryOp { dst: r7, a: r1, b: r6 } })
     CoreSet(JumpIf { target_state: s3, cond: r7 })
-    CoreSet(Raise { src: r3 })
+    ExcSet(Raise { src: r3 })
   s3:
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
     CoreSet(Jump { target_state: s1 })
   s4:
     CoreSet(Await { dst: r5, src: r4, resume: s5 })
   s5:
-    CoreSet(PopExceptionHandlers { count: 1 })
+    ExcSet(PopExceptionHandlers { count: 1 })
     CoreSet(Return { src: r5 })
 f5: [8 registers]
   s0:
@@ -123,22 +121,43 @@ f5: [8 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_default"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r6, value: Int(100) })
     PureSet(Binary { kind: Lt, op: BinaryOp { dst: r7, a: r1, b: r6 } })
     CoreSet(JumpIf { target_state: s3, cond: r7 })
-    CoreSet(Raise { src: r3 })
+    ExcSet(Raise { src: r3 })
   s3:
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
     CoreSet(Jump { target_state: s1 })
   s4:
     CoreSet(Await { dst: r5, src: r4, resume: s5 })
   s5:
-    CoreSet(PopExceptionHandlers { count: 1 })
+    ExcSet(PopExceptionHandlers { count: 1 })
     CoreSet(Return { src: r5 })
-f6: [9 registers]
+f6: [8 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: Int(0) })
+    PureSet(LoadConst { dst: r2, value: Int(1) })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes([]), exception_dst: Some(r3) }] })
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_empty_exceptions"), args: [r0], resume: s4 })
+  s2:
+    PureSet(LoadConst { dst: r6, value: Int(1) })
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r7, a: r1, b: r6 } })
+    CoreSet(JumpIf { target_state: s3, cond: r7 })
+    ExcSet(Raise { src: r3 })
+  s3:
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
+    CoreSet(Jump { target_state: s1 })
+  s4:
+    CoreSet(Await { dst: r5, src: r4, resume: s5 })
+  s5:
+    ExcSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Return { src: r5 })
+f7: [6 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_timeout_hours"), args: [r0], resume: s1 })
   s1:
@@ -149,11 +168,8 @@ f6: [9 registers]
   s3:
     CoreSet(Return { src: r4 })
   s4:
-    PureSet(LoadConst { dst: r6, value: String("ActionTimeout") })
-    PureSet(LoadConst { dst: r7, value: None })
-    PureSet(MakeException { dst: r8, type_id: r6, details: r7 })
-    CoreSet(Raise { src: r8 })
-f7: [9 registers]
+    ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
+f8: [6 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_timeout_days"), args: [r0], resume: s1 })
   s1:
@@ -164,11 +180,8 @@ f7: [9 registers]
   s3:
     CoreSet(Return { src: r4 })
   s4:
-    PureSet(LoadConst { dst: r6, value: String("ActionTimeout") })
-    PureSet(LoadConst { dst: r7, value: None })
-    PureSet(MakeException { dst: r8, type_id: r6, details: r7 })
-    CoreSet(Raise { src: r8 })
-f8: [9 registers]
+    ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
+f9: [6 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_timeout_fractional_minutes"), args: [r0], resume: s1 })
   s1:
@@ -179,7 +192,4 @@ f8: [9 registers]
   s3:
     CoreSet(Return { src: r4 })
   s4:
-    PureSet(LoadConst { dst: r6, value: String("ActionTimeout") })
-    PureSet(LoadConst { dst: r7, value: None })
-    PureSet(MakeException { dst: r8, type_id: r6, details: r7 })
-    CoreSet(Raise { src: r8 })
+    ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })

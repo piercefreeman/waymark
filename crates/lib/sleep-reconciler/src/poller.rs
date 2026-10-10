@@ -149,10 +149,10 @@ where
     /// Subscribing a VM that already has a live entry replaces the entry:
     /// the previous handle keeps its buffer but will no longer receive
     /// deliveries, and its eventual drop does not disturb the new entry.
-    pub fn subscribe<SleepValueProvider>(
+    pub fn subscribe<SleepValueProvider, RaisedException>(
         &self,
         vm_id: VmId,
-    ) -> SettlementsHandle<VmId, SleepValueProvider> {
+    ) -> SettlementsHandle<VmId, SleepValueProvider, RaisedException> {
         SettlementsHandle {
             inner: self.inner.subscribe(vm_id),
             provider: std::marker::PhantomData,
@@ -253,25 +253,25 @@ where
 /// delivers due sleeps, and settles them — resolving to the value minted
 /// by `SleepValueProvider` — with [`Ack`]s minted from the rows' own
 /// keys.
-pub struct SettlementsHandle<VmId, SleepValueProvider>
+pub struct SettlementsHandle<VmId, SleepValueProvider, RaisedException>
 where
     VmId: Eq + std::hash::Hash,
 {
     inner: registry::DemandHandle<VmId, PromiseStateId, SleepKey<VmId>>,
     /// The sleep value provider is purely type-level.
-    provider: std::marker::PhantomData<fn() -> SleepValueProvider>,
+    provider: std::marker::PhantomData<fn() -> (SleepValueProvider, RaisedException)>,
 }
 
-impl<VmId, SleepValueProvider> waymark_extcall_reconciler_core::SettlerAck
-    for SettlementsHandle<VmId, SleepValueProvider>
+impl<VmId, SleepValueProvider, RaisedException> waymark_extcall_reconciler_core::SettlerAck
+    for SettlementsHandle<VmId, SleepValueProvider, RaisedException>
 where
     VmId: Eq + std::hash::Hash,
 {
     type Ack = Ack<VmId>;
 }
 
-impl<VmId, SleepValueProvider> waymark_extcall_reconciler_core::HasValue
-    for SettlementsHandle<VmId, SleepValueProvider>
+impl<VmId, SleepValueProvider, RaisedException> waymark_extcall_reconciler_core::HasValue
+    for SettlementsHandle<VmId, SleepValueProvider, RaisedException>
 where
     VmId: Eq + std::hash::Hash,
     SleepValueProvider: waymark_sleep_core::SleepValueProvider,
@@ -279,9 +279,17 @@ where
     type Value = SleepValueProvider::Value;
 }
 
-impl<VmId, SleepValueProvider, UnifiedAck>
+impl<VmId, SleepValueProvider, RaisedException> waymark_extcall_reconciler_core::HasRaisedException
+    for SettlementsHandle<VmId, SleepValueProvider, RaisedException>
+where
+    VmId: Eq + std::hash::Hash,
+{
+    type RaisedException = RaisedException;
+}
+
+impl<VmId, SleepValueProvider, RaisedException, UnifiedAck>
     waymark_extcall_reconciler_core::SleepPromiseSettler<UnifiedAck>
-    for SettlementsHandle<VmId, SleepValueProvider>
+    for SettlementsHandle<VmId, SleepValueProvider, RaisedException>
 where
     VmId: Clone + Eq + std::hash::Hash + Send + Sync + 'static,
     SleepValueProvider: waymark_sleep_core::SleepValueProvider,
@@ -292,7 +300,7 @@ where
     async fn poll_sleep_settlements<'a>(
         &'a mut self,
         waiting_promise_state_ids: NESlice<'a, PromiseStateId>,
-    ) -> Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>
+    ) -> Result<NEVec<PromiseSettlement<Self::Value, Self::RaisedException, UnifiedAck>>, Self::Error>
     where
         UnifiedAck: 'a,
     {
@@ -305,7 +313,8 @@ where
     }
 }
 
-impl<VmId, SleepValueProvider> SettlementsHandle<VmId, SleepValueProvider>
+impl<VmId, SleepValueProvider, RaisedException>
+    SettlementsHandle<VmId, SleepValueProvider, RaisedException>
 where
     VmId: Clone + Eq + std::hash::Hash,
     SleepValueProvider: waymark_sleep_core::SleepValueProvider,
@@ -314,7 +323,7 @@ where
     fn settle<UnifiedAck>(
         &self,
         due: NEVec<PromiseStateId>,
-    ) -> NEVec<PromiseSettlement<SleepValueProvider::Value, UnifiedAck>>
+    ) -> NEVec<PromiseSettlement<SleepValueProvider::Value, RaisedException, UnifiedAck>>
     where
         UnifiedAck: From<Ack<VmId>>,
     {

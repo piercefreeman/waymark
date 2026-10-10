@@ -18,8 +18,8 @@
 //!   about any particular instruction set.
 //! - Re-exports of universal id types ([`FunctionId`], [`StateId`]).
 //! - A self-contained [`TestInstruction`]/[`TestInterpreter`]/[`TestRuntime`]
-//!   fixture used by `vm-runtime`'s own tests — its surface only changes when
-//!   the core runtime traits change.
+//!   fixture, with its [`TestException`], used by `vm-runtime`'s own tests —
+//!   its surface only changes when the core runtime traits change.
 //!
 //! What does NOT belong here:
 //!
@@ -36,7 +36,6 @@ use waymark_vm_runtime_core::{
     Continuation, ExceptionHandlers, Frame, FrameKind, FullRuntimeView, PromiseState, RegisterId,
     Registers,
 };
-use waymark_vm_runtime_exception::{Exception, FromException};
 
 pub use waymark_vm_bytecode_core::{FunctionId, StateId};
 use waymark_vm_runtime_promise_value::PromiseValue;
@@ -68,7 +67,7 @@ pub enum TestInstruction {
 pub enum TestEffect {
     Message(&'static str),
     Value(TestReadyValue),
-    UnhandledException(Exception<TestReadyValue>),
+    UnhandledException(TestException),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -84,7 +83,6 @@ pub type TestFunction = waymark_vm_bytecode::Function<TestInstruction>;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TestReadyValue {
     Int(i32),
-    Exception(Box<Exception<PromiseValue<TestReadyValue>>>),
 }
 pub type TestValue = PromiseValue<TestReadyValue>;
 
@@ -92,11 +90,28 @@ impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
     type RootValue = TestValue;
 }
 
-impl FromException for TestReadyValue {
-    fn from_exception(exception: Exception<Self::RootValue>) -> Self {
-        Self::Exception(Box::new(exception))
+/// The raised exception of the test runtime: a class name and a ready
+/// value, matched by class name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TestException {
+    pub type_id: String,
+    pub details: TestReadyValue,
+}
+
+impl waymark_vm_runtime_exception::HasMatchPattern for TestException {
+    type Pattern = String;
+}
+
+impl waymark_vm_runtime_exception::Match for TestException {
+    fn matches(&self, pattern: &Self::Pattern) -> bool {
+        self.type_id == *pattern
     }
 }
+
+pub type TestFrame = Frame<FunctionId, StateId, TestValue, TestException>;
+
+pub type TestRuntimeView<'r> =
+    FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue, TestException>;
 
 pub fn function<Instruction>(
     num_regs: usize,
@@ -122,8 +137,8 @@ pub fn executable<Instruction>(
 }
 
 impl Interpreter for TestInterpreter {
-    type RuntimeView<'r> = FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>;
-    type Frame = Frame<FunctionId, StateId, TestValue>;
+    type RuntimeView<'r> = TestRuntimeView<'r>;
+    type Frame = TestFrame;
     type Instruction = TestInstruction;
     type Error = TestExecutionError;
     type Effect = TestEffect;
@@ -164,12 +179,8 @@ impl Interpreter for TestInterpreter {
                 let Some(exception) = frame.exception else {
                     panic!("frame should carry a raised exception before emitting it");
                 };
-                let Exception { type_id, details } = exception;
-                let PromiseValue::Ready(details) = details else {
-                    panic!("raised exception details should be ready values");
-                };
                 Ok(ExecutionOutcome::ExitFrameWithEffect(
-                    TestEffect::UnhandledException(Exception { type_id, details }),
+                    TestEffect::UnhandledException(exception),
                 ))
             }
             TestInstruction::EnqueueFrame {
@@ -209,7 +220,7 @@ impl Interpreter for TestInterpreter {
     }
 }
 
-pub type TestRuntime = Runtime<TestExecutable, TestInterpreter, TestValue>;
+pub type TestRuntime = Runtime<TestExecutable, TestInterpreter, TestValue, TestException>;
 
 pub fn try_runtime(
     executable: TestExecutable,

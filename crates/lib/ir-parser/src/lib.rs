@@ -695,13 +695,20 @@ impl ExprParser {
     fn parse_policy(&mut self) -> Result<ir::PolicyBracket, IRParseError> {
         self.stream.expect("[", None)?;
         let mut exception_types: Vec<String> = Vec::new();
-        if self.has_exception_header() {
-            loop {
-                exception_types.push(self.stream.expect("NAME", None)?.value);
-                if self.stream.r#match(",", None) {
-                    continue;
+        let has_exception_header = self.has_exception_header();
+        if has_exception_header {
+            if self.stream.r#match("(", None) {
+                // `()` lists no classes: a retry bracket that retries
+                // nothing, as Python's `except ():` catches nothing.
+                self.stream.expect(")", None)?;
+            } else {
+                loop {
+                    exception_types.push(self.stream.expect("NAME", None)?.value);
+                    if self.stream.r#match(",", None) {
+                        continue;
+                    }
+                    break;
                 }
-                break;
             }
             self.stream.expect("->", None)?;
         }
@@ -710,6 +717,13 @@ impl ExprParser {
         let kind = kind_token.value;
         self.stream.expect(":", None)?;
         if kind == "retry" {
+            if !has_exception_header {
+                return Err(IRParseError(
+                    "Retry policy needs an exception header: list the classes to retry on, \
+                     or `()` to retry nothing"
+                        .to_string(),
+                ));
+            }
             let max_retries = self.parse_int_value()?;
             let mut backoff: Option<ir::Duration> = None;
             if self.stream.r#match(",", None) {
@@ -737,7 +751,7 @@ impl ExprParser {
         }
 
         if kind == "timeout" {
-            if !exception_types.is_empty() {
+            if has_exception_header {
                 return Err(IRParseError(
                     "Timeout policy cannot specify exception types".to_string(),
                 ));

@@ -6,7 +6,6 @@ publish.workspace = true
 
 [dependencies]
 waymark-vm-runtime-effect = { workspace = true }
-waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
 nonempty-collections = { workspace = true }

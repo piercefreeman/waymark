@@ -46,14 +46,15 @@ where
 /// promise): an in-process body that hands back such a value names a
 /// state no one can settle — a bug in the action body, not an outcome
 /// it produced.
-fn encode_result<OutcomeConverter, Value>(
-    outcome: waymark_action_runtime_core::ActionCallOutcome<Value>,
+fn encode_result<OutcomeConverter, Value, RaisedException>(
+    outcome: waymark_action_runtime_core::ActionCallOutcome<Value, RaisedException>,
 ) -> Vec<u8>
 where
-    OutcomeConverter: TryConvert<waymark_action_runtime_core::ActionCallOutcome<Value>, Vec<u8>>,
+    OutcomeConverter:
+        TryConvert<waymark_action_runtime_core::ActionCallOutcome<Value, RaisedException>, Vec<u8>>,
     ConvertErrorFor<
         OutcomeConverter,
-        waymark_action_runtime_core::ActionCallOutcome<Value>,
+        waymark_action_runtime_core::ActionCallOutcome<Value, RaisedException>,
         Vec<u8>,
     >: core::fmt::Display,
 {
@@ -67,24 +68,23 @@ where
 ///
 /// The body's error is the flavor's own exception — raising is the
 /// body's decision, stated as the VM settles promises: an exception.
-pub fn inline_action<ArgumentsConverter, OutcomeConverter, Value, F, Fut>(
+pub fn inline_action<ArgumentsConverter, OutcomeConverter, Value, RaisedException, F, Fut>(
     body: F,
 ) -> InlineActionCallable
 where
     Value: Send + 'static,
+    RaisedException: Send + 'static,
     ArgumentsConverter: TryConvert<Vec<u8>, HashMap<String, Value>> + 'static,
-    OutcomeConverter:
-        TryConvert<waymark_action_runtime_core::ActionCallOutcome<Value>, Vec<u8>> + 'static,
+    OutcomeConverter: TryConvert<waymark_action_runtime_core::ActionCallOutcome<Value, RaisedException>, Vec<u8>>
+        + 'static,
     ConvertErrorFor<ArgumentsConverter, Vec<u8>, HashMap<String, Value>>: core::fmt::Display,
     ConvertErrorFor<
         OutcomeConverter,
-        waymark_action_runtime_core::ActionCallOutcome<Value>,
+        waymark_action_runtime_core::ActionCallOutcome<Value, RaisedException>,
         Vec<u8>,
     >: core::fmt::Display,
     F: Fn(HashMap<String, Value>) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<Value, waymark_vm_runtime_exception::Exception<Value>>>
-        + Send
-        + 'static,
+    Fut: Future<Output = Result<Value, RaisedException>> + Send + 'static,
 {
     let body = Arc::new(body);
     Arc::new(move |arguments: Vec<u8>| {
@@ -97,7 +97,7 @@ where
                     waymark_action_runtime_core::ActionCallOutcome::Exception(exception)
                 }
             };
-            encode_result::<OutcomeConverter, Value>(outcome)
+            encode_result::<OutcomeConverter, Value, RaisedException>(outcome)
         })
     })
 }

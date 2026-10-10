@@ -13,7 +13,7 @@ use waymark_ids::InstanceId;
 use waymark_vm_codec_rmp::RmpCodec;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
-use waymark_vm_value_python::ReadyValue;
+use waymark_vm_value_python::{RaisedException, ReadyValue};
 
 #[derive(Debug, thiserror::Error)]
 #[error("mock record error ({kind:?})")]
@@ -126,7 +126,7 @@ impl waymark_action_completions_reconciler_backend::AckCompletions for MockBacke
 }
 
 fn encoded_execution_result(
-    execution_result: &Result<ActionCallOutcome<ReadyValue>, ActionCallLossError>,
+    execution_result: &Result<ActionCallOutcome<ReadyValue, RaisedException>, ActionCallLossError>,
 ) -> Vec<u8> {
     let mut blob = Vec::new();
     waymark_vm_codec_core::SerializerProvider::with_serializer(&RmpCodec, &mut blob, |ser| {

@@ -1,0 +1,15 @@
+[package]
+name = "waymark-vm-interpreter-excset"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-vm-instructions-excset = { workspace = true }
+waymark-vm-interpreter = { workspace = true }
+waymark-vm-runtime-core = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
+waymark-vm-runtime-view-capture = { workspace = true }
+
+derive-where = { workspace = true }
+thiserror = { workspace = true }

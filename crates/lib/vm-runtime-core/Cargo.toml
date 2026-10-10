@@ -14,6 +14,7 @@ waymark-vm-runtime-promise-core = { workspace = true }
 waymark-vm-runtime-value = { workspace = true }
 waymark-vm-runtime-view-capture = { workspace = true }
 
+derive-where = { workspace = true }
 index_type = { workspace = true }
 serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
@@ -26,7 +27,6 @@ serde = [
   "dep:waymark-typed-vec-serde",
   "waymark-vm-exception-handler/serde",
   "waymark-vm-runtime-effect/serde",
-  "waymark-vm-runtime-exception/serde",
   "waymark-vm-runtime-promise-core/serde",
 ]
 

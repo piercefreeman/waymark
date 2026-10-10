@@ -28,7 +28,14 @@ use waymark_vm_runtime_promise_core::{
 };
 use waymark_vm_runtime_test::{FunctionId, StateId};
 
-pub type TestRuntime = Runtime<Executable<RuntimeInstruction>, RuntimeInterpreter, TestValue>;
+/// The extcallset raises nothing of its own, so the raised exception is
+/// [`core::convert::Infallible`].
+pub type TestRuntime = Runtime<
+    Executable<RuntimeInstruction>,
+    RuntimeInterpreter,
+    TestValue,
+    core::convert::Infallible,
+>;
 
 #[derive(Debug)]
 pub struct TestSpec;
@@ -162,12 +169,14 @@ pub enum TestEffect {
 
 #[derive(Default)]
 pub struct RuntimeInterpreter {
-    extcall: ExtCallSetInterpreter<TestSpec, FunctionId, StateId, TestValue>,
+    extcall:
+        ExtCallSetInterpreter<TestSpec, FunctionId, StateId, TestValue, core::convert::Infallible>,
 }
 
 impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
-    type RuntimeView<'r> = RuntimeView<'r, FunctionId, StateId, TestValue>;
-    type Frame = Frame<FunctionId, StateId, TestValue>;
+    type RuntimeView<'r> =
+        RuntimeView<'r, FunctionId, StateId, TestValue, core::convert::Infallible>;
+    type Frame = Frame<FunctionId, StateId, TestValue, core::convert::Infallible>;
     type Instruction = RuntimeInstruction;
     type Error = InterpreterError<TestValue>;
     type Effect = TestEffect;

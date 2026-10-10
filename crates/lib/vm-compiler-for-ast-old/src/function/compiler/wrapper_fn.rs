@@ -20,12 +20,10 @@ use super::env::LocalFrame;
 use super::suspend::PromiseMarker;
 use super::{Error, ErrorFor};
 
-/// The exception type id raised when a per-attempt timeout fires.
-const ACTION_TIMEOUT_TYPE_ID: &str = waymark_vm_exception_type_ids::ACTION_TIMEOUT;
-
 /// One digested retry bracket.
 struct RetryPlan {
-    /// The exception types this bracket retries; empty retries everything.
+    /// The exception types this bracket retries; none listed retries
+    /// nothing.
     exception_types: Vec<String>,
 
     /// The retry budget: extra attempts beyond the first.
@@ -36,14 +34,8 @@ struct RetryPlan {
 }
 
 impl RetryPlan {
-    /// Digests one retry bracket, normalizing the catch-all filter the same
-    /// way `try`/`except` normalizes `Exception`.
+    /// Digests one retry bracket.
     fn digest(retry_policy: &waymark_vm_ast_old::RetryPolicy) -> Self {
-        let exception_types = if retry_policy.exception_types == ["Exception"] {
-            Vec::new()
-        } else {
-            retry_policy.exception_types.clone()
-        };
         let backoff_seconds = retry_policy
             .backoff
             .as_ref()
@@ -51,22 +43,10 @@ impl RetryPlan {
             .filter(|&seconds| seconds != 0);
 
         Self {
-            exception_types,
+            exception_types: retry_policy.exception_types.clone(),
             max_retries: retry_policy.max_retries,
             backoff_seconds,
         }
-    }
-
-    /// Returns whether this bracket statically retries the compiled-in
-    /// `ActionTimeout` exception.
-    ///
-    /// The catch-all filter deliberately does not: with no cancellation the
-    /// timed-out attempt may still be running, so retrying timeouts requires
-    /// an explicit opt-in - matching the legacy runner semantics.
-    fn retries_timeouts(&self) -> bool {
-        self.exception_types
-            .iter()
-            .any(|exception_type| exception_type == ACTION_TIMEOUT_TYPE_ID)
     }
 }
 
@@ -230,35 +210,20 @@ where
     emitter.emit_return(result_register);
 
     emitter.switch_to(resume_on_timeout);
-    emit_action_timeout_raise::<Spec, Lowering>(emitter, local_frame)?;
+    emit_action_timeout_raise::<Spec, Lowering>(emitter);
 
     Ok(())
 }
 
-/// Emits the construction and raise of the `ActionTimeout` exception.
-fn emit_action_timeout_raise<Spec, Lowering>(
-    emitter: &mut FunctionEmitter<Spec>,
-    local_frame: &mut LocalFrame,
-) -> Result<(), ErrorFor<Spec, Lowering>>
+/// Emits the raise of the `ActionTimeout` exception.
+fn emit_action_timeout_raise<Spec, Lowering>(emitter: &mut FunctionEmitter<Spec>)
 where
     Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
     Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
 {
-    let type_id_value =
-        Lowering::lower_literal(&Literal::String(ACTION_TIMEOUT_TYPE_ID.to_owned()))
-            .map_err(Error::LiteralLowering)?;
-    let type_id_register = local_frame.allocate_register();
-    emitter.emit_load_const(type_id_register, type_id_value);
-
-    let details_value = Lowering::lower_literal(&Literal::None).map_err(Error::LiteralLowering)?;
-    let details_register = local_frame.allocate_register();
-    emitter.emit_load_const(details_register, details_value);
-
-    let exception_register = local_frame.allocate_register();
-    emitter.emit_make_exception(exception_register, type_id_register, details_register);
-    emitter.emit_raise(exception_register);
-
-    Ok(())
+    emitter.emit_raise_const(Lowering::lower_compiler_emitted_exception(
+        &waymark_vm_compiler_for_ast_old_core::lowering::CompilerEmittedException::ActionTimeout,
+    ));
 }
 
 /// Emits the retrying wrapper body: an attempt loop with the retry brackets
@@ -268,11 +233,10 @@ where
 /// A shared attempt counter is checked against each bracket's budget at the
 /// bracket's own handler, and each bracket sleeps its own fixed backoff -
 /// outside the protected region, so a failure during backoff propagates
-/// instead of counting as an attempt. The timeout select arm routes at
-/// compile time: into the retry bookkeeping of the first bracket statically
-/// listing `ActionTimeout`, or straight to the raise - after popping the
-/// attempt's handler block, so the routing never re-enters the handlers at
-/// runtime.
+/// instead of counting as an attempt. The timeout select arm raises
+/// `ActionTimeout` inside the protected region, so the brackets catch it
+/// like any exception the action raises: by matching their patterns against
+/// its lineage.
 fn emit_retry_loop<Spec, Lowering>(
     emitter: &mut FunctionEmitter<Spec>,
     local_frame: &mut LocalFrame,
@@ -318,7 +282,7 @@ where
         .map(
             |(retry_plan, handler_state)| waymark_vm_exception_handler::ExceptionHandler {
                 handler_state,
-                exception_types: retry_plan.exception_types.clone(),
+                pattern: Lowering::lower_exception_pattern(&retry_plan.exception_types),
                 exception_dst: Some(exception_register),
             },
         )
@@ -335,14 +299,10 @@ where
     emitter.switch_to(resume_after_call);
 
     let ok_state = emitter.reserve_state();
-    let max_register;
-    let cond_register;
 
     match timeout_seconds {
         None => {
             let result_register = local_frame.allocate_register();
-            max_register = local_frame.allocate_register();
-            cond_register = local_frame.allocate_register();
 
             emitter.emit_await(result_register, promise_register, ok_state);
 
@@ -368,8 +328,6 @@ where
 
             let result_register = local_frame.allocate_register();
             let sleep_result_register = local_frame.allocate_register();
-            max_register = local_frame.allocate_register();
-            cond_register = local_frame.allocate_register();
             let timeout_state = emitter.reserve_state();
             emitter.emit_select(vec![
                 SelectArm {
@@ -389,37 +347,17 @@ where
             emitter.emit_return(result_register);
 
             // The timeout arm resumed normally, so the attempt's handler
-            // block is still active - pop it first: the compile-time routing
-            // below must never be caught by the attempt's own handlers.
+            // block is still active: the raise transfers into it.
             emitter.switch_to(timeout_state);
-            emitter.emit_pop_exception_handlers(1);
-            let routed_retry = retry_plans.iter().position(RetryPlan::retries_timeouts);
-            match routed_retry {
-                Some(position) => {
-                    let max_value = Lowering::lower_literal(&Literal::Int(i64::from(
-                        retry_plans[position].max_retries,
-                    )))
-                    .map_err(Error::LiteralLowering)?;
-                    emitter.emit_load_const(max_register, max_value);
-                    emitter.emit_binary(
-                        BinaryOpKind::Lt,
-                        cond_register,
-                        used_register,
-                        max_register,
-                    );
-                    emitter.emit_jump_if(retry_states[position], cond_register);
-                    emit_action_timeout_raise::<Spec, Lowering>(emitter, local_frame)?;
-                }
-                None => {
-                    emit_action_timeout_raise::<Spec, Lowering>(emitter, local_frame)?;
-                }
-            }
+            emit_action_timeout_raise::<Spec, Lowering>(emitter);
         }
     }
 
     // Per-bracket handlers: check the shared counter against this bracket's
     // budget; retry or re-raise the caught exception on exhaustion. The
     // handler block was already popped by the raise transfer.
+    let max_register = local_frame.allocate_register();
+    let cond_register = local_frame.allocate_register();
     let mut backoff_registers: Option<(RegisterId, Marked<RegisterId, PromiseMarker>, RegisterId)> =
         None;
     for (retry_plan, (handler_state, retry_state)) in retry_plans
@@ -544,10 +482,7 @@ mod tests {
         s3:
           CoreSet(Return { src: r4 })
         s4:
-          PureSet(LoadConst { dst: r6, value: String("ActionTimeout") })
-          PureSet(LoadConst { dst: r7, value: None })
-          PureSet(MakeException { dst: r8, type_id: r6, details: r7 })
-          CoreSet(Raise { src: r8 })
+          ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
         "#);
     }
 
@@ -569,10 +504,7 @@ mod tests {
         s3:
           CoreSet(Return { src: r3 })
         s4:
-          PureSet(LoadConst { dst: r5, value: String("ActionTimeout") })
-          PureSet(LoadConst { dst: r6, value: None })
-          PureSet(MakeException { dst: r7, type_id: r5, details: r6 })
-          CoreSet(Raise { src: r7 })
+          ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
         "#
         );
     }
@@ -592,27 +524,27 @@ mod tests {
     #[test]
     fn generates_the_retrying_wrapper_body() {
         insta::assert_snapshot!(
-            display_wrapper(1, &[retry_policy(2, Vec::new(), None)]),
+            display_wrapper(1, &[retry_policy(2, vec!["Exception"], None)]),
             @r#"
         s0:
           PureSet(LoadConst { dst: r1, value: Int(0) })
           PureSet(LoadConst { dst: r2, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r3) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
           ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("notify"), args: [r0], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r6, value: Int(2) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r7, a: r1, b: r6 } })
           CoreSet(JumpIf { target_state: s3, cond: r7 })
-          CoreSet(Raise { src: r3 })
+          ExcSet(Raise { src: r3 })
         s3:
           PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
           CoreSet(Jump { target_state: s1 })
         s4:
           CoreSet(Await { dst: r5, src: r4, resume: s5 })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          ExcSet(PopExceptionHandlers { count: 1 })
           CoreSet(Return { src: r5 })
         "#
         );
@@ -621,20 +553,20 @@ mod tests {
     #[test]
     fn retries_sleep_their_backoff_between_attempts() {
         insta::assert_snapshot!(
-            display_wrapper(0, &[retry_policy(2, Vec::new(), Some(5))]),
+            display_wrapper(0, &[retry_policy(2, vec!["Exception"], Some(5))]),
             @r#"
         s0:
           PureSet(LoadConst { dst: r0, value: Int(0) })
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r5, value: Int(2) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r0, b: r5 } })
           CoreSet(JumpIf { target_state: s3, cond: r6 })
-          CoreSet(Raise { src: r2 })
+          ExcSet(Raise { src: r2 })
         s3:
           PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
           PureSet(LoadConst { dst: r7, value: Int(5) })
@@ -642,7 +574,7 @@ mod tests {
         s4:
           CoreSet(Await { dst: r4, src: r3, resume: s5 })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          ExcSet(PopExceptionHandlers { count: 1 })
           CoreSet(Return { src: r4 })
         s6:
           CoreSet(Await { dst: r9, src: r8, resume: s7 })
@@ -659,7 +591,7 @@ mod tests {
                 0,
                 &[
                     retry_policy(1, vec!["ValueError"], None),
-                    retry_policy(3, Vec::new(), None),
+                    retry_policy(3, vec!["Exception"], None),
                 ],
             ),
             @r#"
@@ -668,18 +600,18 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }, ExceptionHandler { handler_state: s3, exception_types: ["ValueError"], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r2) }, ExceptionHandler { handler_state: s3, pattern: Classes(["ValueError"]), exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s6 })
         s2:
           PureSet(LoadConst { dst: r5, value: Int(3) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r0, b: r5 } })
           CoreSet(JumpIf { target_state: s4, cond: r6 })
-          CoreSet(Raise { src: r2 })
+          ExcSet(Raise { src: r2 })
         s3:
           PureSet(LoadConst { dst: r5, value: Int(1) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r0, b: r5 } })
           CoreSet(JumpIf { target_state: s5, cond: r6 })
-          CoreSet(Raise { src: r2 })
+          ExcSet(Raise { src: r2 })
         s4:
           PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
           CoreSet(Jump { target_state: s1 })
@@ -689,43 +621,14 @@ mod tests {
         s6:
           CoreSet(Await { dst: r4, src: r3, resume: s7 })
         s7:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          ExcSet(PopExceptionHandlers { count: 1 })
           CoreSet(Return { src: r4 })
         "#
         );
     }
 
     #[test]
-    fn normalizes_the_exception_catch_all_like_try_except() {
-        insta::assert_snapshot!(
-            display_wrapper(0, &[retry_policy(1, vec!["Exception"], None)]),
-            @r#"
-        s0:
-          PureSet(LoadConst { dst: r0, value: Int(0) })
-          PureSet(LoadConst { dst: r1, value: Int(1) })
-          CoreSet(Jump { target_state: s1 })
-        s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }] })
-          ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
-        s2:
-          PureSet(LoadConst { dst: r5, value: Int(1) })
-          PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r0, b: r5 } })
-          CoreSet(JumpIf { target_state: s3, cond: r6 })
-          CoreSet(Raise { src: r2 })
-        s3:
-          PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
-          CoreSet(Jump { target_state: s1 })
-        s4:
-          CoreSet(Await { dst: r4, src: r3, resume: s5 })
-        s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
-          CoreSet(Return { src: r4 })
-        "#
-        );
-    }
-
-    #[test]
-    fn does_not_route_timeouts_into_catch_all_retries() {
+    fn an_empty_filter_retries_nothing() {
         insta::assert_snapshot!(
             display_wrapper(0, &[retry_policy(2, Vec::new(), None), timeout_policy(30)]),
             @r#"
@@ -734,13 +637,13 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: [], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes([]), exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r8, value: Int(2) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r9, a: r0, b: r8 } })
           CoreSet(JumpIf { target_state: s3, cond: r9 })
-          CoreSet(Raise { src: r2 })
+          ExcSet(Raise { src: r2 })
         s3:
           PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
           CoreSet(Jump { target_state: s1 })
@@ -748,22 +651,47 @@ mod tests {
           PureSet(LoadConst { dst: r4, value: Int(30) })
           ExtCallSet(Sleep { dst: r5, duration: r4, resume: s6, unskippable: true })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          ExcSet(PopExceptionHandlers { count: 1 })
           CoreSet(Return { src: r6 })
         s6:
           CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
         s7:
-          CoreSet(PopExceptionHandlers { count: 1 })
-          PureSet(LoadConst { dst: r10, value: String("ActionTimeout") })
-          PureSet(LoadConst { dst: r11, value: None })
-          PureSet(MakeException { dst: r12, type_id: r10, details: r11 })
-          CoreSet(Raise { src: r12 })
+          ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
         "#
         );
     }
 
     #[test]
-    fn routes_timeouts_into_retries_on_explicit_opt_in() {
+    fn keeps_the_exception_filter_as_listed() {
+        insta::assert_snapshot!(
+            display_wrapper(0, &[retry_policy(1, vec!["Exception"], None)]),
+            @r#"
+        s0:
+          PureSet(LoadConst { dst: r0, value: Int(0) })
+          PureSet(LoadConst { dst: r1, value: Int(1) })
+          CoreSet(Jump { target_state: s1 })
+        s1:
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r2) }] })
+          ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
+        s2:
+          PureSet(LoadConst { dst: r5, value: Int(1) })
+          PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r0, b: r5 } })
+          CoreSet(JumpIf { target_state: s3, cond: r6 })
+          ExcSet(Raise { src: r2 })
+        s3:
+          PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
+          CoreSet(Jump { target_state: s1 })
+        s4:
+          CoreSet(Await { dst: r4, src: r3, resume: s5 })
+        s5:
+          ExcSet(PopExceptionHandlers { count: 1 })
+          CoreSet(Return { src: r4 })
+        "#
+        );
+    }
+
+    #[test]
+    fn raises_timeouts_inside_the_protected_region() {
         insta::assert_snapshot!(
             display_wrapper(
                 0,
@@ -778,13 +706,13 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(1) })
           CoreSet(Jump { target_state: s1 })
         s1:
-          CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ActionTimeout"], exception_dst: Some(r2) }] })
+          ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["ActionTimeout"]), exception_dst: Some(r2) }] })
           ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("notify"), args: [], resume: s4 })
         s2:
           PureSet(LoadConst { dst: r8, value: Int(2) })
           PureSet(Binary { kind: Lt, op: BinaryOp { dst: r9, a: r0, b: r8 } })
           CoreSet(JumpIf { target_state: s3, cond: r9 })
-          CoreSet(Raise { src: r2 })
+          ExcSet(Raise { src: r2 })
         s3:
           PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r1 } })
           CoreSet(Jump { target_state: s1 })
@@ -792,19 +720,12 @@ mod tests {
           PureSet(LoadConst { dst: r4, value: Int(30) })
           ExtCallSet(Sleep { dst: r5, duration: r4, resume: s6, unskippable: true })
         s5:
-          CoreSet(PopExceptionHandlers { count: 1 })
+          ExcSet(PopExceptionHandlers { count: 1 })
           CoreSet(Return { src: r6 })
         s6:
           CoreSet(Select { arms: [SelectArm { src: r3, dst: r6, resume: s5 }, SelectArm { src: r5, dst: r7, resume: s7 }] })
         s7:
-          CoreSet(PopExceptionHandlers { count: 1 })
-          PureSet(LoadConst { dst: r8, value: Int(2) })
-          PureSet(Binary { kind: Lt, op: BinaryOp { dst: r9, a: r0, b: r8 } })
-          CoreSet(JumpIf { target_state: s3, cond: r9 })
-          PureSet(LoadConst { dst: r10, value: String("ActionTimeout") })
-          PureSet(LoadConst { dst: r11, value: None })
-          PureSet(MakeException { dst: r12, type_id: r10, details: r11 })
-          CoreSet(Raise { src: r12 })
+          ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
         "#
         );
     }
@@ -844,7 +765,7 @@ mod tests {
             "notify",
             TestActionRef("notify".to_owned()),
             0,
-            &[retry_policy(1, Vec::new(), Some(u64::MAX))],
+            &[retry_policy(1, vec!["Exception"], Some(u64::MAX))],
         )
         .expect_err("an unrepresentable backoff should fail");
         assert!(matches!(

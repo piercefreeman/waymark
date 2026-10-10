@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use derive_where::derive_where;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
@@ -13,16 +14,42 @@ use crate::{Frame, PromiseStates, PromiseWaiter, SelectStates, SettlePromiseErro
 /// The access to the runtime state is indirectly provided to the interpreters
 /// via the [`crate::FullRuntimeView`] and the
 /// [`waymark_vm_runtime_view_capture::CaptureRuntimeView`] trait.
-#[derive(Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct RuntimeState<FunctionId, StateId, Value> {
+#[derive_where(
+    Debug;
+    FunctionId, StateId, Value, RaisedException,
+    waymark_vm_runtime_exception::MatchPatternOf<RaisedException>,
+)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "
+            FunctionId: serde::Serialize,
+            StateId: serde::Serialize,
+            Value: serde::Serialize,
+            RaisedException: serde::Serialize,
+            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
+        ",
+        deserialize = "
+            FunctionId: serde::Deserialize<'de>,
+            StateId: serde::Deserialize<'de>,
+            Value: serde::Deserialize<'de>,
+            RaisedException: serde::Deserialize<'de>,
+            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Deserialize<'de>,
+        ",
+    ))
+)]
+pub struct RuntimeState<FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     /// The queue of the ready-to-execute frames.
     ///
     /// Due to the nature of the asyncrony and continuations support, we require
     /// that at runtime all the values can be promises.
     //
     // TODO: replace with a more restricted interface
-    pub ready: VecDeque<Frame<FunctionId, StateId, Value>>,
+    pub ready: VecDeque<Frame<FunctionId, StateId, Value, RaisedException>>,
 
     /// A state of the promises of this runtime.
     //
@@ -30,10 +57,10 @@ pub struct RuntimeState<FunctionId, StateId, Value> {
     // the promise values that refer to them. We can implement this without
     // a full garbage-collector by holding the promises in a weak-rc-map
     // or something like that.
-    pub promise_states: PromiseStates<FunctionId, StateId, Value>,
+    pub promise_states: PromiseStates<FunctionId, StateId, Value, RaisedException>,
 
     /// A state of the selects of this runtime.
-    pub select_states: SelectStates<FunctionId, StateId, Value>,
+    pub select_states: SelectStates<FunctionId, StateId, Value, RaisedException>,
 
     /// Sequential counter of effects produced by this runtime.
     ///
@@ -41,9 +68,12 @@ pub struct RuntimeState<FunctionId, StateId, Value> {
     pub effect_counter: EffectNumber,
 }
 
-impl<FunctionId, StateId, Value> RuntimeState<FunctionId, StateId, Value>
+impl<FunctionId, StateId, Value, RaisedException>
+    RuntimeState<FunctionId, StateId, Value, RaisedException>
 where
     Value: Clone,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+    RaisedException: Clone,
 {
     /// Provide an async computation value for a given promise.
     ///
@@ -84,8 +114,8 @@ where
     pub fn reject_promise(
         &mut self,
         promise_state_id: PromiseStateId,
-        exception: waymark_vm_runtime_exception::Exception<Value>,
-    ) -> Result<(), SettlePromiseError<waymark_vm_runtime_exception::Exception<Value>>> {
+        exception: RaisedException,
+    ) -> Result<(), SettlePromiseError<RaisedException>> {
         let waiters = self
             .promise_states
             .reject(promise_state_id, exception.clone())?;
@@ -115,10 +145,10 @@ mod tests {
     use std::collections::VecDeque;
 
     use waymark_vm_runtime_effect::EffectNumber;
-    use waymark_vm_runtime_exception::Exception;
     use waymark_vm_runtime_promise_value::PromiseValue;
 
     use super::RuntimeState;
+    use crate::test_helpers::TestException;
     use crate::{
         Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, PromiseStates,
         PromiseWaiter, RegisterId, Registers, SelectStates, SettlePromiseError,
@@ -136,7 +166,9 @@ mod tests {
         type RootValue = TestValue;
     }
 
-    fn frame(state: usize) -> Frame<&'static str, usize, TestValue> {
+    type TestPromiseStates = PromiseStates<&'static str, usize, TestValue, TestException>;
+
+    fn frame(state: usize) -> Frame<&'static str, usize, TestValue, TestException> {
         Frame {
             func: "example",
             state,
@@ -150,13 +182,24 @@ mod tests {
     fn continuation(
         dst: RegisterId,
         resume_state: usize,
-    ) -> Continuation<&'static str, usize, TestValue, crate::ResumeWithValue> {
+    ) -> Continuation<&'static str, usize, TestValue, TestException, crate::ResumeWithValue> {
         Continuation::capture(frame(0), resume_state, dst)
+    }
+
+    fn runtime_state(
+        promise_states: TestPromiseStates,
+    ) -> RuntimeState<&'static str, usize, TestValue, TestException> {
+        RuntimeState {
+            ready: VecDeque::new(),
+            promise_states,
+            select_states: SelectStates::new(),
+            effect_counter: EffectNumber(0),
+        }
     }
 
     #[test]
     fn resolve_promise_enqueues_resumed_frames_and_records_resolved_value() {
-        let mut promise_states = PromiseStates::<&'static str, usize, TestValue>::new();
+        let mut promise_states = TestPromiseStates::new();
         let promise_state_id = promise_states.prepare();
         let promise_state = promise_states
             .get_mut(promise_state_id)
@@ -166,12 +209,7 @@ mod tests {
             PromiseWaiter::Await(continuation(RegisterId(1), 5)),
         ]);
 
-        let mut runtime = RuntimeState {
-            ready: VecDeque::new(),
-            promise_states,
-            select_states: SelectStates::new(),
-            effect_counter: EffectNumber(0),
-        };
+        let mut runtime = runtime_state(promise_states);
 
         runtime
             .resolve_promise(
@@ -212,7 +250,7 @@ mod tests {
 
     #[test]
     fn resolve_promise_returns_error_when_promise_has_already_settled() {
-        let mut promise_states = PromiseStates::<&'static str, usize, TestValue>::new();
+        let mut promise_states = TestPromiseStates::new();
         let promise_state_id = promise_states.prepare();
         let promise_state = promise_states
             .get_mut(promise_state_id)
@@ -221,12 +259,7 @@ mod tests {
             TestReadyValue::Int(7),
         )));
 
-        let mut runtime = RuntimeState {
-            ready: VecDeque::new(),
-            promise_states,
-            select_states: SelectStates::new(),
-            effect_counter: EffectNumber(0),
-        };
+        let mut runtime = runtime_state(promise_states);
 
         let err = runtime
             .resolve_promise(
@@ -259,7 +292,7 @@ mod tests {
 
     #[test]
     fn reject_promise_resumes_waiters_with_raised_exceptions() {
-        let mut promise_states = PromiseStates::<&'static str, usize, TestValue>::new();
+        let mut promise_states = TestPromiseStates::new();
         let promise_state_id = promise_states.prepare();
         let promise_state = promise_states
             .get_mut(promise_state_id)
@@ -267,20 +300,10 @@ mod tests {
         *promise_state =
             PromiseState::Waiting(vec![PromiseWaiter::Await(continuation(RegisterId(0), 3))]);
 
-        let mut runtime = RuntimeState {
-            ready: VecDeque::new(),
-            promise_states,
-            select_states: SelectStates::new(),
-            effect_counter: EffectNumber(0),
-        };
-
-        let exception = Exception {
-            type_id: "ValueError".to_owned(),
-            details: PromiseValue::Ready(TestReadyValue::Int(41)),
-        };
+        let mut runtime = runtime_state(promise_states);
 
         runtime
-            .reject_promise(promise_state_id, exception.clone())
+            .reject_promise(promise_state_id, TestException("ValueError"))
             .expect("waiting promise should resolve exceptionally");
 
         let PromiseState::Settled(SettledPromiseState::Rejected(stored_exception)) = runtime
@@ -290,72 +313,19 @@ mod tests {
         else {
             panic!("promise state should be settled with an exception");
         };
-        assert_eq!(stored_exception.type_id, exception.type_id);
-        assert_eq!(stored_exception.details, exception.details);
-
-        let resumed = runtime.ready.pop_front().expect("resumed frame");
-        let Some(raised_exception) = resumed.exception else {
-            panic!("resumed frame should carry a raised exception");
-        };
-        assert_eq!(raised_exception.type_id, "ValueError");
-    }
-
-    #[test]
-    fn reject_promise_leaves_the_resumed_frame_raised() {
-        let mut promise_states = PromiseStates::<&'static str, usize, TestValue>::new();
-        let promise_state_id = promise_states.prepare();
-        let promise_state = promise_states
-            .get_mut(promise_state_id)
-            .expect("promise state exists");
-        *promise_state = PromiseState::Waiting(vec![PromiseWaiter::Await(Continuation::capture(
-            frame(0),
-            3,
-            RegisterId(0),
-        ))]);
-
-        let mut runtime = RuntimeState {
-            ready: VecDeque::new(),
-            promise_states,
-            select_states: SelectStates::new(),
-            effect_counter: EffectNumber(0),
-        };
-
-        runtime
-            .reject_promise(
-                promise_state_id,
-                Exception {
-                    type_id: "ValueError".to_owned(),
-                    details: PromiseValue::Ready(TestReadyValue::Int(41)),
-                },
-            )
-            .expect("waiting promise should resolve exceptionally");
+        assert_eq!(*stored_exception, TestException("ValueError"));
 
         let resumed = runtime.ready.pop_front().expect("resumed frame");
         assert_eq!(resumed.state, 3);
-        let Some(exception) = resumed.exception else {
-            panic!("resumed frame should carry the raised exception");
+        let Some(raised_exception) = resumed.exception else {
+            panic!("resumed frame should carry a raised exception");
         };
-        assert_eq!(exception.type_id, "ValueError");
-        assert_eq!(
-            exception.details,
-            PromiseValue::Ready(TestReadyValue::Int(41))
-        );
-    }
-
-    fn runtime_state(
-        promise_states: PromiseStates<&'static str, usize, TestValue>,
-    ) -> RuntimeState<&'static str, usize, TestValue> {
-        RuntimeState {
-            ready: VecDeque::new(),
-            promise_states,
-            select_states: SelectStates::new(),
-            effect_counter: EffectNumber(0),
-        }
+        assert_eq!(raised_exception, TestException("ValueError"));
     }
 
     #[test]
     fn resolve_promise_claims_the_select_and_delivers_to_the_arm() {
-        let mut promise_states = PromiseStates::<&'static str, usize, TestValue>::new();
+        let mut promise_states = TestPromiseStates::new();
         let source = promise_states.prepare();
 
         let mut select_states = SelectStates::new();
@@ -364,12 +334,8 @@ mod tests {
         *promise_states.get_mut(source).expect("source exists") =
             PromiseState::Waiting(vec![PromiseWaiter::Select(handle.arm(RegisterId(1), 7))]);
 
-        let mut runtime = RuntimeState {
-            ready: VecDeque::new(),
-            promise_states,
-            select_states,
-            effect_counter: EffectNumber(0),
-        };
+        let mut runtime = runtime_state(promise_states);
+        runtime.select_states = select_states;
 
         runtime
             .resolve_promise(source, PromiseValue::Ready(TestReadyValue::Int(41)))
@@ -386,7 +352,7 @@ mod tests {
 
     #[test]
     fn reject_promise_claims_the_select_and_raises_at_the_arm() {
-        let mut promise_states = PromiseStates::<&'static str, usize, TestValue>::new();
+        let mut promise_states = TestPromiseStates::new();
         let source = promise_states.prepare();
 
         let mut select_states = SelectStates::new();
@@ -395,21 +361,11 @@ mod tests {
         *promise_states.get_mut(source).expect("source exists") =
             PromiseState::Waiting(vec![PromiseWaiter::Select(handle.arm(RegisterId(1), 7))]);
 
-        let mut runtime = RuntimeState {
-            ready: VecDeque::new(),
-            promise_states,
-            select_states,
-            effect_counter: EffectNumber(0),
-        };
+        let mut runtime = runtime_state(promise_states);
+        runtime.select_states = select_states;
 
         runtime
-            .reject_promise(
-                source,
-                Exception {
-                    type_id: "ValueError".to_owned(),
-                    details: PromiseValue::Ready(TestReadyValue::Int(41)),
-                },
-            )
+            .reject_promise(source, TestException("ValueError"))
             .expect("source promise should reject");
 
         let resumed = runtime.ready.pop_front().expect("claimed frame is resumed");
@@ -417,12 +373,12 @@ mod tests {
         let Some(exception) = resumed.exception else {
             panic!("claimed frame should carry the raised exception");
         };
-        assert_eq!(exception.type_id, "ValueError");
+        assert_eq!(exception, TestException("ValueError"));
     }
 
     #[test]
     fn losing_select_arm_is_inert_and_other_waiters_still_notify() {
-        let mut promise_states = PromiseStates::<&'static str, usize, TestValue>::new();
+        let mut promise_states = TestPromiseStates::new();
         let winner_source = promise_states.prepare();
         let loser_source = promise_states.prepare();
 

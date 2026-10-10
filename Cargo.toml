@@ -91,6 +91,7 @@ waymark-observability-store-postgres = { path = "crates/lib/observability-store-
 waymark-observability-store-postgres-bringup = { path = "crates/lib/observability-store-postgres-bringup" }
 waymark-observability-store-postgres-config = { path = "crates/lib/observability-store-postgres-config" }
 waymark-observability-store-postgres-migrations = { path = "crates/lib/observability-store-postgres-migrations" }
+waymark-observability-vm-value-display = { path = "crates/lib/observability-vm-value-display" }
 waymark-os-shutdown-requests = { path = "crates/lib/os-shutdown-requests" }
 waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-bringup" }
 waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settlement-demand-registry" }
@@ -141,7 +142,7 @@ waymark-vm-codec-core = { path = "crates/lib/vm-codec-core" }
 waymark-vm-codec-rmp = { path = "crates/lib/vm-codec-rmp" }
 waymark-vm-compiler-for-ast-old = { path = "crates/lib/vm-compiler-for-ast-old" }
 waymark-vm-compiler-for-ast-old-action-ref = { path = "crates/lib/vm-compiler-for-ast-old-action-ref" }
-waymark-vm-compiler-for-ast-old-const-value = { path = "crates/lib/vm-compiler-for-ast-old-const-value" }
+waymark-vm-compiler-for-ast-old-bytecode-consts = { path = "crates/lib/vm-compiler-for-ast-old-bytecode-consts" }
 waymark-vm-compiler-for-ast-old-core = { path = "crates/lib/vm-compiler-for-ast-old-core" }
 waymark-vm-compiler-for-ast-old-test-support = { path = "crates/lib/vm-compiler-for-ast-old-test-support" }
 waymark-vm-compiler-metadata = { path = "crates/lib/vm-compiler-metadata" }
@@ -152,9 +153,9 @@ waymark-vm-driver-hooks-noop = { path = "crates/lib/vm-driver-hooks-noop" }
 waymark-vm-driver-hooks-tracing = { path = "crates/lib/vm-driver-hooks-tracing" }
 waymark-vm-driver-thread = { path = "crates/lib/vm-driver-thread" }
 waymark-vm-exception-handler = { path = "crates/lib/vm-exception-handler" }
-waymark-vm-exception-type-ids = { path = "crates/lib/vm-exception-type-ids" }
 waymark-vm-executable = { path = "crates/lib/vm-executable" }
 waymark-vm-instructions-coreset = { path = "crates/lib/vm-instructions-coreset" }
+waymark-vm-instructions-excset = { path = "crates/lib/vm-instructions-excset" }
 waymark-vm-instructions-extcallset = { path = "crates/lib/vm-instructions-extcallset" }
 waymark-vm-instructions-fullset = { path = "crates/lib/vm-instructions-fullset" }
 waymark-vm-instructions-pureset = { path = "crates/lib/vm-instructions-pureset" }
@@ -163,6 +164,7 @@ waymark-vm-interpreter-composite = { path = "crates/lib/vm-interpreter-composite
 waymark-vm-interpreter-composite-core = { path = "crates/lib/vm-interpreter-composite-core" }
 waymark-vm-interpreter-composite-macros = { path = "crates/lib/vm-interpreter-composite-macros" }
 waymark-vm-interpreter-coreset = { path = "crates/lib/vm-interpreter-coreset" }
+waymark-vm-interpreter-excset = { path = "crates/lib/vm-interpreter-excset" }
 waymark-vm-interpreter-extcallset = { path = "crates/lib/vm-interpreter-extcallset" }
 waymark-vm-interpreter-fullset = { path = "crates/lib/vm-interpreter-fullset" }
 waymark-vm-interpreter-pureset = { path = "crates/lib/vm-interpreter-pureset" }

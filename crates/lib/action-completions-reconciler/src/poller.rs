@@ -78,12 +78,14 @@ impl<VmId, SleepAck> From<Ack<VmId>> for waymark_extcall_reconciler_core::Ack<Ac
 
 /// One decoded completion parked in a handle's buffer, keyed by the
 /// promise it settles.
-struct BufferedCompletion<Value> {
+struct BufferedCompletion<Value, RaisedException> {
     promise_state_id: PromiseStateId,
-    execution_result: Result<ActionCallOutcome<Value>, ActionCallLossError>,
+    execution_result: Result<ActionCallOutcome<Value, RaisedException>, ActionCallLossError>,
 }
 
-impl<Value> registry::HasPromiseStateId for BufferedCompletion<Value> {
+impl<Value, RaisedException> registry::HasPromiseStateId
+    for BufferedCompletion<Value, RaisedException>
+{
     fn promise_state_id(&self) -> PromiseStateId {
         self.promise_state_id
     }
@@ -101,11 +103,15 @@ impl<Value> registry::HasPromiseStateId for BufferedCompletion<Value> {
 /// `ack_tx` is where the settlements produced by the subscribed handles
 /// push their keys on acknowledgement — pair it with an
 /// [`acker::run`](crate::acker::run) loop driving the receiving half.
-pub fn state<VmId, Value, ValueConverter>(
+#[expect(
+    clippy::type_complexity,
+    reason = "the registrar and the token are the two halves of the state, handed back by name"
+)]
+pub fn state<VmId, Value, RaisedException, ValueConverter>(
     ack_tx: tokio::sync::mpsc::UnboundedSender<CompletionKey<VmId>>,
 ) -> (
-    DemandRegistrar<VmId, Value, ValueConverter>,
-    StateToken<VmId, Value>,
+    DemandRegistrar<VmId, Value, RaisedException, ValueConverter>,
+    StateToken<VmId, Value, RaisedException>,
 )
 where
     VmId: Eq + std::hash::Hash,
@@ -124,26 +130,32 @@ where
 ///
 /// Created by [`state`]; its only job is to be handed to [`run`] via
 /// [`Params`].
-pub struct StateToken<VmId, Value>
+pub struct StateToken<VmId, Value, RaisedException>
 where
     VmId: Eq + std::hash::Hash,
 {
-    inner: registry::StateToken<VmId, BufferedCompletion<Value>, CompletionKey<VmId>>,
+    inner:
+        registry::StateToken<VmId, BufferedCompletion<Value, RaisedException>, CompletionKey<VmId>>,
 }
 
 /// Subscribes VMs to the shared poller state.
 ///
 /// Created by [`state`]; cloneable, so it can be handed out to every
 /// place that wires up VMs.
-pub struct DemandRegistrar<VmId, Value, ValueConverter>
+pub struct DemandRegistrar<VmId, Value, RaisedException, ValueConverter>
 where
     VmId: Eq + std::hash::Hash,
 {
-    inner: registry::DemandRegistrar<VmId, BufferedCompletion<Value>, CompletionKey<VmId>>,
+    inner: registry::DemandRegistrar<
+        VmId,
+        BufferedCompletion<Value, RaisedException>,
+        CompletionKey<VmId>,
+    >,
     _value_converter: std::marker::PhantomData<fn() -> ValueConverter>,
 }
 
-impl<VmId, Value, ValueConverter> Clone for DemandRegistrar<VmId, Value, ValueConverter>
+impl<VmId, Value, RaisedException, ValueConverter> Clone
+    for DemandRegistrar<VmId, Value, RaisedException, ValueConverter>
 where
     VmId: Eq + std::hash::Hash,
 {
@@ -155,7 +167,8 @@ where
     }
 }
 
-impl<VmId, Value, ValueConverter> DemandRegistrar<VmId, Value, ValueConverter>
+impl<VmId, Value, RaisedException, ValueConverter>
+    DemandRegistrar<VmId, Value, RaisedException, ValueConverter>
 where
     VmId: Copy + Eq + std::hash::Hash,
 {
@@ -164,7 +177,10 @@ where
     /// Subscribing a VM that already has a live entry replaces the entry:
     /// the previous handle keeps its buffer but will no longer receive
     /// deliveries, and its eventual drop does not disturb the new entry.
-    pub fn subscribe(&self, vm_id: VmId) -> SettlementsHandle<VmId, Value, ValueConverter> {
+    pub fn subscribe(
+        &self,
+        vm_id: VmId,
+    ) -> SettlementsHandle<VmId, Value, RaisedException, ValueConverter> {
         SettlementsHandle {
             inner: self.inner.subscribe(vm_id),
             _value_converter: std::marker::PhantomData,
@@ -177,7 +193,7 @@ where
 // ---------------------------------------------------------------------------
 
 /// Parameters for [`run`].
-pub struct Params<Backend, Codec, Value>
+pub struct Params<Backend, Codec, Value, RaisedException>
 where
     Backend: PollCompletions,
     Backend::VmId: Eq + std::hash::Hash,
@@ -189,7 +205,7 @@ where
     pub codec: Codec,
 
     /// The token of the shared state to poll for and deliver to.
-    pub state: StateToken<Backend::VmId, Value>,
+    pub state: StateToken<Backend::VmId, Value, RaisedException>,
 }
 
 /// Poll the backend for demanded completions until every registrar and
@@ -200,14 +216,15 @@ where
 /// should stop the subsystem.  When the loop returns (or its future is
 /// dropped after starting), the shared state is marked closed and all
 /// waiting handles fail.
-pub async fn run<Backend, Codec, Value>(
-    params: Params<Backend, Codec, Value>,
+pub async fn run<Backend, Codec, Value, RaisedException>(
+    params: Params<Backend, Codec, Value, RaisedException>,
 ) -> Result<(), Error<Backend::Error, Codec::Error>>
 where
     Backend: PollCompletions,
     Backend::VmId: Copy + Eq + std::hash::Hash,
     Codec: waymark_vm_codec_core::DeserializerProvider,
     Value: serde::de::DeserializeOwned,
+    RaisedException: serde::de::DeserializeOwned,
 {
     let Params {
         backend,
@@ -272,38 +289,54 @@ where
 /// registers the demanded promise ids, waits until the shared poller
 /// delivers matching completions, and settles them with [`Ack`]s minted
 /// from the rows' own keys.
-pub struct SettlementsHandle<VmId, Value, ValueConverter>
+pub struct SettlementsHandle<VmId, Value, RaisedException, ValueConverter>
 where
     VmId: Eq + std::hash::Hash,
 {
-    inner: registry::DemandHandle<VmId, BufferedCompletion<Value>, CompletionKey<VmId>>,
+    inner: registry::DemandHandle<
+        VmId,
+        BufferedCompletion<Value, RaisedException>,
+        CompletionKey<VmId>,
+    >,
     _value_converter: std::marker::PhantomData<fn() -> ValueConverter>,
 }
 
-impl<VmId, Value, ValueConverter> waymark_extcall_reconciler_core::SettlerAck
-    for SettlementsHandle<VmId, Value, ValueConverter>
+impl<VmId, Value, RaisedException, ValueConverter> waymark_extcall_reconciler_core::SettlerAck
+    for SettlementsHandle<VmId, Value, RaisedException, ValueConverter>
 where
     VmId: Eq + std::hash::Hash,
 {
     type Ack = Ack<VmId>;
 }
 
-impl<VmId, Value, ValueConverter> waymark_extcall_reconciler_core::HasValue
-    for SettlementsHandle<VmId, Value, ValueConverter>
+impl<VmId, Value, RaisedException, ValueConverter> waymark_extcall_reconciler_core::HasValue
+    for SettlementsHandle<VmId, Value, RaisedException, ValueConverter>
 where
     VmId: Eq + std::hash::Hash,
 {
     type Value = Value;
 }
 
-impl<VmId, Value, ValueConverter, UnifiedAck>
+impl<VmId, Value, RaisedException, ValueConverter>
+    waymark_extcall_reconciler_core::HasRaisedException
+    for SettlementsHandle<VmId, Value, RaisedException, ValueConverter>
+where
+    VmId: Eq + std::hash::Hash,
+{
+    type RaisedException = RaisedException;
+}
+
+impl<VmId, Value, RaisedException, ValueConverter, UnifiedAck>
     waymark_extcall_reconciler_core::ActionPromiseSettler<UnifiedAck>
-    for SettlementsHandle<VmId, Value, ValueConverter>
+    for SettlementsHandle<VmId, Value, RaisedException, ValueConverter>
 where
     VmId: Copy + Eq + std::hash::Hash + Send + Sync + 'static,
     Value: Send,
-    waymark_action_runtime_convert::Converter<ValueConverter>:
-        Convert<Result<ActionCallOutcome<Value>, ActionCallLossError>, PromiseResolution<Value>>,
+    RaisedException: Send,
+    waymark_action_runtime_convert::Converter<ValueConverter>: Convert<
+            Result<ActionCallOutcome<Value, RaisedException>, ActionCallLossError>,
+            PromiseResolution<Value, RaisedException>,
+        >,
     UnifiedAck: From<Ack<VmId>>,
 {
     type Error = PollActionSettlementsError;
@@ -311,7 +344,7 @@ where
     async fn poll_action_settlements<'a>(
         &'a mut self,
         waiting_promise_state_ids: NESlice<'a, PromiseStateId>,
-    ) -> Result<NEVec<PromiseSettlement<Self::Value, UnifiedAck>>, Self::Error>
+    ) -> Result<NEVec<PromiseSettlement<Self::Value, Self::RaisedException, UnifiedAck>>, Self::Error>
     where
         UnifiedAck: 'a,
     {
@@ -324,17 +357,20 @@ where
     }
 }
 
-impl<VmId, Value, ValueConverter> SettlementsHandle<VmId, Value, ValueConverter>
+impl<VmId, Value, RaisedException, ValueConverter>
+    SettlementsHandle<VmId, Value, RaisedException, ValueConverter>
 where
     VmId: Copy + Eq + std::hash::Hash,
-    waymark_action_runtime_convert::Converter<ValueConverter>:
-        Convert<Result<ActionCallOutcome<Value>, ActionCallLossError>, PromiseResolution<Value>>,
+    waymark_action_runtime_convert::Converter<ValueConverter>: Convert<
+            Result<ActionCallOutcome<Value, RaisedException>, ActionCallLossError>,
+            PromiseResolution<Value, RaisedException>,
+        >,
 {
     /// Turn buffered completions into settlements with key-carrying acks.
     fn settle<UnifiedAck>(
         &self,
-        completions: NEVec<BufferedCompletion<Value>>,
-    ) -> NEVec<PromiseSettlement<Value, UnifiedAck>>
+        completions: NEVec<BufferedCompletion<Value, RaisedException>>,
+    ) -> NEVec<PromiseSettlement<Value, RaisedException, UnifiedAck>>
     where
         UnifiedAck: From<Ack<VmId>>,
     {

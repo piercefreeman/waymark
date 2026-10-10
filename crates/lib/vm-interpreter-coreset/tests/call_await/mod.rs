@@ -37,10 +37,6 @@ fn runtime_executes_call_await_and_return_to_completion() {
         .run()
         .expect("call/await/return program should complete");
 
-    match emitted_effect.effect {
-        Effect::Complete(value) => assert_eq!(value, TestReadyValue::Int(7)),
-        Effect::UnhandledException(exception) => {
-            panic!("program should complete successfully, got {exception:?}")
-        }
-    }
+    let Effect::Complete(value) = emitted_effect.effect;
+    assert_eq!(value, TestReadyValue::Int(7));
 }

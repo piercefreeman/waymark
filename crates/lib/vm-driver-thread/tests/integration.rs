@@ -7,19 +7,20 @@ use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_runtime_test::{
-    StateId, TestEffect, TestInstruction, TestReadyValue, executable, function, runtime,
+    StateId, TestEffect, TestException, TestInstruction, TestReadyValue, executable, function,
+    runtime,
 };
 
 type TestEffector = (
     tokio::sync::mpsc::Sender<EmittedEffect<TestEffect>>,
-    tokio::sync::mpsc::Receiver<PromiseSettlement<TestReadyValue, ()>>,
+    tokio::sync::mpsc::Receiver<PromiseSettlement<TestReadyValue, TestException, ()>>,
 );
 
 #[allow(clippy::type_complexity)]
 fn effector() -> (
     TestEffector,
     tokio::sync::mpsc::Receiver<EmittedEffect<TestEffect>>,
-    tokio::sync::mpsc::Sender<PromiseSettlement<TestReadyValue, ()>>,
+    tokio::sync::mpsc::Sender<PromiseSettlement<TestReadyValue, TestException, ()>>,
 ) {
     let (effects_tx, effects_rx) = tokio::sync::mpsc::channel(1);
     let (settlements_tx, settlements_rx) = tokio::sync::mpsc::channel(1);

@@ -404,33 +404,47 @@ Global___ActionArgument: typing_extensions.TypeAlias = ActionArgument
 
 @typing.final
 class ExceptionValue(google.protobuf.message.Message):
-    """A raised exception, shaped as the VM models one: the type identifying
-    it, and the details value carried alongside.
+    """A raised Python exception, shaped as this language's VM flavor models
+    one: the class identifying it, the classes it derives from, and the
+    details value carried alongside.
+
+    `mro_type_ids` are the bases of the raised class in method-resolution
+    order, most-derived first, `object` excluded: what an `except` clause
+    or a retry policy matches against beside the leaf class itself. An
+    empty list is a class with no bases to name.
 
     The details are an ordinary value — in practice a dict carrying the
     language-specific particulars (module, message, traceback, the
-    exception's own values, the class hierarchy for the planned base-class
-    `except` matching).
-    Nothing about those particulars is wire-level structure: they are just
-    what this language chose to put in the details.
+    exception's own values). Nothing about those particulars is wire-level
+    structure: they are just what this language chose to put in the
+    details.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     TYPE_ID_FIELD_NUMBER: builtins.int
     DETAILS_FIELD_NUMBER: builtins.int
+    MRO_TYPE_IDS_FIELD_NUMBER: builtins.int
     type_id: builtins.str
     @property
     def details(self) -> Global___Value: ...
+    @property
+    def mro_type_ids(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]: ...
     def __init__(
         self,
         *,
         type_id: builtins.str = ...,
         details: Global___Value | None = ...,
+        mro_type_ids: collections.abc.Iterable[builtins.str] | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["details", b"details"]) -> builtins.bool: ...
     def ClearField(
-        self, field_name: typing.Literal["details", b"details", "type_id", b"type_id"]
+        self,
+        field_name: typing.Literal[
+            "details", b"details", "mro_type_ids", b"mro_type_ids", "type_id", b"type_id"
+        ],
     ) -> None: ...
 
 Global___ExceptionValue: typing_extensions.TypeAlias = ExceptionValue

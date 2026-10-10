@@ -154,19 +154,24 @@ where
             >,
         >,
     SleepSettler: waymark_extcall_reconciler_core::HasValue<Value = ActionSettler::Value>,
+    SleepSettler: waymark_extcall_reconciler_core::HasRaisedException<
+            RaisedException = ActionSettler::RaisedException,
+        >,
     ActionSettler::Ack: PromiseSettlementAck,
     SleepSettler::Ack: PromiseSettlementAck,
     Ack<ActionSettler::Ack, SleepSettler::Ack>: From<ActionSettler::Ack>,
     Ack<ActionSettler::Ack, SleepSettler::Ack>: From<SleepSettler::Ack>,
 {
     type Value = ActionSettler::Value;
+    type RaisedException = ActionSettler::RaisedException;
     type Error = GetPromiseSettlementsError<ActionSettler::Error, SleepSettler::Error>;
     type Ack = Ack<ActionSettler::Ack, SleepSettler::Ack>;
 
     async fn get_promise_settlements(
         &mut self,
         waiting_ids: NEVec<PromiseStateId>,
-    ) -> Result<NEVec<PromiseSettlement<Self::Value, Self::Ack>>, Self::Error> {
+    ) -> Result<NEVec<PromiseSettlement<Self::Value, Self::RaisedException, Self::Ack>>, Self::Error>
+    {
         tokio::select! {
             settlements = self.sleep.poll_sleep_settlements(waiting_ids.as_nonempty_slice()) => {
                 settlements.map_err(GetPromiseSettlementsError::Sleep)

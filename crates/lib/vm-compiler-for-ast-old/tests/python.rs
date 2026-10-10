@@ -11,6 +11,7 @@ const SKIP_TESTS: &[&str] = &[
     "fixtures_unsupported/builtin_call.py",
     "fixtures_unsupported/constructor_assignment.py",
     "fixtures_unsupported/constructor_return.py",
+    "fixtures_unsupported/except_empty_tuple.py",
     "fixtures_unsupported/fstring_usage.py",
     "fixtures_unsupported/lambda_expression.py",
     "fixtures_unsupported/list_comprehension.py",

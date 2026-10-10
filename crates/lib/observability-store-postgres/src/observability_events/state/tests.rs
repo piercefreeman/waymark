@@ -65,7 +65,9 @@ fn unhandled_exception() -> Observation {
         effect_number: waymark_vm_runtime_effect::EffectNumber(0),
         effect:
             waymark_observability_events_payload::vm_driver::EffectSummary::UnhandledException {
-                exception_type: "ValueError".to_owned(),
+                exception: waymark_observability_vm_value_display::RaisedExceptionSummary {
+                    exception_type: "ValueError".to_owned(),
+                },
             },
     }
 }

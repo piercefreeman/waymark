@@ -18,7 +18,7 @@ pub enum CaseOutcome {
     Completion(waymark_system_vm::ReadyValue),
 
     /// The workflow raised.
-    Exception(waymark_vm_runtime_exception::Exception<waymark_system_vm::ReadyValue>),
+    Exception(waymark_system_vm::RaisedException),
 }
 
 impl CaseOutcome {
@@ -33,7 +33,10 @@ impl CaseOutcome {
 
 /// Read the outcome the VM produced.
 pub fn outcome_from_vm(
-    outcome: waymark_workflow_completion_core::Outcome<waymark_system_vm::ReadyValue>,
+    outcome: waymark_workflow_completion_core::Outcome<
+        waymark_system_vm::ReadyValue,
+        waymark_system_vm::RaisedException,
+    >,
 ) -> CaseOutcome {
     match outcome {
         waymark_workflow_completion_core::Outcome::Completion(value) => {

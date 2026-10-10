@@ -98,8 +98,9 @@ pub enum EffectSummary {
 
     /// The workflow raised an exception nothing caught.
     UnhandledException {
-        /// The exception's type.
-        exception_type: String,
+        /// The exception.
+        #[serde(flatten)]
+        exception: waymark_observability_vm_value_display::RaisedExceptionSummary,
     },
 
     /// An action was called.
@@ -150,8 +151,9 @@ pub enum Settlement {
 
     /// Rejected with an exception.
     Rejected {
-        /// The exception's type.
-        exception_type: String,
+        /// The exception.
+        #[serde(flatten)]
+        exception: waymark_observability_vm_value_display::RaisedExceptionSummary,
     },
 }
 

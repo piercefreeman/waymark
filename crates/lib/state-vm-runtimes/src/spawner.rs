@@ -114,9 +114,18 @@ pub type ErrorFor<Interpreter, Codec, Persister, Effector> = waymark_vm_driver_t
 
 /// Spawn a new VM runtime on a dedicated OS thread.
 #[tracing::instrument(skip_all)]
-pub(crate) async fn spawn<Codec, Executable, Interpreter, Value, Effector, Persister, Hooks>(
+pub(crate) async fn spawn<
+    Codec,
+    Executable,
+    Interpreter,
+    Value,
+    RaisedException,
+    Effector,
+    Persister,
+    Hooks,
+>(
     codec: Arc<Codec>,
-    runtime: waymark_vm_runtime::Runtime<Executable, Interpreter, Value>,
+    runtime: waymark_vm_runtime::Runtime<Executable, Interpreter, Value, RaisedException>,
     effector: Effector,
     persister: Persister,
     hooks: Hooks,
@@ -127,7 +136,11 @@ where
     Codec: Send + Sync + 'static,
     <Codec as waymark_vm_codec_core::SerializerProvider>::Error: Send,
     Effector: waymark_vm_driver_core::EffectHandler<Effect = Interpreter::Effect>,
-    Effector: waymark_vm_driver_core::PromiseSettler<Value = Value::ReadyValue, Ack: Send>,
+    Effector: waymark_vm_driver_core::PromiseSettler<
+            Value = Value::ReadyValue,
+            RaisedException = RaisedException,
+            Ack: Send,
+        >,
     Effector: Send + 'static,
     Executable: waymark_vm_executable::InstructionsProvider + Send + 'static,
     Executable::FunctionId: Copy + Send,
@@ -136,7 +149,7 @@ where
     Executable::StateId: serde::Serialize,
     Executable: waymark_vm_executable::FunctionStates + Send,
     Interpreter: waymark_vm_interpreter::Interpreter<
-            Frame = waymark_vm_runtime::FrameFor<Executable, Value>,
+            Frame = waymark_vm_runtime::FrameFor<Executable, Value, RaisedException>,
             Instruction = Executable::Instruction,
         >,
     Interpreter: Send + 'static,
@@ -149,11 +162,16 @@ where
                     Executable::FunctionId,
                     Executable::StateId,
                     Value,
+                    RaisedException,
                 >,
             >,
     Value: Clone + Send + 'static,
     Value: serde::Serialize,
     Value: waymark_vm_runtime_promise_core::Resolvable,
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+    RaisedException: Clone + Send + 'static,
+    RaisedException: serde::Serialize + core::fmt::Debug,
+    waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize + Send,
     Interpreter::Error: core::fmt::Debug + Send,
     Interpreter::Effect: core::fmt::Debug + Send,
     Interpreter::Instruction: core::fmt::Debug,
@@ -163,7 +181,14 @@ where
     Persister::Error: Send,
     <Effector as waymark_vm_driver_core::EffectHandler>::Error: Send,
     <Effector as waymark_vm_driver_core::PromiseSettler>::Error: Send,
-    Hooks: waymark_vm_driver::HooksFor<Interpreter, Value, Effector, Persister, Arc<Codec>>,
+    Hooks: waymark_vm_driver::HooksFor<
+            Interpreter,
+            Value,
+            RaisedException,
+            Effector,
+            Persister,
+            Arc<Codec>,
+        >,
     Hooks: Send + Sync + 'static,
 {
     let cancel = CancellationToken::new();

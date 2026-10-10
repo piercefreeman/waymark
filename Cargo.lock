@@ -3818,7 +3818,6 @@ dependencies = [
  "waymark-vm-codec-core",
  "waymark-vm-codec-rmp",
  "waymark-vm-driver-core",
- "waymark-vm-exception-type-ids",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-value-python",
@@ -3884,8 +3883,6 @@ dependencies = [
  "waymark-convert-core",
  "waymark-proto",
  "waymark-vm-driver-core",
- "waymark-vm-exception-type-ids",
- "waymark-vm-runtime-exception",
 ]
 
 [[package]]
@@ -3895,7 +3892,6 @@ dependencies = [
  "nonempty-collections",
  "serde",
  "waymark-action-core",
- "waymark-vm-runtime-exception",
 ]
 
 [[package]]
@@ -4151,7 +4147,6 @@ dependencies = [
  "waymark-vm-codec-rmp",
  "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-runtime-builder",
- "waymark-vm-runtime-exception",
  "waymark-vm-value-python",
  "waymark-vm-value-python-convert-proto",
  "waymark-worker-inline",
@@ -4219,7 +4214,6 @@ dependencies = [
  "waymark-vm-codec-rmp",
  "waymark-vm-driver-hooks-tracing",
  "waymark-vm-executable",
- "waymark-vm-interpreter-fullset",
  "waymark-vm-runtime",
  "waymark-vm-value-python-convert-proto",
  "waymark-workflow-initialization-convert-proto",
@@ -4389,7 +4383,6 @@ dependencies = [
  "waymark-system-vm",
  "waymark-vm-codec-rmp",
  "waymark-vm-driver-hooks-tracing",
- "waymark-vm-interpreter-fullset",
  "waymark-vm-value-python",
  "waymark-vm-value-python-convert-proto",
  "waymark-worker-core",
@@ -4437,7 +4430,6 @@ dependencies = [
  "waymark-sleep-compat-python",
  "waymark-transient-sleep-reconciler",
  "waymark-vm-driver-core",
- "waymark-vm-exception-type-ids",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
@@ -4517,6 +4509,7 @@ dependencies = [
  "thiserror",
  "waymark-vm-driver-core",
  "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-excset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-fullset",
  "waymark-vm-runtime-effect",
@@ -4541,7 +4534,6 @@ dependencies = [
  "waymark-transient-execution-worker-pool-bringup",
  "waymark-vm-ast-old-proto",
  "waymark-vm-driver-hooks-tracing",
- "waymark-vm-runtime-exception",
  "waymark-vm-value-python",
  "waymark-vm-value-python-convert-proto",
  "waymark-worker-inline",
@@ -4668,7 +4660,6 @@ dependencies = [
  "waymark-vm-codec-rmp",
  "waymark-vm-driver-hooks-tracing",
  "waymark-vm-runtime-builder",
- "waymark-vm-runtime-exception",
  "waymark-vm-value-python-convert-proto",
  "waymark-worker-python",
  "waymark-worker-remote-bringup",
@@ -4875,6 +4866,7 @@ dependencies = [
  "serde_json",
  "waymark-ids",
  "waymark-observability-events-core",
+ "waymark-observability-vm-value-display",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
 ]
@@ -4921,14 +4913,14 @@ dependencies = [
  "waymark-observability-events-payload",
  "waymark-observability-events-vm-driver-hooks-core",
  "waymark-observability-events-vm-driver-hooks-fullset",
+ "waymark-observability-vm-value-display",
  "waymark-vm-driver",
  "waymark-vm-driver-core",
  "waymark-vm-driver-hooks",
- "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-excset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-fullset",
  "waymark-vm-runtime-effect",
- "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
 ]
 
@@ -4945,10 +4937,11 @@ dependencies = [
  "waymark-nonzero-duration",
  "waymark-observability-events-payload",
  "waymark-observability-events-vm-driver-hooks-core",
+ "waymark-observability-vm-value-display",
  "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-excset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-fullset",
- "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
 ]
 
@@ -5019,6 +5012,7 @@ dependencies = [
  "waymark-observability-state-core",
  "waymark-observability-state-query-backend",
  "waymark-observability-store-postgres-migrations",
+ "waymark-observability-vm-value-display",
  "waymark-query-limit",
  "waymark-sqlx-postgres-schema-pool",
  "waymark-support-integration",
@@ -5057,6 +5051,14 @@ name = "waymark-observability-store-postgres-migrations"
 version = "0.1.0"
 dependencies = [
  "sqlx",
+]
+
+[[package]]
+name = "waymark-observability-vm-value-display"
+version = "0.1.0"
+dependencies = [
+ "schemars",
+ "serde",
 ]
 
 [[package]]
@@ -5432,6 +5434,7 @@ dependencies = [
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-view-capture",
 ]
@@ -5488,9 +5491,10 @@ dependencies = [
  "waymark-vm-bytecode",
  "waymark-vm-bytecode-core",
  "waymark-vm-compiler-for-ast-old-action-ref",
- "waymark-vm-compiler-for-ast-old-const-value",
+ "waymark-vm-compiler-for-ast-old-bytecode-consts",
  "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-excset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-fullset",
  "waymark-vm-instructions-pureset",
@@ -5765,12 +5769,13 @@ dependencies = [
  "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-compiler-for-ast-old-test-support",
  "waymark-vm-exception-handler",
- "waymark-vm-exception-type-ids",
  "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-excset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-fullset",
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-excset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-fullset",
  "waymark-vm-runtime",
@@ -5787,13 +5792,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-vm-compiler-for-ast-old-const-value"
+name = "waymark-vm-compiler-for-ast-old-bytecode-consts"
 version = "0.1.0"
 dependencies = [
  "serde",
  "thiserror",
  "typed_floats",
  "waymark-vm-ast-old",
+ "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-value-python",
 ]
 
@@ -5807,6 +5813,7 @@ dependencies = [
  "waymark-vm-bytecode-core",
  "waymark-vm-compiler-metadata",
  "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-excset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-fullset",
  "waymark-vm-instructions-pureset",
@@ -5819,9 +5826,10 @@ version = "0.1.0"
 dependencies = [
  "waymark-vm-ast-old",
  "waymark-vm-bytecode-core",
- "waymark-vm-compiler-for-ast-old-const-value",
+ "waymark-vm-compiler-for-ast-old-bytecode-consts",
  "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-excset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
  "waymark-vm-runtime-core",
@@ -5871,7 +5879,6 @@ dependencies = [
  "nonempty-collections",
  "tokio",
  "waymark-vm-runtime-effect",
- "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
 ]
 
@@ -5930,6 +5937,7 @@ dependencies = [
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
  "waymark-vm-runtime-view-capture",
@@ -5943,15 +5951,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-vm-exception-type-ids"
-version = "0.1.0"
-
-[[package]]
 name = "waymark-vm-executable"
 version = "0.1.0"
 
 [[package]]
 name = "waymark-vm-instructions-coreset"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "serde",
+]
+
+[[package]]
+name = "waymark-vm-instructions-excset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
@@ -5976,6 +5988,7 @@ dependencies = [
  "serde",
  "waymark-blanket-impl-macros",
  "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-excset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
 ]
@@ -6023,7 +6036,6 @@ dependencies = [
  "thiserror",
  "waymark-blanket-impl-macros",
  "waymark-vm-bytecode",
- "waymark-vm-exception-handler",
  "waymark-vm-executable",
  "waymark-vm-instructions-coreset",
  "waymark-vm-interpreter",
@@ -6033,6 +6045,19 @@ dependencies = [
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",
+ "waymark-vm-runtime-view-capture",
+]
+
+[[package]]
+name = "waymark-vm-interpreter-excset"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "thiserror",
+ "waymark-vm-instructions-excset",
+ "waymark-vm-interpreter",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-view-capture",
 ]
 
@@ -6049,6 +6074,7 @@ dependencies = [
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
  "waymark-vm-runtime-view-capture",
@@ -6066,12 +6092,14 @@ dependencies = [
  "waymark-vm-exception-handler",
  "waymark-vm-executable",
  "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-excset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-fullset",
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter",
  "waymark-vm-interpreter-composite",
  "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-excset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-pureset",
  "waymark-vm-runtime",
@@ -6090,7 +6118,6 @@ dependencies = [
  "static_assertions",
  "thiserror",
  "waymark-blanket-impl-macros",
- "waymark-vm-exception-type-ids",
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter",
  "waymark-vm-interpreter-utils",
@@ -6147,6 +6174,7 @@ version = "0.1.0"
 name = "waymark-vm-runtime-core"
 version = "0.1.0"
 dependencies = [
+ "derive-where",
  "index_type",
  "serde",
  "thiserror",
@@ -6172,9 +6200,7 @@ dependencies = [
 name = "waymark-vm-runtime-exception"
 version = "0.1.0"
 dependencies = [
- "serde",
  "thiserror",
- "waymark-vm-runtime-value",
 ]
 
 [[package]]
@@ -6258,23 +6284,27 @@ name = "waymark-vm-value-python"
 version = "0.1.0"
 dependencies = [
  "indexmap",
+ "serde",
  "static_assertions",
- "thiserror",
  "typed_floats",
+ "waymark-observability-vm-value-display",
  "waymark-vm-bytecode",
+ "waymark-vm-exception-handler",
  "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-excset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
- "waymark-vm-interpreter",
+ "waymark-vm-interpreter-composite",
  "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-excset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-fullset",
  "waymark-vm-interpreter-pureset",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
- "waymark-vm-runtime-view-capture",
  "waymark-vm-value",
 ]
 
@@ -6290,7 +6320,6 @@ dependencies = [
  "waymark-action-runtime-core",
  "waymark-convert-core",
  "waymark-proto",
- "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-python",
@@ -6342,7 +6371,6 @@ version = "0.1.0"
 dependencies = [
  "waymark-action-runtime-core",
  "waymark-convert-core",
- "waymark-vm-runtime-exception",
  "waymark-worker-inline",
 ]
 
@@ -6494,12 +6522,11 @@ dependencies = [
  "tokio",
  "tracing",
  "waymark-batcher",
+ "waymark-fullset-effect-handler",
  "waymark-nonzero-duration",
  "waymark-vm-codec-core",
  "waymark-vm-driver-core",
- "waymark-vm-interpreter-coreset",
  "waymark-vm-runtime-effect",
- "waymark-vm-runtime-exception",
  "waymark-workflow-completion-backend",
 ]
 
@@ -6514,9 +6541,6 @@ dependencies = [
 [[package]]
 name = "waymark-workflow-completion-core"
 version = "0.1.0"
-dependencies = [
- "waymark-vm-runtime-exception",
-]
 
 [[package]]
 name = "waymark-workflow-completion-direct"
@@ -6525,10 +6549,9 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "waymark-fullset-effect-handler",
  "waymark-vm-driver-core",
- "waymark-vm-interpreter-coreset",
  "waymark-vm-runtime-effect",
- "waymark-vm-runtime-exception",
  "waymark-workflow-completion-core",
 ]
 

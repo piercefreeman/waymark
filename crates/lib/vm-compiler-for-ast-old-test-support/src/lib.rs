@@ -1,7 +1,7 @@
 //! Test support types for `vm-compiler-for-ast-old` crates.
 //!
 //! This crate provides a small VM spec used by compiler tests and wraps the
-//! shared const-value lowering in test-named types.
+//! shared bytecode-const lowering in test-named types.
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
@@ -13,12 +13,21 @@ pub use waymark_vm_value_python::Value as TestValue;
 /// Test ready value type definition as an actual [`waymark_vm_value_python::ReadyValue`].
 pub use waymark_vm_value_python::ReadyValue as TestReadyValue;
 
+/// Test raised exception type definition as an actual
+/// [`waymark_vm_value_python::RaisedException`].
+pub use waymark_vm_value_python::RaisedException as TestRaisedException;
+
 /// Test const value type definition as
-/// an actual [`waymark_vm_compiler_for_ast_old_const_value::ConstValue`].
-pub use waymark_vm_compiler_for_ast_old_const_value::ConstValue as TestConstValue;
+/// an actual [`waymark_vm_compiler_for_ast_old_bytecode_consts::ConstValue`].
+pub use waymark_vm_compiler_for_ast_old_bytecode_consts::ConstValue as TestConstValue;
+
+/// Test const exception type definition as
+/// an actual [`waymark_vm_compiler_for_ast_old_bytecode_consts::ConstException`].
+pub use waymark_vm_compiler_for_ast_old_bytecode_consts::ConstException as TestConstException;
+pub use waymark_vm_compiler_for_ast_old_bytecode_consts::ConstExceptionPattern as TestConstExceptionPattern;
 
 /// Errors produced while lowering literals in tests.
-pub use waymark_vm_compiler_for_ast_old_const_value::LoweringError as TestLiteralLoweringError;
+pub use waymark_vm_compiler_for_ast_old_bytecode_consts::LoweringError as TestLiteralLoweringError;
 
 /// Action reference used by the test VM spec.
 #[derive(Debug, Clone)]
@@ -48,6 +57,13 @@ impl waymark_vm_instructions_pureset::Spec for TestSpec {
     type ConstValue = TestConstValue;
 }
 
+impl waymark_vm_instructions_excset::Spec for TestSpec {
+    type RegisterId = waymark_vm_runtime_core::RegisterId;
+    type StateId = waymark_vm_bytecode_core::StateId;
+    type ConstException = TestConstException;
+    type ConstExceptionPattern = TestConstExceptionPattern;
+}
+
 /// Convenience alias for executables compiled against [`TestSpec`].
 pub type TestExecutable = waymark_vm_compiler_for_ast_old_core::ExecutableFor<TestSpec>;
 
@@ -73,5 +89,27 @@ where
 
     fn lower_literal(literal: &Literal) -> Result<Spec::ConstValue, Self::LiteralError> {
         TestConstValue::lower(literal)
+    }
+}
+
+impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::ExcSet<Spec> for TestLowering
+where
+    Spec: waymark_vm_instructions_excset::Spec<
+            ConstException = TestConstException,
+            ConstExceptionPattern = TestConstExceptionPattern,
+        >,
+{
+    fn lower_exception_pattern(class_names: &[String]) -> Spec::ConstExceptionPattern {
+        waymark_vm_compiler_for_ast_old_bytecode_consts::lower_exception_pattern(class_names)
+    }
+
+    fn lower_any_exception_pattern() -> Spec::ConstExceptionPattern {
+        waymark_vm_compiler_for_ast_old_bytecode_consts::lower_any_exception_pattern()
+    }
+
+    fn lower_compiler_emitted_exception(
+        exception: &waymark_vm_compiler_for_ast_old_core::lowering::CompilerEmittedException,
+    ) -> Spec::ConstException {
+        TestConstException::lower(exception)
     }
 }

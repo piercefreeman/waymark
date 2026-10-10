@@ -1,9 +1,16 @@
 //! The Python VM value.
 //!
-//! Defines the Python value flavor marker and exports the concrete
-//! Python value type aliases.
+//! Defines the Python value flavor marker, the Python exception in its two
+//! roles - the value and the raised one - and exports the concrete Python
+//! value type aliases.
 
 #![warn(missing_docs)]
+
+pub mod exception;
+pub mod raised_exception;
+
+pub use self::exception::Exception;
+pub use self::raised_exception::RaisedException;
 
 /// The Python value flavor marker.
 ///
@@ -13,6 +20,7 @@ pub enum PythonFlavor {}
 
 impl waymark_vm_value::Flavor for PythonFlavor {
     type Extension = waymark_vm_value::NoExtension;
+    type ExceptionValue = Exception;
 }
 
 /// The Python VM value that is ready.

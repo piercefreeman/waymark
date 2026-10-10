@@ -1,14 +1,45 @@
+use derive_where::derive_where;
+
 use crate::{Frame, RegisterId};
 
 /// Captures the ability to resume the execution from the given state when
 /// after a certain async value is resolved.
 ///
 /// `Resumer` determines how we resume the execution for this continuation.
-#[derive(Debug)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Continuation<FunctionId, StateId, Value, Resumer> {
+#[derive_where(
+    Debug;
+    FunctionId, StateId, Value, RaisedException,
+    waymark_vm_runtime_exception::MatchPatternOf<RaisedException>,
+    Resumer,
+)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "
+            FunctionId: serde::Serialize,
+            StateId: serde::Serialize,
+            Value: serde::Serialize,
+            RaisedException: serde::Serialize,
+            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
+            Resumer: serde::Serialize,
+        ",
+        deserialize = "
+            FunctionId: serde::Deserialize<'de>,
+            StateId: serde::Deserialize<'de>,
+            Value: serde::Deserialize<'de>,
+            RaisedException: serde::Deserialize<'de>,
+            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Deserialize<'de>,
+            Resumer: serde::Deserialize<'de>,
+        ",
+    ))
+)]
+pub struct Continuation<FunctionId, StateId, Value, RaisedException, Resumer>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     /// The frame to resume the execution from.
-    prepared_resume_frame: Frame<FunctionId, StateId, Value>,
+    prepared_resume_frame: Frame<FunctionId, StateId, Value, RaisedException>,
 
     /// Holds the state associated with the logic of how we resume from this
     /// continuation.
@@ -63,12 +94,16 @@ impl<StateId> SelectArm<StateId> {
     }
 }
 
-impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, ResumeWithValue> {
+impl<FunctionId, StateId, Value, RaisedException>
+    Continuation<FunctionId, StateId, Value, RaisedException, ResumeWithValue>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     /// Capture the given `frame` as a continuation, with a `dst` register
     /// to be populated by a resolved value upon coninuing, and the given
     /// `state` to resume the execution from.
     pub fn capture(
-        frame: Frame<FunctionId, StateId, Value>,
+        frame: Frame<FunctionId, StateId, Value, RaisedException>,
         resume: StateId,
         dst: RegisterId,
     ) -> Self {
@@ -84,7 +119,7 @@ impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, Resume
     }
 
     /// Resume the continuation with the provided value.
-    pub fn resume(self, value: Value) -> Frame<FunctionId, StateId, Value> {
+    pub fn resume(self, value: Value) -> Frame<FunctionId, StateId, Value, RaisedException> {
         let Self {
             mut prepared_resume_frame,
             resumer: ResumeWithValue { dst },
@@ -101,7 +136,7 @@ impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, Resume
     /// This call doesn't have a chance to yield control, so it's a given that
     /// this resume happens without suspending.
     pub fn immediate_resume(
-        frame: &mut Frame<FunctionId, StateId, Value>,
+        frame: &mut Frame<FunctionId, StateId, Value, RaisedException>,
         resume: StateId,
         dst: RegisterId,
         value: Value,
@@ -116,8 +151,8 @@ impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, Resume
     /// Resume the continuation with a raised exception.
     pub fn raise_exception(
         self,
-        exception: waymark_vm_runtime_exception::Exception<Value>,
-    ) -> Frame<FunctionId, StateId, Value> {
+        exception: RaisedException,
+    ) -> Frame<FunctionId, StateId, Value, RaisedException> {
         let Self {
             mut prepared_resume_frame,
             resumer: _,
@@ -132,9 +167,9 @@ impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, Resume
 
     /// Resume the continuation with a raised exception immediately.
     pub fn immediate_raise_exception(
-        frame: &mut Frame<FunctionId, StateId, Value>,
+        frame: &mut Frame<FunctionId, StateId, Value, RaisedException>,
         resume: StateId,
-        exception: waymark_vm_runtime_exception::Exception<Value>,
+        exception: RaisedException,
     ) {
         // Prepare the frame to resume execution at the `resume` state.
         frame.state = resume;
@@ -145,12 +180,16 @@ impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, Resume
     }
 }
 
-impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, ResumeSelectArm> {
+impl<FunctionId, StateId, Value, RaisedException>
+    Continuation<FunctionId, StateId, Value, RaisedException, ResumeSelectArm>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
     /// Capture the given `frame` as a select continuation.
     ///
     /// The frame is not positioned at any resume state yet: the delivery
     /// target arrives with the claiming arm via [`Continuation::into_arm`].
-    pub fn capture_select(frame: Frame<FunctionId, StateId, Value>) -> Self {
+    pub fn capture_select(frame: Frame<FunctionId, StateId, Value, RaisedException>) -> Self {
         Self {
             resumer: ResumeSelectArm,
             prepared_resume_frame: frame,
@@ -162,7 +201,7 @@ impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, Resume
     pub fn into_arm(
         self,
         arm: SelectArm<StateId>,
-    ) -> Continuation<FunctionId, StateId, Value, ResumeWithValue> {
+    ) -> Continuation<FunctionId, StateId, Value, RaisedException, ResumeWithValue> {
         let Self {
             mut prepared_resume_frame,
             resumer: ResumeSelectArm,
@@ -182,10 +221,10 @@ impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, Resume
 
 #[cfg(test)]
 mod tests {
-    use waymark_vm_runtime_exception::Exception;
     use waymark_vm_runtime_promise_value::PromiseValue;
 
     use super::{Continuation, SelectArm};
+    use crate::test_helpers::TestException;
     use crate::{ExceptionHandlers, Frame, FrameKind, RegisterId, Registers};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,7 +238,7 @@ mod tests {
         type RootValue = TestValue;
     }
 
-    fn frame(state: usize) -> Frame<&'static str, usize, TestValue> {
+    fn frame(state: usize) -> Frame<&'static str, usize, TestValue, TestException> {
         Frame {
             func: "example",
             state,
@@ -245,43 +284,27 @@ mod tests {
     }
 
     #[test]
-    fn exceptional_resume_marks_the_frame_as_raised_without_a_handler() {
-        let continuation = Continuation::capture(frame(1), 7, RegisterId(1));
-
-        let resumed = continuation.raise_exception(Exception {
-            type_id: "ValueError".to_owned(),
-            details: PromiseValue::Ready(TestReadyValue::Int(42)),
-        });
-
-        assert_eq!(resumed.state, 7);
-        let Some(exception) = resumed.exception else {
-            panic!("exceptional resume should raise into the frame");
-        };
-        assert_eq!(exception.type_id, "ValueError");
-        assert_eq!(
-            exception.details,
-            PromiseValue::Ready(TestReadyValue::Int(42))
-        );
-    }
-
-    #[test]
     fn exceptional_resume_keeps_the_resume_state_and_marks_the_frame_raised() {
         let continuation = Continuation::capture(frame(1), 7, RegisterId(1));
 
-        let resumed = continuation.raise_exception(Exception {
-            type_id: "ValueError".to_owned(),
-            details: PromiseValue::Ready(TestReadyValue::Int(42)),
-        });
+        let resumed = continuation.raise_exception(TestException("ValueError"));
 
         assert_eq!(resumed.state, 7);
         let Some(exception) = resumed.exception else {
             panic!("exceptional resume should raise into the frame");
         };
-        assert_eq!(exception.type_id, "ValueError");
-        assert_eq!(
-            exception.details,
-            PromiseValue::Ready(TestReadyValue::Int(42))
-        );
+        assert_eq!(exception, TestException("ValueError"));
+    }
+
+    #[test]
+    fn exceptional_resume_keeps_an_already_pending_exception() {
+        let mut raised = frame(1);
+        raised.raise_exception(TestException("First"));
+        let continuation = Continuation::capture(raised, 7, RegisterId(1));
+
+        let resumed = continuation.raise_exception(TestException("Second"));
+
+        assert_eq!(resumed.exception, Some(TestException("First")));
     }
 
     #[test]
@@ -306,15 +329,12 @@ mod tests {
 
         let resumed = continuation
             .into_arm(SelectArm::new(RegisterId(0), 9))
-            .raise_exception(Exception {
-                type_id: "ValueError".to_owned(),
-                details: PromiseValue::Ready(TestReadyValue::Int(42)),
-            });
+            .raise_exception(TestException("ValueError"));
 
         assert_eq!(resumed.state, 9);
         let Some(exception) = resumed.exception else {
             panic!("exceptional resume should raise into the frame");
         };
-        assert_eq!(exception.type_id, "ValueError");
+        assert_eq!(exception, TestException("ValueError"));
     }
 }

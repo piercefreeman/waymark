@@ -32,6 +32,7 @@ from .schedule import (
     schedule_workflow,
 )
 from .serialization import ExceptionValue
+from .vm_exceptions import ActionExecutionLost, ActionExecutionNotStarted, ActionTimeout
 from .workflow import (
     RetryPolicy,
     Workflow,
@@ -63,6 +64,9 @@ __all__ = [
     "ScheduleAlreadyExistsError",
     "WorkflowFailedError",
     "UnsupportedPatternError",
+    "ActionTimeout",
+    "ActionExecutionLost",
+    "ActionExecutionNotStarted",
     # Schedule functions
     "schedule_workflow",
     "pause_schedule",

@@ -34,6 +34,7 @@ struct DurableStack {
         waymark_backend_postgres::PostgresBackend,
         waymark_vm_codec_rmp::RmpCodec,
         waymark_system_vm::ReadyValue,
+        waymark_system_vm::RaisedException,
     >,
 }
 

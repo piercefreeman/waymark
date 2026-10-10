@@ -9,7 +9,8 @@ use waymark_vm_value_python::ReadyValue;
 
 #[tokio::test]
 async fn record_and_collect_single_sleep() {
-    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(false);
+    let (handler, mut poller) =
+        super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
     let psid = PromiseStateId(0);
 
     // A 1-nanosecond sleep elapses immediately.
@@ -27,7 +28,8 @@ async fn record_and_collect_single_sleep() {
 
 #[tokio::test]
 async fn multiple_sleeps_collected_in_order() {
-    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(false);
+    let (handler, mut poller) =
+        super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
     let a = PromiseStateId(0);
     let b = PromiseStateId(1);
 
@@ -48,7 +50,8 @@ async fn multiple_sleeps_collected_in_order() {
 
 #[tokio::test]
 async fn poll_waits_for_new_sleep() {
-    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(false);
+    let (handler, mut poller) =
+        super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
     let psid = PromiseStateId(0);
 
     // Spawn a task that records a sleep after a short delay.
@@ -68,7 +71,8 @@ async fn poll_waits_for_new_sleep() {
 
 #[tokio::test]
 async fn poll_returns_none_when_handler_dropped() {
-    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(false);
+    let (handler, mut poller) =
+        super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
     drop(handler);
 
     // Poll should return None — no handler to record sleeps.
@@ -84,7 +88,8 @@ async fn poll_returns_none_when_handler_dropped() {
 
 #[tokio::test]
 async fn sleep_resolution_is_null_value() {
-    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(false);
+    let (handler, mut poller) =
+        super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
     let psid = PromiseStateId(0);
 
     handler.record(
@@ -105,7 +110,8 @@ async fn sleep_resolution_is_null_value() {
 
 #[tokio::test]
 async fn skip_sleep_resolves_immediately() {
-    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(true);
+    let (handler, mut poller) =
+        super::new::<ReadyValueSleepProvider, core::convert::Infallible>(true);
     let psid = PromiseStateId(0);
 
     // A 5-second sleep should resolve immediately when skip_sleep is true.
@@ -122,7 +128,8 @@ async fn skip_sleep_resolves_immediately() {
 
 #[tokio::test]
 async fn skip_sleep_multiple_resolve_immediately() {
-    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(true);
+    let (handler, mut poller) =
+        super::new::<ReadyValueSleepProvider, core::convert::Infallible>(true);
     let a = PromiseStateId(0);
     let b = PromiseStateId(1);
 
@@ -143,7 +150,8 @@ async fn skip_sleep_multiple_resolve_immediately() {
 
 #[tokio::test]
 async fn skip_sleep_does_not_skip_when_skip_not_allowed() {
-    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(true);
+    let (handler, mut poller) =
+        super::new::<ReadyValueSleepProvider, core::convert::Infallible>(true);
     let psid = PromiseStateId(0);
 
     // A 60-second sleep recorded with `skip_allowed: false` must keep its
@@ -165,8 +173,10 @@ async fn skip_sleep_does_not_skip_when_skip_not_allowed() {
 #[tokio::test]
 async fn skip_sleep_flag_is_independent_per_handler() {
     // One handler with skip, one without.
-    let (skip_handler, mut skip_poller) = super::new::<ReadyValueSleepProvider>(true);
-    let (normal_handler, mut normal_poller) = super::new::<ReadyValueSleepProvider>(false);
+    let (skip_handler, mut skip_poller) =
+        super::new::<ReadyValueSleepProvider, core::convert::Infallible>(true);
+    let (normal_handler, mut normal_poller) =
+        super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
 
     let skip_psid = PromiseStateId(0);
     skip_handler.record(
@@ -190,7 +200,8 @@ async fn skip_sleep_flag_is_independent_per_handler() {
 
 #[tokio::test]
 async fn re_record_keeps_the_original_deadline() {
-    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(false);
+    let (handler, mut poller) =
+        super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
     let psid = PromiseStateId(0);
 
     // First record wins; a re-record with a far-away deadline must not
@@ -222,7 +233,8 @@ async fn re_record_keeps_the_original_deadline() {
 async fn ack_makes_the_promise_recordable_again() {
     use waymark_vm_driver_core::PromiseSettlementAck as _;
 
-    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(false);
+    let (handler, mut poller) =
+        super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
     let psid = PromiseStateId(0);
 
     handler.record(
@@ -251,7 +263,8 @@ async fn ack_makes_the_promise_recordable_again() {
 
 #[tokio::test]
 async fn re_record_yields_a_single_settlement() {
-    let (handler, mut poller) = super::new::<ReadyValueSleepProvider>(false);
+    let (handler, mut poller) =
+        super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
     let psid = PromiseStateId(0);
 
     handler.record(
