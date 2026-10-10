@@ -24,7 +24,7 @@ waiting.
 Under pytest, run(...) doesn't queue anything: it executes the workflow
 through a bridge started without Postgres, runs its actions in the test
 process, skips durable sleeps, and returns the result - so tests need no
-database or `waymark-start-workers`. `_blocking` and `WAYMARK_SKIP_WAIT_FOR_INSTANCE`
+database or `waymark-executor`. `_blocking` and `WAYMARK_SKIP_WAIT_FOR_INSTANCE`
 have no effect there.
 
 ::: waymark.workflow.Workflow

@@ -9,9 +9,9 @@ use crate::Runner;
 ///
 /// Prefers a `waymark-worker` in the directory of the current executable;
 /// then one on PATH; otherwise `uv run`. Whether a sibling exists is the
-/// installer's doing: `scripts/build_wheel.py` places the
-/// `waymark-start-workers` binary and the worker entry point in one scripts
-/// directory, while a source build has no sibling and falls through.
+/// installer's doing: `scripts/build_wheel.py` places the `waymark-executor`
+/// binary and the worker entry point in one scripts directory, while a
+/// source build has no sibling and falls through.
 pub fn detect() -> Runner {
     match std::env::current_exe() {
         Ok(current_exe) => {

@@ -22,7 +22,7 @@ services:
   daemons:
     build: *app-build
     image: waymark-example-app
-    command: ["waymark-start-workers"]
+    command: ["waymark-executor"]
     depends_on:
       postgres:
         condition: service_healthy

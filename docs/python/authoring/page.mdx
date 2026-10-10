@@ -188,16 +188,16 @@ patterns.
 Each action call carries the name of the module the action is defined
 in, and a worker imports that module the first time it runs one of its
 actions. So the modules only have to be importable by the workers: from
-the directory `waymark-start-workers` is started in, or installed in its
+the directory `waymark-executor` is started in, or installed in its
 environment. `WAYMARK_USER_MODULE` makes each worker import them at
 startup instead: the first action after startup doesn't pay for the
-import, and a module that fails to import then stops `waymark-start-workers` from
+import, and a module that fails to import then stops `waymark-executor` from
 starting, after its 15 second worker attach timeout, rather than failing
 the first action that needs it.
 
 ```bash
 export WAYMARK_USER_MODULE=myapp.workflows
-uv run waymark-start-workers
+uv run waymark-executor
 ```
 
 For a multi-module project, list them all:

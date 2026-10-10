@@ -4413,6 +4413,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-executor"
+version = "0.1.0"
+dependencies = [
+ "aide",
+ "axum",
+ "envfury",
+ "metrics",
+ "sqlx",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-backend-postgres",
+ "waymark-backend-postgres-migrations",
+ "waymark-config",
+ "waymark-execution-bringup",
+ "waymark-fn-main-common",
+ "waymark-fn-main-lifecycle",
+ "waymark-http-api",
+ "waymark-http-bringup",
+ "waymark-http-healthz",
+ "waymark-http-webapp",
+ "waymark-ids",
+ "waymark-managed-spawner-supervised",
+ "waymark-metrics-bringup",
+ "waymark-observability-bringup",
+ "waymark-os-shutdown-requests",
+ "waymark-prometheus-exporter-bringup",
+ "waymark-scheduler-bringup",
+ "waymark-tokio-metrics-bringup",
+ "waymark-worker-python",
+ "waymark-worker-remote-bringup",
+ "waymark-worker-remote-pool",
+]
+
+[[package]]
 name = "waymark-extcall-reconciler"
 version = "0.1.0"
 dependencies = [
@@ -5343,41 +5378,6 @@ dependencies = [
  "tokio",
  "waymark-support-integration",
  "waymark-support-test",
-]
-
-[[package]]
-name = "waymark-start-workers"
-version = "0.1.0"
-dependencies = [
- "aide",
- "axum",
- "envfury",
- "metrics",
- "sqlx",
- "tokio",
- "tokio-util",
- "tracing",
- "waymark-backend-postgres",
- "waymark-backend-postgres-migrations",
- "waymark-config",
- "waymark-execution-bringup",
- "waymark-fn-main-common",
- "waymark-fn-main-lifecycle",
- "waymark-http-api",
- "waymark-http-bringup",
- "waymark-http-healthz",
- "waymark-http-webapp",
- "waymark-ids",
- "waymark-managed-spawner-supervised",
- "waymark-metrics-bringup",
- "waymark-observability-bringup",
- "waymark-os-shutdown-requests",
- "waymark-prometheus-exporter-bringup",
- "waymark-scheduler-bringup",
- "waymark-tokio-metrics-bringup",
- "waymark-worker-python",
- "waymark-worker-remote-bringup",
- "waymark-worker-remote-pool",
 ]
 
 [[package]]
