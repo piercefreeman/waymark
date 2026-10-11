@@ -67,7 +67,7 @@ impl PostgresConfig {
     /// The URLs are parameters rather than variables of their own: the
     /// backend-neutral `WAYMARK_OBSERVABILITY_DATABASE_URL` and
     /// `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` are read and dispatched
-    /// by scheme in `waymark-observability-config`.
+    /// by scheme in `waymark-observability-store-config`.
     pub fn from_urls_and_env(
         write_url: SecretString,
         read_url: SecretString,

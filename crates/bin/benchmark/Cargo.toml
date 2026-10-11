@@ -18,6 +18,7 @@ waymark-observability-bringup = { workspace = true }
 waymark-observability-config = { workspace = true }
 waymark-observability-events-vm-driver-hooks = { workspace = true }
 waymark-observability-setup = { workspace = true }
+waymark-observability-store-config = { workspace = true }
 waymark-observability-store-postgres = { workspace = true }
 waymark-observability-store-postgres-bringup = { workspace = true }
 waymark-observability-store-postgres-migrations = { workspace = true }

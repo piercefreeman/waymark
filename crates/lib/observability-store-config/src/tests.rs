@@ -88,11 +88,9 @@ fn a_read_url_of_another_backend_is_refused() {
 fn main_database_url_is_the_default_for_both() {
     // Neither WAYMARK_OBSERVABILITY_DATABASE_URL nor
     // WAYMARK_OBSERVABILITY_READ_DATABASE_URL is set in the test environment.
-    let config = ObservabilityConfig::from_env_urls_with_default(&SecretString::from(
-        "postgres://prod/waymark",
-    ))
-    .expect("default url is valid");
-    let Db::Postgres(postgres) = config.db;
+    let db = Db::from_env_urls_with_default(&SecretString::from("postgres://prod/waymark"))
+        .expect("default url is valid");
+    let Db::Postgres(postgres) = db;
     assert_eq!(
         postgres.write.url.expose_secret(),
         "postgres://prod/waymark"

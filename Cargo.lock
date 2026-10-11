@@ -4133,6 +4133,7 @@ dependencies = [
  "waymark-observability-config",
  "waymark-observability-events-vm-driver-hooks",
  "waymark-observability-setup",
+ "waymark-observability-store-config",
  "waymark-observability-store-postgres",
  "waymark-observability-store-postgres-bringup",
  "waymark-observability-store-postgres-migrations",
@@ -4830,6 +4831,7 @@ dependencies = [
  "waymark-observability-config",
  "waymark-observability-events-bringup",
  "waymark-observability-events-vm-driver-hooks",
+ "waymark-observability-store-config",
  "waymark-observability-store-postgres",
  "waymark-observability-store-postgres-bringup",
  "waymark-observability-store-postgres-migrations",
@@ -4839,11 +4841,10 @@ dependencies = [
 name = "waymark-observability-config"
 version = "0.1.0"
 dependencies = [
- "envfury",
  "thiserror",
  "waymark-essential-metrics-config",
  "waymark-observability-events-config",
- "waymark-observability-store-postgres-config",
+ "waymark-observability-store-config",
  "waymark-secret-string",
 ]
 
@@ -5035,6 +5036,16 @@ dependencies = [
  "waymark-ids",
  "waymark-observability-state-core",
  "waymark-query-limit",
+]
+
+[[package]]
+name = "waymark-observability-store-config"
+version = "0.1.0"
+dependencies = [
+ "envfury",
+ "thiserror",
+ "waymark-observability-store-postgres-config",
+ "waymark-secret-string",
 ]
 
 [[package]]
@@ -5370,6 +5381,7 @@ dependencies = [
  "waymark-managed-process",
  "waymark-nonzero-duration",
  "waymark-observability-config",
+ "waymark-observability-store-config",
  "waymark-observability-store-postgres",
  "waymark-observability-store-postgres-bringup",
  "waymark-observability-store-postgres-migrations",

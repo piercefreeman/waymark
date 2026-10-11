@@ -5,7 +5,8 @@
 
 use std::sync::Arc;
 
-use waymark_observability_config::{Db, ObservabilityConfig};
+use waymark_observability_config::ObservabilityConfig;
+use waymark_observability_store_config::Db;
 
 /// The observability schema: one schema for every observability
 /// subsystem's tables.
