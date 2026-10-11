@@ -25,6 +25,8 @@ The Rust runtime exposes a gRPC API (plus gRPC health check) via the `waymark-br
 $ cargo run --bin waymark-bridge
 ```
 
+It refuses to start on a database `waymark-executor` has not migrated, so run the executor against it first. After switching to a branch with new migrations, stop any `waymark-bridge` still running from before: the boot singleton reuses a running one, which never checks the schema again.
+
 Developers can either launch it directly or rely on the `waymark-boot-singleton` helper which finds (or starts) a single shared instance on
 `127.0.0.1:24117`. The helper prints the active gRPC port to stdout so Python clients can connect without additional
 configuration:

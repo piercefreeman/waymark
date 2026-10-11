@@ -36,7 +36,7 @@ pub struct WorkflowStore {
 impl WorkflowStore {
     pub async fn connect(dsn: &SecretStr) -> Result<Self, color_eyre::eyre::Report> {
         let pool = sqlx::PgPool::connect(dsn.expose_secret()).await?;
-        waymark_backend_postgres_migrations::run(&pool).await?;
+        waymark_backend_postgres_migrations::check(&pool).await?;
         let backend = PostgresBackend::new(pool);
         let codec = waymark_vm_codec_rmp::RmpCodec;
         let executables = waymark_workflow_service_vm_executables::ExecutablesService::new(

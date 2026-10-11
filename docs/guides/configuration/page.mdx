@@ -165,7 +165,9 @@ fewer than buffers.
 SDK and the Rust runtime. Most users never run this binary directly - the
 Python SDK boots a singleton bridge automatically on first workflow
 invocation. You'd set these only when you want to run the bridge as its
-own service (e.g., a sidecar container).
+own service (e.g., a sidecar container). It needs a database the nodes
+have [migrated](/guides/production#upgrades), and a role that reads and
+writes rows.
 
 | Variable | Description | Default |
 | --- | --- | --- |
