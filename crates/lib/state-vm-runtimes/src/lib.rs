@@ -7,7 +7,7 @@
 //! The state-manager provides concurrent access and automatic cleanup
 //! through ref-counted handles. When the last handle to a VM is dropped,
 //! the entry is marked for eviction and eventually swept (which drops the
-//! [`Spawned`], aborting the underlying driver thread).
+//! [`Spawned`], cancelling the underlying driver loop).
 
 #![warn(missing_docs)]
 
