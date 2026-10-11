@@ -117,6 +117,7 @@ waymark-state-vm-executables = { path = "crates/lib/state-vm-executables" }
 waymark-state-vm-executables-backend = { path = "crates/lib/state-vm-executables-backend" }
 waymark-state-vm-runtimes = { path = "crates/lib/state-vm-runtimes" }
 waymark-state-vm-runtimes-backend = { path = "crates/lib/state-vm-runtimes-backend" }
+waymark-state-vm-runtimes-compat = { path = "crates/lib/state-vm-runtimes-compat" }
 waymark-state-vm-runtimes-core = { path = "crates/lib/state-vm-runtimes-core" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
