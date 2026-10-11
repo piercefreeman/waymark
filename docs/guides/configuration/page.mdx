@@ -182,6 +182,9 @@ writes rows.
 | `WAYMARK_BRIDGE_GRPC_ADDR` | gRPC bind address. | `127.0.0.1:24117` |
 | `WAYMARK_BRIDGE_IN_MEMORY` | Run with no Postgres backend (test / dev only). | `false` |
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN. | Required unless in-memory |
+| `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the bridge's database pool. | `25` |
+| `WAYMARK_DATABASE_STATEMENT_TIMEOUT_MS` | How long one statement on the bridge's database pool may run. `0` turns the limit off. | `60000` |
+| `WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS` | How long the bridge waits at startup for a migration in progress, on a connection of its own. `0` turns the limit off. | `600000` |
 | `RUST_LOG` | Log filter, as for the node. | `info` |
 
 ## Python SDK & bootstrap {{ id: 'python-sdk' }}

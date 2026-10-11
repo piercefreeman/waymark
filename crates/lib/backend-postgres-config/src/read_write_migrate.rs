@@ -30,7 +30,7 @@ pub enum FromEnvError {
 
     /// The read-write pool's config could not be read.
     #[error("read-write pool: {0}")]
-    ReadWrite(#[source] crate::read_write_only::FromUrlAndEnvError),
+    ReadWrite(#[source] crate::read_write_only::PoolFromUrlAndEnvError),
 
     /// The migrations connection's config could not be read.
     #[error("migrations connection: {0}")]
@@ -42,7 +42,7 @@ pub enum FromEnvError {
 pub enum FromUrlsAndEnvError {
     /// The read-write pool's config could not be read.
     #[error("read-write pool: {0}")]
-    ReadWrite(#[source] crate::read_write_only::FromUrlAndEnvError),
+    ReadWrite(#[source] crate::read_write_only::PoolFromUrlAndEnvError),
 
     /// The migrations connection's config could not be read.
     #[error("migrations connection: {0}")]

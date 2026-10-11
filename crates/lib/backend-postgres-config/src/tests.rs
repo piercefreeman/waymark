@@ -40,7 +40,7 @@ fn read_write_migrate_takes_both_urls_and_their_own_settings() {
 }
 
 #[test]
-fn read_write_only_takes_the_pool_alone() {
+fn read_write_only_takes_the_pool_and_the_migrations_check_connection() {
     let config = ReadWriteOnly::from_url_and_env("postgres://app@primary/waymark".into())
         .expect("the defaults are valid");
 
@@ -54,6 +54,17 @@ fn read_write_only_takes_the_pool_alone() {
             .statement_timeout
             .map(NonZeroDuration::get),
         Some(std::time::Duration::from_secs(60)),
+    );
+    assert_eq!(
+        config.migrations_check.url.expose_secret(),
+        "postgres://app@primary/waymark"
+    );
+    assert_eq!(
+        config
+            .migrations_check
+            .statement_timeout
+            .map(NonZeroDuration::get),
+        Some(std::time::Duration::from_secs(600)),
     );
 }
 
