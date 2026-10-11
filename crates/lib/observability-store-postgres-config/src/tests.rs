@@ -1,6 +1,15 @@
 use super::*;
 
 #[test]
+fn a_zero_statement_timeout_turns_the_timeout_off() {
+    assert!(statement_timeout_from_millis(0).is_none());
+    assert_eq!(
+        statement_timeout_from_millis(2_500).map(NonZeroDuration::get),
+        Some(std::time::Duration::from_millis(2_500)),
+    );
+}
+
+#[test]
 fn each_pool_takes_its_url_and_its_own_statement_timeout() {
     // No WAYMARK_OBSERVABILITY_POSTGRES_* variable is set in the test
     // environment.
@@ -15,16 +24,16 @@ fn each_pool_takes_its_url_and_its_own_statement_timeout() {
         "postgres://primary/waymark"
     );
     assert_eq!(
-        config.write.statement_timeout.get(),
-        std::time::Duration::from_secs(30),
+        config.write.statement_timeout.map(NonZeroDuration::get),
+        Some(std::time::Duration::from_secs(30)),
     );
     assert_eq!(
         config.read.url.expose_secret(),
         "postgres://replica/waymark"
     );
     assert_eq!(
-        config.read.statement_timeout.get(),
-        std::time::Duration::from_secs(10),
+        config.read.statement_timeout.map(NonZeroDuration::get),
+        Some(std::time::Duration::from_secs(10)),
     );
 }
 
@@ -44,16 +53,19 @@ fn migrations_take_their_url_and_their_own_statement_timeout() {
         "postgres://writer@primary/waymark"
     );
     assert_eq!(
-        config.write.statement_timeout.get(),
-        std::time::Duration::from_secs(30),
+        config.write.statement_timeout.map(NonZeroDuration::get),
+        Some(std::time::Duration::from_secs(30)),
     );
     assert_eq!(
         config.migrations.url.expose_secret(),
         "postgres://owner@primary/waymark"
     );
     assert_eq!(
-        config.migrations.statement_timeout.get(),
-        std::time::Duration::from_secs(600),
+        config
+            .migrations
+            .statement_timeout
+            .map(NonZeroDuration::get),
+        Some(std::time::Duration::from_secs(600)),
     );
 }
 
@@ -67,8 +79,11 @@ fn migrate_only_takes_the_migrations_connection_alone() {
         "postgres://owner@primary/waymark"
     );
     assert_eq!(
-        config.migrations.statement_timeout.get(),
-        std::time::Duration::from_secs(600),
+        config
+            .migrations
+            .statement_timeout
+            .map(NonZeroDuration::get),
+        Some(std::time::Duration::from_secs(600)),
     );
 }
 
@@ -82,8 +97,8 @@ fn write_only_takes_the_write_pool_alone() {
         "postgres://primary/waymark"
     );
     assert_eq!(
-        config.write.statement_timeout.get(),
-        std::time::Duration::from_secs(30),
+        config.write.statement_timeout.map(NonZeroDuration::get),
+        Some(std::time::Duration::from_secs(30)),
     );
 }
 
@@ -97,7 +112,7 @@ fn read_only_takes_the_read_pool_alone() {
         "postgres://replica/waymark"
     );
     assert_eq!(
-        config.read.statement_timeout.get(),
-        std::time::Duration::from_secs(10),
+        config.read.statement_timeout.map(NonZeroDuration::get),
+        Some(std::time::Duration::from_secs(10)),
     );
 }

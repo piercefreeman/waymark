@@ -25,8 +25,9 @@ async fn a_creating_pool_creates_the_schema_and_scopes_the_search_path() {
     let config = PoolConfig {
         url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
         max_connections: NonZeroU32::new(2).expect("non-zero"),
-        statement_timeout: waymark_nonzero_duration::NonZeroDuration::from_millis(2_500)
-            .expect("non-zero"),
+        statement_timeout: Some(
+            waymark_nonzero_duration::NonZeroDuration::from_millis(2_500).expect("non-zero"),
+        ),
     };
     let pool = pool(Params {
         config: &config,
@@ -84,8 +85,9 @@ async fn a_read_only_requiring_pool_creates_nothing() {
     let config = PoolConfig {
         url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
         max_connections: NonZeroU32::new(2).expect("non-zero"),
-        statement_timeout: waymark_nonzero_duration::NonZeroDuration::from_millis(2_500)
-            .expect("non-zero"),
+        statement_timeout: Some(
+            waymark_nonzero_duration::NonZeroDuration::from_millis(2_500).expect("non-zero"),
+        ),
     };
 
     let read_params = || Params {
@@ -170,8 +172,9 @@ async fn a_creating_connection_creates_the_schema_and_carries_its_timeout() {
 
     let config = ConnectionConfig {
         url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
-        statement_timeout: waymark_nonzero_duration::NonZeroDuration::from_millis(7_500)
-            .expect("non-zero"),
+        statement_timeout: Some(
+            waymark_nonzero_duration::NonZeroDuration::from_millis(7_500).expect("non-zero"),
+        ),
     };
     let mut connection = connection(ConnectionParams {
         config: &config,
@@ -213,8 +216,7 @@ async fn migrate_creates_the_schema_runs_and_closes() {
 
     let config = ConnectionConfig {
         url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
-        statement_timeout: waymark_nonzero_duration::NonZeroDuration::from_secs(60)
-            .expect("non-zero"),
+        statement_timeout: None,
     };
 
     let mut migrations_pid = None;
@@ -262,8 +264,7 @@ async fn a_failed_migration_is_reported_and_its_connection_closed() {
 
     let config = ConnectionConfig {
         url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
-        statement_timeout: waymark_nonzero_duration::NonZeroDuration::from_secs(60)
-            .expect("non-zero"),
+        statement_timeout: None,
     };
 
     let mut migrations_pid = None;
@@ -315,4 +316,61 @@ async fn assert_backend_gone(bootstrap: &sqlx::PgPool, pid: i32) {
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
+}
+
+/// The statement timeout `connection` reads back on a connection to `url`
+/// with `statement_timeout`.
+async fn connection_statement_timeout(
+    url: &str,
+    statement_timeout: Option<waymark_nonzero_duration::NonZeroDuration>,
+) -> String {
+    let config = ConnectionConfig {
+        url: url.into(),
+        statement_timeout,
+    };
+    let mut connection = connection(ConnectionParams {
+        config: &config,
+        transactions: Transactions::Unrestricted,
+        schema: None,
+    })
+    .await
+    .expect("the connection comes up");
+
+    let (statement_timeout,): (String,) =
+        sqlx::query_as("SELECT current_setting('statement_timeout')")
+            .fetch_one(&mut connection)
+            .await
+            .expect("read statement_timeout");
+
+    statement_timeout
+}
+
+#[tokio::test]
+async fn the_config_statement_timeout_wins_over_the_url_default() {
+    waymark_support_test::postgres_setup().await;
+
+    // The URL carries a default of its own, as a role or a server would.
+    let url = format!(
+        "{}?options=-c%20statement_timeout%3D5000",
+        waymark_support_integration::LOCAL_POSTGRES_DSN.expose_secret()
+    );
+
+    let mut plain = <sqlx::PgConnection as sqlx::Connection>::connect(&url)
+        .await
+        .expect("a plain connection comes up");
+    let (url_default,): (String,) = sqlx::query_as("SELECT current_setting('statement_timeout')")
+        .fetch_one(&mut plain)
+        .await
+        .expect("read statement_timeout");
+    assert_eq!(url_default, "5s");
+
+    let off = connection_statement_timeout(&url, None).await;
+    assert_eq!(off, "0");
+
+    let set = connection_statement_timeout(
+        &url,
+        Some(waymark_nonzero_duration::NonZeroDuration::from_millis(7_500).expect("non-zero")),
+    )
+    .await;
+    assert_eq!(set, "7500ms");
 }
