@@ -141,7 +141,9 @@ Budget your Postgres connections per process:
 - **Each node** opens up to 25 connections for its main pool
   (`WAYMARK_DATABASE_MAX_CONNECTIONS`), plus up to 4 + 4 for the
   observability store's write and read pools - 33 in total, since the
-  observability store shares the main database by default.
+  observability store shares the main database by default. At startup it
+  also opens one connection for the observability migrations, and closes
+  it before the pools open.
 - **Each app host** that queues workflows runs one singleton bridge, with
   up to 10 connections.
 

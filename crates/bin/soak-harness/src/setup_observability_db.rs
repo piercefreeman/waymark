@@ -19,26 +19,38 @@ pub async fn connect(
 ) -> Result<waymark_observability_store_postgres::Store, color_eyre::eyre::Report> {
     let config = waymark_observability_config::ObservabilityConfig::from_env_urls_with_default(dsn)
         .wrap_err("read the observability config")?;
-    let waymark_observability_store_config::ReadWrite::Postgres(postgres_config) = config.db;
+    let waymark_observability_store_config::ReadWriteMigrate::Postgres(postgres_config) = config.db;
 
     let pool = crate::common::wait_for_database("the observability database", timeout, || async {
-        match waymark_observability_store_postgres_bringup::schema_pool(
-            &postgres_config.write,
-            OBSERVABILITY_SCHEMA,
+        match waymark_observability_store_postgres_bringup::pool(
+            waymark_observability_store_postgres_bringup::Params {
+                config: &postgres_config.write,
+                transactions: waymark_observability_store_postgres_bringup::Transactions::Unrestricted,
+                schema: Some(waymark_observability_store_postgres_bringup::Schema::Create(
+                    OBSERVABILITY_SCHEMA.into(),
+                )),
+            },
         )
         .await
         {
             Ok(pool) => Ok(pool),
-            Err(error @ waymark_observability_store_postgres_bringup::SchemaPoolError::Url(_)) => {
+            Err(error @ waymark_observability_store_postgres_bringup::PoolError::Url(_)) => {
                 Err(crate::common::WaitForDatabaseAttemptError::Stop(error))
             }
             // TODO: when the database setup is reworked, classify these the
             // way the main database's wait does (`setup_db::is_permanent`,
             // with `42501` added to it), so a wrong password, a missing
             // database or a refused privilege stops the wait here too.
-            Err(waymark_observability_store_postgres_bringup::SchemaPoolError::Connect(error)) => {
+            Err(error @ waymark_observability_store_postgres_bringup::PoolError::Connect(_)) => {
                 Err(crate::common::WaitForDatabaseAttemptError::Retry(error))
             }
+            // Only a pool requiring the schema fails this way; this one
+            // creates it.
+            Err(
+                error @ waymark_observability_store_postgres_bringup::PoolError::ConnectRequiringSchema(
+                    _,
+                ),
+            ) => Err(crate::common::WaitForDatabaseAttemptError::Stop(error)),
         }
     })
     .await

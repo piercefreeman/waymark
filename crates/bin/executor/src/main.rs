@@ -32,10 +32,12 @@
 //! - WAYMARK_EXECUTABLE_RETENTION_MS / WAYMARK_EXECUTABLE_SWEEP_INTERVAL_MS: Cached executable eviction
 //! - WAYMARK_OBSERVABILITY_DATABASE_URL: DSN for the observability store (default: WAYMARK_DATABASE_URL)
 //! - WAYMARK_OBSERVABILITY_READ_DATABASE_URL: DSN the observability API reads through (default: WAYMARK_OBSERVABILITY_DATABASE_URL)
+//! - WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL: DSN the observability migrations run through (default: WAYMARK_OBSERVABILITY_DATABASE_URL)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS: Connection cap for the observability write pool (default: 4)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS: Connection cap for the observability read pool (default: 4)
-//! - WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS: Statement timeout on the observability write pool (default: 600000)
+//! - WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS: Statement timeout on the observability write pool (default: 30000)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_READ_STATEMENT_TIMEOUT_MS: Statement timeout on the observability read pool (default: 10000)
+//! - WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_STATEMENT_TIMEOUT_MS: Statement timeout on the observability migrations connection (default: 600000)
 //! - WAYMARK_ESSENTIAL_METRICS_SAMPLE_INTERVAL_MS: Essential-metrics sampling interval (default: 10000)
 //! - WAYMARK_ESSENTIAL_METRICS_SINK_BUFFERS / WAYMARK_ESSENTIAL_METRICS_SINK_MAX_BATCH / WAYMARK_ESSENTIAL_METRICS_SINK_MAX_DELAY_MS / WAYMARK_ESSENTIAL_METRICS_SINK_FLUSHERS: Essential-metrics write batching (defaults: 3 / 64 / 5000 / 1)
 //! - WAYMARK_ESSENTIAL_METRICS_RETENTION_MS / WAYMARK_ESSENTIAL_METRICS_RETENTION_SWEEP_INTERVAL_MS: Essential-metrics retention (defaults: 604800000 / 600000)

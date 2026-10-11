@@ -1,6 +1,6 @@
 use std::num::NonZeroU32;
 
-use waymark_observability_store_postgres_config::PoolConfig;
+use waymark_observability_store_postgres_config::{ConnectionConfig, PoolConfig};
 
 use super::*;
 
@@ -8,8 +8,12 @@ const TEST_SCHEMA: &str = "observability_postgres_bringup_test";
 
 const READ_TEST_SCHEMA: &str = "observability_postgres_bringup_test_read";
 
+const CONNECTION_TEST_SCHEMA: &str = "observability_postgres_bringup_test_connection";
+
+const MIGRATE_TEST_SCHEMA: &str = "observability_postgres_bringup_test_migrate";
+
 #[tokio::test]
-async fn schema_pool_creates_the_schema_and_scopes_the_search_path() {
+async fn a_creating_pool_creates_the_schema_and_scopes_the_search_path() {
     let bootstrap = waymark_support_test::postgres_setup().await;
     sqlx::query(const_format::formatcp!(
         r#"DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE"#
@@ -24,9 +28,13 @@ async fn schema_pool_creates_the_schema_and_scopes_the_search_path() {
         statement_timeout: waymark_nonzero_duration::NonZeroDuration::from_millis(2_500)
             .expect("non-zero"),
     };
-    let pool = schema_pool(&config, TEST_SCHEMA)
-        .await
-        .expect("schema pool comes up");
+    let pool = pool(Params {
+        config: &config,
+        transactions: Transactions::Unrestricted,
+        schema: Some(Schema::Create(TEST_SCHEMA.into())),
+    })
+    .await
+    .expect("the pool comes up");
     assert_eq!(pool.options().get_max_connections(), 2);
 
     let (current_schema,): (String,) = sqlx::query_as("SELECT current_schema()")
@@ -65,7 +73,7 @@ async fn schema_pool_creates_the_schema_and_scopes_the_search_path() {
 }
 
 #[tokio::test]
-async fn read_schema_pool_requires_the_schema_and_creates_nothing() {
+async fn a_read_only_requiring_pool_creates_nothing() {
     let bootstrap = waymark_support_test::postgres_setup().await;
     sqlx::query(const_format::formatcp!(
         r#"DROP SCHEMA IF EXISTS "{READ_TEST_SCHEMA}" CASCADE"#
@@ -80,13 +88,19 @@ async fn read_schema_pool_requires_the_schema_and_creates_nothing() {
             .expect("non-zero"),
     };
 
-    let error = read_schema_pool(&config, READ_TEST_SCHEMA)
+    let read_params = || Params {
+        config: &config,
+        transactions: Transactions::ReadOnly,
+        schema: Some(Schema::Require(READ_TEST_SCHEMA.into())),
+    };
+
+    let error = pool(read_params())
         .await
         .expect_err("nothing provisioned the schema");
     assert!(
         matches!(
             error,
-            ReadSchemaPoolError::Connect(
+            PoolError::ConnectRequiringSchema(
                 waymark_sqlx_postgres_schema_pool::ExistingSchemaError::Missing { .. }
             )
         ),
@@ -101,11 +115,15 @@ async fn read_schema_pool_requires_the_schema_and_creates_nothing() {
     .expect("look the schema up");
     assert!(!created, "the read pool created the schema");
 
-    // The write side provisions; the read side then finds it.
-    schema_pool(&config, READ_TEST_SCHEMA)
-        .await
-        .expect("the write pool creates the schema");
-    let read_pool = read_schema_pool(&config, READ_TEST_SCHEMA)
+    // A creating pool provisions; the read pool then finds it.
+    pool(Params {
+        config: &config,
+        transactions: Transactions::Unrestricted,
+        schema: Some(Schema::Create(READ_TEST_SCHEMA.into())),
+    })
+    .await
+    .expect("a creating pool creates the schema");
+    let read_pool = pool(read_params())
         .await
         .expect("the read pool finds the schema");
     let (current_schema,): (String,) = sqlx::query_as("SELECT current_schema()")
@@ -138,4 +156,163 @@ async fn read_schema_pool_requires_the_schema_and_creates_nothing() {
     .execute(&bootstrap)
     .await
     .expect("drop test schema");
+}
+
+#[tokio::test]
+async fn a_creating_connection_creates_the_schema_and_carries_its_timeout() {
+    let bootstrap = waymark_support_test::postgres_setup().await;
+    sqlx::query(const_format::formatcp!(
+        r#"DROP SCHEMA IF EXISTS "{CONNECTION_TEST_SCHEMA}" CASCADE"#
+    ))
+    .execute(&bootstrap)
+    .await
+    .expect("drop leftover test schema");
+
+    let config = ConnectionConfig {
+        url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
+        statement_timeout: waymark_nonzero_duration::NonZeroDuration::from_millis(7_500)
+            .expect("non-zero"),
+    };
+    let mut connection = connection(ConnectionParams {
+        config: &config,
+        transactions: Transactions::Unrestricted,
+        schema: Some(Schema::Create(CONNECTION_TEST_SCHEMA.into())),
+    })
+    .await
+    .expect("the connection comes up");
+
+    let (current_schema,): (String,) = sqlx::query_as("SELECT current_schema()")
+        .fetch_one(&mut connection)
+        .await
+        .expect("read current schema");
+    assert_eq!(current_schema, CONNECTION_TEST_SCHEMA);
+    let (statement_timeout,): (String,) =
+        sqlx::query_as("SELECT current_setting('statement_timeout')")
+            .fetch_one(&mut connection)
+            .await
+            .expect("read statement_timeout");
+    assert_eq!(statement_timeout, "7500ms");
+
+    sqlx::query(const_format::formatcp!(
+        r#"DROP SCHEMA "{CONNECTION_TEST_SCHEMA}" CASCADE"#
+    ))
+    .execute(&bootstrap)
+    .await
+    .expect("drop test schema");
+}
+
+#[tokio::test]
+async fn migrate_creates_the_schema_runs_and_closes() {
+    let bootstrap = waymark_support_test::postgres_setup().await;
+    sqlx::query(const_format::formatcp!(
+        r#"DROP SCHEMA IF EXISTS "{MIGRATE_TEST_SCHEMA}" CASCADE"#
+    ))
+    .execute(&bootstrap)
+    .await
+    .expect("drop leftover test schema");
+
+    let config = ConnectionConfig {
+        url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
+        statement_timeout: waymark_nonzero_duration::NonZeroDuration::from_secs(60)
+            .expect("non-zero"),
+    };
+
+    let mut migrations_pid = None;
+    migrate(
+        &config,
+        Some(MIGRATE_TEST_SCHEMA.into()),
+        async |connection: &mut sqlx::PgConnection| {
+            let (pid,): (i32,) = sqlx::query_as("SELECT pg_backend_pid()")
+                .fetch_one(&mut *connection)
+                .await?;
+            migrations_pid = Some(pid);
+
+            sqlx::query("CREATE TABLE observability_bringup_migrated (id int)")
+                .execute(&mut *connection)
+                .await?;
+
+            Ok::<(), sqlx::Error>(())
+        },
+    )
+    .await
+    .expect("the migrations run");
+
+    let (migrated_schema,): (String,) = sqlx::query_as(
+        "SELECT table_schema::text FROM information_schema.tables WHERE table_name = 'observability_bringup_migrated'",
+    )
+    .fetch_one(&bootstrap)
+    .await
+    .expect("locate the migrated table");
+    assert_eq!(migrated_schema, MIGRATE_TEST_SCHEMA);
+
+    let migrations_pid = migrations_pid.expect("the run saw its connection");
+    assert_backend_gone(&bootstrap, migrations_pid).await;
+
+    sqlx::query(const_format::formatcp!(
+        r#"DROP SCHEMA "{MIGRATE_TEST_SCHEMA}" CASCADE"#
+    ))
+    .execute(&bootstrap)
+    .await
+    .expect("drop test schema");
+}
+
+#[tokio::test]
+async fn a_failed_migration_is_reported_and_its_connection_closed() {
+    let bootstrap = waymark_support_test::postgres_setup().await;
+
+    let config = ConnectionConfig {
+        url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
+        statement_timeout: waymark_nonzero_duration::NonZeroDuration::from_secs(60)
+            .expect("non-zero"),
+    };
+
+    let mut migrations_pid = None;
+    let error = migrate(
+        &config,
+        None,
+        async |connection: &mut sqlx::PgConnection| {
+            let (pid,): (i32,) = sqlx::query_as("SELECT pg_backend_pid()")
+                .fetch_one(&mut *connection)
+                .await?;
+            migrations_pid = Some(pid);
+
+            sqlx::query("SELECT * FROM observability_bringup_no_such_table")
+                .execute(&mut *connection)
+                .await?;
+
+            Ok::<(), sqlx::Error>(())
+        },
+    )
+    .await
+    .expect_err("the failing migration is reported");
+    assert!(matches!(error, MigrateError::Run(_)), "{error}");
+
+    let migrations_pid = migrations_pid.expect("the run saw its connection");
+    assert_backend_gone(&bootstrap, migrations_pid).await;
+}
+
+/// Wait for the server to drop the backend `pid`; a closed connection's
+/// backend exits shortly after the close.
+async fn assert_backend_gone(bootstrap: &sqlx::PgPool, pid: i32) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+
+    loop {
+        let (alive,): (bool,) =
+            sqlx::query_as("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE pid = $1)")
+                .bind(pid)
+                .fetch_one(bootstrap)
+                .await
+                .expect("look the backend up");
+
+        if !alive {
+            return;
+        }
+
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the migrations connection's backend {pid} is still there"
+        );
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 }

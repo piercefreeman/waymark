@@ -1,8 +1,10 @@
-//! Utilities for schema-scoped Postgres pools: defaulting connections'
-//! `search_path` to one schema, and creating that schema — or requiring
-//! it, for a pool that only reads.
+//! Utilities for schema-scoped Postgres pools and connections: defaulting
+//! connections' `search_path` to one schema, and creating that schema — or
+//! requiring it, for a side that must not create it.
 
 #![warn(missing_docs)]
+
+pub mod connection;
 
 /// Connect a pool scoped to `schema` from a database URL — the
 /// schema-scoped `sqlx::PgPool::connect`: connections default their
@@ -108,30 +110,16 @@ impl PgPoolOptionsExt for sqlx::postgres::PgPoolOptions {
             .await
             .map_err(ExistingSchemaError::Connect)?;
 
-        let exists =
-            schema_exists(&pool, schema)
-                .await
-                .map_err(|source| ExistingSchemaError::Check {
-                    schema: schema.to_owned(),
-                    source,
-                })?;
-        if !exists {
-            return Err(ExistingSchemaError::Missing {
-                schema: schema.to_owned(),
-            });
-        }
+        let mut connection = pool.acquire().await.map_err(ExistingSchemaError::Connect)?;
+        connection::require_schema(&mut connection, schema).await?;
+        drop(connection);
 
         Ok(pool)
     }
 }
 
-/// Create `schema` unless it already exists.
-///
-/// The existence check runs first, so an already-provisioned schema
-/// requires no privilege beyond reading the catalog; creation — and its
-/// `CREATE`-on-database privilege requirement — happens only when the
-/// schema is actually missing. A concurrent creation racing this one
-/// counts as success.
+/// Create `schema` unless it already exists, on one connection of `pool`.
+/// See [`connection::create_schema_if_not_exists`].
 ///
 /// `schema` must be a plain identifier (it is only quote-wrapped, not
 /// escaped) — a caller-internal constant, not operator input.
@@ -139,36 +127,16 @@ pub async fn create_schema_if_not_exists(
     pool: &sqlx::PgPool,
     schema: &str,
 ) -> Result<(), sqlx::Error> {
-    if schema_exists(pool, schema).await? {
-        return Ok(());
-    }
+    let mut connection = pool.acquire().await?;
 
-    let created = sqlx::query(sqlx::AssertSqlSafe(format!(
-        r#"CREATE SCHEMA IF NOT EXISTS "{schema}""#
-    )))
-    .execute(pool)
-    .await;
-    let Err(error) = created else {
-        return Ok(());
-    };
-
-    // The winner of a creation race may leave the loser with an error;
-    // the schema existing now is still success.
-    if schema_exists(pool, schema).await? {
-        return Ok(());
-    }
-
-    Err(error)
+    connection::create_schema_if_not_exists(&mut connection, schema).await
 }
 
-/// Whether `schema` exists.
+/// Whether `schema` exists, checked on one connection of `pool`.
 pub async fn schema_exists(pool: &sqlx::PgPool, schema: &str) -> Result<bool, sqlx::Error> {
-    let (exists,): (bool,) =
-        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = $1)")
-            .bind(schema)
-            .fetch_one(pool)
-            .await?;
-    Ok(exists)
+    let mut connection = pool.acquire().await?;
+
+    connection::schema_exists(&mut connection, schema).await
 }
 
 #[cfg(test)]

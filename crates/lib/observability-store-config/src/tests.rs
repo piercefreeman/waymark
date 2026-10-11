@@ -140,3 +140,62 @@ fn read_only_refuses_an_unknown_scheme() {
         read_only::FromEnvError::UnsupportedScheme { scheme } if scheme == "mysql"
     ));
 }
+
+#[test]
+fn migrations_take_the_main_database_url_by_default() {
+    // None of the observability URL variables is set in the test
+    // environment.
+    let db = ReadWriteMigrate::from_env_urls_with_default(&SecretString::from(
+        "postgres://prod/waymark",
+    ))
+    .expect("default url is valid");
+    let ReadWriteMigrate::Postgres(postgres) = db;
+    assert_eq!(
+        postgres.write.url.expose_secret(),
+        "postgres://prod/waymark"
+    );
+    assert_eq!(postgres.read.url.expose_secret(), "postgres://prod/waymark");
+    assert_eq!(
+        postgres.migrations.url.expose_secret(),
+        "postgres://prod/waymark"
+    );
+}
+
+#[test]
+fn a_migrations_url_of_another_backend_is_refused() {
+    let error = ReadWriteMigrate::from_urls_and_env(
+        "postgres://localhost/waymark".into(),
+        "postgres://localhost/waymark".into(),
+        "mysql://localhost/waymark".into(),
+    )
+    .expect_err("the migrations must go to the backend the writes go to");
+    assert!(matches!(
+        error,
+        read_write_migrate::FromEnvError::MigrationsSchemeDiffers { write, migrations }
+            if write == "postgres" && migrations == "mysql"
+    ));
+}
+
+#[test]
+fn migrate_only_takes_the_main_database_url_by_default() {
+    // Neither WAYMARK_OBSERVABILITY_DATABASE_URL nor
+    // WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL is set in the test
+    // environment.
+    let db = MigrateOnly::from_env_url_with_default(&SecretString::from("postgres://prod/waymark"))
+        .expect("default url is valid");
+    let MigrateOnly::Postgres(postgres) = db;
+    assert_eq!(
+        postgres.migrations.url.expose_secret(),
+        "postgres://prod/waymark"
+    );
+}
+
+#[test]
+fn migrate_only_refuses_an_unknown_scheme() {
+    let error = MigrateOnly::from_url_and_env("mysql://localhost/waymark".into())
+        .expect_err("mysql must not be dispatched");
+    assert!(matches!(
+        error,
+        migrate_only::FromEnvError::UnsupportedScheme { scheme } if scheme == "mysql"
+    ));
+}

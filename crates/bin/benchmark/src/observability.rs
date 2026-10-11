@@ -57,16 +57,25 @@ where
     let config = waymark_observability_config::ObservabilityConfig::from_urls_and_env(
         dsn.into(),
         dsn.into(),
+        dsn.into(),
     )
     .wrap_err("read the observability config")?;
 
     // The store's pool comes from the config, so the reset and the count
     // hit the database the pipelines write to.
-    let waymark_observability_store_config::ReadWrite::Postgres(postgres_config) = &config.db;
-    let pool =
-        waymark_observability_store_postgres_bringup::schema_pool(&postgres_config.write, SCHEMA)
-            .await
-            .wrap_err("connect the observability schema pool")?;
+    let waymark_observability_store_config::ReadWriteMigrate::Postgres(postgres_config) =
+        &config.db;
+    let pool = waymark_observability_store_postgres_bringup::pool(
+        waymark_observability_store_postgres_bringup::Params {
+            config: &postgres_config.write,
+            transactions: waymark_observability_store_postgres_bringup::Transactions::Unrestricted,
+            schema: Some(
+                waymark_observability_store_postgres_bringup::Schema::Create(SCHEMA.into()),
+            ),
+        },
+    )
+    .await
+    .wrap_err("connect the observability schema pool")?;
     let store = waymark_observability_store_postgres::Store { pool };
     // Empty the store so that every run measures over an empty store.
     // Provision before the reset: `truncate_all` requires a migrated store,

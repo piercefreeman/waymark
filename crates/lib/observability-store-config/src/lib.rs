@@ -6,18 +6,24 @@
 //! schema and accessed through its own pools. Pointing
 //! `WAYMARK_OBSERVABILITY_DATABASE_URL` elsewhere moves it to a separate
 //! server; `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` is where the reads
-//! go — the same database by default, or a replica of it.
+//! go — the same database by default, or a replica of it — and
+//! `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL` is where the migrations
+//! run, on a connection of their own.
 
 #![warn(missing_docs)]
 
 use waymark_secret_string::SecretString;
 
+pub mod migrate_only;
 pub mod read_only;
 pub mod read_write;
+pub mod read_write_migrate;
 pub mod write_only;
 
+pub use self::migrate_only::MigrateOnly;
 pub use self::read_only::ReadOnly;
 pub use self::read_write::ReadWrite;
+pub use self::read_write_migrate::ReadWriteMigrate;
 pub use self::write_only::WriteOnly;
 
 /// The error of reading one of the store's URLs from the environment.
@@ -60,6 +66,17 @@ fn url_from_env_with_default(
 /// `WAYMARK_OBSERVABILITY_READ_DATABASE_URL`, or `url` when it is not set.
 fn read_url_from_env_with_default(url: &SecretString) -> Result<SecretString, UrlFromEnvError> {
     envfury::or_else("WAYMARK_OBSERVABILITY_READ_DATABASE_URL", || url.clone())
+}
+
+/// The URL the store is migrated through:
+/// `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL`, or `url` when it is
+/// not set.
+fn migrations_url_from_env_with_default(
+    url: &SecretString,
+) -> Result<SecretString, UrlFromEnvError> {
+    envfury::or_else("WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL", || {
+        url.clone()
+    })
 }
 
 #[cfg(test)]

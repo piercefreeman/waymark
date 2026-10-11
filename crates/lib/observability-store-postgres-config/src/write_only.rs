@@ -41,11 +41,11 @@ impl WriteOnly {
 pub(crate) fn pool_from_url_and_env(write_url: SecretString) -> Result<PoolConfig, FromEnvError> {
     let max_connections = envfury::or_parse("WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS", "4")
         .map_err(FromEnvError::MaxConnections)?;
-    // 10 minutes: a migration on a large table is slow before it is
-    // stuck; a retention sweep is chunked and never needs that long.
+    // TODO: measure the longest legitimate write (a sink flush, a chunk of
+    // a retention sweep) and size this from it.
     let statement_timeout_millis: NonZeroU64 = envfury::or_parse(
         "WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS",
-        "600000",
+        "30000",
     )
     .map_err(FromEnvError::StatementTimeout)?;
 
