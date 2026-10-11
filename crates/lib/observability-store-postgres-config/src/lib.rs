@@ -1,20 +1,22 @@
 //! Config for a Postgres observability store.
+//!
+//! The URLs are parameters rather than variables of their own: the
+//! backend-neutral `WAYMARK_OBSERVABILITY_DATABASE_URL` and
+//! `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` are read and dispatched by
+//! scheme in `waymark-observability-store-config`.
 
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::NonZeroU32;
 
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_secret_string::SecretString;
 
-/// Configuration for a Postgres observability store.
-#[derive(Debug, Clone)]
-pub struct PostgresConfig {
-    /// The pool the sinks and the retention sweeps write through.
-    pub write: PoolConfig,
+pub mod read_only;
+pub mod read_write;
+pub mod write_only;
 
-    /// The pool the query backends read through. Its URL may point at the
-    /// same database as the write pool's, or at a read replica of it.
-    pub read: PoolConfig,
-}
+pub use self::read_only::ReadOnly;
+pub use self::read_write::ReadWrite;
+pub use self::write_only::WriteOnly;
 
 /// Configuration for one pool of a Postgres observability store.
 #[derive(Debug, Clone)]
@@ -38,77 +40,6 @@ pub struct PoolConfig {
     /// statement the client gave up on keeps running otherwise, holding
     /// its connection; this is the hard end to it.
     pub statement_timeout: NonZeroDuration,
-}
-
-/// Error returned when reading a [`PostgresConfig`] from the environment.
-#[derive(Debug, thiserror::Error)]
-pub enum FromEnvError {
-    /// The write pool's max-connections cap could not be read.
-    #[error("write max connections: {0}")]
-    WriteMaxConnections(#[source] envfury::Error<envfury::OrParseError<std::num::ParseIntError>>),
-
-    /// The read pool's max-connections cap could not be read.
-    #[error("read max connections: {0}")]
-    ReadMaxConnections(#[source] envfury::Error<envfury::OrParseError<std::num::ParseIntError>>),
-
-    /// The write pool's statement timeout could not be read.
-    #[error("write statement timeout: {0}")]
-    WriteStatementTimeout(#[source] envfury::Error<envfury::OrParseError<std::num::ParseIntError>>),
-
-    /// The read pool's statement timeout could not be read.
-    #[error("read statement timeout: {0}")]
-    ReadStatementTimeout(#[source] envfury::Error<envfury::OrParseError<std::num::ParseIntError>>),
-}
-
-impl PostgresConfig {
-    /// Create config from environment variables, for the store written
-    /// at `write_url` and read at `read_url`.
-    ///
-    /// The URLs are parameters rather than variables of their own: the
-    /// backend-neutral `WAYMARK_OBSERVABILITY_DATABASE_URL` and
-    /// `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` are read and dispatched
-    /// by scheme in `waymark-observability-store-config`.
-    pub fn from_urls_and_env(
-        write_url: SecretString,
-        read_url: SecretString,
-    ) -> Result<Self, FromEnvError> {
-        let write_max_connections =
-            envfury::or_parse("WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS", "4")
-                .map_err(FromEnvError::WriteMaxConnections)?;
-        let read_max_connections =
-            envfury::or_parse("WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS", "4")
-                .map_err(FromEnvError::ReadMaxConnections)?;
-        // 10 minutes: a migration on a large table is slow before it is
-        // stuck; a retention sweep is chunked and never needs that long.
-        let write_statement_timeout_millis: NonZeroU64 = envfury::or_parse(
-            "WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS",
-            "600000",
-        )
-        .map_err(FromEnvError::WriteStatementTimeout)?;
-        // 10 seconds: sized for paged, range-bound reads; a read the client
-        // gave up on holds its connection no longer than this.
-        let read_statement_timeout_millis: NonZeroU64 = envfury::or_parse(
-            "WAYMARK_OBSERVABILITY_POSTGRES_READ_STATEMENT_TIMEOUT_MS",
-            "10000",
-        )
-        .map_err(FromEnvError::ReadStatementTimeout)?;
-        Ok(Self {
-            write: PoolConfig {
-                url: write_url,
-                max_connections: write_max_connections,
-                statement_timeout: NonZeroDuration::from_nonzero_millis(
-                    write_statement_timeout_millis,
-                ),
-            },
-            read: PoolConfig {
-                url: read_url,
-                max_connections: read_max_connections,
-                statement_timeout: NonZeroDuration::from_nonzero_millis(
-                    read_statement_timeout_millis,
-                ),
-            },
-        })
-    }
 }
 
 #[cfg(test)]

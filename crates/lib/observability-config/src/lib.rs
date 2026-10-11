@@ -7,7 +7,7 @@ use waymark_secret_string::SecretString;
 #[derive(Debug, Clone)]
 pub struct ObservabilityConfig {
     /// The observability database.
-    pub db: waymark_observability_store_config::Db,
+    pub db: waymark_observability_store_config::ReadWrite,
 
     /// The essential-metrics subsystem's config.
     pub essential_metrics: waymark_essential_metrics_config::EssentialMetricsConfig,
@@ -22,7 +22,7 @@ pub struct ObservabilityConfig {
 pub enum FromEnvError {
     /// The observability database's config could not be read.
     #[error("database: {0}")]
-    Db(#[source] waymark_observability_store_config::FromEnvError),
+    Db(#[source] waymark_observability_store_config::read_write::FromEnvError),
 
     /// The essential-metrics subsystem's config could not be read.
     #[error("essential metrics: {0}")]
@@ -41,7 +41,7 @@ impl ObservabilityConfig {
     pub fn from_env_urls_with_default(
         default_database_url: &SecretString,
     ) -> Result<Self, FromEnvError> {
-        let db = waymark_observability_store_config::Db::from_env_urls_with_default(
+        let db = waymark_observability_store_config::ReadWrite::from_env_urls_with_default(
             default_database_url,
         )
         .map_err(FromEnvError::Db)?;
@@ -58,14 +58,16 @@ impl ObservabilityConfig {
         url: SecretString,
         read_url: SecretString,
     ) -> Result<Self, FromEnvError> {
-        let db = waymark_observability_store_config::Db::from_urls_and_env(url, read_url)
+        let db = waymark_observability_store_config::ReadWrite::from_urls_and_env(url, read_url)
             .map_err(FromEnvError::Db)?;
         Self::from_db_and_env(db)
     }
 
     /// Create config for the database `db`, with the subsystems' config
     /// from environment variables.
-    fn from_db_and_env(db: waymark_observability_store_config::Db) -> Result<Self, FromEnvError> {
+    fn from_db_and_env(
+        db: waymark_observability_store_config::ReadWrite,
+    ) -> Result<Self, FromEnvError> {
         let essential_metrics =
             waymark_essential_metrics_config::EssentialMetricsConfig::from_env()?;
         let observability_events =

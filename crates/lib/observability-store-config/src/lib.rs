@@ -12,46 +12,16 @@
 
 use waymark_secret_string::SecretString;
 
-/// An observability database, dispatched by URL scheme.
-#[derive(Debug, Clone)]
-pub enum Db {
-    /// A Postgres store (`postgres://` / `postgresql://`).
-    Postgres(waymark_observability_store_postgres_config::PostgresConfig),
-}
+pub mod read_only;
+pub mod read_write;
+pub mod write_only;
 
-/// Error returned when reading a [`Db`] from the environment.
-#[derive(Debug, thiserror::Error)]
-pub enum FromEnvError {
-    /// The database URL could not be read.
-    #[error("database url: {0}")]
-    DatabaseUrl(#[source] envfury::Error<envfury::ValueError<std::convert::Infallible>>),
+pub use self::read_only::ReadOnly;
+pub use self::read_write::ReadWrite;
+pub use self::write_only::WriteOnly;
 
-    /// The read database URL could not be read.
-    #[error("read database url: {0}")]
-    ReadDatabaseUrl(#[source] envfury::Error<envfury::ValueError<std::convert::Infallible>>),
-
-    /// No supported backend uses the database URL's scheme.
-    #[error("unsupported observability database scheme {scheme:?}")]
-    UnsupportedScheme {
-        /// The scheme found in the URL; empty when the URL had none.
-        scheme: String,
-    },
-
-    /// The read database URL is for a different backend than the
-    /// database URL: the reads must go to the store the writes go to.
-    #[error("observability read database scheme {read:?} differs from {write:?}")]
-    ReadSchemeDiffers {
-        /// The scheme of the database URL.
-        write: String,
-
-        /// The scheme of the read database URL; empty when it had none.
-        read: String,
-    },
-
-    /// The Postgres store's config could not be read.
-    #[error("postgres: {0}")]
-    Postgres(#[from] waymark_observability_store_postgres_config::FromEnvError),
-}
+/// The error of reading one of the store's URLs from the environment.
+type UrlFromEnvError = envfury::Error<envfury::ValueError<std::convert::Infallible>>;
 
 /// The scheme of a URL; empty when it has none.
 fn scheme(url: &SecretString) -> String {
@@ -61,53 +31,35 @@ fn scheme(url: &SecretString) -> String {
         .unwrap_or_default()
 }
 
-impl Db {
-    /// Create config from environment variables. `default_database_url`
-    /// (the main database URL) is used when
-    /// `WAYMARK_OBSERVABILITY_DATABASE_URL` is not set, and that URL in
-    /// turn when `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` is not set.
-    pub fn from_env_urls_with_default(
-        default_database_url: &SecretString,
-    ) -> Result<Self, FromEnvError> {
-        let url: SecretString = envfury::or_else("WAYMARK_OBSERVABILITY_DATABASE_URL", || {
-            default_database_url.clone()
-        })
-        .map_err(FromEnvError::DatabaseUrl)?;
-        let read_url: SecretString =
-            envfury::or_else("WAYMARK_OBSERVABILITY_READ_DATABASE_URL", || url.clone())
-                .map_err(FromEnvError::ReadDatabaseUrl)?;
-        Self::from_urls_and_env(url, read_url)
-    }
+/// A backend an observability store can be on.
+enum Backend {
+    /// Postgres.
+    Postgres,
+}
 
-    /// Dispatch a database URL to its backend by scheme, with the URL
-    /// the backend reads through, reading the backend's own variables
-    /// from the environment.
-    pub fn from_urls_and_env(
-        url: SecretString,
-        read_url: SecretString,
-    ) -> Result<Self, FromEnvError> {
-        let write_scheme = scheme(&url);
-        let read_scheme = scheme(&read_url);
-        match write_scheme.as_str() {
-            "postgres" | "postgresql" => {
-                // The backend is what must agree, not the spelling.
-                if !matches!(read_scheme.as_str(), "postgres" | "postgresql") {
-                    return Err(FromEnvError::ReadSchemeDiffers {
-                        write: write_scheme,
-                        read: read_scheme,
-                    });
-                }
-                let config =
-                    waymark_observability_store_postgres_config::PostgresConfig::from_urls_and_env(
-                        url, read_url,
-                    )?;
-                Ok(Self::Postgres(config))
-            }
-            _ => Err(FromEnvError::UnsupportedScheme {
-                scheme: write_scheme,
-            }),
-        }
+/// The backend a scheme names, if any.
+fn backend(scheme: &str) -> Option<Backend> {
+    // The backend is what must agree, not the spelling.
+    match scheme {
+        "postgres" | "postgresql" => Some(Backend::Postgres),
+        _ => None,
     }
+}
+
+/// The store's URL: `WAYMARK_OBSERVABILITY_DATABASE_URL`, or
+/// `default_database_url` when it is not set.
+fn url_from_env_with_default(
+    default_database_url: &SecretString,
+) -> Result<SecretString, UrlFromEnvError> {
+    envfury::or_else("WAYMARK_OBSERVABILITY_DATABASE_URL", || {
+        default_database_url.clone()
+    })
+}
+
+/// The URL the store is read through:
+/// `WAYMARK_OBSERVABILITY_READ_DATABASE_URL`, or `url` when it is not set.
+fn read_url_from_env_with_default(url: &SecretString) -> Result<SecretString, UrlFromEnvError> {
+    envfury::or_else("WAYMARK_OBSERVABILITY_READ_DATABASE_URL", || url.clone())
 }
 
 #[cfg(test)]
