@@ -86,15 +86,9 @@ async fn run(
 
     let observability_store = common::run_unless_cancelled(
         &stop_token,
-        "connecting the observability store",
+        "connecting and migrating the observability store",
         setup_observability_db::connect(&args.dsn, DB_READY_TIMEOUT),
     )
-    .await?;
-    common::run_unless_cancelled(&stop_token, "running observability migrations", async {
-        waymark_observability_store_postgres_migrations::run(&observability_store.pool)
-            .await
-            .wrap_err("run observability migrations before soak")
-    })
     .await?;
 
     let backend = PostgresBackend::new(pool.clone());
