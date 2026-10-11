@@ -2,7 +2,7 @@
 
 use waymark_secret_string::SecretString;
 
-use crate::PoolConfig;
+use waymark_postgres_config::PoolConfig;
 
 /// Configuration for a Postgres observability store that is only read.
 #[derive(Debug, Clone)]
@@ -42,7 +42,7 @@ pub(crate) fn pool_from_url_and_env(read_url: SecretString) -> Result<PoolConfig
             .map_err(FromEnvError::MaxConnections)?;
     // 10 seconds: sized for paged, range-bound reads; a read the client
     // gave up on holds its connection no longer than this.
-    let statement_timeout = crate::statement_timeout_from_env(
+    let statement_timeout = waymark_postgres_config::statement_timeout_from_env(
         "WAYMARK_OBSERVABILITY_POSTGRES_READ_STATEMENT_TIMEOUT_MS",
         "10000",
     )

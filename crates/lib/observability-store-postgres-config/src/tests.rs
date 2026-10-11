@@ -1,13 +1,6 @@
-use super::*;
+use waymark_nonzero_duration::NonZeroDuration;
 
-#[test]
-fn a_zero_statement_timeout_turns_the_timeout_off() {
-    assert!(statement_timeout_from_millis(0).is_none());
-    assert_eq!(
-        statement_timeout_from_millis(2_500).map(NonZeroDuration::get),
-        Some(std::time::Duration::from_millis(2_500)),
-    );
-}
+use super::*;
 
 #[test]
 fn each_pool_takes_its_url_and_its_own_statement_timeout() {

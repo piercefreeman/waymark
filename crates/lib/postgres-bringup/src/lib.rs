@@ -1,17 +1,11 @@
-//! Bringup for Postgres observability stores: schema-scoped pools and
-//! connections.
-//!
-//! The observability store gets its own pools — never the main database
-//! pool. Pool isolation is what keeps observability from
-//! contending with the main pool's connection budget even when the URL
-//! points at the main database; a slow observability write can only ever
-//! wait on its own pool's connections.
+//! Bringup for Postgres: pools and connections with their limits and
+//! schema scope, and migrations through a connection of their own.
 
 #![warn(missing_docs)]
 
 use std::borrow::Cow;
 
-use waymark_observability_store_postgres_config::{ConnectionConfig, PoolConfig};
+use waymark_postgres_config::{ConnectionConfig, PoolConfig};
 use waymark_sqlx_postgres_schema_pool::{PgConnectOptionsExt as _, PgPoolOptionsExt as _};
 
 /// What a pool's or a connection's transactions may do.
@@ -26,8 +20,7 @@ pub enum Transactions {
 }
 
 /// The schema a pool or a connection is scoped to: every connection
-/// defaults its `search_path` to it, so the store's queries stay
-/// unqualified.
+/// defaults its `search_path` to it, so queries stay unqualified.
 ///
 /// The schema is an internal constant, not operator input; it must be a
 /// plain identifier (it is only quote-wrapped, not escaped).
@@ -61,21 +54,20 @@ pub struct Params<'a> {
 #[derive(Debug, thiserror::Error)]
 pub enum PoolError {
     /// The URL did not parse as Postgres connect options.
-    #[error("invalid observability database URL: {0}")]
+    #[error("invalid database URL: {0}")]
     Url(#[source] sqlx::Error),
 
     /// The pool could not connect, or the schema could not be created.
-    #[error("connecting the observability pool: {0}")]
+    #[error("connecting the pool: {0}")]
     Connect(#[source] sqlx::Error),
 
     /// The pool could not connect, or the required schema is not there.
-    #[error("connecting the observability pool: {0}")]
+    #[error("connecting the pool: {0}")]
     ConnectRequiringSchema(#[source] waymark_sqlx_postgres_schema_pool::ExistingSchemaError),
 }
 
-/// Connect a pool for the observability store: every connection carries
-/// the config's statement timeout, the transaction limits and the schema
-/// scope `params` asks for.
+/// Connect a pool: every connection carries the config's statement
+/// timeout, the transaction limits and the schema scope `params` asks for.
 pub async fn pool(params: Params<'_>) -> Result<sqlx::PgPool, PoolError> {
     let Params {
         config,
@@ -128,23 +120,22 @@ pub struct ConnectionParams<'a> {
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectionError {
     /// The URL did not parse as Postgres connect options.
-    #[error("invalid observability database URL: {0}")]
+    #[error("invalid database URL: {0}")]
     Url(#[source] sqlx::Error),
 
     /// The connection could not be made, or the schema could not be
     /// created.
-    #[error("connecting to the observability database: {0}")]
+    #[error("connecting to the database: {0}")]
     Connect(#[source] sqlx::Error),
 
     /// The connection could not be made, or the required schema is not
     /// there.
-    #[error("connecting to the observability database: {0}")]
+    #[error("connecting to the database: {0}")]
     ConnectRequiringSchema(#[source] waymark_sqlx_postgres_schema_pool::ExistingSchemaError),
 }
 
-/// Connect one connection to the observability store: it carries the
-/// config's statement timeout, the transaction limits and the schema
-/// scope `params` asks for.
+/// Connect one connection: it carries the config's statement timeout, the
+/// transaction limits and the schema scope `params` asks for.
 pub async fn connection(
     params: ConnectionParams<'_>,
 ) -> Result<sqlx::PgConnection, ConnectionError> {
@@ -199,10 +190,10 @@ pub enum MigrateError<RunError> {
     Close(#[source] sqlx::Error),
 }
 
-/// Migrate the observability store through a connection of its own,
-/// scoped to `schema`, which it creates if missing, or unscoped when
-/// `schema` is `None`: `run_fn` runs the migrations on it, and it is
-/// closed once they are done, whether they succeeded or not.
+/// Migrate a database through a connection of its own, scoped to
+/// `schema`, which it creates if missing, or unscoped when `schema` is
+/// `None`: `run_fn` runs the migrations on it, and it is closed once they
+/// are done, whether they succeeded or not.
 ///
 /// A close that fails after the migrations succeeded still fails the
 /// call: the link to the server broke.

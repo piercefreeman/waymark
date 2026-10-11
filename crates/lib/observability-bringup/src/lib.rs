@@ -20,18 +20,15 @@ pub type Emitter =
 pub enum StartError {
     /// The store could not be migrated.
     #[error("migrating the observability store: {0}")]
-    Migrate(
-        #[source]
-        waymark_observability_store_postgres_bringup::MigrateError<sqlx::migrate::MigrateError>,
-    ),
+    Migrate(#[source] waymark_postgres_bringup::MigrateError<sqlx::migrate::MigrateError>),
 
     /// The observability write pool could not be brought up.
     #[error("bringing up the observability write pool: {0}")]
-    WritePool(#[source] waymark_observability_store_postgres_bringup::PoolError),
+    WritePool(#[source] waymark_postgres_bringup::PoolError),
 
     /// The observability read pool could not be brought up.
     #[error("bringing up the observability read pool: {0}")]
-    ReadPool(#[source] waymark_observability_store_postgres_bringup::PoolError),
+    ReadPool(#[source] waymark_postgres_bringup::PoolError),
 }
 
 /// Bring up the observability store — migrated through a connection of
@@ -74,7 +71,7 @@ where
     // the writes, and the read pool may point at a replica, where nothing
     // can be created, and which only sees the schema once the primary has
     // it and it has caught up.
-    waymark_observability_store_postgres_bringup::migrate(
+    waymark_postgres_bringup::migrate(
         &postgres_config.migrations,
         Some(SCHEMA.into()),
         async |connection| waymark_observability_store_postgres_migrations::run(connection).await,
@@ -82,27 +79,19 @@ where
     .await
     .map_err(StartError::Migrate)?;
 
-    let write_pool = waymark_observability_store_postgres_bringup::pool(
-        waymark_observability_store_postgres_bringup::Params {
-            config: &postgres_config.write,
-            transactions: waymark_observability_store_postgres_bringup::Transactions::Unrestricted,
-            schema: Some(
-                waymark_observability_store_postgres_bringup::Schema::Require(SCHEMA.into()),
-            ),
-        },
-    )
+    let write_pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
+        config: &postgres_config.write,
+        transactions: waymark_postgres_bringup::Transactions::Unrestricted,
+        schema: Some(waymark_postgres_bringup::Schema::Require(SCHEMA.into())),
+    })
     .await
     .map_err(StartError::WritePool)?;
 
-    let read_pool = waymark_observability_store_postgres_bringup::pool(
-        waymark_observability_store_postgres_bringup::Params {
-            config: &postgres_config.read,
-            transactions: waymark_observability_store_postgres_bringup::Transactions::ReadOnly,
-            schema: Some(
-                waymark_observability_store_postgres_bringup::Schema::Require(SCHEMA.into()),
-            ),
-        },
-    )
+    let read_pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
+        config: &postgres_config.read,
+        transactions: waymark_postgres_bringup::Transactions::ReadOnly,
+        schema: Some(waymark_postgres_bringup::Schema::Require(SCHEMA.into())),
+    })
     .await
     .map_err(StartError::ReadPool)?;
 

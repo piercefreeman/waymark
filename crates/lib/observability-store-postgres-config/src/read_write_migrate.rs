@@ -2,7 +2,7 @@
 
 use waymark_secret_string::SecretString;
 
-use crate::{ConnectionConfig, PoolConfig};
+use waymark_postgres_config::{ConnectionConfig, PoolConfig};
 
 /// Configuration for a Postgres observability store that is written,
 /// read and migrated.

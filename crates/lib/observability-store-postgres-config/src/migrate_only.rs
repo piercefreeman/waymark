@@ -2,7 +2,7 @@
 
 use waymark_secret_string::SecretString;
 
-use crate::ConnectionConfig;
+use waymark_postgres_config::ConnectionConfig;
 
 /// Configuration for a Postgres observability store that is only
 /// migrated.
@@ -37,7 +37,7 @@ pub(crate) fn connection_from_url_and_env(
 ) -> Result<ConnectionConfig, FromEnvError> {
     // 10 minutes: a migration on a large table is slow before it is
     // stuck.
-    let statement_timeout = crate::statement_timeout_from_env(
+    let statement_timeout = waymark_postgres_config::statement_timeout_from_env(
         "WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_STATEMENT_TIMEOUT_MS",
         "600000",
     )

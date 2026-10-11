@@ -20,8 +20,8 @@ waymark-observability-events-vm-driver-hooks = { workspace = true }
 waymark-observability-setup = { workspace = true }
 waymark-observability-store-config = { workspace = true }
 waymark-observability-store-postgres = { workspace = true }
-waymark-observability-store-postgres-bringup = { workspace = true }
 waymark-observability-store-postgres-migrations = { workspace = true }
+waymark-postgres-bringup = { workspace = true }
 waymark-prometheus-exporter-bringup = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-secret-string = { workspace = true }
