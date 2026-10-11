@@ -4081,6 +4081,7 @@ name = "waymark-backend-postgres-migrations"
 version = "0.1.0"
 dependencies = [
  "sqlx",
+ "waymark-sqlx-postgres-migrations",
 ]
 
 [[package]]
@@ -5396,6 +5397,18 @@ dependencies = [
  "waymark-workflow-service-vm-executables",
  "waymark-workflow-service-vm-runtimes",
  "waymark-workflow-service-vm-runtimes-backend",
+]
+
+[[package]]
+name = "waymark-sqlx-postgres-migrations"
+version = "0.1.0"
+dependencies = [
+ "futures-core",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "waymark-support-integration",
+ "waymark-support-test",
 ]
 
 [[package]]

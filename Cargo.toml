@@ -112,6 +112,7 @@ waymark-sleep-core = { path = "crates/lib/sleep-core" }
 waymark-sleep-reconciler = { path = "crates/lib/sleep-reconciler" }
 waymark-sleep-reconciler-backend = { path = "crates/lib/sleep-reconciler-backend" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
+waymark-sqlx-postgres-migrations = { path = "crates/lib/sqlx-postgres-migrations" }
 waymark-sqlx-postgres-schema-pool = { path = "crates/lib/sqlx-postgres-schema-pool" }
 waymark-state-manager = { path = "crates/lib/state-manager" }
 waymark-state-manager-core = { path = "crates/lib/state-manager-core" }
