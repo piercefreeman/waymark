@@ -69,16 +69,29 @@ impl ReadWriteMigrate {
     /// Create config from environment variables. `default_database_url`
     /// (the main database URL) is used when
     /// `WAYMARK_OBSERVABILITY_DATABASE_URL` is not set, and that URL in
-    /// turn when `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` or
-    /// `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL` is not set.
+    /// turn when `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` is not set.
+    /// When `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL` is not set, the
+    /// migrations go through `WAYMARK_OBSERVABILITY_DATABASE_URL`, or
+    /// through `default_migrations_url` (the main database's migrations
+    /// URL) when that is not set either.
     pub fn from_env_urls_with_default(
         default_database_url: &SecretString,
+        default_migrations_url: &SecretString,
     ) -> Result<Self, FromEnvError> {
-        let url = crate::url_from_env_with_default(default_database_url)
+        let maybe_url: Option<SecretString> = envfury::maybe("WAYMARK_OBSERVABILITY_DATABASE_URL")
             .map_err(FromEnvError::DatabaseUrl)?;
+
+        // A store in the main database is migrated with the main
+        // database's migrations credentials.
+        let migrations_url_default = match &maybe_url {
+            Some(url) => url.clone(),
+            None => default_migrations_url.clone(),
+        };
+
+        let url = maybe_url.unwrap_or_else(|| default_database_url.clone());
         let read_url =
             crate::read_url_from_env_with_default(&url).map_err(FromEnvError::ReadDatabaseUrl)?;
-        let migrations_url = crate::migrations_url_from_env_with_default(&url)
+        let migrations_url = crate::migrations_url_from_env_with_default(&migrations_url_default)
             .map_err(FromEnvError::MigrationsDatabaseUrl)?;
 
         Self::from_urls_and_env(url, read_url, migrations_url)

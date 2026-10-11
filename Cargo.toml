@@ -24,6 +24,7 @@ waymark-api-observability-events-http = { path = "crates/lib/api-observability-e
 waymark-api-observability-events-http-types = { path = "crates/lib/api-observability-events-http-types" }
 waymark-api-observability-state-http = { path = "crates/lib/api-observability-state-http" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
+waymark-backend-postgres-config = { path = "crates/lib/backend-postgres-config" }
 waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migrations" }
 waymark-backends-core = { path = "crates/lib/backends-core" }
 waymark-batcher = { path = "crates/lib/batcher" }

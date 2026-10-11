@@ -10,6 +10,9 @@
 //! Configuration is via environment variables:
 //! - WAYMARK_DATABASE_URL: PostgreSQL connection string (required)
 //! - WAYMARK_DATABASE_MAX_CONNECTIONS: Connection cap for the main database pool (default: 25)
+//! - WAYMARK_DATABASE_STATEMENT_TIMEOUT_MS: Statement timeout on the main database pool, `0` for none (default: 60000)
+//! - WAYMARK_MIGRATIONS_DATABASE_URL: DSN the main database's migrations run through (default: WAYMARK_DATABASE_URL)
+//! - WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS: Statement timeout on the main migrations connection, `0` for none (default: 600000)
 //! - WAYMARK_WORKER_GRPC_ADDR: gRPC server for worker connections (default: 127.0.0.1:24118)
 //! - WAYMARK_USER_MODULE: Python module(s) to preload (comma-separated)
 //! - WAYMARK_WORKER_COUNT: Number of workers (default: num_cpus)
@@ -32,7 +35,7 @@
 //! - WAYMARK_EXECUTABLE_RETENTION_MS / WAYMARK_EXECUTABLE_SWEEP_INTERVAL_MS: Cached executable eviction
 //! - WAYMARK_OBSERVABILITY_DATABASE_URL: DSN for the observability store (default: WAYMARK_DATABASE_URL)
 //! - WAYMARK_OBSERVABILITY_READ_DATABASE_URL: DSN the observability API reads through (default: WAYMARK_OBSERVABILITY_DATABASE_URL)
-//! - WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL: DSN the observability migrations run through (default: WAYMARK_OBSERVABILITY_DATABASE_URL)
+//! - WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL: DSN the observability migrations run through (default: WAYMARK_OBSERVABILITY_DATABASE_URL when set, else WAYMARK_MIGRATIONS_DATABASE_URL)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS: Connection cap for the observability write pool (default: 4)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS: Connection cap for the observability read pool (default: 4)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS: Statement timeout on the observability write pool, `0` for none (default: 30000)
@@ -161,13 +164,20 @@ async fn main()
         .await?;
         checkpoint()?;
 
-        // Initialize the database and backend.
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(config.database_max_connections.get())
-            .connect(config.database_url.expose_secret())
-            .await?;
+        // The migrations first, through a connection of their own: it may
+        // carry other credentials than the pool's, and the pool's statement
+        // timeout is sized for the runtime's statements, not for migrations.
+        waymark_postgres_bringup::migrate(&config.database.migrations, None, async |connection| {
+            waymark_backend_postgres_migrations::run(connection).await
+        })
+        .await?;
         checkpoint()?;
-        waymark_backend_postgres_migrations::run(&pool).await?;
+        let pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
+            config: &config.database.read_write,
+            transactions: waymark_postgres_bringup::Transactions::Unrestricted,
+            schema: None,
+        })
+        .await?;
         let backend = PostgresBackend::new(pool);
         checkpoint()?;
 

@@ -142,22 +142,26 @@ fn read_only_refuses_an_unknown_scheme() {
 }
 
 #[test]
-fn migrations_take_the_main_database_url_by_default() {
+fn migrations_take_the_main_migrations_url_by_default() {
     // None of the observability URL variables is set in the test
     // environment.
-    let db = ReadWriteMigrate::from_env_urls_with_default(&SecretString::from(
-        "postgres://prod/waymark",
-    ))
+    let db = ReadWriteMigrate::from_env_urls_with_default(
+        &SecretString::from("postgres://app@prod/waymark"),
+        &SecretString::from("postgres://owner@prod/waymark"),
+    )
     .expect("default url is valid");
     let ReadWriteMigrate::Postgres(postgres) = db;
     assert_eq!(
         postgres.write.url.expose_secret(),
-        "postgres://prod/waymark"
+        "postgres://app@prod/waymark"
     );
-    assert_eq!(postgres.read.url.expose_secret(), "postgres://prod/waymark");
+    assert_eq!(
+        postgres.read.url.expose_secret(),
+        "postgres://app@prod/waymark"
+    );
     assert_eq!(
         postgres.migrations.url.expose_secret(),
-        "postgres://prod/waymark"
+        "postgres://owner@prod/waymark"
     );
 }
 
@@ -177,16 +181,18 @@ fn a_migrations_url_of_another_backend_is_refused() {
 }
 
 #[test]
-fn migrate_only_takes_the_main_database_url_by_default() {
+fn migrate_only_takes_the_main_migrations_url_by_default() {
     // Neither WAYMARK_OBSERVABILITY_DATABASE_URL nor
     // WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL is set in the test
     // environment.
-    let db = MigrateOnly::from_env_url_with_default(&SecretString::from("postgres://prod/waymark"))
-        .expect("default url is valid");
+    let db = MigrateOnly::from_env_url_with_default(&SecretString::from(
+        "postgres://owner@prod/waymark",
+    ))
+    .expect("default url is valid");
     let MigrateOnly::Postgres(postgres) = db;
     assert_eq!(
         postgres.migrations.url.expose_secret(),
-        "postgres://prod/waymark"
+        "postgres://owner@prod/waymark"
     );
 }
 

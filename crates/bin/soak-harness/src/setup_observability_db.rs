@@ -19,8 +19,9 @@ pub async fn connect(
     dsn: &SecretString,
     timeout: Duration,
 ) -> Result<waymark_observability_store_postgres::Store, color_eyre::eyre::Report> {
-    let config = waymark_observability_config::ObservabilityConfig::from_env_urls_with_default(dsn)
-        .wrap_err("read the observability config")?;
+    let config =
+        waymark_observability_config::ObservabilityConfig::from_env_urls_with_default(dsn, dsn)
+            .wrap_err("read the observability config")?;
     let waymark_observability_store_config::ReadWriteMigrate::Postgres(postgres_config) = config.db;
 
     crate::common::wait_for_database("the observability database", timeout, || async {

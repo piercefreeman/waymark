@@ -4077,6 +4077,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-backend-postgres-config"
+version = "0.1.0"
+dependencies = [
+ "envfury",
+ "thiserror",
+ "waymark-nonzero-duration",
+ "waymark-postgres-config",
+ "waymark-secret-string",
+]
+
+[[package]]
 name = "waymark-backend-postgres-migrations"
 version = "0.1.0"
 dependencies = [
@@ -4236,10 +4247,10 @@ version = "0.1.0"
 dependencies = [
  "envfury",
  "thiserror",
+ "waymark-backend-postgres-config",
  "waymark-http-config",
  "waymark-nonzero-duration",
  "waymark-observability-config",
- "waymark-secret-string",
 ]
 
 [[package]]
@@ -4428,7 +4439,6 @@ dependencies = [
  "axum",
  "envfury",
  "metrics",
- "sqlx",
  "tokio",
  "tokio-util",
  "tracing",
@@ -4447,6 +4457,7 @@ dependencies = [
  "waymark-managed-spawner-supervised",
  "waymark-metrics-bringup",
  "waymark-observability-bringup",
+ "waymark-postgres-bringup",
  "waymark-prometheus-exporter-bringup",
  "waymark-scheduler-bringup",
  "waymark-tokio-metrics-bringup",

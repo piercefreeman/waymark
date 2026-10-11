@@ -20,6 +20,7 @@ waymark-ids = { workspace = true }
 waymark-managed-spawner-supervised = { workspace = true }
 waymark-metrics-bringup = { workspace = true }
 waymark-observability-bringup = { workspace = true }
+waymark-postgres-bringup = { workspace = true }
 waymark-prometheus-exporter-bringup = { workspace = true }
 waymark-scheduler-bringup = { workspace = true }
 waymark-tokio-metrics-bringup = { workspace = true }
@@ -31,7 +32,6 @@ aide = { workspace = true }
 axum = { workspace = true }
 envfury = { workspace = true }
 metrics = { workspace = true }
-sqlx = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
