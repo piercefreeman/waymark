@@ -11,6 +11,7 @@ waymark-config = { workspace = true }
 waymark-execution-bringup = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-fn-main-lifecycle = { workspace = true }
+waymark-fn-main-lifecycle-ctrl-c = { workspace = true }
 waymark-http-api = { workspace = true }
 waymark-http-bringup = { workspace = true }
 waymark-http-healthz = { workspace = true }
@@ -19,7 +20,6 @@ waymark-ids = { workspace = true }
 waymark-managed-spawner-supervised = { workspace = true }
 waymark-metrics-bringup = { workspace = true }
 waymark-observability-bringup = { workspace = true }
-waymark-os-shutdown-requests = { workspace = true }
 waymark-prometheus-exporter-bringup = { workspace = true }
 waymark-scheduler-bringup = { workspace = true }
 waymark-tokio-metrics-bringup = { workspace = true }
