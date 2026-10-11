@@ -80,13 +80,13 @@ where
 {
     let api_router = waymark_api_observability_events_http::router(read_backend);
 
-    let (batcher, batcher_task) = waymark_lossy_batcher::lossy_batcher(
-        BATCHER_NAME,
+    let emitter = start_emitter(
+        &mut spawner,
         config.lossy_batcher_policy,
-        BackendFlusher(Arc::clone(&write_backend)),
-        force_shutdown_token.cancelled_owned(),
+        node_id,
+        Arc::clone(&write_backend),
+        force_shutdown_token,
     );
-    let emitter = waymark_observability_events_emitter::Emitter::new(node_id, batcher);
 
     let retention_task = waymark_retention_sweeper::run(
         BATCHER_NAME,
@@ -105,7 +105,6 @@ where
         shutdown_token.cancelled_owned(),
     );
 
-    spawner.spawn("observability events batcher", batcher_task);
     spawner.spawn("observability events retention", retention_task);
 
     let vm_driver_hooks_policy = waymark_observability_events_vm_driver_hooks::Policy {
@@ -113,6 +112,40 @@ where
     };
 
     (api_router, emitter, vm_driver_hooks_policy)
+}
+
+/// Start the observability-events emitter over `write_backend`: the lossy
+/// batcher into the store sink, as a task of `spawner` that stops when its
+/// last handle is dropped or when `force_shutdown_token` is cancelled — and
+/// return the node's emitter for producers to share. Once per node.
+pub fn start_emitter<Spawner, WriteBackend>(
+    mut spawner: Spawner,
+    lossy_batcher_policy: waymark_lossy_batcher::ValidPolicy,
+    node_id: waymark_ids::NodeId,
+    write_backend: Arc<WriteBackend>,
+    force_shutdown_token: tokio_util::sync::CancellationToken,
+) -> EmitterFor<WriteBackend>
+where
+    Spawner: waymark_managed_spawner::Spawner,
+    WriteBackend: waymark_observability_events_sink_backend::AppendEvents,
+    WriteBackend:
+        waymark_observability_events_sink_backend::HasNodeId<NodeId = waymark_ids::NodeId>,
+    WriteBackend: Send + Sync + 'static,
+    <WriteBackend as waymark_observability_events_sink_backend::AppendEvents>::Error:
+        std::fmt::Display,
+    <WriteBackend as waymark_observability_events_sink_backend::HasPayload>::Payload:
+        Send + 'static,
+{
+    let (batcher, batcher_task) = waymark_lossy_batcher::lossy_batcher(
+        BATCHER_NAME,
+        lossy_batcher_policy,
+        BackendFlusher(write_backend),
+        force_shutdown_token.cancelled_owned(),
+    );
+
+    spawner.spawn("observability events batcher", batcher_task);
+
+    waymark_observability_events_emitter::Emitter::new(node_id, batcher)
 }
 
 #[cfg(test)]
