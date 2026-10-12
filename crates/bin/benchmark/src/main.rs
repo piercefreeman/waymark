@@ -70,7 +70,7 @@ async fn run_benchmark(
     // the pool opens: every run starts on an empty, freshly migrated
     // database.
     waymark_postgres_bringup::migrate(
-        &waymark_postgres_config::ConnectionConfig {
+        &waymark_postgres_config::connection::Config {
             url: dsn.into(),
             statement_timeout: None,
         },
@@ -87,7 +87,7 @@ async fn run_benchmark(
     .await
     .wrap_err("rebuild database schema")?;
     let pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
-        config: &waymark_postgres_config::PoolConfig {
+        config: &waymark_postgres_config::pool::Config {
             url: dsn.into(),
             max_connections: pool_size,
             statement_timeout: None,

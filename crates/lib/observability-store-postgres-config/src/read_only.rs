@@ -2,14 +2,14 @@
 
 use waymark_secret_string::SecretString;
 
-use waymark_postgres_config::PoolConfig;
+use waymark_postgres_config::pool;
 
 /// Configuration for a Postgres observability store that is only read.
 #[derive(Debug, Clone)]
 pub struct ReadOnly {
     /// The pool the query backends read through. Its URL may point at the
     /// store's database, or at a read replica of it.
-    pub read: PoolConfig,
+    pub read: pool::Config,
 }
 
 /// Error returned when reading a [`ReadOnly`] from the environment.
@@ -36,7 +36,7 @@ impl ReadOnly {
 
 /// The read pool's config, for the store read at `read_url`, with the rest
 /// from environment variables.
-pub(crate) fn pool_from_url_and_env(read_url: SecretString) -> Result<PoolConfig, FromEnvError> {
+pub(crate) fn pool_from_url_and_env(read_url: SecretString) -> Result<pool::Config, FromEnvError> {
     let max_connections =
         envfury::or_parse("WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS", "4")
             .map_err(FromEnvError::MaxConnections)?;
@@ -48,7 +48,7 @@ pub(crate) fn pool_from_url_and_env(read_url: SecretString) -> Result<PoolConfig
     )
     .map_err(FromEnvError::StatementTimeout)?;
 
-    Ok(PoolConfig {
+    Ok(pool::Config {
         url: read_url,
         max_connections,
         statement_timeout,

@@ -2,18 +2,18 @@
 
 use waymark_secret_string::SecretString;
 
-use waymark_postgres_config::PoolConfig;
+use waymark_postgres_config::pool;
 
 /// Configuration for a Postgres observability store that is written and
 /// read.
 #[derive(Debug, Clone)]
 pub struct ReadWrite {
     /// The pool the sinks and the retention sweeps write through.
-    pub write: PoolConfig,
+    pub write: pool::Config,
 
     /// The pool the query backends read through. Its URL may point at the
     /// same database as the write pool's, or at a read replica of it.
-    pub read: PoolConfig,
+    pub read: pool::Config,
 }
 
 /// Error returned when reading a [`ReadWrite`] from the environment.

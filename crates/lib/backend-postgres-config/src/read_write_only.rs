@@ -1,6 +1,6 @@
 //! The main database, read and written.
 
-use waymark_postgres_config::{ConnectionConfig, PoolConfig};
+use waymark_postgres_config::{connection, pool};
 use waymark_secret_string::SecretString;
 
 use crate::{IntFromEnvError, MustUrlFromEnvError};
@@ -9,12 +9,12 @@ use crate::{IntFromEnvError, MustUrlFromEnvError};
 #[derive(Debug, Clone)]
 pub struct ReadWriteOnly {
     /// The pool the runtime reads and writes through.
-    pub read_write: PoolConfig,
+    pub read_write: pool::Config,
 
     /// The connection the migrations check runs through, to the read-write
     /// pool's URL. The check waits for a migration in progress, so the
     /// connection's statement timeout is the migrations connection's.
-    pub migrations_check: ConnectionConfig,
+    pub migrations_check: connection::Config,
 }
 
 /// Error returned by [`ReadWriteOnly::from_env`].
@@ -90,7 +90,7 @@ impl ReadWriteOnly {
 /// from environment variables.
 pub(crate) fn pool_from_url_and_env(
     url: SecretString,
-) -> Result<PoolConfig, PoolFromUrlAndEnvError> {
+) -> Result<pool::Config, PoolFromUrlAndEnvError> {
     let max_connections = envfury::or_parse("WAYMARK_DATABASE_MAX_CONNECTIONS", "25")
         .map_err(PoolFromUrlAndEnvError::MaxConnections)?;
     let statement_timeout = waymark_postgres_config::statement_timeout_from_env(
@@ -99,7 +99,7 @@ pub(crate) fn pool_from_url_and_env(
     )
     .map_err(PoolFromUrlAndEnvError::StatementTimeout)?;
 
-    Ok(PoolConfig {
+    Ok(pool::Config {
         url,
         max_connections,
         statement_timeout,

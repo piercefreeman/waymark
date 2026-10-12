@@ -1,6 +1,6 @@
 //! The main database, migrated.
 
-use waymark_postgres_config::ConnectionConfig;
+use waymark_postgres_config::connection;
 use waymark_secret_string::SecretString;
 
 use crate::{IntFromEnvError, MustUrlFromEnvError, UrlFromEnvError};
@@ -11,7 +11,7 @@ pub struct MigrateOnly {
     /// The connection the migrations run through. Its URL may carry other
     /// credentials than the database URL's, with the rights the
     /// migrations need.
-    pub migrations: ConnectionConfig,
+    pub migrations: connection::Config,
 }
 
 /// Error returned by [`MigrateOnly::from_env`].
@@ -63,7 +63,7 @@ impl MigrateOnly {
 /// `migrations_url`, with the rest from environment variables.
 pub(crate) fn connection_from_url_and_env(
     migrations_url: SecretString,
-) -> Result<ConnectionConfig, FromUrlAndEnvError> {
+) -> Result<connection::Config, FromUrlAndEnvError> {
     // 10 minutes: a migration on a large table is slow before it is
     // stuck.
     let statement_timeout = waymark_postgres_config::statement_timeout_from_env(
@@ -72,7 +72,7 @@ pub(crate) fn connection_from_url_and_env(
     )
     .map_err(FromUrlAndEnvError::StatementTimeout)?;
 
-    Ok(ConnectionConfig {
+    Ok(connection::Config {
         url: migrations_url,
         statement_timeout,
     })

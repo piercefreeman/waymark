@@ -5,7 +5,6 @@
 
 use std::borrow::Cow;
 
-use waymark_postgres_config::{ConnectionConfig, PoolConfig};
 use waymark_sqlx_postgres_schema_pool::{PgConnectOptionsExt as _, PgPoolOptionsExt as _};
 
 /// What a pool's or a connection's transactions may do.
@@ -41,7 +40,7 @@ pub enum Schema<'a> {
 #[derive(Debug)]
 pub struct Params<'a> {
     /// The pool's config.
-    pub config: &'a PoolConfig,
+    pub config: &'a waymark_postgres_config::pool::Config,
 
     /// What the pool's transactions may do.
     pub transactions: Transactions,
@@ -107,7 +106,7 @@ pub async fn pool(params: Params<'_>) -> Result<sqlx::PgPool, PoolError> {
 #[derive(Debug)]
 pub struct ConnectionParams<'a> {
     /// The connection's config.
-    pub config: &'a ConnectionConfig,
+    pub config: &'a waymark_postgres_config::connection::Config,
 
     /// What the connection's transactions may do.
     pub transactions: Transactions,
@@ -198,7 +197,7 @@ pub enum MigrateError<RunError> {
 /// A close that fails after the migrations succeeded still fails the
 /// call: the link to the server broke.
 pub async fn migrate<RunFn, RunError>(
-    config: &ConnectionConfig,
+    config: &waymark_postgres_config::connection::Config,
     schema: Option<Cow<'_, str>>,
     run_fn: RunFn,
 ) -> Result<(), MigrateError<RunError>>

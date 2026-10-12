@@ -2,13 +2,13 @@
 
 use waymark_secret_string::SecretString;
 
-use waymark_postgres_config::PoolConfig;
+use waymark_postgres_config::pool;
 
 /// Configuration for a Postgres observability store that is only written.
 #[derive(Debug, Clone)]
 pub struct WriteOnly {
     /// The pool the sinks and the retention sweeps write through.
-    pub write: PoolConfig,
+    pub write: pool::Config,
 }
 
 /// Error returned when reading a [`WriteOnly`] from the environment.
@@ -35,7 +35,7 @@ impl WriteOnly {
 
 /// The write pool's config, for the store written at `write_url`, with the
 /// rest from environment variables.
-pub(crate) fn pool_from_url_and_env(write_url: SecretString) -> Result<PoolConfig, FromEnvError> {
+pub(crate) fn pool_from_url_and_env(write_url: SecretString) -> Result<pool::Config, FromEnvError> {
     let max_connections = envfury::or_parse("WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS", "4")
         .map_err(FromEnvError::MaxConnections)?;
     // TODO: measure the longest legitimate write (a sink flush, a chunk of
@@ -46,7 +46,7 @@ pub(crate) fn pool_from_url_and_env(write_url: SecretString) -> Result<PoolConfi
     )
     .map_err(FromEnvError::StatementTimeout)?;
 
-    Ok(PoolConfig {
+    Ok(pool::Config {
         url: write_url,
         max_connections,
         statement_timeout,

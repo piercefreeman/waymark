@@ -1,6 +1,6 @@
 //! The main database, read, written and migrated.
 
-use waymark_postgres_config::{ConnectionConfig, PoolConfig};
+use waymark_postgres_config::{connection, pool};
 use waymark_secret_string::SecretString;
 
 use crate::{MustUrlFromEnvError, UrlFromEnvError};
@@ -9,12 +9,12 @@ use crate::{MustUrlFromEnvError, UrlFromEnvError};
 #[derive(Debug, Clone)]
 pub struct ReadWriteMigrate {
     /// The pool the runtime reads and writes through.
-    pub read_write: PoolConfig,
+    pub read_write: pool::Config,
 
     /// The connection the migrations run through. Its URL may carry other
     /// credentials than the read-write pool's, with the rights the
     /// migrations need.
-    pub migrations: ConnectionConfig,
+    pub migrations: connection::Config,
 }
 
 /// Error returned by [`ReadWriteMigrate::from_env`].

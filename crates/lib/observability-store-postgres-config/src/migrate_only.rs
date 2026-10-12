@@ -2,14 +2,14 @@
 
 use waymark_secret_string::SecretString;
 
-use waymark_postgres_config::ConnectionConfig;
+use waymark_postgres_config::connection;
 
 /// Configuration for a Postgres observability store that is only
 /// migrated.
 #[derive(Debug, Clone)]
 pub struct MigrateOnly {
     /// The connection the migrations run through.
-    pub migrations: ConnectionConfig,
+    pub migrations: connection::Config,
 }
 
 /// Error returned when reading a [`MigrateOnly`] from the environment.
@@ -34,7 +34,7 @@ impl MigrateOnly {
 /// `migrations_url`, with the rest from environment variables.
 pub(crate) fn connection_from_url_and_env(
     migrations_url: SecretString,
-) -> Result<ConnectionConfig, FromEnvError> {
+) -> Result<connection::Config, FromEnvError> {
     // 10 minutes: a migration on a large table is slow before it is
     // stuck.
     let statement_timeout = waymark_postgres_config::statement_timeout_from_env(
@@ -43,7 +43,7 @@ pub(crate) fn connection_from_url_and_env(
     )
     .map_err(FromEnvError::StatementTimeout)?;
 
-    Ok(ConnectionConfig {
+    Ok(connection::Config {
         url: migrations_url,
         statement_timeout,
     })
