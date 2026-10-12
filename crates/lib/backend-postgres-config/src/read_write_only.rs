@@ -103,5 +103,6 @@ pub(crate) fn pool_from_url_and_env(
         url,
         max_connections,
         statement_timeout,
+        acquire_timeout: pool::Config::DEFAULT_ACQUIRE_TIMEOUT,
     })
 }

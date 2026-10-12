@@ -91,6 +91,7 @@ async fn run_benchmark(
             url: dsn.into(),
             max_connections: pool_size,
             statement_timeout: None,
+            acquire_timeout: waymark_postgres_config::pool::Config::DEFAULT_ACQUIRE_TIMEOUT,
         },
         transactions: waymark_postgres_bringup::Transactions::Unrestricted,
         schema: None,

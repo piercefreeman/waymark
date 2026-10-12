@@ -1,6 +1,6 @@
 //! Config for Postgres pools.
 
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_secret_string::SecretString;
@@ -18,4 +18,14 @@ pub struct Config {
     /// statement the client gave up on keeps running otherwise, holding its
     /// connection; this is the hard end to it. No limit when `None`.
     pub statement_timeout: Option<NonZeroDuration>,
+
+    /// How long taking a connection from the pool may wait before it
+    /// fails.
+    pub acquire_timeout: NonZeroDuration,
+}
+
+impl Config {
+    /// The default acquire timeout: 30 seconds.
+    pub const DEFAULT_ACQUIRE_TIMEOUT: NonZeroDuration =
+        NonZeroDuration::from_nonzero_secs(NonZeroU64::new(30).unwrap());
 }

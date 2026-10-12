@@ -79,6 +79,7 @@ pub async fn connect(
             url: dsn.into(),
             max_connections: NonZeroU32::new(16).expect("non-zero"),
             statement_timeout: Some(statement_timeout),
+            acquire_timeout: waymark_postgres_config::pool::Config::DEFAULT_ACQUIRE_TIMEOUT,
         },
         transactions: waymark_postgres_bringup::Transactions::Unrestricted,
         schema: None,

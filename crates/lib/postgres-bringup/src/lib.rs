@@ -65,7 +65,8 @@ pub enum PoolError {
     ConnectRequiringSchema(#[source] waymark_sqlx_postgres_schema_pool::ExistingSchemaError),
 }
 
-/// Connect a pool: every connection carries the config's statement
+/// Connect a pool: it waits for a connection no longer than the config's
+/// acquire timeout, and every connection carries the config's statement
 /// timeout, the transaction limits and the schema scope `params` asks for.
 pub async fn pool(params: Params<'_>) -> Result<sqlx::PgPool, PoolError> {
     let Params {
@@ -77,8 +78,9 @@ pub async fn pool(params: Params<'_>) -> Result<sqlx::PgPool, PoolError> {
     let options = connect_options(&config.url, config.statement_timeout, transactions)
         .map_err(PoolError::Url)?;
 
-    let pool_options =
-        sqlx::postgres::PgPoolOptions::new().max_connections(config.max_connections.get());
+    let pool_options = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(config.max_connections.get())
+        .acquire_timeout(config.acquire_timeout.get());
 
     let pool = match schema {
         None => pool_options

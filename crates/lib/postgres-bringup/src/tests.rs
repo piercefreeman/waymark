@@ -28,6 +28,7 @@ async fn a_creating_pool_creates_the_schema_and_scopes_the_search_path() {
         statement_timeout: Some(
             waymark_nonzero_duration::NonZeroDuration::from_millis(2_500).expect("non-zero"),
         ),
+        acquire_timeout: waymark_nonzero_duration::NonZeroDuration::from_secs(3).expect("non-zero"),
     };
     let pool = pool(Params {
         config: &config,
@@ -37,6 +38,10 @@ async fn a_creating_pool_creates_the_schema_and_scopes_the_search_path() {
     .await
     .expect("the pool comes up");
     assert_eq!(pool.options().get_max_connections(), 2);
+    assert_eq!(
+        pool.options().get_acquire_timeout(),
+        std::time::Duration::from_secs(3)
+    );
 
     let (current_schema,): (String,) = sqlx::query_as("SELECT current_schema()")
         .fetch_one(&pool)
@@ -88,6 +93,7 @@ async fn a_read_only_requiring_pool_creates_nothing() {
         statement_timeout: Some(
             waymark_nonzero_duration::NonZeroDuration::from_millis(2_500).expect("non-zero"),
         ),
+        acquire_timeout: pool::Config::DEFAULT_ACQUIRE_TIMEOUT,
     };
 
     let read_params = || Params {

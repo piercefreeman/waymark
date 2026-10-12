@@ -50,5 +50,6 @@ pub(crate) fn pool_from_url_and_env(write_url: SecretString) -> Result<pool::Con
         url: write_url,
         max_connections,
         statement_timeout,
+        acquire_timeout: pool::Config::DEFAULT_ACQUIRE_TIMEOUT,
     })
 }
