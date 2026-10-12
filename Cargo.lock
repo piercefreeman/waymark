@@ -912,9 +912,9 @@ checksum = "c34f04666d835ff5d62e058c3995147c06f42fe86ff053337632bca83e42702d"
 
 [[package]]
 name = "envfury"
-version = "0.2.3"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdefb73612e7fa39bd875a78d0a509c63e4968731e65d05569e2b13b53e2fe28"
+checksum = "5ef42c8288ccc13be02eeeee9d8ca2591de54ecc4a1a78e162c99e2ef367b5c2"
 dependencies = [
  "thiserror",
 ]
