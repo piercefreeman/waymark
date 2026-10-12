@@ -26,7 +26,6 @@ waymark-api-observability-state-http = { path = "crates/lib/api-observability-st
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
 waymark-backend-postgres-config = { path = "crates/lib/backend-postgres-config" }
 waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migrations" }
-waymark-backends-core = { path = "crates/lib/backends-core" }
 waymark-batcher = { path = "crates/lib/batcher" }
 waymark-blanket-impl-macros = { path = "crates/lib/blanket-impl-macros" }
 waymark-blocking-future = { path = "crates/lib/blocking-future" }

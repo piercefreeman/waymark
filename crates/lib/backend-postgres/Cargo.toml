@@ -8,7 +8,6 @@ edition = "2024"
 waymark-action-completions-reconciler-backend = { workspace = true }
 waymark-action-effect-reconciler-backend = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
-waymark-backends-core = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-metrics-util = { workspace = true }
 waymark-observability = { workspace = true }

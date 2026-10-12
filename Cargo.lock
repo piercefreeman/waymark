@@ -4054,7 +4054,6 @@ dependencies = [
  "waymark-action-completions-reconciler-backend",
  "waymark-action-effect-reconciler-backend",
  "waymark-backend-postgres-migrations",
- "waymark-backends-core",
  "waymark-ids",
  "waymark-metrics-util",
  "waymark-observability",
@@ -4092,15 +4091,6 @@ version = "0.1.0"
 dependencies = [
  "sqlx",
  "waymark-sqlx-postgres-migrations",
-]
-
-[[package]]
-name = "waymark-backends-core"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "sqlx",
- "thiserror",
 ]
 
 [[package]]
