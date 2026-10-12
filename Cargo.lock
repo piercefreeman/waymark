@@ -5049,6 +5049,7 @@ dependencies = [
  "envfury",
  "thiserror",
  "waymark-observability-store-postgres-config",
+ "waymark-postgres-config",
  "waymark-secret-string",
 ]
 
@@ -5092,7 +5093,6 @@ dependencies = [
 name = "waymark-observability-store-postgres-config"
 version = "0.1.0"
 dependencies = [
- "envfury",
  "thiserror",
  "waymark-nonzero-duration",
  "waymark-postgres-config",
@@ -5144,6 +5144,7 @@ name = "waymark-postgres-config"
 version = "0.1.0"
 dependencies = [
  "envfury",
+ "thiserror",
  "waymark-nonzero-duration",
  "waymark-secret-string",
 ]

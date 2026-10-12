@@ -5,10 +5,13 @@
 
 use waymark_secret_string::SecretString;
 
+mod defaults_for;
 pub mod migrate_only;
+mod profiles;
 pub mod read_write_migrate;
 pub mod read_write_only;
 
+pub use self::defaults_for::DefaultsFor;
 pub use self::migrate_only::MigrateOnly;
 pub use self::read_write_migrate::ReadWriteMigrate;
 pub use self::read_write_only::ReadWriteOnly;
@@ -18,9 +21,6 @@ type MustUrlFromEnvError = envfury::Error<envfury::MustError<std::convert::Infal
 
 /// The error of reading a URL with a default from the environment.
 type UrlFromEnvError = envfury::Error<envfury::ValueError<std::convert::Infallible>>;
-
-/// The error of reading a number with a default from the environment.
-type IntFromEnvError = envfury::Error<envfury::OrParseError<std::num::ParseIntError>>;
 
 /// The database URL: `WAYMARK_DATABASE_URL`, required.
 fn url_from_env() -> Result<SecretString, MustUrlFromEnvError> {

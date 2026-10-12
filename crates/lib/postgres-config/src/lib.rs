@@ -9,17 +9,18 @@ use waymark_nonzero_duration::NonZeroDuration;
 pub mod connection;
 pub mod pool;
 
-/// A statement timeout from the environment variable `name`, in
-/// milliseconds, `default_millis` when it is not set: `0` turns the
-/// timeout off.
-pub fn statement_timeout_from_env(
-    name: &'static str,
-    default_millis: &'static str,
-) -> Result<Option<NonZeroDuration>, envfury::Error<envfury::OrParseError<std::num::ParseIntError>>>
-{
-    let millis: u64 = envfury::or_parse(name, default_millis)?;
+/// The error of reading a number from the environment.
+pub type IntFromEnvError = envfury::Error<envfury::ValueError<std::num::ParseIntError>>;
 
-    Ok(statement_timeout_from_millis(millis))
+/// The statement timeout from `WAYMARK_{prefix}_STATEMENT_TIMEOUT_MS`, in
+/// milliseconds: `None` when the variable is not set, `Some(None)` when it
+/// is `0`, which turns the timeout off.
+fn statement_timeout_from_env(
+    prefix: &str,
+) -> Result<Option<Option<NonZeroDuration>>, IntFromEnvError> {
+    let millis: Option<u64> = envfury::maybe(format!("WAYMARK_{prefix}_STATEMENT_TIMEOUT_MS"))?;
+
+    Ok(millis.map(statement_timeout_from_millis))
 }
 
 /// A statement timeout of `millis` milliseconds: `0` turns the timeout off.
