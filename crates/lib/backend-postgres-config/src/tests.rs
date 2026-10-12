@@ -77,6 +77,17 @@ fn read_write_only_takes_the_pool_and_the_migrations_check_connection() {
 }
 
 #[test]
+fn the_bridge_defaults_its_pool_to_ten_connections() {
+    let config = ReadWriteOnly::from_url_and_env(
+        DefaultsFor::Bridge,
+        "postgres://app@primary/waymark".into(),
+    )
+    .expect("the defaults are valid");
+
+    assert_eq!(config.read_write.max_connections.get(), 10);
+}
+
+#[test]
 fn migrate_only_takes_the_migrations_connection_alone() {
     let config = MigrateOnly::from_url_and_env("postgres://owner@primary/waymark".into())
         .expect("the defaults are valid");

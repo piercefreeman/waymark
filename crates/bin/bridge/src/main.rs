@@ -11,7 +11,7 @@
 //!
 //! Configuration is via environment variables:
 //! - WAYMARK_DATABASE_URL: PostgreSQL connection string (required unless in-memory)
-//! - WAYMARK_DATABASE_MAX_CONNECTIONS: connection cap for the database pool (default: 25)
+//! - WAYMARK_DATABASE_MAX_CONNECTIONS: connection cap for the database pool (default: 10)
 //! - WAYMARK_DATABASE_STATEMENT_TIMEOUT_MS: statement timeout on the database pool, `0` for none (default: 60000)
 //! - WAYMARK_DATABASE_ACQUIRE_TIMEOUT_MS: how long taking a connection from the database pool may wait, `0` refuses to boot (default: 30000)
 //! - WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS: how long the startup waits for a migration in progress, `0` for no limit (default: 600000)
@@ -64,7 +64,7 @@ async fn main()
         None
     } else {
         Some(waymark_backend_postgres_config::ReadWriteOnly::from_env(
-            waymark_backend_postgres_config::DefaultsFor::Executor,
+            waymark_backend_postgres_config::DefaultsFor::Bridge,
         )?)
     };
 

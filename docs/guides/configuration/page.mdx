@@ -178,14 +178,16 @@ Python SDK boots a singleton bridge automatically on first workflow
 invocation. You'd set these only when you want to run the bridge as its
 own service (e.g., a sidecar container). It needs a database the nodes
 have [migrated](/guides/production#upgrades), and a role that reads and
-writes rows.
+writes rows. It reads the node's `WAYMARK_DATABASE_*` variables with
+defaults of its own, so in an environment both share, one setting
+applies to both.
 
 | Variable | Description | Default |
 | --- | --- | --- |
 | `WAYMARK_BRIDGE_GRPC_ADDR` | gRPC bind address. | `127.0.0.1:24117` |
 | `WAYMARK_BRIDGE_IN_MEMORY` | Run with no Postgres backend (test / dev only). | `false` |
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN. | Required unless in-memory |
-| `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the bridge's database pool. | `25` |
+| `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the bridge's database pool. | `10` |
 | `WAYMARK_DATABASE_STATEMENT_TIMEOUT_MS` | How long one statement on the bridge's database pool may run. `0` turns the limit off. | `60000` |
 | `WAYMARK_DATABASE_ACQUIRE_TIMEOUT_MS` | How long taking a connection from the bridge's database pool may wait before it fails. `0` refuses to boot. | `30000` |
 | `WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS` | How long the bridge waits at startup for a migration in progress, on a connection of its own. `0` turns the limit off. | `600000` |

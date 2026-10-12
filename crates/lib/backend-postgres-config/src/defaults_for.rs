@@ -12,6 +12,9 @@ use crate::profiles;
 pub enum DefaultsFor {
     /// The executor, the node.
     Executor,
+
+    /// The bridge.
+    Bridge,
 }
 
 impl DefaultsFor {
@@ -23,6 +26,7 @@ impl DefaultsFor {
     ) -> Result<pool::Config, pool::FromUrlAndEnvError> {
         match self {
             Self::Executor => pool::Config::from_url_and_env::<profiles::ExecutorPool>(url),
+            Self::Bridge => pool::Config::from_url_and_env::<profiles::BridgePool>(url),
         }
     }
 }

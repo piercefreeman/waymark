@@ -20,6 +20,21 @@ impl pool::Profile for ExecutorPool {
     const ACQUIRE_TIMEOUT_DEFAULT: NonZeroDuration = pool::Config::DEFAULT_ACQUIRE_TIMEOUT;
 }
 
+/// The bridge's read-write pool: `WAYMARK_DATABASE_*`, the executor's
+/// variables, with the bridge's own defaults.
+#[derive(Debug)]
+pub(crate) struct BridgePool;
+
+impl pool::Profile for BridgePool {
+    const PREFIX: &'static str = "DATABASE";
+
+    const MAX_CONNECTIONS_DEFAULT: NonZeroU32 = NonZeroU32::new(10).unwrap();
+
+    const STATEMENT_TIMEOUT_DEFAULT: Option<NonZeroDuration> = NonZeroDuration::from_secs(60);
+
+    const ACQUIRE_TIMEOUT_DEFAULT: NonZeroDuration = pool::Config::DEFAULT_ACQUIRE_TIMEOUT;
+}
+
 /// The migrations connection: `WAYMARK_MIGRATIONS_*`.
 #[derive(Debug)]
 pub(crate) struct Migrations;
