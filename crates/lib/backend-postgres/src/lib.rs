@@ -42,10 +42,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use sqlx::PgPool;
-use waymark_backends_core::{BackendError, BackendResult};
 use waymark_metrics_util::Val as MetricsVal;
-use waymark_observability::obs;
-use waymark_secret_string::SecretStr;
 
 /// Persist runner state and action results in Postgres.
 #[derive(Clone)]
@@ -62,15 +59,6 @@ impl PostgresBackend {
             query_counts: Arc::new(Mutex::new(HashMap::new())),
             batch_size_counts: Arc::new(Mutex::new(HashMap::new())),
         }
-    }
-
-    #[obs]
-    pub async fn connect(dsn: &SecretStr) -> BackendResult<Self> {
-        let pool = PgPool::connect(dsn.expose_secret()).await?;
-        waymark_backend_postgres_migrations::run(&pool)
-            .await
-            .map_err(|err| BackendError::Message(err.to_string()))?;
-        Ok(Self::new(pool))
     }
 
     pub fn pool(&self) -> &PgPool {

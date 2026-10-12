@@ -14,7 +14,6 @@ waymark-metrics-util = { workspace = true }
 waymark-observability = { workspace = true }
 waymark-scheduler-backend = { workspace = true }
 waymark-scheduler-core = { workspace = true }
-waymark-secret-string = { workspace = true }
 waymark-sleep-reconciler-backend = { workspace = true }
 waymark-state-vm-executables-backend = { workspace = true }
 waymark-state-vm-runtimes-backend = { workspace = true }

@@ -4060,7 +4060,6 @@ dependencies = [
  "waymark-observability",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
- "waymark-secret-string",
  "waymark-sleep-reconciler-backend",
  "waymark-state-vm-executables-backend",
  "waymark-state-vm-runtimes-backend",
