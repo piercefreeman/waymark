@@ -6,6 +6,7 @@ edition = "2024"
 
 [dependencies]
 waymark-backend-postgres = { workspace = true }
+waymark-backend-postgres-migrations = { workspace = true }
 waymark-execution-bringup = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
@@ -52,6 +53,7 @@ rand = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
