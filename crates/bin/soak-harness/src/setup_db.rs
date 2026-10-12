@@ -1,10 +1,11 @@
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use color_eyre::eyre::{WrapErr as _, bail};
 use sqlx::PgPool;
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::process::Command;
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_secret_string::SecretStr;
 
 pub async fn boot_postgres() -> Result<(), color_eyre::eyre::Report> {
@@ -28,36 +29,63 @@ pub async fn boot_postgres() -> Result<(), color_eyre::eyre::Report> {
     Ok(())
 }
 
-/// Connect the main pool, waiting up to `timeout` for the database to
-/// accept connections; every connection runs its statements under
-/// `statement_timeout`.
+/// Connect the main pool, migrated, waiting up to `timeout` for the
+/// database to accept connections; every connection, the migrations'
+/// included, runs its statements under `statement_timeout`.
+///
+/// The database is migrated through a connection of its own, the way the
+/// executor migrates it.
 pub async fn connect(
     dsn: &SecretStr,
-    statement_timeout: Duration,
+    statement_timeout: NonZeroDuration,
     timeout: Duration,
 ) -> Result<PgPool, color_eyre::eyre::Report> {
-    let options = dsn
-        .expose_secret()
-        .parse::<PgConnectOptions>()
-        .wrap_err("parse the database URL")?
-        .options([("statement_timeout", statement_timeout.as_millis())]);
+    let migrations = waymark_postgres_config::ConnectionConfig {
+        url: dsn.into(),
+        statement_timeout: Some(statement_timeout),
+    };
 
-    let pool = crate::common::wait_for_database("the main database", timeout, || async {
-        PgPoolOptions::new()
-            .max_connections(16)
-            .acquire_timeout(Duration::from_secs(5))
-            .connect_with(options.clone())
-            .await
-            .map_err(|error| {
-                if is_permanent(&error) {
-                    crate::common::WaitForDatabaseAttemptError::Stop(error)
-                } else {
-                    crate::common::WaitForDatabaseAttemptError::Retry(error)
-                }
-            })
+    crate::common::wait_for_database("the main database", timeout, || async {
+        let migrated = waymark_postgres_bringup::migrate(&migrations, None, async |connection| {
+            waymark_backend_postgres_migrations::run(connection).await
+        })
+        .await;
+
+        let Err(error) = migrated else {
+            return Ok(());
+        };
+
+        // Only a connect another attempt may get past is waited out; a bad
+        // URL, a permanent connect failure, a migration failure or a failed
+        // close is not the database coming up, and no migration runs twice.
+        let retry = matches!(
+            &error,
+            waymark_postgres_bringup::MigrateError::Connect(
+                waymark_postgres_bringup::ConnectionError::Connect(connect_error),
+            ) if !is_permanent(connect_error)
+        );
+
+        if retry {
+            Err(crate::common::WaitForDatabaseAttemptError::Retry(error))
+        } else {
+            Err(crate::common::WaitForDatabaseAttemptError::Stop(error))
+        }
+    })
+    .await
+    .wrap_err("migrate the database before soak")?;
+
+    let pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
+        config: &waymark_postgres_config::PoolConfig {
+            url: dsn.into(),
+            max_connections: NonZeroU32::new(16).expect("non-zero"),
+            statement_timeout: Some(statement_timeout),
+        },
+        transactions: waymark_postgres_bringup::Transactions::Unrestricted,
+        schema: None,
     })
     .await
     .wrap_err("connect to the database")?;
+
     Ok(pool)
 }
 

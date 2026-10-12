@@ -54,11 +54,17 @@ async fn run_benchmark(
             .await
             .wrap_err("bootstrap local postgres")?;
     }
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(pool_size.get())
-        .connect(dsn.expose_secret())
-        .await
-        .wrap_err("connect postgres")?;
+    let pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
+        config: &waymark_postgres_config::PoolConfig {
+            url: dsn.into(),
+            max_connections: pool_size,
+            statement_timeout: None,
+        },
+        transactions: waymark_postgres_bringup::Transactions::Unrestricted,
+        schema: None,
+    })
+    .await
+    .wrap_err("connect postgres")?;
     waymark_backend_postgres::reset::rebuild_schema(&pool)
         .await
         .wrap_err("rebuild database schema")?;

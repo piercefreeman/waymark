@@ -69,19 +69,15 @@ async fn run(
 
     let pool = common::run_unless_cancelled(
         &stop_token,
-        "waiting for the database",
+        "waiting for and migrating the database",
         setup_db::connect(
             &args.dsn,
-            Duration::from_secs(args.db_statement_timeout_secs.get()),
+            waymark_nonzero_duration::NonZeroDuration::from_nonzero_secs(
+                args.db_statement_timeout_secs,
+            ),
             DB_READY_TIMEOUT,
         ),
     )
-    .await?;
-    common::run_unless_cancelled(&stop_token, "running migrations", async {
-        waymark_backend_postgres_migrations::run(&pool)
-            .await
-            .wrap_err("run migrations before soak")
-    })
     .await?;
 
     let observability_store = common::run_unless_cancelled(
