@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 waymark-observability-store-postgres-config = { workspace = true }
+waymark-postgres-config = { workspace = true }
 waymark-secret-string = { workspace = true }
 
 envfury = { workspace = true }

@@ -109,3 +109,49 @@ fn read_only_takes_the_read_pool_alone() {
         Some(std::time::Duration::from_secs(10)),
     );
 }
+
+/// The variables a pool profile reads, built by a hand copy of
+/// `waymark-postgres-config`'s naming: it pins the profile's prefix only.
+fn pool_variables<Profile>() -> [String; 3]
+where
+    Profile: waymark_postgres_config::pool::Profile,
+{
+    [
+        format!("WAYMARK_{}_MAX_CONNECTIONS", Profile::PREFIX),
+        format!("WAYMARK_{}_STATEMENT_TIMEOUT_MS", Profile::PREFIX),
+        format!("WAYMARK_{}_ACQUIRE_TIMEOUT_MS", Profile::PREFIX),
+    ]
+}
+
+/// The variable a connection profile reads, built by a hand copy of
+/// `waymark-postgres-config`'s naming: it pins the profile's prefix only.
+fn connection_variables<Profile>() -> [String; 1]
+where
+    Profile: waymark_postgres_config::connection::Profile,
+{
+    [format!("WAYMARK_{}_STATEMENT_TIMEOUT_MS", Profile::PREFIX)]
+}
+
+#[test]
+fn the_profiles_read_the_documented_variables() {
+    assert_eq!(
+        pool_variables::<crate::profiles::WritePool>(),
+        [
+            "WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS",
+            "WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS",
+            "WAYMARK_OBSERVABILITY_POSTGRES_ACQUIRE_TIMEOUT_MS",
+        ],
+    );
+    assert_eq!(
+        pool_variables::<crate::profiles::ReadPool>(),
+        [
+            "WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS",
+            "WAYMARK_OBSERVABILITY_POSTGRES_READ_STATEMENT_TIMEOUT_MS",
+            "WAYMARK_OBSERVABILITY_POSTGRES_READ_ACQUIRE_TIMEOUT_MS",
+        ],
+    );
+    assert_eq!(
+        connection_variables::<crate::profiles::Migrations>(),
+        ["WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_STATEMENT_TIMEOUT_MS"],
+    );
+}

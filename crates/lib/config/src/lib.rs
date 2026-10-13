@@ -77,8 +77,10 @@ impl WorkerConfig {
     pub fn from_env() -> Result<Self, FromEnvError> {
         use self::parse::*;
 
-        let database = waymark_backend_postgres_config::ReadWriteMigrate::from_env()
-            .map_err(FromEnvError::Database)?;
+        let database = waymark_backend_postgres_config::ReadWriteMigrate::from_env(
+            waymark_backend_postgres_config::DefaultsFor::Executor,
+        )
+        .map_err(FromEnvError::Database)?;
 
         let worker_grpc_addr = envfury::or_parse("WAYMARK_WORKER_GRPC_ADDR", "127.0.0.1:24118")?;
 

@@ -1,6 +1,6 @@
 use std::num::NonZeroU32;
 
-use waymark_postgres_config::{ConnectionConfig, PoolConfig};
+use waymark_postgres_config::{connection, pool};
 
 use super::*;
 
@@ -22,12 +22,13 @@ async fn a_creating_pool_creates_the_schema_and_scopes_the_search_path() {
     .await
     .expect("drop leftover test schema");
 
-    let config = PoolConfig {
+    let config = pool::Config {
         url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
         max_connections: NonZeroU32::new(2).expect("non-zero"),
         statement_timeout: Some(
             waymark_nonzero_duration::NonZeroDuration::from_millis(2_500).expect("non-zero"),
         ),
+        acquire_timeout: waymark_nonzero_duration::NonZeroDuration::from_secs(3).expect("non-zero"),
     };
     let pool = pool(Params {
         config: &config,
@@ -37,6 +38,10 @@ async fn a_creating_pool_creates_the_schema_and_scopes_the_search_path() {
     .await
     .expect("the pool comes up");
     assert_eq!(pool.options().get_max_connections(), 2);
+    assert_eq!(
+        pool.options().get_acquire_timeout(),
+        std::time::Duration::from_secs(3)
+    );
 
     let (current_schema,): (String,) = sqlx::query_as("SELECT current_schema()")
         .fetch_one(&pool)
@@ -82,12 +87,13 @@ async fn a_read_only_requiring_pool_creates_nothing() {
     .execute(&bootstrap)
     .await
     .expect("drop leftover test schema");
-    let config = PoolConfig {
+    let config = pool::Config {
         url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
         max_connections: NonZeroU32::new(2).expect("non-zero"),
         statement_timeout: Some(
             waymark_nonzero_duration::NonZeroDuration::from_millis(2_500).expect("non-zero"),
         ),
+        acquire_timeout: pool::Config::DEFAULT_ACQUIRE_TIMEOUT,
     };
 
     let read_params = || Params {
@@ -170,7 +176,7 @@ async fn a_creating_connection_creates_the_schema_and_carries_its_timeout() {
     .await
     .expect("drop leftover test schema");
 
-    let config = ConnectionConfig {
+    let config = connection::Config {
         url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
         statement_timeout: Some(
             waymark_nonzero_duration::NonZeroDuration::from_millis(7_500).expect("non-zero"),
@@ -214,7 +220,7 @@ async fn migrate_creates_the_schema_runs_and_closes() {
     .await
     .expect("drop leftover test schema");
 
-    let config = ConnectionConfig {
+    let config = connection::Config {
         url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
         statement_timeout: None,
     };
@@ -262,7 +268,7 @@ async fn migrate_creates_the_schema_runs_and_closes() {
 async fn a_failed_migration_is_reported_and_its_connection_closed() {
     let bootstrap = waymark_support_test::postgres_setup().await;
 
-    let config = ConnectionConfig {
+    let config = connection::Config {
         url: waymark_support_integration::LOCAL_POSTGRES_DSN.into(),
         statement_timeout: None,
     };
@@ -324,7 +330,7 @@ async fn connection_statement_timeout(
     url: &str,
     statement_timeout: Option<waymark_nonzero_duration::NonZeroDuration>,
 ) -> String {
-    let config = ConnectionConfig {
+    let config = connection::Config {
         url: url.into(),
         statement_timeout,
     };

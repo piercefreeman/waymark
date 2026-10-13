@@ -40,7 +40,7 @@ pub async fn connect(
     statement_timeout: NonZeroDuration,
     timeout: Duration,
 ) -> Result<PgPool, color_eyre::eyre::Report> {
-    let migrations = waymark_postgres_config::ConnectionConfig {
+    let migrations = waymark_postgres_config::connection::Config {
         url: dsn.into(),
         statement_timeout: Some(statement_timeout),
     };
@@ -75,10 +75,11 @@ pub async fn connect(
     .wrap_err("migrate the database before soak")?;
 
     let pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
-        config: &waymark_postgres_config::PoolConfig {
+        config: &waymark_postgres_config::pool::Config {
             url: dsn.into(),
             max_connections: NonZeroU32::new(16).expect("non-zero"),
             statement_timeout: Some(statement_timeout),
+            acquire_timeout: NonZeroDuration::from_secs(5).expect("non-zero"),
         },
         transactions: waymark_postgres_bringup::Transactions::Unrestricted,
         schema: None,

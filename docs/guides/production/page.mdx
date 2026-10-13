@@ -174,9 +174,10 @@ Budget your Postgres connections per process:
   observability migrations; each is closed before the pools of its
   database open, so neither adds to the 33.
 - **Each app host** that queues workflows runs one singleton bridge, with
-  up to 25 connections (`WAYMARK_DATABASE_MAX_CONNECTIONS`, the same
-  variable as the node's). At startup it also opens one connection to
-  check the schema, and closes it before its pool opens.
+  up to 10 connections (`WAYMARK_DATABASE_MAX_CONNECTIONS`, the same
+  variable as the node's, with a default of its own). At startup it also
+  opens one connection to check the schema, and closes it before its pool
+  opens.
 
 The observability store holds what the webapp shows: instance events and
 node load samples, kept for seven days by default. On a busy deployment

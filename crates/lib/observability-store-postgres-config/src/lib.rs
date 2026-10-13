@@ -15,6 +15,7 @@
 //! observability pool, so the main pool's own cap understates the total.
 
 pub mod migrate_only;
+mod profiles;
 pub mod read_only;
 pub mod read_write;
 pub mod read_write_migrate;
