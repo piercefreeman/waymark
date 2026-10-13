@@ -129,3 +129,75 @@ where
 
     Ok((api_router, emitter, vm_driver_hooks_policy))
 }
+
+/// Error returned by [`start_emitter_only`].
+#[derive(Debug, thiserror::Error)]
+pub enum StartEmitterOnlyError {
+    /// The store's schema is not there, or not migrated exactly to this
+    /// build's migrations.
+    #[error("checking the observability migrations: {0}")]
+    MigrationsCheck(
+        #[source]
+        waymark_postgres_bringup::CheckMigrationsError<
+            waymark_sqlx_postgres_migrations::CheckError,
+        >,
+    ),
+
+    /// The observability write pool could not be brought up.
+    #[error("bringing up the observability write pool: {0}")]
+    WritePool(#[source] waymark_postgres_bringup::PoolError),
+}
+
+/// Bring up the observability-events producer side alone, for a process
+/// that writes events but neither migrates the store nor serves the
+/// observability API: a write pool over the store `config` describes,
+/// which has to be migrated exactly to this build's migrations already,
+/// and the lossy batcher into it under `lossy_batcher_policy`, as a task of
+/// `spawner` that stops when the emitter's last handle is dropped or on
+/// `force_shutdown_token` — and return `node_id`'s event emitter.
+pub async fn start_emitter_only<Spawner>(
+    spawner: Spawner,
+    config: &waymark_observability_store_config::WriteOnly,
+    lossy_batcher_policy: waymark_lossy_batcher::ValidPolicy,
+    node_id: waymark_ids::NodeId,
+    force_shutdown_token: tokio_util::sync::CancellationToken,
+) -> Result<Emitter, StartEmitterOnlyError>
+where
+    Spawner: waymark_managed_spawner::Spawner,
+{
+    let waymark_observability_store_config::WriteOnly::Postgres(postgres_config) = config;
+
+    // The migrations check first, on a connection of its own: it waits for
+    // a migration in progress, which the write pool's statement timeout
+    // would cut short. A store migrated to other migrations than this
+    // build's fails the bringup rather than losing every event written to
+    // it. The connection and the pool require the schema and never create
+    // it: only a process that migrates the store creates it.
+    waymark_postgres_bringup::check_migrations(
+        &postgres_config.migrations_check,
+        Some(SCHEMA.into()),
+        async |connection| waymark_observability_store_postgres_migrations::check(connection).await,
+    )
+    .await
+    .map_err(StartEmitterOnlyError::MigrationsCheck)?;
+
+    let write_pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
+        config: &postgres_config.write,
+        transactions: waymark_postgres_bringup::Transactions::Unrestricted,
+        schema: Some(waymark_postgres_bringup::Schema::Require(SCHEMA.into())),
+    })
+    .await
+    .map_err(StartEmitterOnlyError::WritePool)?;
+
+    let write_store = Arc::new(waymark_observability_store_postgres::Store { pool: write_pool });
+
+    let emitter = waymark_observability_events_bringup::start_emitter(
+        spawner,
+        lossy_batcher_policy,
+        node_id,
+        write_store,
+        force_shutdown_token,
+    );
+
+    Ok(emitter)
+}

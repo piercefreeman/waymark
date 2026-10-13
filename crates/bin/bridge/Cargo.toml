@@ -14,6 +14,9 @@ waymark-fn-main-lifecycle = { workspace = true }
 waymark-fn-main-lifecycle-ctrl-c = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-managed-spawner-supervised = { workspace = true }
+waymark-observability-bringup = { workspace = true }
+waymark-observability-events-config = { workspace = true }
+waymark-observability-store-config = { workspace = true }
 waymark-postgres-bringup = { workspace = true }
 waymark-proto = { workspace = true, features = ["server"] }
 waymark-scheduler-convert-proto = { workspace = true }

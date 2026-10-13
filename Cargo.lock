@@ -4214,6 +4214,9 @@ dependencies = [
  "waymark-fn-main-lifecycle-ctrl-c",
  "waymark-ids",
  "waymark-managed-spawner-supervised",
+ "waymark-observability-bringup",
+ "waymark-observability-events-config",
+ "waymark-observability-store-config",
  "waymark-postgres-bringup",
  "waymark-proto",
  "waymark-scheduler-convert-proto",
@@ -4831,6 +4834,7 @@ dependencies = [
  "waymark-essential-metrics-bringup",
  "waymark-essential-metrics-sampler",
  "waymark-ids",
+ "waymark-lossy-batcher",
  "waymark-managed-spawner",
  "waymark-observability-config",
  "waymark-observability-events-bringup",
@@ -4839,6 +4843,7 @@ dependencies = [
  "waymark-observability-store-postgres",
  "waymark-observability-store-postgres-migrations",
  "waymark-postgres-bringup",
+ "waymark-sqlx-postgres-migrations",
 ]
 
 [[package]]

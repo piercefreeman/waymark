@@ -7,6 +7,12 @@
 //! It never migrates the database: it refuses to start unless the schema
 //! matches its migrations exactly.
 //!
+//! It is a node of its own: it mints a node id at every boot, and brings
+//! up an observability-events emitter under it, which nothing emits
+//! through yet. It never migrates the observability store either: it
+//! refuses to start unless the store's schema matches its migrations
+//! exactly.
+//!
 //! It shuts down gracefully on Ctrl+C or a termination request.
 //!
 //! Configuration is via environment variables:
@@ -15,8 +21,15 @@
 //! - WAYMARK_DATABASE_STATEMENT_TIMEOUT_MS: statement timeout on the database pool, `0` for none (default: 60000)
 //! - WAYMARK_DATABASE_ACQUIRE_TIMEOUT_MS: how long taking a connection from the database pool may wait, `0` refuses to boot (default: 30000)
 //! - WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS: how long the startup waits for a migration in progress, `0` for no limit (default: 600000)
+//! - WAYMARK_OBSERVABILITY_DATABASE_URL: DSN for the observability store (default: WAYMARK_DATABASE_URL)
+//! - WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS: Connection cap for the observability write pool (default: 4)
+//! - WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS: Statement timeout on the observability write pool, `0` for none (default: 30000)
+//! - WAYMARK_OBSERVABILITY_POSTGRES_ACQUIRE_TIMEOUT_MS: How long taking a connection from the observability write pool may wait, `0` refuses to boot (default: 30000)
+//! - WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_STATEMENT_TIMEOUT_MS: how long the startup waits for an observability migration in progress, `0` for no limit (default: 600000)
+//! - WAYMARK_OBSERVABILITY_EVENTS_SINK_BUFFERS / WAYMARK_OBSERVABILITY_EVENTS_SINK_MAX_BATCH / WAYMARK_OBSERVABILITY_EVENTS_SINK_MAX_DELAY_MS / WAYMARK_OBSERVABILITY_EVENTS_SINK_FLUSHERS: Observability-events write batching (defaults: 3 / 256 / 1000 / 1)
+//! - WAYMARK_OBSERVABILITY_EVENTS_RETENTION_MS / WAYMARK_OBSERVABILITY_EVENTS_RETENTION_SWEEP_INTERVAL_MS / WAYMARK_OBSERVABILITY_EVENTS_RECORD_SNAPSHOT_PERSISTED: read and validated at boot as on the node, with no effect on the bridge
 //! - WAYMARK_BRIDGE_GRPC_ADDR: gRPC server bind address (default: 127.0.0.1:24117)
-//! - WAYMARK_BRIDGE_IN_MEMORY: enable in-memory execution mode for streaming workflows
+//! - WAYMARK_BRIDGE_IN_MEMORY: enable in-memory execution mode for streaming workflows, with no database and no observability
 
 mod bridge_service;
 mod workflow_store;
@@ -60,20 +73,35 @@ async fn main()
         envfury::or_parse("WAYMARK_BRIDGE_GRPC_ADDR", DEFAULT_GRPC_ADDR)?;
     let PermissiveBool(in_memory) = envfury::or_parse("WAYMARK_BRIDGE_IN_MEMORY", "false")?;
 
-    let database = if in_memory {
+    let databases = if in_memory {
         None
     } else {
-        Some(waymark_backend_postgres_config::ReadWriteOnly::from_env(
+        let database = waymark_backend_postgres_config::ReadWriteOnly::from_env(
             waymark_backend_postgres_config::DefaultsFor::Bridge,
-        )?)
+        )?;
+        let observability_store =
+            waymark_observability_store_config::WriteOnly::from_env_url_with_default(
+                &database.read_write.url,
+            )?;
+        let observability_events =
+            waymark_observability_events_config::ObservabilityEventsConfig::from_env()?;
+
+        Some((database, observability_store, observability_events))
     };
+
+    // Mint this boot's node identity, which the observability-events
+    // emitter is brought up under when there is a database.
+    let node_id = waymark_ids::NodeId::new_uuid_v4();
 
     // Wire shutdown coordination. The signal listener cancels the
     // stop-startup-then-shutdown token; the lifecycle cancels the shutdown
     // token after it, or when the startup fails, and the supervisor cancels
-    // it when a task ends early.
+    // it when a task ends early. The force token is deliberately never
+    // cancelled: this process is graceful only, and a drain that never
+    // finishes is ended by the orchestrator's kill, not by anything in here.
     let stop_startup_then_shutdown_token = tokio_util::sync::CancellationToken::new();
     let shutdown_token = tokio_util::sync::CancellationToken::new();
+    let force_shutdown_token = tokio_util::sync::CancellationToken::new();
 
     let supervisor = waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
@@ -98,9 +126,9 @@ async fn main()
             ),
         );
 
-        let store = match database {
+        let store = match databases {
             None => None,
-            Some(database) => {
+            Some((database, observability_store, observability_events)) => {
                 // The check waits for a migration in progress, which the
                 // pool's statement timeout would cut short.
                 waymark_postgres_bringup::check_migrations(
@@ -109,6 +137,7 @@ async fn main()
                     async |connection| waymark_backend_postgres_migrations::check(connection).await,
                 )
                 .await?;
+                checkpoint()?;
 
                 let pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
                     config: &database.read_write,
@@ -116,12 +145,39 @@ async fn main()
                     schema: None,
                 })
                 .await?;
+                checkpoint()?;
+
+                let observability_events_emitter =
+                    waymark_observability_bringup::start_emitter_only(
+                        &mut supervisor,
+                        &observability_store,
+                        observability_events.lossy_batcher_policy,
+                        node_id,
+                        force_shutdown_token.child_token(),
+                    )
+                    .await?;
+                checkpoint()?;
+
+                // The observability-events emitter, held until the shutdown
+                // token: the lossy batcher behind it stops on the emitter's
+                // last handle.
+                // FIXME: nothing emits through it yet; the workflow-service
+                // hooks are its producers to come, and hold it instead of
+                // this task.
+                let shutdown_token = shutdown_token.clone();
+                supervisor.spawn("observability events emitter", async move {
+                    shutdown_token.cancelled().await;
+
+                    drop(observability_events_emitter);
+
+                    Ok::<(), core::convert::Infallible>(())
+                });
 
                 let workflow_store = WorkflowStore::new(pool);
+
                 Some(Arc::new(workflow_store))
             }
         };
-        checkpoint()?;
 
         // Bound here rather than in the server task, so an address in use
         // fails the startup, with the address, before anything reports
@@ -141,7 +197,7 @@ async fn main()
             .set_serving::<proto::workflow_service_server::WorkflowServiceServer<BridgeService>>()
             .await;
 
-        info!(%grpc_addr, in_memory, "waymark bridge starting");
+        info!(%grpc_addr, in_memory, %node_id, "waymark bridge starting");
 
         let workflow_service = proto::workflow_service_server::WorkflowServiceServer::new(service)
             .max_decoding_message_size(waymark_proto::GRPC_MAX_MESSAGE_SIZE_BYTES)
