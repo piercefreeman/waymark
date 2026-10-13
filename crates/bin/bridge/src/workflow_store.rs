@@ -33,48 +33,32 @@ pub struct WorkflowStore {
 }
 
 impl WorkflowStore {
-    pub async fn connect(
-        database: &waymark_backend_postgres_config::ReadWriteOnly,
-    ) -> Result<Self, color_eyre::eyre::Report> {
-        // The check waits for a migration in progress, which the pool's
-        // statement timeout would cut short.
-        let mut migrations_check_connection =
-            waymark_postgres_bringup::connection(waymark_postgres_bringup::ConnectionParams {
-                config: &database.migrations_check,
-                transactions: waymark_postgres_bringup::Transactions::Unrestricted,
-                schema: None,
-            })
-            .await?;
-
-        waymark_backend_postgres_migrations::check(&mut migrations_check_connection).await?;
-
-        <sqlx::PgConnection as sqlx::Connection>::close(migrations_check_connection).await?;
-
-        let pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
-            config: &database.read_write,
-            transactions: waymark_postgres_bringup::Transactions::Unrestricted,
-            schema: None,
-        })
-        .await?;
+    /// The store over the main database's `pool`.
+    pub fn new(pool: sqlx::PgPool) -> Self {
         let backend = PostgresBackend::new(pool);
         let codec = waymark_vm_codec_rmp::RmpCodec;
+
         let executables = waymark_workflow_service_vm_executables::ExecutablesService::new(
             backend.clone(),
             codec,
         );
+
         let registration =
             waymark_workflow_service_vm_runtimes::RegistrationService::new(backend.clone(), codec);
+
         let outcome_polling = waymark_workflow_service_vm_runtimes::OutcomePollingService::new(
             backend.clone(),
             codec,
         );
+
         let schedules = waymark_workflow_service_scheduler::ScheduleService::new(backend, codec);
-        Ok(Self {
+
+        Self {
             schedules,
             registration,
             executables,
             outcome_polling,
-        })
+        }
     }
 
     pub async fn compile_and_store(

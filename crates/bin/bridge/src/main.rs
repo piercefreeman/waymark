@@ -101,7 +101,31 @@ async fn main()
         let store = match database {
             None => None,
             Some(database) => {
-                let workflow_store = WorkflowStore::connect(&database).await?;
+                // The check waits for a migration in progress, which the
+                // pool's statement timeout would cut short.
+                let mut migrations_check_connection = waymark_postgres_bringup::connection(
+                    waymark_postgres_bringup::ConnectionParams {
+                        config: &database.migrations_check,
+                        transactions: waymark_postgres_bringup::Transactions::Unrestricted,
+                        schema: None,
+                    },
+                )
+                .await?;
+
+                waymark_backend_postgres_migrations::check(&mut migrations_check_connection)
+                    .await?;
+
+                <sqlx::PgConnection as sqlx::Connection>::close(migrations_check_connection)
+                    .await?;
+
+                let pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
+                    config: &database.read_write,
+                    transactions: waymark_postgres_bringup::Transactions::Unrestricted,
+                    schema: None,
+                })
+                .await?;
+
+                let workflow_store = WorkflowStore::new(pool);
                 Some(Arc::new(workflow_store))
             }
         };
