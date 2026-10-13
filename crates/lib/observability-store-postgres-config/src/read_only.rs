@@ -1,8 +1,5 @@
 //! A Postgres observability store that is only read.
 
-use std::num::NonZeroU64;
-
-use waymark_nonzero_duration::NonZeroDuration;
 use waymark_secret_string::SecretString;
 
 use crate::PoolConfig;
@@ -45,7 +42,7 @@ pub(crate) fn pool_from_url_and_env(read_url: SecretString) -> Result<PoolConfig
             .map_err(FromEnvError::MaxConnections)?;
     // 10 seconds: sized for paged, range-bound reads; a read the client
     // gave up on holds its connection no longer than this.
-    let statement_timeout_millis: NonZeroU64 = envfury::or_parse(
+    let statement_timeout = crate::statement_timeout_from_env(
         "WAYMARK_OBSERVABILITY_POSTGRES_READ_STATEMENT_TIMEOUT_MS",
         "10000",
     )
@@ -54,6 +51,6 @@ pub(crate) fn pool_from_url_and_env(read_url: SecretString) -> Result<PoolConfig
     Ok(PoolConfig {
         url: read_url,
         max_connections,
-        statement_timeout: NonZeroDuration::from_nonzero_millis(statement_timeout_millis),
+        statement_timeout,
     })
 }

@@ -236,17 +236,21 @@ where
 }
 
 /// The connect options of `url`, every connection carrying
-/// `statement_timeout` and the `transactions` limits.
+/// `statement_timeout`, or no statement timeout when it is `None`, and the
+/// `transactions` limits.
 fn connect_options(
     url: &waymark_secret_string::SecretString,
-    statement_timeout: waymark_nonzero_duration::NonZeroDuration,
+    statement_timeout: Option<waymark_nonzero_duration::NonZeroDuration>,
     transactions: Transactions,
 ) -> Result<sqlx::postgres::PgConnectOptions, sqlx::Error> {
     let options = url
         .expose_secret()
         .parse::<sqlx::postgres::PgConnectOptions>()?;
 
-    let options = options.options([("statement_timeout", statement_timeout.as_millis())]);
+    // `0` is set rather than nothing, so a default the server or the role
+    // carries does not apply either: the config is the only source.
+    let statement_timeout_millis = statement_timeout.map_or(0, |timeout| timeout.as_millis());
+    let options = options.options([("statement_timeout", statement_timeout_millis)]);
 
     let options = match transactions {
         Transactions::Unrestricted => options,

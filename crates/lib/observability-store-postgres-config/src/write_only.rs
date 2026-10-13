@@ -1,8 +1,5 @@
 //! A Postgres observability store that is only written.
 
-use std::num::NonZeroU64;
-
-use waymark_nonzero_duration::NonZeroDuration;
 use waymark_secret_string::SecretString;
 
 use crate::PoolConfig;
@@ -43,7 +40,7 @@ pub(crate) fn pool_from_url_and_env(write_url: SecretString) -> Result<PoolConfi
         .map_err(FromEnvError::MaxConnections)?;
     // TODO: measure the longest legitimate write (a sink flush, a chunk of
     // a retention sweep) and size this from it.
-    let statement_timeout_millis: NonZeroU64 = envfury::or_parse(
+    let statement_timeout = crate::statement_timeout_from_env(
         "WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS",
         "30000",
     )
@@ -52,6 +49,6 @@ pub(crate) fn pool_from_url_and_env(write_url: SecretString) -> Result<PoolConfi
     Ok(PoolConfig {
         url: write_url,
         max_connections,
-        statement_timeout: NonZeroDuration::from_nonzero_millis(statement_timeout_millis),
+        statement_timeout,
     })
 }
