@@ -6,7 +6,6 @@ publish.workspace = true
 
 [dependencies]
 waymark-batcher = { workspace = true }
-waymark-state-manager = { workspace = true }
 waymark-state-manager-core = { workspace = true }
 waymark-state-vm-runtimes-backend = { workspace = true }
 waymark-state-vm-runtimes-core = { workspace = true }

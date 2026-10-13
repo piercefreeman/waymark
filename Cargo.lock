@@ -4379,6 +4379,7 @@ dependencies = [
  "waymark-state-vm-executables-backend",
  "waymark-state-vm-runtimes",
  "waymark-state-vm-runtimes-backend",
+ "waymark-state-vm-runtimes-compat",
  "waymark-state-vm-runtimes-core",
  "waymark-system-vm",
  "waymark-vm-codec-rmp",
@@ -5422,7 +5423,6 @@ dependencies = [
  "tokio-util",
  "tracing",
  "waymark-batcher",
- "waymark-state-manager",
  "waymark-state-manager-core",
  "waymark-state-vm-runtimes-backend",
  "waymark-state-vm-runtimes-core",
@@ -5444,6 +5444,14 @@ name = "waymark-state-vm-runtimes-backend"
 version = "0.1.0"
 dependencies = [
  "waymark-blanket-impl-macros",
+]
+
+[[package]]
+name = "waymark-state-vm-runtimes-compat"
+version = "0.1.0"
+dependencies = [
+ "waymark-state-manager",
+ "waymark-state-vm-runtimes-core",
 ]
 
 [[package]]

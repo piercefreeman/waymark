@@ -1,14 +1,13 @@
-//! Multi-VM runtime manager, backed by [`waymark_state_manager::State`].
+//! Multi-VM runtime manager, backed by the state manager.
 //!
 //! This crate manages multiple [`waymark_vm_runtime::Runtime`] instances,
 //! driving each one's execution loop, routing extcall effects and promise
 //! settlements, and coordinating persistence via a backend.
 //!
 //! The state-manager provides concurrent access and automatic cleanup
-//! through ref-counted [`Handle`](waymark_state_manager::Handle)s. When
-//! the last handle to a VM is dropped, the entry is marked for eviction
-//! and eventually swept (which drops the [`Spawned`], aborting the
-//! underlying driver thread).
+//! through ref-counted handles. When the last handle to a VM is dropped,
+//! the entry is marked for eviction and eventually swept (which drops the
+//! [`Spawned`], cancelling the underlying driver loop).
 
 #![warn(missing_docs)]
 
@@ -28,6 +27,21 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use tracing::Instrument as _;
+
+/// The function identifier of an executable provider's executables.
+type ExecutableFunctionIdFor<ExecutableProvider> = <waymark_state_vm_runtimes_core::ExecutableFor<
+    ExecutableProvider,
+> as waymark_vm_executable::Functions>::FunctionId;
+
+/// The function state identifier of an executable provider's executables.
+type ExecutableFunctionStateIdFor<ExecutableProvider> = <waymark_state_vm_runtimes_core::ExecutableFor<
+    ExecutableProvider,
+> as waymark_vm_executable::FunctionStates>::StateId;
+
+/// The instruction type of an executable provider's executables.
+type ExecutableInstructionFor<ExecutableProvider> = <waymark_state_vm_runtimes_core::ExecutableFor<
+    ExecutableProvider,
+> as waymark_vm_executable::InstructionsProvider>::Instruction;
 
 /// Error from [`SpawningFactory`]'s [`produce`](waymark_state_manager_core::Factory::produce).
 #[derive(Debug, thiserror::Error)]
@@ -50,6 +64,9 @@ where
 
 /// A [`waymark_state_manager_core::Factory`] that revives VMs from persisted
 /// snapshots.
+///
+/// A VM's [`Spawned`] holds the handle the executable provider handed out for
+/// its executable.
 pub struct SpawningFactory<
     Backend,
     Codec,
@@ -153,34 +170,30 @@ where
     <Codec as waymark_vm_codec_core::DeserializerProvider>::Error:
         std::error::Error + Send + 'static,
     Backend: waymark_state_vm_runtimes_backend::HasExecutableId,
-    <Backend as waymark_state_vm_runtimes_backend::HasExecutableId>::ExecutableId:
-        Eq + Hash + Clone + Send + Sync,
-    ExecutableProvider: waymark_state_manager::provider::Provider<
-        Key = <Backend as waymark_state_vm_runtimes_backend::HasExecutableId>::ExecutableId,
+    <Backend as waymark_state_vm_runtimes_backend::HasExecutableId>::ExecutableId: Send,
+    ExecutableProvider: waymark_state_vm_runtimes_core::ExecutableProvider<
+        ExecutableId = <Backend as waymark_state_vm_runtimes_backend::HasExecutableId>::ExecutableId,
     >,
     ExecutableProvider: Send + Sync + 'static,
     ExecutableProvider::Error: Send + 'static,
-    ExecutableProvider::Value:
+    ExecutableProvider::Handle: waymark_state_vm_runtimes_core::ExecutableAccess,
+    ExecutableProvider::Handle: Send + Sync + 'static,
+    waymark_state_vm_runtimes_core::ExecutableFor<ExecutableProvider>:
         waymark_vm_executable::InstructionsProvider + Send + Sync + 'static + Clone,
-    <ExecutableProvider::Value as waymark_vm_executable::Functions>::FunctionId: Copy + Send,
-    <ExecutableProvider::Value as waymark_vm_executable::Functions>::FunctionId:
-        serde::Serialize,
-    <ExecutableProvider::Value as waymark_vm_executable::Functions>::FunctionId:
-        for<'a> serde::Deserialize<'a>,
-    <ExecutableProvider::Value as waymark_vm_executable::FunctionStates>::StateId:
-        Copy + PartialEq + Send,
-    <ExecutableProvider::Value as waymark_vm_executable::FunctionStates>::StateId:
-        serde::Serialize,
-    <ExecutableProvider::Value as waymark_vm_executable::FunctionStates>::StateId:
-        for<'a> serde::Deserialize<'a>,
-    ExecutableProvider::Value: waymark_vm_executable::FunctionStates + Send,
+    ExecutableFunctionIdFor<ExecutableProvider>: Copy + Send,
+    ExecutableFunctionIdFor<ExecutableProvider>: serde::Serialize,
+    ExecutableFunctionIdFor<ExecutableProvider>: for<'a> serde::Deserialize<'a>,
+    ExecutableFunctionStateIdFor<ExecutableProvider>: Copy + PartialEq + Send,
+    ExecutableFunctionStateIdFor<ExecutableProvider>: serde::Serialize,
+    ExecutableFunctionStateIdFor<ExecutableProvider>: for<'a> serde::Deserialize<'a>,
+    waymark_state_vm_runtimes_core::ExecutableFor<ExecutableProvider>: waymark_vm_executable::FunctionStates + Send,
     InterpreterProvider: waymark_state_vm_runtimes_core::InterpreterProvider<
         VmId = Backend::VmId,
     >,
     InterpreterProvider: Send + Sync + 'static,
     InterpreterProvider::Interpreter: waymark_vm_interpreter::Interpreter<
-            Frame = waymark_vm_runtime::FrameFor<ExecutableProvider::Value, Value, RaisedException>,
-            Instruction = <ExecutableProvider::Value as waymark_vm_executable::InstructionsProvider>::Instruction,
+            Frame = waymark_vm_runtime::FrameFor<waymark_state_vm_runtimes_core::ExecutableFor<ExecutableProvider>, Value, RaisedException>,
+            Instruction = ExecutableInstructionFor<ExecutableProvider>,
         >,
     InterpreterProvider::Interpreter: Send + 'static,
     for<'view, 'runtime> <InterpreterProvider::Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'view>:
@@ -188,9 +201,9 @@ where
             'view,
             waymark_vm_runtime_core::FullRuntimeView<
                 'runtime,
-                ExecutableProvider::Value,
-                <ExecutableProvider::Value as waymark_vm_executable::Functions>::FunctionId,
-                <ExecutableProvider::Value as waymark_vm_executable::FunctionStates>::StateId,
+                waymark_state_vm_runtimes_core::ExecutableFor<ExecutableProvider>,
+                ExecutableFunctionIdFor<ExecutableProvider>,
+                ExecutableFunctionStateIdFor<ExecutableProvider>,
                 Value,
                 RaisedException,
             >,
@@ -269,11 +282,12 @@ where
 
         let executable_handle = self
             .executable_provider
-            .get(executable_id)
+            .provide_executable(executable_id)
             .await
             .map_err(SpawningError::ExecutableProvider)?;
 
-        let executable = (*executable_handle).clone();
+        let executable =
+            waymark_state_vm_runtimes_core::ExecutableAccess::executable(&executable_handle).clone();
 
         let interpreter = self.interpreter_provider.provide_interpreter(key);
 

@@ -18,7 +18,7 @@ pub enum Evicted<DriverError> {
 }
 
 /// A spawned VM handle that exposes the access to the VM.
-#[must_use = "driver thread is aborted when this handle is dropped"]
+#[must_use = "driver loop is cancelled when this handle is dropped"]
 pub struct Spawned<DriverError> {
     /// Gracefully cancels the driver loop.
     driver_loop_cancel: CancellationToken,
@@ -32,7 +32,7 @@ pub struct Spawned<DriverError> {
     /// see [`Spawned::evicted`].
     driver_error: crate::once_receiver::OnceReceiver<DriverError>,
 
-    /// Opaque handles kept alive while this VM is running.
+    /// Opaque handles held for as long as this `Spawned` exists.
     #[allow(
         unused,
         reason = "these handles are kept around for the drop semantics, \

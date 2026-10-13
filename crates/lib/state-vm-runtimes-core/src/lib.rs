@@ -1,8 +1,9 @@
 //! Core traits for the state-vm-runtimes subsystem.
 //!
-//! Provides the [`EffectorProvider`], [`InterpreterProvider`] and
-//! [`HooksProvider`] traits — abstractions for creating per-VM effectors,
-//! interpreters and driver hooks.
+//! Provides the [`EffectorProvider`], [`InterpreterProvider`],
+//! [`HooksProvider`] and [`ExecutableProvider`] traits — abstractions for
+//! creating per-VM effectors, interpreters and driver hooks, and for
+//! providing executables.
 
 #![warn(missing_docs)]
 
@@ -38,6 +39,37 @@ pub trait HooksProvider {
 
     /// Provide the hooks for the given VM.
     fn provide_hooks(&self, vm_id: &Self::VmId) -> Self::Hooks;
+}
+
+/// Provides the executable a VM runs.
+pub trait ExecutableProvider {
+    /// The executable identifier type.
+    type ExecutableId;
+
+    /// The handle to a provided executable.
+    type Handle;
+
+    /// The error returned when providing an executable fails.
+    type Error;
+
+    /// Provide a handle to the executable with the given identifier.
+    fn provide_executable(
+        &self,
+        executable_id: Self::ExecutableId,
+    ) -> impl Future<Output = Result<Self::Handle, Self::Error>> + Send + '_;
+}
+
+/// The executable behind the handles an [`ExecutableProvider`] hands out.
+pub type ExecutableFor<ExecutableProvider> =
+    <<ExecutableProvider as self::ExecutableProvider>::Handle as ExecutableAccess>::Executable;
+
+/// Access to a provided executable.
+pub trait ExecutableAccess {
+    /// The executable type.
+    type Executable;
+
+    /// The executable.
+    fn executable(&self) -> &Self::Executable;
 }
 
 /// Provides an interpreter for a given VM.

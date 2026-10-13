@@ -1,0 +1,9 @@
+[package]
+name = "waymark-state-vm-runtimes-compat"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-state-manager = { workspace = true }
+waymark-state-vm-runtimes-core = { workspace = true }

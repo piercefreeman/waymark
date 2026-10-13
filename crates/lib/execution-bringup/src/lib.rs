@@ -510,7 +510,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
     let vm_runtimes_factory = waymark_state_vm_runtimes::SpawningFactory::new(
         Arc::clone(&backend),
         Arc::clone(&codec),
-        executable_state,
+        waymark_state_vm_runtimes_compat::Compat(executable_state),
         interpreter_provider,
         effector_provider,
         hooks_provider,
