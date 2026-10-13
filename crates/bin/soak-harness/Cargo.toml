@@ -17,6 +17,7 @@ waymark-ir-parser = { workspace = true }
 waymark-managed-process = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-observability-config = { workspace = true }
+waymark-observability-store-config = { workspace = true }
 waymark-observability-store-postgres = { workspace = true }
 waymark-observability-store-postgres-bringup = { workspace = true }
 waymark-observability-store-postgres-migrations = { workspace = true }

@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use waymark_observability_config::{Db, ObservabilityConfig};
+use waymark_observability_config::ObservabilityConfig;
 
 /// The observability schema: one schema for every observability
 /// subsystem's tables.
@@ -60,7 +60,7 @@ pub async fn start<Spawner>(
 where
     Spawner: waymark_managed_spawner::Spawner,
 {
-    let Db::Postgres(postgres_config) = &config.db;
+    let waymark_observability_store_config::ReadWrite::Postgres(postgres_config) = &config.db;
 
     // The write pool first, and the migrations through it: each migration
     // statement runs under the write pool's statement timeout. The read

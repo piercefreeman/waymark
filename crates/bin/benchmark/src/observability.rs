@@ -62,7 +62,7 @@ where
 
     // The store's pool comes from the config, so the reset and the count
     // hit the database the pipelines write to.
-    let waymark_observability_config::Db::Postgres(postgres_config) = &config.db;
+    let waymark_observability_store_config::ReadWrite::Postgres(postgres_config) = &config.db;
     let pool =
         waymark_observability_store_postgres_bringup::schema_pool(&postgres_config.write, SCHEMA)
             .await
