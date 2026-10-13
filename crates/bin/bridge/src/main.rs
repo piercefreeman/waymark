@@ -103,20 +103,12 @@ async fn main()
             Some(database) => {
                 // The check waits for a migration in progress, which the
                 // pool's statement timeout would cut short.
-                let mut migrations_check_connection = waymark_postgres_bringup::connection(
-                    waymark_postgres_bringup::ConnectionParams {
-                        config: &database.migrations_check,
-                        transactions: waymark_postgres_bringup::Transactions::Unrestricted,
-                        schema: None,
-                    },
+                waymark_postgres_bringup::check_migrations(
+                    &database.migrations_check,
+                    None,
+                    async |connection| waymark_backend_postgres_migrations::check(connection).await,
                 )
                 .await?;
-
-                waymark_backend_postgres_migrations::check(&mut migrations_check_connection)
-                    .await?;
-
-                <sqlx::PgConnection as sqlx::Connection>::close(migrations_check_connection)
-                    .await?;
 
                 let pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
                     config: &database.read_write,

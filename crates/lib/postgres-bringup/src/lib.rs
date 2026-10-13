@@ -227,6 +227,61 @@ where
     Ok(())
 }
 
+/// Error returned by [`check_migrations`].
+#[derive(Debug, thiserror::Error)]
+pub enum CheckMigrationsError<CheckError> {
+    /// The migrations check connection could not be made, or the schema
+    /// is not there.
+    #[error("connecting for the migrations check: {0}")]
+    Connect(#[source] ConnectionError),
+
+    /// The migrations check failed.
+    #[error("checking the migrations: {0}")]
+    Check(#[source] CheckError),
+
+    /// The migrations check connection could not be closed.
+    #[error("closing the migrations check connection: {0}")]
+    Close(#[source] sqlx::Error),
+}
+
+/// Check a database's migrations through a connection of its own, scoped
+/// to `schema`, which has to exist already, or unscoped when `schema` is
+/// `None`: `check_fn` checks the migrations on it, and it is closed once
+/// that is done, whether the check passed or not. Nothing is created:
+/// every transaction on the connection defaults to read-only, so a write
+/// in `check_fn` fails rather than landing.
+///
+/// A close that fails after the check passed still fails the call: the
+/// link to the server broke.
+pub async fn check_migrations<CheckFn, CheckError>(
+    config: &waymark_postgres_config::connection::Config,
+    schema: Option<Cow<'_, str>>,
+    check_fn: CheckFn,
+) -> Result<(), CheckMigrationsError<CheckError>>
+where
+    CheckFn: AsyncFnOnce(&mut sqlx::PgConnection) -> Result<(), CheckError>,
+{
+    let mut migrations_check_connection = connection(ConnectionParams {
+        config,
+        transactions: Transactions::ReadOnly,
+        schema: schema.map(Schema::Require),
+    })
+    .await
+    .map_err(CheckMigrationsError::Connect)?;
+
+    let checked = check_fn(&mut migrations_check_connection).await;
+
+    let closed = sqlx::Connection::close(migrations_check_connection).await;
+
+    // A failed check is the error worth reporting; when the close fails
+    // too, its error is dropped: the connection is gone either way.
+    checked.map_err(CheckMigrationsError::Check)?;
+
+    closed.map_err(CheckMigrationsError::Close)?;
+
+    Ok(())
+}
+
 /// The connect options of `url`, every connection carrying
 /// `statement_timeout`, or no statement timeout when it is `None`, and the
 /// `transactions` limits.
