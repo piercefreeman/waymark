@@ -4,6 +4,9 @@
 //! - gRPC WorkflowService for workflow registration
 //! - gRPC health check for singleton discovery
 //!
+//! It never migrates the database: it refuses to start unless the schema
+//! matches its migrations exactly.
+//!
 //! It shuts down gracefully on Ctrl+C or a termination request.
 //!
 //! Configuration is via environment variables:

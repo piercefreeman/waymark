@@ -6,6 +6,7 @@ export const metadata = {
 
 export const sections = [
   { title: 'Topology', id: 'topology' },
+  { title: 'Migrations and upgrades', id: 'upgrades' },
   { title: 'One image, two commands', id: 'one-image' },
   { title: 'Compose the services', id: 'compose' },
   { title: 'Production settings', id: 'production-settings' },
@@ -20,14 +21,16 @@ A production Waymark deployment is three pieces: your application, one or
 more nodes, and Postgres. It should be basically plug and play with any stack: self-hosted
 or in the cloud. There's no broker to host, no scheduler service, no replay servers. Postgres
 holds every piece of shared state, and everything else is a stateless container you can
-kill and restart at will.
+kill and restart at will, outside an [upgrade](#upgrades).
 
 ## Topology {{ id: 'topology' }}
 
 - **Your app** is whatever serves traffic today - a FastAPI service, a
   script, a cron job. It queues workflows when it wants to delegate processing to the job cluster. The SDK boots a singleton
   `waymark-bridge` inside the container on first use, so the app needs
-  nothing beyond a connection to the database.
+  nothing beyond a connection to the database. The bridge never changes
+  the database schema, so its database role only needs to read and write
+  rows.
 - **The node** is one container running `waymark-executor`. It runs your
   workflows, dispatches their actions to a pool of Python worker
   processes, and persists every step in Postgres. It also runs the
@@ -35,9 +38,33 @@ kill and restart at will.
 - **Postgres** is the only stateful piece. Anything 14+ works, including
   the managed instance you already have.
 
-Because both app and nodes coordinate purely through Postgres, they
-don't need to reach each other over the network. Scale them, restart
-them, and deploy them independently.
+Your app and the nodes coordinate purely through Postgres, so they don't
+need to reach each other over the network. Scale them and restart them
+independently; only an [upgrade](#upgrades) needs an order.
+
+## Migrations and upgrades {{ id: 'upgrades' }}
+
+The nodes migrate the database schema at startup and, with the HTTP
+server enabled, serve `/healthz` only once that is done. The bridge only
+checks the schema, and only when it starts: it waits for a migration in
+progress to finish, then refuses to start unless the schema matches its
+own migrations exactly, neither older nor newer. A node with older
+migrations refuses the same way.
+
+On a new database, start the app once a node is healthy. Until then,
+your app's workflow calls fail with `unable to boot waymark server`, and
+each call tries again. The same error shows when the app and the nodes
+run releases with different migrations.
+
+To upgrade, stop every container that runs the app, every
+`waymark-bridge` wherever it runs (the SDK starts it as a process of its
+own, which outlives the app's), and every node, all at once rather than
+in a rolling update: neither a bridge nor a node that is already running
+checks the schema again. Then start the nodes on the new version, and
+start the app on the new version once a node is healthy. Your app is
+down for the whole upgrade. There is no going back: the old version
+refuses the migrated schema, so snapshot the database before you
+upgrade.
 
 ## Share an image {{ id: 'one-image' }}
 
@@ -180,7 +207,8 @@ state. Your app tier
 scales the same way it always has - queueing a workflow is just a
 database write.
 
-The same mechanism is what makes deploys safe. When a node container is
+The same mechanism is what makes deploys safe, outside an
+[upgrade](#upgrades). When a node container is
 killed mid-run, its instances resume on another node from where they
 were. An action call that was in flight on the killed node is
 redelivered by the node that resumes the workflow, so the action may run
