@@ -16,7 +16,7 @@ fn each_pool_takes_its_url_and_its_own_statement_timeout() {
     );
     assert_eq!(
         config.write.statement_timeout.get(),
-        std::time::Duration::from_secs(600),
+        std::time::Duration::from_secs(30),
     );
     assert_eq!(
         config.read.url.expose_secret(),
@@ -25,6 +25,50 @@ fn each_pool_takes_its_url_and_its_own_statement_timeout() {
     assert_eq!(
         config.read.statement_timeout.get(),
         std::time::Duration::from_secs(10),
+    );
+}
+
+#[test]
+fn migrations_take_their_url_and_their_own_statement_timeout() {
+    // No WAYMARK_OBSERVABILITY_POSTGRES_* variable is set in the test
+    // environment.
+    let config = ReadWriteMigrate::from_urls_and_env(
+        "postgres://writer@primary/waymark".into(),
+        "postgres://replica/waymark".into(),
+        "postgres://owner@primary/waymark".into(),
+    )
+    .expect("the defaults are valid");
+
+    assert_eq!(
+        config.write.url.expose_secret(),
+        "postgres://writer@primary/waymark"
+    );
+    assert_eq!(
+        config.write.statement_timeout.get(),
+        std::time::Duration::from_secs(30),
+    );
+    assert_eq!(
+        config.migrations.url.expose_secret(),
+        "postgres://owner@primary/waymark"
+    );
+    assert_eq!(
+        config.migrations.statement_timeout.get(),
+        std::time::Duration::from_secs(600),
+    );
+}
+
+#[test]
+fn migrate_only_takes_the_migrations_connection_alone() {
+    let config = MigrateOnly::from_url_and_env("postgres://owner@primary/waymark".into())
+        .expect("the defaults are valid");
+
+    assert_eq!(
+        config.migrations.url.expose_secret(),
+        "postgres://owner@primary/waymark"
+    );
+    assert_eq!(
+        config.migrations.statement_timeout.get(),
+        std::time::Duration::from_secs(600),
     );
 }
 
@@ -39,7 +83,7 @@ fn write_only_takes_the_write_pool_alone() {
     );
     assert_eq!(
         config.write.statement_timeout.get(),
-        std::time::Duration::from_secs(600),
+        std::time::Duration::from_secs(30),
     );
 }
 

@@ -5094,6 +5094,7 @@ dependencies = [
  "tokio",
  "waymark-nonzero-duration",
  "waymark-observability-store-postgres-config",
+ "waymark-secret-string",
  "waymark-sqlx-postgres-schema-pool",
  "waymark-support-integration",
  "waymark-support-test",

@@ -122,9 +122,11 @@ database; the observability API reads from it over a separate read pool.
 | --- | --- | --- |
 | `WAYMARK_OBSERVABILITY_DATABASE_URL` | DSN for the observability store; the backend is picked by the URL scheme. | `WAYMARK_DATABASE_URL` |
 | `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` | DSN the observability API reads through: the same database, or a read replica of it. It must name the same backend as the observability DSN; another backend refuses to boot. | `WAYMARK_OBSERVABILITY_DATABASE_URL` |
+| `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL` | DSN the observability store's migrations run through, on a connection of their own at startup. Use it to give the migrations a role that can create and alter the schema, while the observability DSN keeps a role that only reads and writes. The migrations role owns what it creates, so before the first boot run `ALTER DEFAULT PRIVILEGES FOR ROLE <migrations role>` to grant the observability DSN's role `USAGE` on schemas and `SELECT, INSERT, UPDATE, DELETE` on tables, and the read DSN's role `USAGE` on schemas and `SELECT` on tables; every table the migrations create, now and in later upgrades, then comes with these rights. It must name the same backend as the observability DSN; another backend refuses to boot. | `WAYMARK_OBSERVABILITY_DATABASE_URL` |
 | `WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS` | Connection cap for the observability write pool, additive to the main pool's when sharing the database. | `4` |
 | `WAYMARK_OBSERVABILITY_POSTGRES_READ_MAX_CONNECTIONS` | Connection cap for the observability read pool, additive likewise. | `4` |
-| `WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS` | How long one statement on the write pool may run; the sinks' flushes, retention sweeps and migrations run there. | `600000` |
+| `WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS` | How long one statement on the write pool may run; the sinks' flushes and retention sweeps run there. | `30000` |
+| `WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_STATEMENT_TIMEOUT_MS` | How long one statement on the migrations connection may run. | `600000` |
 | `WAYMARK_OBSERVABILITY_POSTGRES_READ_STATEMENT_TIMEOUT_MS` | How long one statement on the read pool may run. | `10000` |
 
 Both kinds of data are kept for seven days by default. A retention sweep

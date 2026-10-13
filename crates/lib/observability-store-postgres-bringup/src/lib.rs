@@ -1,4 +1,5 @@
-//! Bringup for Postgres observability stores: schema-scoped pools.
+//! Bringup for Postgres observability stores: schema-scoped pools and
+//! connections.
 //!
 //! The observability store gets its own pools — never the main database
 //! pool. Pool isolation is what keeps observability from
@@ -8,90 +9,249 @@
 
 #![warn(missing_docs)]
 
-use waymark_observability_store_postgres_config::PoolConfig;
-use waymark_sqlx_postgres_schema_pool::PgPoolOptionsExt as _;
+use std::borrow::Cow;
 
-/// Error returned by [`schema_pool`].
+use waymark_observability_store_postgres_config::{ConnectionConfig, PoolConfig};
+use waymark_sqlx_postgres_schema_pool::{PgConnectOptionsExt as _, PgPoolOptionsExt as _};
+
+/// What a pool's or a connection's transactions may do.
+#[derive(Debug)]
+pub enum Transactions {
+    /// Read and write.
+    Unrestricted,
+
+    /// Read only: every transaction defaults to read-only, so a write that
+    /// reaches it fails rather than landing.
+    ReadOnly,
+}
+
+/// The schema a pool or a connection is scoped to: every connection
+/// defaults its `search_path` to it, so the store's queries stay
+/// unqualified.
+///
+/// The schema is an internal constant, not operator input; it must be a
+/// plain identifier (it is only quote-wrapped, not escaped).
+#[derive(Debug)]
+pub enum Schema<'a> {
+    /// The schema, created if missing.
+    Create(Cow<'a, str>),
+
+    /// The schema, which has to exist already; nothing is created.
+    Require(Cow<'a, str>),
+
+    /// The schema, neither created nor checked for: the opt-out for a
+    /// caller whose schema is managed some other way.
+    Unchecked(Cow<'a, str>),
+}
+
+/// What [`pool`] connects.
+#[derive(Debug)]
+pub struct Params<'a> {
+    /// The pool's config.
+    pub config: &'a PoolConfig,
+
+    /// What the pool's transactions may do.
+    pub transactions: Transactions,
+
+    /// The schema the pool is scoped to; unscoped when `None`.
+    pub schema: Option<Schema<'a>>,
+}
+
+/// Error returned by [`pool`].
 #[derive(Debug, thiserror::Error)]
-pub enum SchemaPoolError {
+pub enum PoolError {
     /// The URL did not parse as Postgres connect options.
     #[error("invalid observability database URL: {0}")]
     Url(#[source] sqlx::Error),
 
-    /// The pool could not connect or the schema could not be created.
+    /// The pool could not connect, or the schema could not be created.
     #[error("connecting the observability pool: {0}")]
     Connect(#[source] sqlx::Error),
+
+    /// The pool could not connect, or the required schema is not there.
+    #[error("connecting the observability pool: {0}")]
+    ConnectRequiringSchema(#[source] waymark_sqlx_postgres_schema_pool::ExistingSchemaError),
 }
 
-/// Connect a pool for the observability store, scoped to `schema`, which
-/// is created if missing: every connection defaults its `search_path` to
-/// it and carries the config's statement timeout, so the store's queries
-/// stay unqualified.
-///
-/// `schema` is an internal constant, not operator input; it must be a
-/// plain identifier (it is only quote-wrapped, not escaped).
-pub async fn schema_pool(
-    config: &PoolConfig,
-    schema: &str,
-) -> Result<sqlx::PgPool, SchemaPoolError> {
-    let options = connect_options(config).map_err(SchemaPoolError::Url)?;
+/// Connect a pool for the observability store: every connection carries
+/// the config's statement timeout, the transaction limits and the schema
+/// scope `params` asks for.
+pub async fn pool(params: Params<'_>) -> Result<sqlx::PgPool, PoolError> {
+    let Params {
+        config,
+        transactions,
+        schema,
+    } = params;
 
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(config.max_connections.get())
-        .connect_creating_schema(options, schema)
-        .await
-        .map_err(SchemaPoolError::Connect)?;
+    let options = connect_options(&config.url, config.statement_timeout, transactions)
+        .map_err(PoolError::Url)?;
+
+    let pool_options =
+        sqlx::postgres::PgPoolOptions::new().max_connections(config.max_connections.get());
+
+    let pool = match schema {
+        None => pool_options
+            .connect_with(options)
+            .await
+            .map_err(PoolError::Connect)?,
+        Some(Schema::Create(schema)) => pool_options
+            .connect_creating_schema(options, &schema)
+            .await
+            .map_err(PoolError::Connect)?,
+        Some(Schema::Require(schema)) => pool_options
+            .connect_requiring_schema(options, &schema)
+            .await
+            .map_err(PoolError::ConnectRequiringSchema)?,
+        Some(Schema::Unchecked(schema)) => pool_options
+            .connect_with(options.search_path(&schema))
+            .await
+            .map_err(PoolError::Connect)?,
+    };
 
     Ok(pool)
 }
 
-/// Error returned by [`read_schema_pool`].
+/// What [`connection`] connects.
+#[derive(Debug)]
+pub struct ConnectionParams<'a> {
+    /// The connection's config.
+    pub config: &'a ConnectionConfig,
+
+    /// What the connection's transactions may do.
+    pub transactions: Transactions,
+
+    /// The schema the connection is scoped to; unscoped when `None`.
+    pub schema: Option<Schema<'a>>,
+}
+
+/// Error returned by [`connection`].
 #[derive(Debug, thiserror::Error)]
-pub enum ReadSchemaPoolError {
+pub enum ConnectionError {
     /// The URL did not parse as Postgres connect options.
     #[error("invalid observability database URL: {0}")]
     Url(#[source] sqlx::Error),
 
-    /// The pool could not connect, or the schema is not there.
-    #[error("connecting the observability read pool: {0}")]
-    Connect(#[source] waymark_sqlx_postgres_schema_pool::ExistingSchemaError),
+    /// The connection could not be made, or the schema could not be
+    /// created.
+    #[error("connecting to the observability database: {0}")]
+    Connect(#[source] sqlx::Error),
+
+    /// The connection could not be made, or the required schema is not
+    /// there.
+    #[error("connecting to the observability database: {0}")]
+    ConnectRequiringSchema(#[source] waymark_sqlx_postgres_schema_pool::ExistingSchemaError),
 }
 
-/// Connect a pool for the observability store's reads, scoped to
-/// `schema`, which has to exist already: every connection defaults its
-/// `search_path` to it, carries the config's statement timeout and
-/// defaults every transaction to read-only, and nothing is created — the
-/// URL may point at a replica, where nothing can be.
+/// Connect one connection to the observability store: it carries the
+/// config's statement timeout, the transaction limits and the schema
+/// scope `params` asks for.
+pub async fn connection(
+    params: ConnectionParams<'_>,
+) -> Result<sqlx::PgConnection, ConnectionError> {
+    let ConnectionParams {
+        config,
+        transactions,
+        schema,
+    } = params;
+
+    let options = connect_options(&config.url, config.statement_timeout, transactions)
+        .map_err(ConnectionError::Url)?;
+
+    let connection = match schema {
+        None => <sqlx::PgConnection as sqlx::Connection>::connect_with(&options)
+            .await
+            .map_err(ConnectionError::Connect)?,
+        Some(Schema::Create(schema)) => {
+            waymark_sqlx_postgres_schema_pool::connection::connect_creating_schema(options, &schema)
+                .await
+                .map_err(ConnectionError::Connect)?
+        }
+        Some(Schema::Require(schema)) => {
+            waymark_sqlx_postgres_schema_pool::connection::connect_requiring_schema(
+                options, &schema,
+            )
+            .await
+            .map_err(ConnectionError::ConnectRequiringSchema)?
+        }
+        Some(Schema::Unchecked(schema)) => {
+            <sqlx::PgConnection as sqlx::Connection>::connect_with(&options.search_path(&schema))
+                .await
+                .map_err(ConnectionError::Connect)?
+        }
+    };
+
+    Ok(connection)
+}
+
+/// Error returned by [`migrate`].
+#[derive(Debug, thiserror::Error)]
+pub enum MigrateError<RunError> {
+    /// The migrations connection could not be made.
+    #[error("connecting for the migrations: {0}")]
+    Connect(#[source] ConnectionError),
+
+    /// The migrations failed.
+    #[error("running the migrations: {0}")]
+    Run(#[source] RunError),
+
+    /// The migrations connection could not be closed.
+    #[error("closing the migrations connection: {0}")]
+    Close(#[source] sqlx::Error),
+}
+
+/// Migrate the observability store through a connection of its own,
+/// scoped to `schema`, which it creates if missing, or unscoped when
+/// `schema` is `None`: `run_fn` runs the migrations on it, and it is
+/// closed once they are done, whether they succeeded or not.
 ///
-/// `schema` is an internal constant, not operator input; it must be a
-/// plain identifier (it is only quote-wrapped, not escaped).
-pub async fn read_schema_pool(
-    config: &PoolConfig,
-    schema: &str,
-) -> Result<sqlx::PgPool, ReadSchemaPoolError> {
-    let options = connect_options(config).map_err(ReadSchemaPoolError::Url)?;
-    // Every transaction on the read pool defaults to read-only, so a write
-    // that reaches this pool fails rather than landing.
-    let options = options.options([("default_transaction_read_only", "on")]);
+/// A close that fails after the migrations succeeded still fails the
+/// call: the link to the server broke.
+pub async fn migrate<RunFn, RunError>(
+    config: &ConnectionConfig,
+    schema: Option<Cow<'_, str>>,
+    run_fn: RunFn,
+) -> Result<(), MigrateError<RunError>>
+where
+    RunFn: AsyncFnOnce(&mut sqlx::PgConnection) -> Result<(), RunError>,
+{
+    let mut migrations_connection = connection(ConnectionParams {
+        config,
+        transactions: Transactions::Unrestricted,
+        schema: schema.map(Schema::Create),
+    })
+    .await
+    .map_err(MigrateError::Connect)?;
 
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(config.max_connections.get())
-        .connect_requiring_schema(options, schema)
-        .await
-        .map_err(ReadSchemaPoolError::Connect)?;
+    let ran = run_fn(&mut migrations_connection).await;
 
-    Ok(pool)
+    let closed = sqlx::Connection::close(migrations_connection).await;
+
+    // A failed run is the error worth reporting; when the close fails too,
+    // its error is dropped: the connection is gone either way.
+    ran.map_err(MigrateError::Run)?;
+
+    closed.map_err(MigrateError::Close)?;
+
+    Ok(())
 }
 
-/// The connect options of `config`'s URL, every connection carrying the
-/// config's statement timeout.
-fn connect_options(config: &PoolConfig) -> Result<sqlx::postgres::PgConnectOptions, sqlx::Error> {
-    let options = config
-        .url
+/// The connect options of `url`, every connection carrying
+/// `statement_timeout` and the `transactions` limits.
+fn connect_options(
+    url: &waymark_secret_string::SecretString,
+    statement_timeout: waymark_nonzero_duration::NonZeroDuration,
+    transactions: Transactions,
+) -> Result<sqlx::postgres::PgConnectOptions, sqlx::Error> {
+    let options = url
         .expose_secret()
         .parse::<sqlx::postgres::PgConnectOptions>()?;
 
-    let options = options.options([("statement_timeout", config.statement_timeout.as_millis())]);
+    let options = options.options([("statement_timeout", statement_timeout.as_millis())]);
+
+    let options = match transactions {
+        Transactions::Unrestricted => options,
+        Transactions::ReadOnly => options.options([("default_transaction_read_only", "on")]),
+    };
 
     Ok(options)
 }

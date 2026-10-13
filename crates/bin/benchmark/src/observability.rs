@@ -57,23 +57,39 @@ where
     let config = waymark_observability_config::ObservabilityConfig::from_urls_and_env(
         dsn.into(),
         dsn.into(),
+        dsn.into(),
     )
     .wrap_err("read the observability config")?;
 
-    // The store's pool comes from the config, so the reset and the count
-    // hit the database the pipelines write to.
-    let waymark_observability_store_config::ReadWrite::Postgres(postgres_config) = &config.db;
-    let pool =
-        waymark_observability_store_postgres_bringup::schema_pool(&postgres_config.write, SCHEMA)
-            .await
-            .wrap_err("connect the observability schema pool")?;
+    // The store's connections come from the config, so the reset and the
+    // count hit the database the pipelines write to.
+    let waymark_observability_store_config::ReadWriteMigrate::Postgres(postgres_config) =
+        &config.db;
+
+    // Provision before the reset: `truncate_all` requires a migrated store,
+    // and the bringup's own migration run comes after the reset. The
+    // migrations connection creates the schema, as the bringup's does.
+    waymark_observability_store_postgres_bringup::migrate(
+        &postgres_config.migrations,
+        Some(SCHEMA.into()),
+        async |connection| waymark_observability_store_postgres_migrations::run(connection).await,
+    )
+    .await
+    .wrap_err("migrate the observability store")?;
+
+    let pool = waymark_observability_store_postgres_bringup::pool(
+        waymark_observability_store_postgres_bringup::Params {
+            config: &postgres_config.write,
+            transactions: waymark_observability_store_postgres_bringup::Transactions::Unrestricted,
+            schema: Some(
+                waymark_observability_store_postgres_bringup::Schema::Require(SCHEMA.into()),
+            ),
+        },
+    )
+    .await
+    .wrap_err("connect the observability schema pool")?;
     let store = waymark_observability_store_postgres::Store { pool };
     // Empty the store so that every run measures over an empty store.
-    // Provision before the reset: `truncate_all` requires a migrated store,
-    // and the bringup's own migration run comes after the reset.
-    waymark_observability_store_postgres_migrations::run(&store.pool)
-        .await
-        .wrap_err("migrate the observability store")?;
     waymark_observability_store_postgres::reset::truncate_all(&store.pool)
         .await
         .wrap_err("clear the observability tables")?;

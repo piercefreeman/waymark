@@ -1,22 +1,37 @@
 //! Config for a Postgres observability store.
 //!
 //! The URLs are parameters rather than variables of their own: the
-//! backend-neutral `WAYMARK_OBSERVABILITY_DATABASE_URL` and
-//! `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` are read and dispatched by
-//! scheme in `waymark-observability-store-config`.
+//! backend-neutral `WAYMARK_OBSERVABILITY_DATABASE_URL`,
+//! `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` and
+//! `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL` are read and dispatched
+//! by scheme in `waymark-observability-store-config`.
 
 use std::num::NonZeroU32;
 
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_secret_string::SecretString;
 
+pub mod migrate_only;
 pub mod read_only;
 pub mod read_write;
+pub mod read_write_migrate;
 pub mod write_only;
 
+pub use self::migrate_only::MigrateOnly;
 pub use self::read_only::ReadOnly;
 pub use self::read_write::ReadWrite;
+pub use self::read_write_migrate::ReadWriteMigrate;
 pub use self::write_only::WriteOnly;
+
+/// Configuration for one connection to a Postgres observability store.
+#[derive(Debug, Clone)]
+pub struct ConnectionConfig {
+    /// The database URL.
+    pub url: SecretString,
+
+    /// How long one statement may run before the server ends it.
+    pub statement_timeout: NonZeroDuration,
+}
 
 /// Configuration for one pool of a Postgres observability store.
 #[derive(Debug, Clone)]

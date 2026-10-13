@@ -18,21 +18,25 @@ pub type Emitter =
 /// Error returned by [`start`].
 #[derive(Debug, thiserror::Error)]
 pub enum StartError {
+    /// The store could not be migrated.
+    #[error("migrating the observability store: {0}")]
+    Migrate(
+        #[source]
+        waymark_observability_store_postgres_bringup::MigrateError<sqlx::migrate::MigrateError>,
+    ),
+
     /// The observability write pool could not be brought up.
     #[error("bringing up the observability write pool: {0}")]
-    WriteSchemaPool(#[source] waymark_observability_store_postgres_bringup::SchemaPoolError),
+    WritePool(#[source] waymark_observability_store_postgres_bringup::PoolError),
 
     /// The observability read pool could not be brought up.
     #[error("bringing up the observability read pool: {0}")]
-    ReadSchemaPool(#[source] waymark_observability_store_postgres_bringup::ReadSchemaPoolError),
-
-    /// The store migrations failed.
-    #[error("migrating the observability store: {0}")]
-    Migrate(#[source] sqlx::migrate::MigrateError),
+    ReadPool(#[source] waymark_observability_store_postgres_bringup::PoolError),
 }
 
-/// Bring up the observability store — a write pool with the migrations,
-/// a read pool — and every observability subsystem's pipeline over the
+/// Bring up the observability store — migrated through a connection of
+/// its own, then a write pool and a read pool — and every observability
+/// subsystem's pipeline over the
 /// write side, as tasks of `spawner` ending on `shutdown_token` — the
 /// lossy batchers on their last handle or on `force_shutdown_token`;
 /// returns the observability API router over the read side, and the
@@ -60,28 +64,47 @@ pub async fn start<Spawner>(
 where
     Spawner: waymark_managed_spawner::Spawner,
 {
-    let waymark_observability_store_config::ReadWrite::Postgres(postgres_config) = &config.db;
+    let waymark_observability_store_config::ReadWriteMigrate::Postgres(postgres_config) =
+        &config.db;
 
-    // The write pool first, and the migrations through it: each migration
-    // statement runs under the write pool's statement timeout. The read
-    // pool requires the schema and never creates it: it may point at a
-    // replica, where nothing can be created, and which only sees the
-    // schema once the primary has it and it has caught up.
-    let write_pool =
-        waymark_observability_store_postgres_bringup::schema_pool(&postgres_config.write, SCHEMA)
-            .await
-            .map_err(StartError::WriteSchemaPool)?;
-
-    waymark_observability_store_postgres_migrations::run(&write_pool)
-        .await
-        .map_err(StartError::Migrate)?;
-
-    let read_pool = waymark_observability_store_postgres_bringup::read_schema_pool(
-        &postgres_config.read,
-        SCHEMA,
+    // The migrations first, on a connection of their own: it alone creates
+    // the schema, and its statement timeout and credentials are the
+    // migrations', not the writes'. The pools then require the schema and
+    // never create it: the write pool's credentials need no rights beyond
+    // the writes, and the read pool may point at a replica, where nothing
+    // can be created, and which only sees the schema once the primary has
+    // it and it has caught up.
+    waymark_observability_store_postgres_bringup::migrate(
+        &postgres_config.migrations,
+        Some(SCHEMA.into()),
+        async |connection| waymark_observability_store_postgres_migrations::run(connection).await,
     )
     .await
-    .map_err(StartError::ReadSchemaPool)?;
+    .map_err(StartError::Migrate)?;
+
+    let write_pool = waymark_observability_store_postgres_bringup::pool(
+        waymark_observability_store_postgres_bringup::Params {
+            config: &postgres_config.write,
+            transactions: waymark_observability_store_postgres_bringup::Transactions::Unrestricted,
+            schema: Some(
+                waymark_observability_store_postgres_bringup::Schema::Require(SCHEMA.into()),
+            ),
+        },
+    )
+    .await
+    .map_err(StartError::WritePool)?;
+
+    let read_pool = waymark_observability_store_postgres_bringup::pool(
+        waymark_observability_store_postgres_bringup::Params {
+            config: &postgres_config.read,
+            transactions: waymark_observability_store_postgres_bringup::Transactions::ReadOnly,
+            schema: Some(
+                waymark_observability_store_postgres_bringup::Schema::Require(SCHEMA.into()),
+            ),
+        },
+    )
+    .await
+    .map_err(StartError::ReadPool)?;
 
     let write_store = Arc::new(waymark_observability_store_postgres::Store { pool: write_pool });
     let read_store = Arc::new(waymark_observability_store_postgres::Store { pool: read_pool });
