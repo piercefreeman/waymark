@@ -62,8 +62,7 @@ async fn main()
     // any point of the startup is latched for the listener instead of
     // ending the process on the spot, and has no other effect until the
     // listener runs.
-    let ctrl_c = waymark_os_shutdown_requests::ctrl_c::install()?;
-    let termination = waymark_os_shutdown_requests::termination::install()?;
+    let shutdown_requests = waymark_fn_main_lifecycle_ctrl_c::install()?;
 
     let metrics_addr: std::net::SocketAddr = envfury::or_parse("METRICS_ADDR", "0.0.0.0:9118")?;
     let (essential_metrics_sampling_handle, prometheus_handle) =
@@ -134,9 +133,8 @@ async fn main()
         // the shutdown request.
         supervisor.spawn(
             "shutdown signal listener",
-            shutdown_signal_listener(
-                ctrl_c,
-                termination,
+            waymark_fn_main_lifecycle_ctrl_c::listen(
+                shutdown_requests,
                 stop_startup_then_shutdown_token.clone(),
                 shutdown_token.clone(),
             ),
@@ -311,36 +309,4 @@ async fn main()
     })
     .await?;
     Ok(clean_shutdown)
-}
-
-/// Wait for the OS's first shutdown request of either kind, then cancel
-/// the stop-startup-then-shutdown token and wait for the shutdown token
-/// to follow, so the end of this task is never before the shutdown
-/// request; ends without a request of its own when the shutdown is
-/// requested some other way first.
-async fn shutdown_signal_listener(
-    mut ctrl_c: waymark_os_shutdown_requests::ctrl_c::Receiver,
-    mut termination: waymark_os_shutdown_requests::termination::Receiver,
-    stop_startup_then_shutdown_token: tokio_util::sync::CancellationToken,
-    shutdown_token: tokio_util::sync::CancellationToken,
-) -> Result<(), std::convert::Infallible> {
-    tokio::select! {
-        () = ctrl_c.recv() => {
-            info!("Ctrl+C received; shutting down");
-        }
-        () = termination.recv() => {
-            info!("termination requested; shutting down");
-        }
-        () = shutdown_token.cancelled() => {
-            return Ok(());
-        }
-    }
-    stop_startup_then_shutdown_token.cancel();
-
-    // The lifecycle cancels the shutdown token at the startup's next
-    // checkpoint, at its end, or right away once the startup is over;
-    // ending only then keeps this task's end after the shutdown request.
-    shutdown_token.cancelled().await;
-
-    Ok(())
 }

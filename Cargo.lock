@@ -4431,6 +4431,7 @@ dependencies = [
  "waymark-execution-bringup",
  "waymark-fn-main-common",
  "waymark-fn-main-lifecycle",
+ "waymark-fn-main-lifecycle-ctrl-c",
  "waymark-http-api",
  "waymark-http-bringup",
  "waymark-http-healthz",
@@ -4439,7 +4440,6 @@ dependencies = [
  "waymark-managed-spawner-supervised",
  "waymark-metrics-bringup",
  "waymark-observability-bringup",
- "waymark-os-shutdown-requests",
  "waymark-prometheus-exporter-bringup",
  "waymark-scheduler-bringup",
  "waymark-tokio-metrics-bringup",
@@ -4536,6 +4536,17 @@ dependencies = [
  "tracing",
  "waymark-error-coercion",
  "waymark-task-supervisor",
+]
+
+[[package]]
+name = "waymark-fn-main-lifecycle-ctrl-c"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-os-shutdown-requests",
 ]
 
 [[package]]
