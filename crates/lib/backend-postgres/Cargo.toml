@@ -7,14 +7,11 @@ edition = "2024"
 [dependencies]
 waymark-action-completions-reconciler-backend = { workspace = true }
 waymark-action-effect-reconciler-backend = { workspace = true }
-waymark-backend-postgres-migrations = { workspace = true }
-waymark-backends-core = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-metrics-util = { workspace = true }
 waymark-observability = { workspace = true }
 waymark-scheduler-backend = { workspace = true }
 waymark-scheduler-core = { workspace = true }
-waymark-secret-string = { workspace = true }
 waymark-sleep-reconciler-backend = { workspace = true }
 waymark-state-vm-executables-backend = { workspace = true }
 waymark-state-vm-runtimes-backend = { workspace = true }

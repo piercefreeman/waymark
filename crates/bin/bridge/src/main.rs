@@ -11,6 +11,9 @@
 //!
 //! Configuration is via environment variables:
 //! - WAYMARK_DATABASE_URL: PostgreSQL connection string (required unless in-memory)
+//! - WAYMARK_DATABASE_MAX_CONNECTIONS: connection cap for the database pool (default: 25)
+//! - WAYMARK_DATABASE_STATEMENT_TIMEOUT_MS: statement timeout on the database pool, `0` for none (default: 60000)
+//! - WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS: how long the startup waits for a migration in progress, `0` for no limit (default: 600000)
 //! - WAYMARK_BRIDGE_GRPC_ADDR: gRPC server bind address (default: 127.0.0.1:24117)
 //! - WAYMARK_BRIDGE_IN_MEMORY: enable in-memory execution mode for streaming workflows
 
@@ -24,7 +27,6 @@ use std::sync::Arc;
 
 use tracing::info;
 use waymark_managed_spawner_supervised::SupervisorExt as _;
-use waymark_secret_string::SecretString;
 
 use waymark_proto::messages as proto;
 
@@ -57,10 +59,10 @@ async fn main()
         envfury::or_parse("WAYMARK_BRIDGE_GRPC_ADDR", DEFAULT_GRPC_ADDR)?;
     let PermissiveBool(in_memory) = envfury::or_parse("WAYMARK_BRIDGE_IN_MEMORY", "false")?;
 
-    let dsn: Option<SecretString> = if in_memory {
+    let database = if in_memory {
         None
     } else {
-        Some(envfury::must("WAYMARK_DATABASE_URL")?)
+        Some(waymark_backend_postgres_config::ReadWriteOnly::from_env()?)
     };
 
     // Wire shutdown coordination. The signal listener cancels the
@@ -93,10 +95,10 @@ async fn main()
             ),
         );
 
-        let store = match dsn {
+        let store = match database {
             None => None,
-            Some(dsn) => {
-                let workflow_store = WorkflowStore::connect(&dsn).await?;
+            Some(database) => {
+                let workflow_store = WorkflowStore::connect(&database).await?;
                 Some(Arc::new(workflow_store))
             }
         };

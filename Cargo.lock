@@ -4053,14 +4053,11 @@ dependencies = [
  "uuid",
  "waymark-action-completions-reconciler-backend",
  "waymark-action-effect-reconciler-backend",
- "waymark-backend-postgres-migrations",
- "waymark-backends-core",
  "waymark-ids",
  "waymark-metrics-util",
  "waymark-observability",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
- "waymark-secret-string",
  "waymark-sleep-reconciler-backend",
  "waymark-state-vm-executables-backend",
  "waymark-state-vm-runtimes-backend",
@@ -4077,20 +4074,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-backend-postgres-config"
+version = "0.1.0"
+dependencies = [
+ "envfury",
+ "thiserror",
+ "waymark-nonzero-duration",
+ "waymark-postgres-config",
+ "waymark-secret-string",
+]
+
+[[package]]
 name = "waymark-backend-postgres-migrations"
 version = "0.1.0"
 dependencies = [
  "sqlx",
  "waymark-sqlx-postgres-migrations",
-]
-
-[[package]]
-name = "waymark-backends-core"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "sqlx",
- "thiserror",
 ]
 
 [[package]]
@@ -4117,11 +4116,13 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sqlx",
+ "thiserror",
  "tokio",
  "tokio-util",
  "tracing",
  "uuid",
  "waymark-backend-postgres",
+ "waymark-backend-postgres-migrations",
  "waymark-execution-bringup",
  "waymark-fn-main-common",
  "waymark-ids",
@@ -4138,6 +4139,7 @@ dependencies = [
  "waymark-observability-store-postgres",
  "waymark-observability-store-postgres-migrations",
  "waymark-postgres-bringup",
+ "waymark-postgres-config",
  "waymark-prometheus-exporter-bringup",
  "waymark-proto",
  "waymark-secret-string",
@@ -4204,6 +4206,7 @@ dependencies = [
  "tonic-health",
  "tracing",
  "waymark-backend-postgres",
+ "waymark-backend-postgres-config",
  "waymark-backend-postgres-migrations",
  "waymark-convert-core",
  "waymark-fn-main-common",
@@ -4211,10 +4214,10 @@ dependencies = [
  "waymark-fn-main-lifecycle-ctrl-c",
  "waymark-ids",
  "waymark-managed-spawner-supervised",
+ "waymark-postgres-bringup",
  "waymark-proto",
  "waymark-scheduler-convert-proto",
  "waymark-scheduler-core",
- "waymark-secret-string",
  "waymark-system-vm",
  "waymark-transient-execution-worker-stream-bringup",
  "waymark-vm-ast-old-proto",
@@ -4236,10 +4239,10 @@ version = "0.1.0"
 dependencies = [
  "envfury",
  "thiserror",
+ "waymark-backend-postgres-config",
  "waymark-http-config",
  "waymark-nonzero-duration",
  "waymark-observability-config",
- "waymark-secret-string",
 ]
 
 [[package]]
@@ -4428,7 +4431,6 @@ dependencies = [
  "axum",
  "envfury",
  "metrics",
- "sqlx",
  "tokio",
  "tokio-util",
  "tracing",
@@ -4447,6 +4449,7 @@ dependencies = [
  "waymark-managed-spawner-supervised",
  "waymark-metrics-bringup",
  "waymark-observability-bringup",
+ "waymark-postgres-bringup",
  "waymark-prometheus-exporter-bringup",
  "waymark-scheduler-bringup",
  "waymark-tokio-metrics-bringup",
@@ -5398,6 +5401,7 @@ dependencies = [
  "waymark-observability-store-postgres-migrations",
  "waymark-os-shutdown-requests",
  "waymark-postgres-bringup",
+ "waymark-postgres-config",
  "waymark-secret-string",
  "waymark-system-vm",
  "waymark-vm-ast-old-proto",

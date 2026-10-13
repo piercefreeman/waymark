@@ -36,17 +36,22 @@ pub enum FromEnvError {
 }
 
 impl MigrateOnly {
-    /// Create config from environment variables.
-    /// `WAYMARK_OBSERVABILITY_DATABASE_URL` is used when
-    /// `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL` is not set, and
-    /// `default_database_url` (the main database URL) in turn when that
-    /// is not set.
+    /// Create config from environment variables. When
+    /// `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL` is not set, the
+    /// migrations go through `WAYMARK_OBSERVABILITY_DATABASE_URL`, or
+    /// through `default_migrations_url` (the main database's migrations
+    /// URL) when that is not set either.
     pub fn from_env_url_with_default(
-        default_database_url: &SecretString,
+        default_migrations_url: &SecretString,
     ) -> Result<Self, FromEnvError> {
-        let url = crate::url_from_env_with_default(default_database_url)
+        let maybe_url: Option<SecretString> = envfury::maybe("WAYMARK_OBSERVABILITY_DATABASE_URL")
             .map_err(FromEnvError::DatabaseUrl)?;
-        let migrations_url = crate::migrations_url_from_env_with_default(&url)
+
+        // A store in the main database is migrated with the main
+        // database's migrations credentials.
+        let migrations_url_default = maybe_url.unwrap_or_else(|| default_migrations_url.clone());
+
+        let migrations_url = crate::migrations_url_from_env_with_default(&migrations_url_default)
             .map_err(FromEnvError::MigrationsDatabaseUrl)?;
 
         Self::from_url_and_env(migrations_url)

@@ -37,13 +37,18 @@ impl ObservabilityConfig {
     /// Create config from environment variables. `default_database_url`
     /// (the main database URL) is used when
     /// `WAYMARK_OBSERVABILITY_DATABASE_URL` is not set, and that URL in
-    /// turn when `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` or
-    /// `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL` is not set.
+    /// turn when `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` is not set.
+    /// When `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL` is not set, the
+    /// migrations go through `WAYMARK_OBSERVABILITY_DATABASE_URL`, or
+    /// through `default_migrations_url` (the main database's migrations
+    /// URL) when that is not set either.
     pub fn from_env_urls_with_default(
         default_database_url: &SecretString,
+        default_migrations_url: &SecretString,
     ) -> Result<Self, FromEnvError> {
         let db = waymark_observability_store_config::ReadWriteMigrate::from_env_urls_with_default(
             default_database_url,
+            default_migrations_url,
         )
         .map_err(FromEnvError::Db)?;
         Self::from_db_and_env(db)

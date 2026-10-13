@@ -47,9 +47,10 @@ independently; only an [upgrade](#upgrades) needs an order.
 The nodes migrate the database schema at startup and, with the HTTP
 server enabled, serve `/healthz` only once that is done. The bridge only
 checks the schema, and only when it starts: it waits for a migration in
-progress to finish, then refuses to start unless the schema matches its
-own migrations exactly, neither older nor newer. A node with older
-migrations refuses the same way.
+progress to finish, for up to `WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS`,
+then refuses to start unless the schema matches its own migrations
+exactly, neither older nor newer. A node with older migrations refuses
+the same way.
 
 On a new database, start the app once a node is healthy. Until then,
 your app's workflow calls fail with `unable to boot waymark server`, and
@@ -169,10 +170,13 @@ Budget your Postgres connections per process:
   (`WAYMARK_DATABASE_MAX_CONNECTIONS`), plus up to 4 + 4 for the
   observability store's write and read pools - 33 in total, since the
   observability store shares the main database by default. At startup it
-  also opens one connection for the observability migrations, and closes
-  it before the pools open.
+  also opens one connection for the main migrations and one for the
+  observability migrations; each is closed before the pools of its
+  database open, so neither adds to the 33.
 - **Each app host** that queues workflows runs one singleton bridge, with
-  up to 10 connections.
+  up to 25 connections (`WAYMARK_DATABASE_MAX_CONNECTIONS`, the same
+  variable as the node's). At startup it also opens one connection to
+  check the schema, and closes it before its pool opens.
 
 The observability store holds what the webapp shows: instance events and
 node load samples, kept for seven days by default. On a busy deployment

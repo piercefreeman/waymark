@@ -1,17 +1,16 @@
 //! Destructive database reset helpers, by strength.
 //!
-//! Free functions over a pool — deliberately not methods on
+//! Free functions — deliberately not methods on
 //! [`PostgresBackend`](crate::PostgresBackend), so the destructive surface
 //! stays off the production handle.
 
 use sqlx::PgPool;
-use waymark_backends_core::{BackendError, BackendResult};
 
 /// Truncate every live table, resetting identity sequences.
 ///
 /// Keep the table list in sync with the migrations in
 /// `waymark-backend-postgres-migrations`.
-pub async fn truncate_all(pool: &PgPool) -> BackendResult<()> {
+pub async fn truncate_all(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         TRUNCATE action_call_completions,
@@ -30,13 +29,13 @@ pub async fn truncate_all(pool: &PgPool) -> BackendResult<()> {
     Ok(())
 }
 
-/// Drop every table (including `_sqlx_migrations` and the trigger
-/// functions) and re-run the migrations from scratch.
-pub async fn rebuild_schema(pool: &PgPool) -> BackendResult<()> {
-    // The legacy-table names must stay in this list for as long as
-    // migrations 0001-0011 create them: the re-run below replays the full
-    // migration history from scratch, so a half-migrated database would
-    // otherwise fail on "table already exists".
+/// Drop every table the migrations create, `_sqlx_migrations` and the
+/// trigger functions, so a migration run from scratch succeeds on
+/// `connection` afterwards.
+pub async fn drop_schema(connection: &mut sqlx::PgConnection) -> Result<(), sqlx::Error> {
+    // The legacy-table names must stay in this list for as long as the
+    // migrations create them: a run from scratch replays the full migration
+    // history, so a leftover table would fail it on "table already exists".
     sqlx::query(
         r#"
         DROP TABLE IF EXISTS
@@ -54,17 +53,19 @@ pub async fn rebuild_schema(pool: &PgPool) -> BackendResult<()> {
             sleep_requests,
             vm_executables,
             vm_runtime_snapshots,
+            workload_pinnings,
             runnable_workloads,
             vm_execution_results,
             _sqlx_migrations
         CASCADE
         "#,
     )
-    .execute(pool)
+    .execute(&mut *connection)
     .await?;
 
     // The migrations also create trigger functions; they survive the table
-    // drops and would fail the re-run with "function already exists".
+    // drops and would fail a run from scratch with "function already
+    // exists".
     sqlx::query(
         r#"
         DROP FUNCTION IF EXISTS
@@ -73,11 +74,8 @@ pub async fn rebuild_schema(pool: &PgPool) -> BackendResult<()> {
         CASCADE
         "#,
     )
-    .execute(pool)
+    .execute(&mut *connection)
     .await?;
 
-    waymark_backend_postgres_migrations::run(pool)
-        .await
-        .map_err(|err| BackendError::Message(err.to_string()))?;
     Ok(())
 }

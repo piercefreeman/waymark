@@ -3,15 +3,13 @@
 mod parse;
 
 use std::net::SocketAddr;
-use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+use std::num::{NonZeroU64, NonZeroUsize};
 
 use waymark_nonzero_duration::NonZeroDuration;
-use waymark_secret_string::SecretString;
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
-    pub database_url: SecretString,
-    pub database_max_connections: NonZeroU32,
+    pub database: waymark_backend_postgres_config::ReadWriteMigrate,
     pub worker_grpc_addr: SocketAddr,
     pub worker_count: NonZeroUsize,
     pub concurrent_per_worker: NonZeroUsize,
@@ -46,10 +44,6 @@ pub struct WorkerConfig {
 /// Error returned when reading a [`WorkerConfig`] from the environment.
 #[derive(Debug, thiserror::Error)]
 pub enum FromEnvError {
-    /// A required variable could not be read.
-    #[error(transparent)]
-    Must(#[from] envfury::Error<envfury::MustError<std::convert::Infallible>>),
-
     /// A socket-address variable (with a parsed default) could not be read.
     #[error(transparent)]
     SocketAddrOrDefault(#[from] envfury::Error<envfury::OrParseError<std::net::AddrParseError>>),
@@ -73,15 +67,18 @@ pub enum FromEnvError {
     /// The observability configuration could not be read.
     #[error("observability: {0}")]
     Observability(#[from] waymark_observability_config::FromEnvError),
+
+    /// The main database configuration could not be read.
+    #[error("database: {0}")]
+    Database(#[source] waymark_backend_postgres_config::read_write_migrate::FromEnvError),
 }
 
 impl WorkerConfig {
     pub fn from_env() -> Result<Self, FromEnvError> {
         use self::parse::*;
 
-        let database_url = envfury::must("WAYMARK_DATABASE_URL")?;
-
-        let database_max_connections = envfury::or_parse("WAYMARK_DATABASE_MAX_CONNECTIONS", "25")?;
+        let database = waymark_backend_postgres_config::ReadWriteMigrate::from_env()
+            .map_err(FromEnvError::Database)?;
 
         let worker_grpc_addr = envfury::or_parse("WAYMARK_WORKER_GRPC_ADDR", "127.0.0.1:24118")?;
 
@@ -151,7 +148,8 @@ impl WorkerConfig {
 
         let observability =
             waymark_observability_config::ObservabilityConfig::from_env_urls_with_default(
-                &database_url,
+                &database.read_write.url,
+                &database.migrations.url,
             )?;
 
         let FromMillis(vm_retention) = envfury::or_parse("WAYMARK_VM_RETENTION_MS", "60000")?;
@@ -166,8 +164,7 @@ impl WorkerConfig {
             envfury::or_parse("WAYMARK_EXECUTABLE_SWEEP_INTERVAL_MS", "60000")?;
 
         Ok(Self {
-            database_url,
-            database_max_connections,
+            database,
             worker_grpc_addr,
             worker_count,
             concurrent_per_worker,
