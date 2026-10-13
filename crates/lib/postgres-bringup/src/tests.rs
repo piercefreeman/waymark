@@ -1,16 +1,16 @@
 use std::num::NonZeroU32;
 
-use waymark_observability_store_postgres_config::{ConnectionConfig, PoolConfig};
+use waymark_postgres_config::{ConnectionConfig, PoolConfig};
 
 use super::*;
 
-const TEST_SCHEMA: &str = "observability_postgres_bringup_test";
+const TEST_SCHEMA: &str = "postgres_bringup_test";
 
-const READ_TEST_SCHEMA: &str = "observability_postgres_bringup_test_read";
+const READ_TEST_SCHEMA: &str = "postgres_bringup_test_read";
 
-const CONNECTION_TEST_SCHEMA: &str = "observability_postgres_bringup_test_connection";
+const CONNECTION_TEST_SCHEMA: &str = "postgres_bringup_test_connection";
 
-const MIGRATE_TEST_SCHEMA: &str = "observability_postgres_bringup_test_migrate";
+const MIGRATE_TEST_SCHEMA: &str = "postgres_bringup_test_migrate";
 
 #[tokio::test]
 async fn a_creating_pool_creates_the_schema_and_scopes_the_search_path() {
@@ -53,12 +53,12 @@ async fn a_creating_pool_creates_the_schema_and_scopes_the_search_path() {
     assert_eq!(statement_timeout, "2500ms");
 
     // An unqualified statement lands in the scoped schema.
-    sqlx::query("CREATE TABLE observability_bringup_probe (id int)")
+    sqlx::query("CREATE TABLE postgres_bringup_probe (id int)")
         .execute(&pool)
         .await
         .expect("create probe table");
     let (probe_schema,): (String,) = sqlx::query_as(
-        "SELECT table_schema::text FROM information_schema.tables WHERE table_name = 'observability_bringup_probe'",
+        "SELECT table_schema::text FROM information_schema.tables WHERE table_name = 'postgres_bringup_probe'",
     )
     .fetch_one(&bootstrap)
     .await
@@ -141,7 +141,7 @@ async fn a_read_only_requiring_pool_creates_nothing() {
     assert_eq!(statement_timeout, "2500ms");
 
     // A write through the read pool is refused, even on the primary.
-    let error = sqlx::query("CREATE TABLE observability_bringup_read_probe (id int)")
+    let error = sqlx::query("CREATE TABLE postgres_bringup_read_probe (id int)")
         .execute(&read_pool)
         .await
         .expect_err("the read pool refuses writes");
@@ -229,7 +229,7 @@ async fn migrate_creates_the_schema_runs_and_closes() {
                 .await?;
             migrations_pid = Some(pid);
 
-            sqlx::query("CREATE TABLE observability_bringup_migrated (id int)")
+            sqlx::query("CREATE TABLE postgres_bringup_migrated (id int)")
                 .execute(&mut *connection)
                 .await?;
 
@@ -240,7 +240,7 @@ async fn migrate_creates_the_schema_runs_and_closes() {
     .expect("the migrations run");
 
     let (migrated_schema,): (String,) = sqlx::query_as(
-        "SELECT table_schema::text FROM information_schema.tables WHERE table_name = 'observability_bringup_migrated'",
+        "SELECT table_schema::text FROM information_schema.tables WHERE table_name = 'postgres_bringup_migrated'",
     )
     .fetch_one(&bootstrap)
     .await
@@ -277,7 +277,7 @@ async fn a_failed_migration_is_reported_and_its_connection_closed() {
                 .await?;
             migrations_pid = Some(pid);
 
-            sqlx::query("SELECT * FROM observability_bringup_no_such_table")
+            sqlx::query("SELECT * FROM postgres_bringup_no_such_table")
                 .execute(&mut *connection)
                 .await?;
 

@@ -24,7 +24,7 @@ pub async fn connect(
     let waymark_observability_store_config::ReadWriteMigrate::Postgres(postgres_config) = config.db;
 
     crate::common::wait_for_database("the observability database", timeout, || async {
-        let migrated = waymark_observability_store_postgres_bringup::migrate(
+        let migrated = waymark_postgres_bringup::migrate(
             &postgres_config.migrations,
             Some(OBSERVABILITY_SCHEMA.into()),
             async |connection| {
@@ -40,8 +40,8 @@ pub async fn connect(
             // with `42501` added to it), so a wrong password, a missing
             // database or a refused privilege stops the wait here too.
             Err(
-                error @ waymark_observability_store_postgres_bringup::MigrateError::Connect(
-                    waymark_observability_store_postgres_bringup::ConnectionError::Connect(_),
+                error @ waymark_postgres_bringup::MigrateError::Connect(
+                    waymark_postgres_bringup::ConnectionError::Connect(_),
                 ),
             ) => Err(crate::common::WaitForDatabaseAttemptError::Retry(error)),
             // A bad URL, a migration failure or a failed close is not the
@@ -53,17 +53,13 @@ pub async fn connect(
     .await
     .wrap_err("migrate the observability store before soak")?;
 
-    let pool = waymark_observability_store_postgres_bringup::pool(
-        waymark_observability_store_postgres_bringup::Params {
-            config: &postgres_config.write,
-            transactions: waymark_observability_store_postgres_bringup::Transactions::Unrestricted,
-            schema: Some(
-                waymark_observability_store_postgres_bringup::Schema::Require(
-                    OBSERVABILITY_SCHEMA.into(),
-                ),
-            ),
-        },
-    )
+    let pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
+        config: &postgres_config.write,
+        transactions: waymark_postgres_bringup::Transactions::Unrestricted,
+        schema: Some(waymark_postgres_bringup::Schema::Require(
+            OBSERVABILITY_SCHEMA.into(),
+        )),
+    })
     .await
     .wrap_err("connect the observability schema pool")?;
 

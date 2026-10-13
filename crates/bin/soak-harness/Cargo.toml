@@ -19,9 +19,9 @@ waymark-nonzero-duration = { workspace = true }
 waymark-observability-config = { workspace = true }
 waymark-observability-store-config = { workspace = true }
 waymark-observability-store-postgres = { workspace = true }
-waymark-observability-store-postgres-bringup = { workspace = true }
 waymark-observability-store-postgres-migrations = { workspace = true }
 waymark-os-shutdown-requests = { workspace = true }
+waymark-postgres-bringup = { workspace = true }
 waymark-secret-string = { workspace = true }
 waymark-system-vm = { workspace = true, features = ["serde"] }
 waymark-vm-ast-old-proto = { workspace = true }

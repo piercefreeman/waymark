@@ -90,11 +90,12 @@ waymark-observability-state-core = { path = "crates/lib/observability-state-core
 waymark-observability-state-query-backend = { path = "crates/lib/observability-state-query-backend" }
 waymark-observability-store-config = { path = "crates/lib/observability-store-config" }
 waymark-observability-store-postgres = { path = "crates/lib/observability-store-postgres" }
-waymark-observability-store-postgres-bringup = { path = "crates/lib/observability-store-postgres-bringup" }
 waymark-observability-store-postgres-config = { path = "crates/lib/observability-store-postgres-config" }
 waymark-observability-store-postgres-migrations = { path = "crates/lib/observability-store-postgres-migrations" }
 waymark-observability-vm-value-display = { path = "crates/lib/observability-vm-value-display" }
 waymark-os-shutdown-requests = { path = "crates/lib/os-shutdown-requests" }
+waymark-postgres-bringup = { path = "crates/lib/postgres-bringup" }
+waymark-postgres-config = { path = "crates/lib/postgres-config" }
 waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-bringup" }
 waymark-promise-settlement-demand-registry = { path = "crates/lib/promise-settlement-demand-registry" }
 waymark-proto = { path = "crates/lib/proto" }

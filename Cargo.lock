@@ -4136,8 +4136,8 @@ dependencies = [
  "waymark-observability-setup",
  "waymark-observability-store-config",
  "waymark-observability-store-postgres",
- "waymark-observability-store-postgres-bringup",
  "waymark-observability-store-postgres-migrations",
+ "waymark-postgres-bringup",
  "waymark-prometheus-exporter-bringup",
  "waymark-proto",
  "waymark-secret-string",
@@ -4834,8 +4834,8 @@ dependencies = [
  "waymark-observability-events-vm-driver-hooks",
  "waymark-observability-store-config",
  "waymark-observability-store-postgres",
- "waymark-observability-store-postgres-bringup",
  "waymark-observability-store-postgres-migrations",
+ "waymark-postgres-bringup",
 ]
 
 [[package]]
@@ -5086,28 +5086,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-observability-store-postgres-bringup"
-version = "0.1.0"
-dependencies = [
- "const_format",
- "sqlx",
- "thiserror",
- "tokio",
- "waymark-nonzero-duration",
- "waymark-observability-store-postgres-config",
- "waymark-secret-string",
- "waymark-sqlx-postgres-schema-pool",
- "waymark-support-integration",
- "waymark-support-test",
-]
-
-[[package]]
 name = "waymark-observability-store-postgres-config"
 version = "0.1.0"
 dependencies = [
  "envfury",
  "thiserror",
  "waymark-nonzero-duration",
+ "waymark-postgres-config",
  "waymark-secret-string",
 ]
 
@@ -5133,6 +5118,31 @@ dependencies = [
  "nix",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "waymark-postgres-bringup"
+version = "0.1.0"
+dependencies = [
+ "const_format",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "waymark-nonzero-duration",
+ "waymark-postgres-config",
+ "waymark-secret-string",
+ "waymark-sqlx-postgres-schema-pool",
+ "waymark-support-integration",
+ "waymark-support-test",
+]
+
+[[package]]
+name = "waymark-postgres-config"
+version = "0.1.0"
+dependencies = [
+ "envfury",
+ "waymark-nonzero-duration",
+ "waymark-secret-string",
 ]
 
 [[package]]
@@ -5385,9 +5395,9 @@ dependencies = [
  "waymark-observability-config",
  "waymark-observability-store-config",
  "waymark-observability-store-postgres",
- "waymark-observability-store-postgres-bringup",
  "waymark-observability-store-postgres-migrations",
  "waymark-os-shutdown-requests",
+ "waymark-postgres-bringup",
  "waymark-secret-string",
  "waymark-system-vm",
  "waymark-vm-ast-old-proto",

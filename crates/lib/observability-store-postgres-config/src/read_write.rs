@@ -2,7 +2,7 @@
 
 use waymark_secret_string::SecretString;
 
-use crate::PoolConfig;
+use waymark_postgres_config::PoolConfig;
 
 /// Configuration for a Postgres observability store that is written and
 /// read.
