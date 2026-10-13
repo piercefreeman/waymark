@@ -4,6 +4,8 @@
 //! - gRPC WorkflowService for workflow registration
 //! - gRPC health check for singleton discovery
 //!
+//! It shuts down gracefully on Ctrl+C or a termination request.
+//!
 //! Configuration is via environment variables:
 //! - WAYMARK_DATABASE_URL: PostgreSQL connection string (required unless in-memory)
 //! - WAYMARK_BRIDGE_GRPC_ADDR: gRPC server bind address (default: 127.0.0.1:24117)
@@ -17,8 +19,8 @@ use self::workflow_store::*;
 
 use std::sync::Arc;
 
-use color_eyre::eyre::WrapErr as _;
 use tracing::info;
+use waymark_managed_spawner_supervised::SupervisorExt as _;
 use waymark_secret_string::SecretString;
 
 use waymark_proto::messages as proto;
@@ -38,39 +40,104 @@ impl core::str::FromStr for PermissiveBool {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), waymark_fn_main_common::Error> {
+async fn main()
+-> Result<waymark_fn_main_lifecycle::CleanShutdown<()>, waymark_fn_main_common::Error> {
     waymark_fn_main_common::init()?;
 
-    let grpc_addr = envfury::or_parse("WAYMARK_BRIDGE_GRPC_ADDR", DEFAULT_GRPC_ADDR)?;
+    // The OS's shutdown requests are held from here on, so one landing at
+    // any point of the startup is latched for the listener instead of
+    // ending the process on the spot, and has no other effect until the
+    // listener runs.
+    let shutdown_requests = waymark_fn_main_lifecycle_ctrl_c::install()?;
+
+    let grpc_addr: std::net::SocketAddr =
+        envfury::or_parse("WAYMARK_BRIDGE_GRPC_ADDR", DEFAULT_GRPC_ADDR)?;
     let PermissiveBool(in_memory) = envfury::or_parse("WAYMARK_BRIDGE_IN_MEMORY", "false")?;
 
-    let store = if in_memory {
+    let dsn: Option<SecretString> = if in_memory {
         None
     } else {
-        let dsn: SecretString = envfury::must("WAYMARK_DATABASE_URL")?;
-        let workflow_store = WorkflowStore::connect(&dsn).await?;
-        Some(Arc::new(workflow_store))
+        Some(envfury::must("WAYMARK_DATABASE_URL")?)
     };
 
-    let (health_reporter, health_service) = tonic_health::server::health_reporter();
+    // Wire shutdown coordination. The signal listener cancels the
+    // stop-startup-then-shutdown token; the lifecycle cancels the shutdown
+    // token after it, or when the startup fails, and the supervisor cancels
+    // it when a task ends early.
+    let stop_startup_then_shutdown_token = tokio_util::sync::CancellationToken::new();
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
 
-    let service = BridgeService { store };
-    health_reporter
-        .set_serving::<proto::workflow_service_server::WorkflowServiceServer<BridgeService>>()
-        .await;
+    let supervisor = waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
-    info!(%grpc_addr, in_memory, "waymark bridge starting");
+    let params = waymark_fn_main_lifecycle::Params {
+        supervisor,
+        stop_startup_then_shutdown_token: stop_startup_then_shutdown_token.clone(),
+        shutdown_token: shutdown_token.clone(),
+    };
+    let clean_shutdown = waymark_fn_main_lifecycle::run(params, async |supervisor, checkpoint| {
+        let mut supervisor = supervisor.spawner(waymark_fn_main_common::ErrorConverter);
 
-    let workflow_service = proto::workflow_service_server::WorkflowServiceServer::new(service)
-        .max_decoding_message_size(waymark_proto::GRPC_MAX_MESSAGE_SIZE_BYTES)
-        .max_encoding_message_size(waymark_proto::GRPC_MAX_MESSAGE_SIZE_BYTES);
+        // The shutdown signal listener: on a request it cancels the
+        // stop-startup-then-shutdown token, then waits for the shutdown
+        // token the lifecycle cancels in turn, so its end is always after
+        // the shutdown request.
+        supervisor.spawn(
+            "shutdown signal listener",
+            waymark_fn_main_lifecycle_ctrl_c::listen(
+                shutdown_requests,
+                stop_startup_then_shutdown_token.clone(),
+                shutdown_token.clone(),
+            ),
+        );
 
-    tonic::transport::Server::builder()
-        .add_service(health_service)
-        .add_service(workflow_service)
-        .serve(grpc_addr)
-        .await
-        .wrap_err("bridge server exited")?;
+        let store = match dsn {
+            None => None,
+            Some(dsn) => {
+                let workflow_store = WorkflowStore::connect(&dsn).await?;
+                Some(Arc::new(workflow_store))
+            }
+        };
+        checkpoint()?;
 
-    Ok(())
+        // Bound here rather than in the server task, so an address in use
+        // fails the startup, with the address, before anything reports
+        // serving.
+        let listener = tokio::net::TcpListener::bind(grpc_addr).await;
+        let listener = color_eyre::eyre::WrapErr::wrap_err_with(listener, || {
+            format!("bind the gRPC server to {grpc_addr}")
+        })?;
+
+        let (health_reporter, health_service) = tonic_health::server::health_reporter();
+
+        let service = BridgeService {
+            store,
+            shutdown_token: shutdown_token.child_token(),
+        };
+        health_reporter
+            .set_serving::<proto::workflow_service_server::WorkflowServiceServer<BridgeService>>()
+            .await;
+
+        info!(%grpc_addr, in_memory, "waymark bridge starting");
+
+        let workflow_service = proto::workflow_service_server::WorkflowServiceServer::new(service)
+            .max_decoding_message_size(waymark_proto::GRPC_MAX_MESSAGE_SIZE_BYTES)
+            .max_encoding_message_size(waymark_proto::GRPC_MAX_MESSAGE_SIZE_BYTES);
+
+        // The gRPC server: on the shutdown token it stops accepting
+        // connections and finishes the requests in flight.
+        supervisor.spawn(
+            "grpc server",
+            tonic::transport::Server::builder()
+                .add_service(health_service)
+                .add_service(workflow_service)
+                .serve_with_incoming_shutdown(
+                    tokio_stream::wrappers::TcpListenerStream::new(listener),
+                    shutdown_token.clone().cancelled_owned(),
+                ),
+        );
+
+        Ok::<(), waymark_fn_main_common::Error>(())
+    })
+    .await?;
+    Ok(clean_shutdown)
 }

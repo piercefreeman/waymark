@@ -16,6 +16,11 @@ const REGISTRATION_BATCH_MAX_CAP: NonZeroUsize = NonZeroUsize::new(1024).unwrap(
 
 pub struct BridgeService {
     pub store: Option<Arc<WorkflowStore>>,
+
+    /// Cancelled when the bridge shuts down: a long poll returns
+    /// `UNAVAILABLE` then rather than holding the shutdown until its
+    /// workflow finishes.
+    pub shutdown_token: tokio_util::sync::CancellationToken,
 }
 
 #[tonic::async_trait]
@@ -158,9 +163,15 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             .map_err(|_| Status::invalid_argument("invalid instance_id"))?;
         let poll_interval = Duration::from_secs_f64(request.poll_interval_secs.max(0.1));
 
-        let payload = store
-            .wait_for_instance(instance_id, poll_interval)
-            .await
+        // The wait only reads, so dropping it at the shutdown loses nothing.
+        let waited = tokio::select! {
+            waited = store.wait_for_instance(instance_id, poll_interval) => waited,
+            () = self.shutdown_token.cancelled() => {
+                return Err(Status::unavailable("the bridge is shutting down"));
+            }
+        };
+
+        let payload = waited
             .map_err(|err| Status::internal(format!("wait failed: {err}")))?
             .ok_or_else(|| Status::not_found("instance not found"))?;
 
