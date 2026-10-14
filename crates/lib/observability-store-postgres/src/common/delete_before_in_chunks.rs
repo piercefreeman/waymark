@@ -23,10 +23,17 @@
 /// floor and the cutoff. A row skipped anywhere in the sweep goes to the
 /// next sweep.
 ///
-/// `$table` and `$column` must be constants: the statement is written at
-/// compile time.
+/// `$also` is a further condition on the rows the chunk is picked from,
+/// a bare predicate the statement conjoins itself, or left out; it may
+/// refer to `$table` by its name, the inner query's own scope.
+///
+/// `$table`, `$column` and `$also` must be constants: the statement is
+/// written at compile time.
 macro_rules! statement {
     ($table:expr, $column:expr $(,)?) => {
+        $crate::common::delete_before_in_chunks::statement!($table, $column, "TRUE")
+    };
+    ($table:expr, $column:expr, $also:expr $(,)?) => {
         const_format::formatcp!(
             r#"
             WITH deleted AS (
@@ -37,6 +44,7 @@ macro_rules! statement {
                     FROM {table}
                     WHERE {column} < $1
                       AND {column} >= COALESCE($3::timestamptz, '-infinity')
+                      AND ({also})
                     ORDER BY {column}
                     LIMIT $2
                     FOR UPDATE SKIP LOCKED
@@ -47,15 +55,17 @@ macro_rules! statement {
             "#,
             table = $table,
             column = $column,
+            also = $also,
         )
     };
 }
 
 pub(crate) use statement;
 
-/// Delete every row of `$table` whose `$column` is before `$cutoff`,
-/// `$chunk` rows per statement, until a chunk comes up short; returns how
-/// many rows went.
+/// Delete every row of `$table` whose `$column` is before `$cutoff`, and
+/// that meets `$also` when one is given (see [`statement!`]), `$chunk`
+/// rows per statement, until a chunk comes up short; returns how many
+/// rows went.
 ///
 /// The sweep never waits on a row another transaction holds: the row is
 /// skipped and left to a later sweep. Each chunk is one autocommit
@@ -64,9 +74,14 @@ pub(crate) use statement;
 /// table, whatever order that writer locks its rows in.
 macro_rules! delete_before_in_chunks {
     ($pool:expr, $table:expr, $column:expr, $cutoff:expr, $chunk:expr $(,)?) => {
+        $crate::common::delete_before_in_chunks::delete_before_in_chunks!(
+            $pool, $table, $column, $cutoff, $chunk, "TRUE"
+        )
+    };
+    ($pool:expr, $table:expr, $column:expr, $cutoff:expr, $chunk:expr, $also:expr $(,)?) => {
         $crate::common::delete_before_in_chunks::sweep(
             $pool,
-            $crate::common::delete_before_in_chunks::statement!($table, $column),
+            $crate::common::delete_before_in_chunks::statement!($table, $column, $also),
             $cutoff,
             $chunk,
         )

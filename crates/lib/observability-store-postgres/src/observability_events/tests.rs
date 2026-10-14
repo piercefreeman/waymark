@@ -531,6 +531,251 @@ async fn retention_sweeps_the_instances_the_events_no_longer_speak_for() {
     assert!(kept.is_some(), "the kept VM's instance stays");
 }
 
+/// A run's start of the given executable.
+fn vm_started_with(
+    executable_id: waymark_ids::WorkflowVersionId,
+    name: &str,
+) -> waymark_observability_events_payload::vm_driver::Observation {
+    waymark_observability_events_payload::vm_driver::Observation::VmStarted {
+        executable_id,
+        executable_name: name.to_owned(),
+        executable_version: "v1".to_owned(),
+    }
+}
+
+/// The bridge's registration of the given executable.
+fn executable_registered(
+    node_id: waymark_ids::NodeId,
+    counter: &waymark_node_sequence::NodeSequenceCounter,
+    at_secs: i64,
+    executable_id: waymark_ids::WorkflowVersionId,
+    name: &str,
+) -> waymark_observability_events_core::Event<
+    waymark_ids::NodeId,
+    waymark_observability_events_payload::Payload,
+> {
+    waymark_observability_events_core::Event {
+        node_id,
+        node_sequence: counter.next(),
+        at: chrono::DateTime::from_timestamp_secs(at_secs).unwrap(),
+        payload: waymark_observability_events_payload::Payload::Bridge(
+            waymark_observability_events_payload::bridge::Payload {
+                observation:
+                    waymark_observability_events_payload::bridge::Observation::ExecutableRegistered {
+                        executable_id,
+                        executable_name: name.to_owned(),
+                        executable_version: "v1".to_owned(),
+                    },
+            },
+        ),
+    }
+}
+
+/// The executables table: `(id, name, first_at, last_at)` by id text.
+async fn executables(store: &crate::Store) -> Vec<(String, String, i64, i64)> {
+    sqlx::query(
+        "SELECT id::text, name, first_at, last_at FROM observability_vm_executables ORDER BY id::text",
+    )
+    .fetch_all(&store.pool)
+    .await
+    .expect("read the executables")
+    .into_iter()
+    .map(|row| {
+        let first_at: chrono::DateTime<chrono::Utc> = row.get("first_at");
+        let last_at: chrono::DateTime<chrono::Utc> = row.get("last_at");
+        (
+            row.get("id"),
+            row.get("name"),
+            first_at.timestamp(),
+            last_at.timestamp(),
+        )
+    })
+    .collect()
+}
+
+/// An instance's executable, as the instances table has it: `None` when
+/// the instance has no row.
+async fn instance_executable(
+    store: &crate::Store,
+    vm_id: waymark_ids::InstanceId,
+) -> Option<Option<String>> {
+    sqlx::query("SELECT executable_id::text FROM observability_vm_instances WHERE vm_id::text = $1")
+        .bind(vm_id.to_string())
+        .fetch_optional(&store.pool)
+        .await
+        .expect("read the instance")
+        .map(|row| row.get("executable_id"))
+}
+
+/// The executables are kept from the events that carry them, from both
+/// sources: a row per executable with `first_at`/`last_at` widening over
+/// the batches, a late older batch included; the run step's executable
+/// follows the newest start and never an older one arriving later; and
+/// the sweep clears an executable no event has carried since the cutoff
+/// only once no instance refers to it.
+#[tokio::test]
+async fn executables_are_kept_from_the_events_that_carry_them() {
+    let store = test_store("observability_store_test_events_executables").await;
+    let node_id = waymark_ids::NodeId::new_uuid_v4();
+    let counter = waymark_node_sequence::NodeSequenceCounter::new();
+    let [x, y, z, w] = std::array::from_fn(|_| waymark_ids::WorkflowVersionId::new_uuid_v4());
+    let [a, b, c, d] = std::array::from_fn(|_| waymark_ids::InstanceId::new_uuid_v4());
+    let append = |events: Vec<_>| {
+        let store = &store;
+        async move {
+            waymark_observability_events_sink_backend::AppendEvents::append_events(
+                store,
+                NESlice::try_from_slice(&events).expect("non-empty"),
+            )
+            .await
+            .expect("append events");
+        }
+    };
+    let row = |id: waymark_ids::WorkflowVersionId, name: &str, first: i64, last: i64| {
+        (id.to_string(), name.to_owned(), first, last)
+    };
+    let sorted = |mut rows: Vec<(String, String, i64, i64)>| {
+        rows.sort();
+        rows
+    };
+
+    // Four starts, four executables: one row each, at the start's time.
+    append(vec![
+        vm_driver_event(node_id, &counter, 1, c, 0, vm_started_with(z, "z")),
+        vm_driver_event(node_id, &counter, 2, d, 0, vm_started_with(w, "w")),
+        vm_driver_event(node_id, &counter, 10, a, 0, vm_started_with(x, "x")),
+        vm_driver_event(node_id, &counter, 12, b, 0, vm_started_with(y, "y")),
+    ])
+    .await;
+    assert_eq!(
+        executables(&store).await,
+        sorted(vec![
+            row(x, "x", 10, 10),
+            row(y, "y", 12, 12),
+            row(z, "z", 1, 1),
+            row(w, "w", 2, 2),
+        ]),
+    );
+
+    // A registration through the bridge widens `last_at`; the event reads
+    // back under its own source and makes no instance.
+    append(vec![executable_registered(node_id, &counter, 20, x, "x")]).await;
+    assert_eq!(
+        executables(&store).await,
+        sorted(vec![
+            row(x, "x", 10, 20),
+            row(y, "y", 12, 12),
+            row(z, "z", 1, 1),
+            row(w, "w", 2, 2),
+        ]),
+    );
+    let page = waymark_observability_events_query_backend::ListEvents::list_events(
+        &store,
+        waymark_observability_events_query_backend::list_events::Params {
+            from: chrono::DateTime::from_timestamp_secs(20).unwrap(),
+            to: chrono::DateTime::from_timestamp_secs(21).unwrap(),
+            limit: waymark_query_limit::Limit::new(10).expect("within the cap"),
+            after: None,
+        },
+    )
+    .await
+    .expect("list events")
+    .expect("the registration lists");
+    assert!(matches!(
+        page.events.first().payload,
+        waymark_observability_events_payload::Payload::Bridge(_)
+    ));
+    let (instances,): (i64,) = sqlx::query_as("SELECT count(*) FROM observability_vm_instances")
+        .fetch_one(&store.pool)
+        .await
+        .expect("count the instances");
+    assert_eq!(instances, 4, "a registration makes no instance");
+
+    // A late older batch widens `first_at` only.
+    append(vec![executable_registered(node_id, &counter, 5, x, "x")]).await;
+    assert_eq!(
+        executables(&store).await,
+        sorted(vec![
+            row(x, "x", 5, 20),
+            row(y, "y", 12, 12),
+            row(z, "z", 1, 1),
+            row(w, "w", 2, 2),
+        ]),
+    );
+
+    // The run step takes the newest start of the batch: `a` ran `x` again
+    // and then `y`, so its executable is `y`. `c` goes on without a start,
+    // so its instance outlives the last event carrying `z`.
+    append(vec![
+        vm_driver_event(node_id, &counter, 25, a, 0, vm_started_with(x, "x")),
+        vm_driver_event(node_id, &counter, 30, a, 0, vm_started_with(y, "y")),
+        vm_driver_event(
+            node_id,
+            &counter,
+            50,
+            c,
+            1,
+            waymark_observability_events_payload::vm_driver::Observation::VmStopped {
+                reason: waymark_observability_events_payload::vm_driver::StopReason::Cancelled,
+            },
+        ),
+    ])
+    .await;
+    assert_eq!(
+        instance_executable(&store, a).await,
+        Some(Some(y.to_string()))
+    );
+
+    // An older start arriving later does not take the run step back.
+    append(vec![vm_driver_event(
+        node_id,
+        &counter,
+        28,
+        a,
+        0,
+        vm_started_with(x, "x"),
+    )])
+    .await;
+    assert_eq!(
+        instance_executable(&store, a).await,
+        Some(Some(y.to_string()))
+    );
+    assert_eq!(
+        executables(&store).await,
+        sorted(vec![
+            row(x, "x", 5, 28),
+            row(y, "y", 12, 30),
+            row(z, "z", 1, 1),
+            row(w, "w", 2, 2),
+        ]),
+    );
+
+    // The sweep: `w`'s only carrier and `d`'s only event are before the
+    // cutoff, so `d` goes and then `w`; `z`'s only carrier is too, but
+    // `c` still refers to it, so it stays.
+    let deleted = waymark_observability_events_retention_backend::ApplyRetention::apply_retention(
+        &store,
+        chrono::DateTime::from_timestamp_secs(15).unwrap(),
+    )
+    .await
+    .expect("apply retention");
+    assert_eq!(deleted, 5, "the events before the cutoff");
+    assert_eq!(instance_executable(&store, b).await, None, "`b` is swept");
+    assert_eq!(instance_executable(&store, d).await, None, "`d` is swept");
+    assert_eq!(
+        instance_executable(&store, c).await,
+        Some(Some(z.to_string()))
+    );
+    assert_eq!(
+        executables(&store).await,
+        sorted(vec![
+            row(x, "x", 5, 28),
+            row(y, "y", 12, 30),
+            row(z, "z", 1, 1),
+        ]),
+    );
+}
+
 /// Rows sharing one `at` across a chunk boundary all go: with a chunk of
 /// three, all seven rows at the same second before the cutoff go, and
 /// the two rows past the cutoff stay.
