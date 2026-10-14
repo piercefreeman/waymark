@@ -3,6 +3,15 @@ use sqlx::Row as _;
 
 use crate::test_helpers::test_store;
 
+/// A run's start, of a fresh executable.
+fn vm_started() -> waymark_observability_events_payload::vm_driver::Observation {
+    waymark_observability_events_payload::vm_driver::Observation::VmStarted {
+        executable_id: waymark_ids::WorkflowVersionId::new_uuid_v4(),
+        executable_name: "test_wf".to_owned(),
+        executable_version: "v1".to_owned(),
+    }
+}
+
 /// An empty store: the table migrates, the reads answer "nothing", and
 /// retention on nothing deletes nothing.
 #[tokio::test]
@@ -102,7 +111,7 @@ async fn events_round_trip_through_the_store() {
                 waymark_observability_events_payload::vm_driver::Payload {
                     vm_id,
                     run_sequence: 0,
-                    observation: waymark_observability_events_payload::vm_driver::Observation::VmStarted,
+                    observation: vm_started(),
                 },
             ),
         },
@@ -158,7 +167,7 @@ async fn events_round_trip_through_the_store() {
     assert_eq!(payload.run_sequence, 0);
     assert!(matches!(
         payload.observation,
-        waymark_observability_events_payload::vm_driver::Observation::VmStarted
+        waymark_observability_events_payload::vm_driver::Observation::VmStarted { .. }
     ));
 
     let second = page.events.last();
@@ -279,9 +288,9 @@ async fn vm_timeline_merges_the_nodes_a_vm_ran_on_oldest_first() {
     // position, and the first page ends inside the tie.
     let events = [
         vm_driver_event(first_node, &first_counter, 1_000, vm_id, 0,
-            waymark_observability_events_payload::vm_driver::Observation::VmStarted),
+            vm_started()),
         vm_driver_event(first_node, &first_counter, 1_001, other_vm, 0,
-            waymark_observability_events_payload::vm_driver::Observation::VmStarted),
+            vm_started()),
         vm_driver_event(first_node, &first_counter, 1_002, vm_id, 1,
             waymark_observability_events_payload::vm_driver::Observation::SnapshotPersisted { size_in_bytes: 10 }),
         vm_driver_event(first_node, &first_counter, 1_002, vm_id, 2,
@@ -289,7 +298,7 @@ async fn vm_timeline_merges_the_nodes_a_vm_ran_on_oldest_first() {
                 reason: waymark_observability_events_payload::vm_driver::StopReason::Cancelled,
             }),
         vm_driver_event(second_node, &second_counter, 1_002, vm_id, 0,
-            waymark_observability_events_payload::vm_driver::Observation::VmStarted),
+            vm_started()),
         vm_driver_event(second_node, &second_counter, 1_005, vm_id, 1,
             waymark_observability_events_payload::vm_driver::Observation::VmStopped {
                 reason: waymark_observability_events_payload::vm_driver::StopReason::NoReadyFramesOrWaitingPromises,
@@ -438,8 +447,7 @@ async fn retention_deletes_in_chunks() {
                 waymark_observability_events_payload::vm_driver::Payload {
                     vm_id,
                     run_sequence: 0,
-                    observation:
-                        waymark_observability_events_payload::vm_driver::Observation::VmStarted,
+                    observation: vm_started(),
                 },
             ),
         })
@@ -486,16 +494,7 @@ async fn retention_sweeps_the_instances_the_events_no_longer_speak_for() {
         (kept_vm_id, 20),
     ]
     .into_iter()
-    .map(|(vm_id, second)| {
-        vm_driver_event(
-            node_id,
-            &counter,
-            second,
-            vm_id,
-            0,
-            waymark_observability_events_payload::vm_driver::Observation::VmStarted,
-        )
-    })
+    .map(|(vm_id, second)| vm_driver_event(node_id, &counter, second, vm_id, 0, vm_started()))
     .collect();
     waymark_observability_events_sink_backend::AppendEvents::append_events(
         &store,
@@ -544,8 +543,7 @@ async fn retention_chunks_split_rows_sharing_a_timestamp() {
                 waymark_observability_events_payload::vm_driver::Payload {
                     vm_id,
                     run_sequence: 0,
-                    observation:
-                        waymark_observability_events_payload::vm_driver::Observation::VmStarted,
+                    observation: vm_started(),
                 },
             ),
         })

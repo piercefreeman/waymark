@@ -43,7 +43,11 @@ fn tags_are_source_prefixed_paths() {
 fn vm_driver_payloads() -> Vec<vm_driver::Payload> {
     let vm_id = waymark_ids::InstanceId::new_uuid_v4();
     let observations = [
-        vm_driver::Observation::VmStarted,
+        vm_driver::Observation::VmStarted {
+            executable_id: waymark_ids::WorkflowVersionId::new_uuid_v4(),
+            executable_name: "test_wf".to_owned(),
+            executable_version: "v1".to_owned(),
+        },
         vm_driver::Observation::EffectEmitted {
             effect_number: EffectNumber(0),
             effect: vm_driver::EffectSummary::Complete,

@@ -39,6 +39,20 @@ pub struct Policy {
     pub snapshot_persisted: bool,
 }
 
+/// The executable a run is of: its id, and the name and version it was
+/// registered under, as the run's start event carries them.
+#[derive(Debug)]
+pub struct Executable {
+    /// The executable.
+    pub id: waymark_ids::WorkflowVersionId,
+
+    /// The name the executable was registered under.
+    pub name: String,
+
+    /// The version the executable was registered under.
+    pub version: String,
+}
+
 /// The VM driver hooks of one VM's run, emitting one event per hook call
 /// it records.
 ///
@@ -46,6 +60,7 @@ pub struct Policy {
 /// its VM driver error, which it only ever summarizes.
 pub struct Hooks<EffectSummarizer, Value, RaisedException, DriverError> {
     vm_id: waymark_ids::InstanceId,
+    executable: Executable,
     run_sequence: AtomicU64,
     emitter: Arc<Emitter>,
     policy: Policy,
@@ -60,11 +75,18 @@ type Parameters<EffectSummarizer, Value, RaisedException, DriverError> =
 impl<EffectSummarizer, Value, RaisedException, DriverError>
     Hooks<EffectSummarizer, Value, RaisedException, DriverError>
 {
-    /// The hooks for one run of `vm_id`, emitting through `emitter` what
-    /// `policy` asks for; the run's positions start at zero.
-    pub fn new(vm_id: waymark_ids::InstanceId, emitter: Arc<Emitter>, policy: Policy) -> Self {
+    /// The hooks for one run of `vm_id`, a run of `executable`, emitting
+    /// through `emitter` what `policy` asks for; the run's positions start
+    /// at zero.
+    pub fn new(
+        vm_id: waymark_ids::InstanceId,
+        executable: Executable,
+        emitter: Arc<Emitter>,
+        policy: Policy,
+    ) -> Self {
         Self {
             vm_id,
+            executable,
             run_sequence: AtomicU64::new(0),
             emitter,
             policy,
@@ -146,7 +168,13 @@ impl<EffectSummarizer, Value, RaisedException, DriverError> waymark_vm_driver_ho
     for Hooks<EffectSummarizer, Value, RaisedException, DriverError>
 {
     fn vm_started(&self) {
-        self.emit(waymark_observability_events_payload::vm_driver::Observation::VmStarted);
+        self.emit(
+            waymark_observability_events_payload::vm_driver::Observation::VmStarted {
+                executable_id: self.executable.id,
+                executable_name: self.executable.name.clone(),
+                executable_version: self.executable.version.clone(),
+            },
+        );
     }
 }
 

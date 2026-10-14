@@ -13,7 +13,7 @@ use waymark_vm_driver_hooks::{
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use super::{Hooks, Policy};
+use super::{Executable, Hooks, Policy};
 
 /// Record everything, the snapshots included.
 const EVERYTHING: Policy = Policy {
@@ -131,6 +131,15 @@ fn action_call() -> <TestHooks as waymark_vm_driver_hooks::effect_emitted::HasEf
     )
 }
 
+/// The executable the test runs are of.
+fn executable() -> Executable {
+    Executable {
+        id: waymark_ids::WorkflowVersionId::new_uuid_v4(),
+        name: "test_wf".to_owned(),
+        version: "v1".to_owned(),
+    }
+}
+
 /// A flushed payload, checked to be a `vm_driver` event.
 fn vm_driver(seen: &Seen) -> &serde_json::Value {
     assert_eq!(seen.1["source"], "vm_driver", "{}", seen.1);
@@ -142,7 +151,9 @@ async fn every_hook_becomes_one_summarized_event_in_run_order() {
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let (emitter, task, shutdown_tx) = recording_emitter(&seen);
     let vm_id = waymark_ids::InstanceId::new_uuid_v4();
-    let hooks = TestHooks::new(vm_id, emitter, EVERYTHING);
+    let executable = executable();
+    let executable_id = executable.id;
+    let hooks = TestHooks::new(vm_id, executable, emitter, EVERYTHING);
 
     hooks.vm_started();
     hooks.effect_emitted(EffectNumber(0), &action_call());
@@ -188,7 +199,12 @@ async fn every_hook_becomes_one_summarized_event_in_run_order() {
         [
             (
                 serde_json::json!(0),
-                serde_json::json!({ "kind": "vm_started" })
+                serde_json::json!({
+                    "kind": "vm_started",
+                    "executable_id": executable_id,
+                    "executable_name": "test_wf",
+                    "executable_version": "v1",
+                })
             ),
             (
                 serde_json::json!(1),
@@ -245,7 +261,12 @@ async fn a_failed_run_renders_the_collaborator_error_once() {
         u8,
         TestException,
         waymark_vm_driver::Error<(), (), &'static str, (), ()>,
-    >::new(waymark_ids::InstanceId::new_uuid_v4(), emitter, EVERYTHING);
+    >::new(
+        waymark_ids::InstanceId::new_uuid_v4(),
+        executable(),
+        emitter,
+        EVERYTHING,
+    );
 
     hooks.vm_stopped(&waymark_vm_driver::Error::SnapshotPersistence("disk full"));
 
@@ -265,8 +286,8 @@ async fn two_vms_share_the_node_stream_with_their_own_run_positions() {
     let (emitter, task, shutdown_tx) = recording_emitter(&seen);
     let first_vm = waymark_ids::InstanceId::new_uuid_v4();
     let second_vm = waymark_ids::InstanceId::new_uuid_v4();
-    let first = TestHooks::new(first_vm, Arc::clone(&emitter), EVERYTHING);
-    let second = TestHooks::new(second_vm, emitter, EVERYTHING);
+    let first = TestHooks::new(first_vm, executable(), Arc::clone(&emitter), EVERYTHING);
+    let second = TestHooks::new(second_vm, executable(), emitter, EVERYTHING);
 
     first.vm_started();
     second.vm_started();
@@ -310,6 +331,7 @@ async fn unrecorded_snapshots_leave_no_event_and_no_gap() {
     let vm_id = waymark_ids::InstanceId::new_uuid_v4();
     let hooks = TestHooks::new(
         vm_id,
+        executable(),
         emitter,
         Policy {
             snapshot_persisted: false,

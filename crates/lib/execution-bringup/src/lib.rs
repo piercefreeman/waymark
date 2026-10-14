@@ -486,12 +486,18 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
 
     let hooks_provider = waymark_state_vm_runtimes_core::FnHooksProvider::new(
         move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
-              _executable_metadata: &waymark_state_vm_executables_core::ExecutableMetadata<
+              executable_metadata: &waymark_state_vm_executables_core::ExecutableMetadata<
             <Backend as waymark_state_vm_runtimes_backend::HasExecutableId>::ExecutableId,
         >| {
             (
                 waymark_vm_driver_hooks_tracing::Tracing::new(),
                 observability_events.as_ref().map(|observability_events| {
+                    let executable = waymark_observability_events_vm_driver_hooks::Executable {
+                        id: executable_metadata.id,
+                        name: executable_metadata.name.clone(),
+                        version: executable_metadata.version.clone(),
+                    };
+
                     waymark_observability_events_vm_driver_hooks::Hooks::<
                         waymark_observability_events_vm_driver_hooks_fullset::FullSetEffectSummarizer<
                             waymark_vm_value_python::ReadyValue,
@@ -502,6 +508,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
                         _,
                     >::new(
                         *vm_id,
+                        executable,
                         Arc::clone(&observability_events.emitter),
                         observability_events.vm_driver_hooks_policy,
                     )
