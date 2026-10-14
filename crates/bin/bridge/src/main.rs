@@ -39,6 +39,7 @@ use self::workflow_store::*;
 
 use std::sync::Arc;
 
+use color_eyre::eyre::WrapErr as _;
 use tracing::info;
 use waymark_managed_spawner_supervised::SupervisorExt as _;
 
@@ -171,10 +172,9 @@ async fn main()
         // Bound here rather than in the server task, so an address in use
         // fails the startup, with the address, before anything reports
         // serving.
-        let listener = tokio::net::TcpListener::bind(grpc_addr).await;
-        let listener = color_eyre::eyre::WrapErr::wrap_err_with(listener, || {
-            format!("bind the gRPC server to {grpc_addr}")
-        })?;
+        let listener = tokio::net::TcpListener::bind(grpc_addr)
+            .await
+            .wrap_err_with(|| format!("bind the gRPC server to {grpc_addr}"))?;
 
         let (health_reporter, health_service) = tonic_health::server::health_reporter();
 
