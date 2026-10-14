@@ -183,18 +183,18 @@ Budget your Postgres connections per process:
   observability schema; each is closed before the pool of its database
   opens, so neither adds to the 14.
 
-The observability store holds what the webapp shows: instance events and
-node load samples, kept for seven days by default. On a busy deployment
-you can move it off the main database by pointing
-`WAYMARK_OBSERVABILITY_DATABASE_URL` at another Postgres, and its reads
-at a replica with `WAYMARK_OBSERVABILITY_READ_DATABASE_URL`; the node's
-own connection count stays the same. Every host that boots the bridge,
-the SDK's included, then carries the same
-`WAYMARK_OBSERVABILITY_DATABASE_URL`: without it the bridge looks for
-the store in the main database and refuses to start. Once the nodes run
-on the new store, drop the old `observability` schema from the main
-database: a bridge still pointed at it would find a store at the right
-migrations, pass its check, and write where nothing reads. See
+The observability store holds events and node load samples, kept for
+seven days by default. On a busy deployment you can move it off the main
+database by pointing `WAYMARK_OBSERVABILITY_DATABASE_URL` at another
+Postgres, and its reads at a replica with
+`WAYMARK_OBSERVABILITY_READ_DATABASE_URL`; the node's own connection
+count stays the same. Every host that boots the bridge, the SDK's
+included, then carries the same `WAYMARK_OBSERVABILITY_DATABASE_URL`:
+without it the bridge looks for the store in the main database and
+refuses to start. Once the nodes run on the new store, drop the old
+`observability` schema from the main database: a bridge still pointed at
+it would find a store at the right migrations, pass its check, and write
+where nothing reads. See
 [Configuration](/guides/configuration#observability).
 
 ## Logs, metrics and the webapp {{ id: 'observability' }}

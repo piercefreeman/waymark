@@ -4216,6 +4216,7 @@ dependencies = [
  "waymark-managed-spawner-supervised",
  "waymark-observability-bringup",
  "waymark-observability-events-config",
+ "waymark-observability-events-payload",
  "waymark-observability-store-config",
  "waymark-postgres-bringup",
  "waymark-proto",

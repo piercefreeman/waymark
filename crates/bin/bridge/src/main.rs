@@ -7,11 +7,11 @@
 //! It never migrates the database: it refuses to start unless the schema
 //! matches its migrations exactly.
 //!
-//! It is a node of its own: it mints a node id at every boot, and brings
-//! up an observability-events emitter under it, which nothing emits
-//! through yet. It never migrates the observability store either: it
-//! refuses to start unless the store's schema matches its migrations
-//! exactly.
+//! It is a node of its own: it mints a node id at every boot and, with a
+//! database, emits what it observes — the executables registered through
+//! it — under that node id to the observability store. It never migrates
+//! the observability store either: it refuses to start unless the store's
+//! schema matches its migrations exactly.
 //!
 //! It shuts down gracefully on Ctrl+C or a termination request.
 //!
@@ -158,22 +158,11 @@ async fn main()
                     .await?;
                 checkpoint()?;
 
-                // The observability-events emitter, held until the shutdown
-                // token: the lossy batcher behind it stops on the emitter's
-                // last handle.
-                // FIXME: nothing emits through it yet; the workflow-service
-                // hooks are its producers to come, and hold it instead of
-                // this task.
-                let shutdown_token = shutdown_token.clone();
-                supervisor.spawn("observability events emitter", async move {
-                    shutdown_token.cancelled().await;
-
-                    drop(observability_events_emitter);
-
-                    Ok::<(), core::convert::Infallible>(())
-                });
-
-                let workflow_store = WorkflowStore::new(pool);
+                // The store holds the emitter: the lossy batcher behind it,
+                // which stops on the emitter's last handle, runs as long as
+                // the service does.
+                let workflow_store =
+                    WorkflowStore::new(pool, Arc::new(observability_events_emitter));
 
                 Some(Arc::new(workflow_store))
             }

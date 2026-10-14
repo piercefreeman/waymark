@@ -145,7 +145,7 @@ deletes anything older; nothing else in the observability store expires.
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `WAYMARK_OBSERVABILITY_EVENTS_RETENTION_MS` | How long instance events, and the instance state derived from them, are kept. | `604800000` (7 days) |
+| `WAYMARK_OBSERVABILITY_EVENTS_RETENTION_MS` | How long observability events, and the state derived from them, are kept. | `604800000` (7 days) |
 | `WAYMARK_OBSERVABILITY_EVENTS_RETENTION_SWEEP_INTERVAL_MS` | How often the events retention sweep runs. | `600000` |
 | `WAYMARK_OBSERVABILITY_EVENTS_RECORD_SNAPSHOT_PERSISTED` | Record a `snapshot_persisted` event per persisted VM snapshot. | `false` |
 | `WAYMARK_ESSENTIAL_METRICS_SAMPLE_INTERVAL_MS` | How often each node samples its own load. | `10000` |
@@ -185,17 +185,17 @@ defaults of its own, so in an environment both share, one setting
 applies to both.
 
 With a database, the bridge also opens a write pool of its own to the
-[observability store](#observability), for its observability events; it
-records none yet. It never migrates the store: it checks the store's
-schema at startup the way it checks the main one, and refuses to start
-unless the nodes have migrated it exactly to the bridge's own
-migrations. With a separate store, every host that boots the bridge
-carries `WAYMARK_OBSERVABILITY_DATABASE_URL`; without it the bridge
-looks for the store in the main database and refuses to start. It reads
-every `WAYMARK_OBSERVABILITY_EVENTS_*` variable the nodes read and
-validates them at boot; only the sink ones take effect in it. Of the
-observability variables, the ones below apply to it, with the node's
-defaults.
+[observability store](#observability), for its observability events: it
+records the executables registered through it. It never migrates the
+store: it checks the store's schema at startup the way it checks the
+main one, and refuses to start unless the nodes have migrated it exactly
+to the bridge's own migrations. With a separate store, every host that
+boots the bridge carries `WAYMARK_OBSERVABILITY_DATABASE_URL`; without
+it the bridge looks for the store in the main database and refuses to
+start. It reads every `WAYMARK_OBSERVABILITY_EVENTS_*` variable the
+nodes read and validates them at boot; only the sink ones take effect in
+it. Of the observability variables, the ones below apply to it, with the
+node's defaults.
 
 | Variable | Description | Default |
 | --- | --- | --- |
