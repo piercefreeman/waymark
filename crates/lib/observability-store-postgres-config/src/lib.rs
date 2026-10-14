@@ -6,13 +6,10 @@
 //! `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL` are read and dispatched
 //! by scheme in `waymark-observability-store-config`.
 //!
-//! Observability pools are always the consumer's own — never the main
-//! database pool — so a slow observability statement can only ever wait
-//! on its own pool's budget, and a runaway read can only ever exhaust the
-//! read pool. Note for sizing: when the observability store shares the
-//! main database (the default), these connections are ADDITIVE — the
-//! server sees the main pool's connections plus the cap of every
-//! observability pool, so the main pool's own cap understates the total.
+//! The pool configs here are the observability store's own, read from
+//! `WAYMARK_OBSERVABILITY_POSTGRES_*` and
+//! `WAYMARK_OBSERVABILITY_POSTGRES_READ_*`, never the main database's
+//! `WAYMARK_DATABASE_*`.
 
 pub mod migrate_only;
 mod profiles;

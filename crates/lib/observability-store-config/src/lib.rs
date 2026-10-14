@@ -1,12 +1,11 @@
 //! Config for the observability store: the backend-neutral database URL,
 //! dispatched to a backend by its scheme.
 //!
-//! By default the observability store lives in the main database
-//! (`WAYMARK_DATABASE_URL`) — same URL, namespace-separated into its own
-//! schema and accessed through its own pools. Pointing
-//! `WAYMARK_OBSERVABILITY_DATABASE_URL` elsewhere moves it to a separate
-//! server; `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` is where the reads
-//! go — the same database by default, or a replica of it — and
+//! By default the observability store's URL is the main database's
+//! (`WAYMARK_DATABASE_URL`). Pointing `WAYMARK_OBSERVABILITY_DATABASE_URL`
+//! elsewhere moves the store to a separate server;
+//! `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` is where the reads go — the
+//! same database by default, or a replica of it — and
 //! `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL` is where the migrations
 //! run, on a connection of their own.
 

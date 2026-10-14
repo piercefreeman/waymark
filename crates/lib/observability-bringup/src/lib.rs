@@ -79,6 +79,11 @@ where
     .await
     .map_err(StartError::Migrate)?;
 
+    // The store's pools are its own, never the main database's: a slow
+    // observability statement waits only on its own pool's budget, and a
+    // runaway read exhausts only the read pool. When the store shares the
+    // main database, the server sees the main pool's connections plus the
+    // cap of each pool here.
     let write_pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
         config: &postgres_config.write,
         transactions: waymark_postgres_bringup::Transactions::Unrestricted,
