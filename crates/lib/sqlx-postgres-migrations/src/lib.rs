@@ -40,6 +40,13 @@ pub enum CheckError {
 /// so the validation is the migrator's own. When `migrator` takes the
 /// migrations lock, a migration running elsewhere is waited for.
 ///
+/// On a hot-standby replica it is not: the replica grants the lock, but
+/// that lock excludes nothing on the primary, and a migration shows on
+/// the replica only once it has committed and been replayed. A check
+/// there answers for the state before the migration: a check carrying
+/// that migration fails, an older one passes as it would have just
+/// before it.
+///
 /// Note that a call dropped while it holds the migrations lock leaves the
 /// lock with the connection, so on a pooled connection it is not
 /// cancel-safe.

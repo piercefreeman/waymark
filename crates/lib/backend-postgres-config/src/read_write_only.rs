@@ -13,8 +13,7 @@ pub struct ReadWriteOnly {
     pub read_write: pool::Config,
 
     /// The connection the migrations check runs through, to the read-write
-    /// pool's URL. The check waits for a migration in progress, so the
-    /// connection's statement timeout is the migrations connection's.
+    /// pool's URL; its statement timeout is the migrations connection's.
     pub migrations_check: connection::Config,
 }
 
