@@ -17,7 +17,7 @@ async fn load_missing_executable_returns_not_found() {
 
 #[serial(postgres)]
 #[tokio::test]
-async fn load_after_upsert_returns_bytes() {
+async fn load_after_upsert_returns_bytes_and_metadata() {
     let backend = setup_backend().await;
     let bytes = b"test bytecode";
 
@@ -28,5 +28,7 @@ async fn load_after_upsert_returns_bytes() {
 
     let loaded = backend.load_executable(&id).await.expect("load");
 
-    assert_eq!(loaded, bytes);
+    assert_eq!(loaded.data, bytes);
+    assert_eq!(loaded.name, "test_wf");
+    assert_eq!(loaded.version, "v1");
 }
