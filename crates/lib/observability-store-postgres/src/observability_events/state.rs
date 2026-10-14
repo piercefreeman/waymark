@@ -71,6 +71,9 @@ const INSTANCE_COLUMNS: &str = r#"
 fn vm_driver_kind(tag: &str) -> Result<vm_driver::Kind, sqlx::Error> {
     match decode_kind(tag)? {
         waymark_observability_events_payload::Kind::VmDriver(kind) => Ok(kind),
+        _ => Err(sqlx::Error::Decode(Box::new(UnexpectedKindError {
+            tag: tag.to_owned(),
+        }))),
     }
 }
 

@@ -138,6 +138,7 @@ impl waymark_observability_events_core::kind::Subset for Kind {
     fn from_root_kind(root: crate::Kind) -> Option<Self> {
         match root {
             crate::Kind::VmDriver(kind) => Some(kind),
+            _ => None,
         }
     }
 }

@@ -162,7 +162,9 @@ async fn events_round_trip_through_the_store() {
     assert_eq!(first.node_id, node_id);
     assert_eq!(first.node_sequence, events[0].node_sequence);
     assert_eq!(first.at, started_at);
-    let waymark_observability_events_payload::Payload::VmDriver(payload) = &first.payload;
+    let waymark_observability_events_payload::Payload::VmDriver(payload) = &first.payload else {
+        panic!("a VM driver event: {:?}", first.payload);
+    };
     assert_eq!(payload.vm_id, vm_id);
     assert_eq!(payload.run_sequence, 0);
     assert!(matches!(
@@ -173,7 +175,9 @@ async fn events_round_trip_through_the_store() {
     let second = page.events.last();
     assert_eq!(second.node_sequence, events[1].node_sequence);
     assert_eq!(second.at, emitted_at);
-    let waymark_observability_events_payload::Payload::VmDriver(payload) = &second.payload;
+    let waymark_observability_events_payload::Payload::VmDriver(payload) = &second.payload else {
+        panic!("a VM driver event: {:?}", second.payload);
+    };
     assert_eq!(payload.run_sequence, 1);
     let waymark_observability_events_payload::vm_driver::Observation::EffectEmitted {
         effect_number,
@@ -336,7 +340,10 @@ async fn vm_timeline_merges_the_nodes_a_vm_ran_on_oldest_first() {
         .iter()
         .chain(second_page.events.iter())
         .map(|event| {
-            let waymark_observability_events_payload::Payload::VmDriver(payload) = &event.payload;
+            let waymark_observability_events_payload::Payload::VmDriver(payload) = &event.payload
+            else {
+                panic!("a VM driver event: {:?}", event.payload);
+            };
             assert_eq!(payload.vm_id, vm_id, "only this VM's events");
             (
                 event.node_id == first_node,
