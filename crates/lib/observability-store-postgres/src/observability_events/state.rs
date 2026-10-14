@@ -5,11 +5,14 @@ use nonempty_collections::NEVec;
 use sqlx::Row as _;
 use waymark_observability_events_payload::vm_driver;
 use waymark_observability_state_core::{
-    InstanceState, LastEvent, Outcome, OutcomeKind, Run, Stopped,
+    Executable, ExecutableData, InstanceState, LastEvent, Outcome, OutcomeKind, Run, Stopped,
 };
 use waymark_observability_state_query_backend::list_instances;
 
-use super::common::{UnexpectedKindError, decode_kind, decode_node_sequence, decode_run_sequence};
+use super::common::{
+    HalfNullExecutableDataError, UnexpectedKindError, decode_kind, decode_node_sequence,
+    decode_run_sequence,
+};
 use crate::Store;
 use crate::common::to_bigint_saturating;
 
@@ -48,23 +51,35 @@ impl waymark_cursor_core::DecodeCursor for InstanceCursor {
     }
 }
 
-/// The instance view's columns, as the instances table holds them.
+/// The instance view's columns, as the instances table holds them, with
+/// the run's executable joined in by its id.
 const INSTANCE_COLUMNS: &str = r#"
-    vm_id,
-    last_at,
-    last_node_id,
-    last_node_sequence,
-    last_run_sequence,
-    last_kind,
-    run_node_id,
-    run_started_at,
-    stopped_at,
-    stop_kind,
-    outcome_at,
-    outcome_kind
+    instance.vm_id,
+    instance.last_at,
+    instance.last_node_id,
+    instance.last_node_sequence,
+    instance.last_run_sequence,
+    instance.last_kind,
+    instance.run_node_id,
+    instance.run_started_at,
+    instance.executable_id,
+    executable.name AS executable_name,
+    executable.version AS executable_version,
+    instance.stopped_at,
+    instance.stop_kind,
+    instance.outcome_at,
+    instance.outcome_kind
 "#;
 // `stop_node_sequence` is left out on purpose: the trigger keeps it to
 // order stops, the state does not serve it.
+
+/// The tables the instance view reads: the instances, and for each the
+/// executable its run is of — when the store holds it.
+const INSTANCE_TABLES: &str = r#"
+    observability_vm_instances AS instance
+    LEFT JOIN observability_vm_executables AS executable
+        ON executable.id = instance.executable_id
+"#;
 
 /// The VM driver kind a stored tag stands for; any other kind where a VM
 /// driver kind is expected is a decode error.
@@ -118,6 +133,28 @@ fn decode_instance(row: &sqlx::postgres::PgRow) -> Result<InstanceState, sqlx::E
         }
     };
 
+    let executable_id: Option<waymark_ids::WorkflowVersionId> = row.try_get("executable_id")?;
+    let executable = match executable_id {
+        None => None,
+        Some(id) => {
+            // The executables row has both or the join found no row: a
+            // half-null pair is not a row this store wrote.
+            let name: Option<String> = row.try_get("executable_name")?;
+            let version: Option<String> = row.try_get("executable_version")?;
+            let data = match (name, version) {
+                (Some(name), Some(version)) => Some(ExecutableData { name, version }),
+                (None, None) => None,
+                (name, version) => {
+                    return Err(sqlx::Error::Decode(Box::new(HalfNullExecutableDataError {
+                        name,
+                        version,
+                    })));
+                }
+            };
+            Some(Executable { id, data })
+        }
+    };
+
     let outcome_kind: Option<String> = row.try_get("outcome_kind")?;
     let outcome = match outcome_kind {
         None => None,
@@ -141,6 +178,7 @@ fn decode_instance(row: &sqlx::postgres::PgRow) -> Result<InstanceState, sqlx::E
     Ok(InstanceState {
         vm_id,
         latest_run,
+        executable,
         outcome,
         last_event,
     })
@@ -156,21 +194,21 @@ pub(super) fn push_list_query(
     query.push(format!(
         r#"
         SELECT {INSTANCE_COLUMNS}
-        FROM observability_vm_instances
-        WHERE last_at >= "#
+        FROM {INSTANCE_TABLES}
+        WHERE instance.last_at >= "#
     ));
     query.push_bind(params.from);
-    query.push(" AND last_at < ");
+    query.push(" AND instance.last_at < ");
     query.push_bind(params.to);
     // Keyset: strictly before the position in the (descending) order.
     if let Some(after) = &params.after {
-        query.push(" AND (last_at, vm_id) < (");
+        query.push(" AND (instance.last_at, instance.vm_id) < (");
         query.push_bind(after.last_at);
         query.push(", ");
         query.push_bind(after.vm_id);
         query.push(")");
     }
-    query.push(" ORDER BY last_at DESC, vm_id DESC LIMIT ");
+    query.push(" ORDER BY instance.last_at DESC, instance.vm_id DESC LIMIT ");
     query.push_bind(to_bigint_saturating(
         u64::try_from(params.limit.get()).unwrap_or(u64::MAX),
     ));
@@ -219,8 +257,8 @@ impl waymark_observability_state_query_backend::GetInstance for Store {
         let row = sqlx::query(const_format::formatcp!(
             r#"
             SELECT {INSTANCE_COLUMNS}
-            FROM observability_vm_instances
-            WHERE vm_id = $1
+            FROM {INSTANCE_TABLES}
+            WHERE instance.vm_id = $1
             "#
         ))
         .bind(vm_id)

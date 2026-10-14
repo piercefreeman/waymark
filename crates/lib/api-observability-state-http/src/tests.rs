@@ -44,6 +44,13 @@ fn finished(vm_id: waymark_ids::InstanceId) -> waymark_observability_state_core:
                 reason: waymark_observability_events_payload::vm_driver::StopKind::Cancelled,
             }),
         }),
+        executable: Some(waymark_observability_state_core::Executable {
+            id: waymark_ids::WorkflowVersionId::new_uuid_v4(),
+            data: Some(waymark_observability_state_core::ExecutableData {
+                name: "test_wf".to_owned(),
+                version: "v1".to_owned(),
+            }),
+        }),
         outcome: Some(waymark_observability_state_core::Outcome {
             at: at(1),
             kind: waymark_observability_state_core::OutcomeKind::Complete,
@@ -65,6 +72,7 @@ fn bare(vm_id: waymark_ids::InstanceId) -> waymark_observability_state_core::Ins
     waymark_observability_state_core::InstanceState {
         vm_id,
         latest_run: None,
+        executable: None,
         outcome: None,
         last_event: waymark_observability_state_core::LastEvent {
             at: at(5),
@@ -255,6 +263,9 @@ async fn list_serves_the_page_and_its_cursor() {
     );
     assert_eq!(finished["outcome"]["at"], "2023-11-14T22:13:21Z");
     assert_eq!(finished["outcome"]["kind"], "complete");
+    assert!(finished["executable"]["id"].is_string());
+    assert_eq!(finished["executable"]["data"]["name"], "test_wf");
+    assert_eq!(finished["executable"]["data"]["version"], "v1");
     assert_eq!(finished["last_event"]["at"], "2023-11-14T22:13:22Z");
     assert_eq!(finished["last_event"]["node_sequence"], 0);
     assert_eq!(finished["last_event"]["run_sequence"], 3);
@@ -265,6 +276,7 @@ async fn list_serves_the_page_and_its_cursor() {
 
     let bare = &body["items"][1];
     assert_eq!(bare["latest_run"], serde_json::Value::Null);
+    assert_eq!(bare["executable"], serde_json::Value::Null);
     assert_eq!(bare["outcome"], serde_json::Value::Null);
     assert_eq!(bare["last_event"]["kind"], "vm_driver.snapshot_persisted");
 

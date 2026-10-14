@@ -10,6 +10,10 @@ pub struct Instance {
     /// when the instance state knows the VM without any run of it.
     pub latest_run: Option<Run>,
 
+    /// The instance's executable, as its latest run's start carried it.
+    /// Null when no run of the VM has been observed.
+    pub executable: Option<Executable>,
+
     /// The workflow's terminal outcome, once an effect carried one.
     pub outcome: Option<Outcome>,
 
@@ -22,8 +26,48 @@ impl From<waymark_observability_state_core::InstanceState> for Instance {
         Self {
             vm_id: state.vm_id.into(),
             latest_run: state.latest_run.map(Into::into),
+            executable: state.executable.map(Into::into),
             outcome: state.outcome.map(Into::into),
             last_event: state.last_event.into(),
+        }
+    }
+}
+
+/// The executable an instance runs, as served on the wire.
+#[derive(Debug, serde::Serialize, schemars::JsonSchema)]
+pub struct Executable {
+    /// The id of the workflow version the instance runs.
+    pub id: waymark_http_api_types::UuidId<waymark_ids::WorkflowVersionId>,
+
+    /// What the executable was registered under. Null when the store no
+    /// longer holds the executable.
+    pub data: Option<ExecutableData>,
+}
+
+impl From<waymark_observability_state_core::Executable> for Executable {
+    fn from(executable: waymark_observability_state_core::Executable) -> Self {
+        Self {
+            id: executable.id.into(),
+            data: executable.data.map(Into::into),
+        }
+    }
+}
+
+/// What an executable was registered under, as served on the wire.
+#[derive(Debug, serde::Serialize, schemars::JsonSchema)]
+pub struct ExecutableData {
+    /// The workflow name the executable was registered under.
+    pub name: String,
+
+    /// The workflow version the executable was registered under.
+    pub version: String,
+}
+
+impl From<waymark_observability_state_core::ExecutableData> for ExecutableData {
+    fn from(data: waymark_observability_state_core::ExecutableData) -> Self {
+        Self {
+            name: data.name,
+            version: data.version,
         }
     }
 }

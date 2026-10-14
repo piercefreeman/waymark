@@ -17,11 +17,37 @@ pub struct InstanceState {
     /// when the instance state knows the VM without any run of it.
     pub latest_run: Option<Run>,
 
+    /// The instance's executable, as its latest run's start carried it.
+    /// Absent when no run of the VM has been observed.
+    pub executable: Option<Executable>,
+
     /// The workflow's terminal outcome, once an effect carried one.
     pub outcome: Option<Outcome>,
 
     /// The VM's most recent event.
     pub last_event: LastEvent,
+}
+
+/// The executable an instance runs: the id its latest run's start
+/// carried, and the name and version the events have recorded for it.
+#[derive(Debug)]
+pub struct Executable {
+    /// The id of the workflow version the instance runs.
+    pub id: waymark_ids::WorkflowVersionId,
+
+    /// What the executable was registered under; absent when the store no
+    /// longer holds the executable's row.
+    pub data: Option<ExecutableData>,
+}
+
+/// What an executable was registered under.
+#[derive(Debug)]
+pub struct ExecutableData {
+    /// The workflow name it was registered under.
+    pub name: String,
+
+    /// The workflow version it was registered under.
+    pub version: String,
 }
 
 /// One run of a VM: from a VM driver starting it to that driver stopping.
