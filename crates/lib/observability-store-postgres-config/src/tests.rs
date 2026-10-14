@@ -28,6 +28,17 @@ fn each_pool_takes_its_url_and_its_own_statement_timeout() {
         config.read.statement_timeout.map(NonZeroDuration::get),
         Some(std::time::Duration::from_secs(10)),
     );
+    assert_eq!(
+        config.migrations_check.url.expose_secret(),
+        "postgres://primary/waymark"
+    );
+    assert_eq!(
+        config
+            .migrations_check
+            .statement_timeout
+            .map(NonZeroDuration::get),
+        Some(std::time::Duration::from_secs(600)),
+    );
 }
 
 #[test]
@@ -81,7 +92,7 @@ fn migrate_only_takes_the_migrations_connection_alone() {
 }
 
 #[test]
-fn write_only_takes_the_write_pool_alone() {
+fn write_only_checks_the_migrations_through_the_write_url() {
     let config = WriteOnly::from_url_and_env("postgres://primary/waymark".into())
         .expect("the defaults are valid");
 
@@ -93,10 +104,21 @@ fn write_only_takes_the_write_pool_alone() {
         config.write.statement_timeout.map(NonZeroDuration::get),
         Some(std::time::Duration::from_secs(30)),
     );
+    assert_eq!(
+        config.migrations_check.url.expose_secret(),
+        "postgres://primary/waymark"
+    );
+    assert_eq!(
+        config
+            .migrations_check
+            .statement_timeout
+            .map(NonZeroDuration::get),
+        Some(std::time::Duration::from_secs(600)),
+    );
 }
 
 #[test]
-fn read_only_takes_the_read_pool_alone() {
+fn read_only_checks_the_migrations_through_the_read_url() {
     let config = ReadOnly::from_url_and_env("postgres://replica/waymark".into())
         .expect("the defaults are valid");
 
@@ -107,6 +129,17 @@ fn read_only_takes_the_read_pool_alone() {
     assert_eq!(
         config.read.statement_timeout.map(NonZeroDuration::get),
         Some(std::time::Duration::from_secs(10)),
+    );
+    assert_eq!(
+        config.migrations_check.url.expose_secret(),
+        "postgres://replica/waymark"
+    );
+    assert_eq!(
+        config
+            .migrations_check
+            .statement_timeout
+            .map(NonZeroDuration::get),
+        Some(std::time::Duration::from_secs(600)),
     );
 }
 
