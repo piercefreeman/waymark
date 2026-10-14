@@ -127,10 +127,11 @@ async fn an_early_task_end_prints_the_report() {
     ");
 }
 
-/// An early task end over a failed startup: the report names the task,
-/// not the startup's failure, which is logged where it happened.
+/// A failed startup over an early task end: the startup's error is what
+/// `main` prints, with the count of early ends; the task itself is in
+/// the report and logged where the drain finished.
 #[tokio::test]
-async fn an_early_task_end_prints_the_report_over_a_failed_startup() {
+async fn a_failed_startup_prints_its_error_over_an_early_task_end() {
     install_plain_report_hook();
     let params = params();
     let shutdown_token = params.shutdown_token.clone();
@@ -147,25 +148,18 @@ async fn an_early_task_end_prints_the_report_over_a_failed_startup() {
     }))
     .await;
 
-    let error = lifecycle.expect_err("a task ended early");
+    let error = lifecycle.expect_err("the startup failed");
     assert!(matches!(
         error,
-        waymark_fn_main_lifecycle::Error::Task {
-            startup_outcome: waymark_fn_main_lifecycle::startup::Outcome::Failed(_),
-            ..
-        }
+        waymark_fn_main_lifecycle::Error::Startup { .. }
     ));
-    insta::assert_snapshot!(error.to_string(), @"
-    a task ended before the shutdown was requested: 1 task(s) ended, 1 of them before shutdown was requested
-      short (before shutdown): returned
-    ");
+    insta::assert_snapshot!(error.to_string(), @"startup failed: start the backend (1 task ended before the shutdown was requested)");
     insta::assert_snapshot!(printed_by_main(color_eyre::eyre::Report::from(error)), @"
     Error:
-       0: a task ended before the shutdown was requested: 1 task(s) ended, 1 of them before shutdown was requested
-            short (before shutdown): returned
-
-       1: 1 task(s) ended, 1 of them before shutdown was requested
-            short (before shutdown): returned
+       0: startup failed: start the backend (1 task ended before the shutdown was requested)
+       1: start the backend
+       2: connect the database
+       3: connection refused
     ");
 }
 
@@ -211,7 +205,7 @@ async fn an_early_task_end_outranks_a_stopped_startup() {
     assert!(matches!(
         error,
         waymark_fn_main_lifecycle::Error::Task {
-            startup_outcome: waymark_fn_main_lifecycle::startup::Outcome::Stopped,
+            startup_completion: waymark_fn_main_lifecycle::startup::Completion::Stopped,
             ..
         }
     ));

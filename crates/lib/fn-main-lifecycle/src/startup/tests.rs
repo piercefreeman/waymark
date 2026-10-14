@@ -38,7 +38,7 @@ async fn a_startup_that_returns_succeeds() {
     )
     .await;
 
-    assert!(matches!(outcome, Outcome::Success(5)), "{outcome:?}");
+    assert!(matches!(outcome, Ok(Completion::Success(5))), "{outcome:?}");
 }
 
 #[tokio::test]
@@ -58,7 +58,7 @@ async fn a_startup_stops_at_the_checkpoint_after_the_stop() {
     )
     .await;
 
-    assert!(matches!(outcome, Outcome::Stopped), "{outcome:?}");
+    assert!(matches!(outcome, Ok(Completion::Stopped)), "{outcome:?}");
 }
 
 #[tokio::test]
@@ -84,7 +84,7 @@ async fn the_checkpoint_that_stops_requests_the_shutdown_before_returning() {
     )
     .await;
 
-    assert!(matches!(outcome, Outcome::Stopped), "{outcome:?}");
+    assert!(matches!(outcome, Ok(Completion::Stopped)), "{outcome:?}");
 }
 
 #[tokio::test]
@@ -102,7 +102,7 @@ async fn a_startup_that_errors_fails() {
     )
     .await;
 
-    let Outcome::Failed(error) = outcome else {
+    let Err(error) = outcome else {
         panic!("{outcome:?}");
     };
     assert_eq!(error.to_string(), "step failed");
@@ -121,5 +121,5 @@ async fn a_startup_without_checkpoints_returns() {
     )
     .await;
 
-    assert!(matches!(outcome, Outcome::Success(7)), "{outcome:?}");
+    assert!(matches!(outcome, Ok(Completion::Success(7))), "{outcome:?}");
 }

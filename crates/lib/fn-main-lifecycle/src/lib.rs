@@ -23,21 +23,24 @@
 //!   observe it, so `startup_fn` runs until it returns regardless.
 //!
 //! - An error returned by `startup_fn` fails the startup: the shutdown
-//!   token is cancelled, and the error is the result. A cancelled
-//!   stop-startup-then-shutdown token changes nothing about that: it
-//!   reaches `startup_fn` at its checkpoints only, so the error came from
-//!   `startup_fn`, not from the token. The token is cancelled once
-//!   `startup_fn` has returned, so what it held is dropped first; a task
-//!   that ends on that drop, its last handle gone, may be observed in the
-//!   instant before the cancel and attributed as an early end.
+//!   token is cancelled, and the error is the result, whatever the drain
+//!   reports. A cancelled stop-startup-then-shutdown token changes
+//!   nothing about that: it reaches `startup_fn` at its checkpoints only,
+//!   so the error came from `startup_fn`, not from the token. The token
+//!   is cancelled once `startup_fn` has returned, so what it held is
+//!   dropped first; a task that ends on that drop, its last handle gone,
+//!   may be observed in the instant before the cancel and attributed as
+//!   an early end. Under a failed startup the report carries every early
+//!   end, that one and any task that ended before the request, one whose
+//!   end may have caused the failure included.
 //!
-//! - Whatever the startup returned, every task is drained afterwards, and
-//!   a task that ended before the shutdown was requested is the result
-//!   over anything the startup returned: it is the root cause of what the
-//!   startup saw. A panic in `startup_fn` unwinds through `run` instead:
-//!   the shutdown is still requested, by the guard dropped on the way,
-//!   and the tasks stay supervised to completion, but nothing here waits
-//!   for them and no report is made.
+//! - Whatever the startup returned, every task is drained afterwards. When
+//!   the startup succeeded or stopped, a task that ended before the
+//!   shutdown was requested is the result over that: it is the root cause
+//!   of what the startup saw. A panic in `startup_fn` unwinds through `run`
+//!   instead: the shutdown is still requested, by the guard dropped on the
+//!   way, and the tasks stay supervised to completion, but nothing here
+//!   waits for them and no report is made.
 //!
 //! - The stop-startup-then-shutdown request is not the shutdown request:
 //!   a task that cancels the first token and ends before the second is
@@ -133,14 +136,14 @@ where
         shutdown_token,
     } = params;
 
-    let startup_outcome = {
+    let startup_result = {
         // The shutdown follows every outcome of the startup but the
         // successful one: a stop requested it at the checkpoint already,
         // and a failure gets it from the guard dropped as this block
         // exits unless it is disarmed.
         let non_success_startup_guard = shutdown_token.clone().drop_guard();
 
-        let startup_outcome = startup::run(
+        let startup_result = startup::run(
             &mut supervisor,
             &stop_startup_then_shutdown_token,
             &shutdown_token,
@@ -148,20 +151,22 @@ where
         )
         .await;
 
-        match &startup_outcome {
-            startup::Outcome::Success(_) => {
+        match &startup_result {
+            Ok(startup::Completion::Success(_)) => {
                 let _ = non_success_startup_guard.disarm();
             }
-            startup::Outcome::Stopped => {
+            Ok(startup::Completion::Stopped) => {
                 tracing::info!("startup stopped at a checkpoint; shutting down");
             }
-            startup::Outcome::Failed(error) => {
-                // The error's whole chain: on an early task end it is
-                // reported nowhere else.
+            Err(error) => {
+                // Logged before the drain, so a slow drain does not delay
+                // the error, and in its `Debug` form: `main` prints only
+                // the `Display` chain, which leaves out what `Debug` carries
+                // beyond it: a report's location and backtrace, for one.
                 tracing::error!(?error, "startup failed; shutting down");
             }
         }
-        startup_outcome
+        startup_result
     };
 
     // The startup is over: from here on, cancelling the
@@ -172,25 +177,34 @@ where
 
     if report.any_before_shutdown() {
         tracing::error!(%report, "shutdown complete");
-        let startup_outcome = match startup_outcome {
-            startup::Outcome::Success(ok) => startup::Outcome::Success(ok),
-            startup::Outcome::Stopped => startup::Outcome::Stopped,
-            startup::Outcome::Failed(error) => startup::Outcome::Failed(error.into_error()),
-        };
+    } else {
+        tracing::info!(%report, "shutdown complete");
+    }
+
+    // A failed startup is the result whatever the drain reports: every
+    // task that ended before the shutdown was requested goes to the report,
+    // one whose end may have caused the failure included. An early end is
+    // the result only over a startup that succeeded or stopped.
+    let startup_completion = match startup_result {
+        Err(error) => {
+            return Err(Error::Startup {
+                error: error.into_error(),
+                supervisor_report: report,
+            });
+        }
+        Ok(completion) => completion,
+    };
+
+    if report.any_before_shutdown() {
         return Err(Error::Task {
             supervisor_report: report,
-            startup_outcome,
+            startup_completion,
         });
     }
-    tracing::info!(%report, "shutdown complete");
 
-    match startup_outcome {
-        startup::Outcome::Success(ok) => Ok(CleanShutdown::AfterFullLifecycle(ok)),
-        startup::Outcome::Stopped => Ok(CleanShutdown::DuringStartup),
-        startup::Outcome::Failed(error) => Err(Error::Startup {
-            error: error.into_error(),
-            supervisor_report: report,
-        }),
+    match startup_completion {
+        startup::Completion::Success(ok) => Ok(CleanShutdown::AfterFullLifecycle(ok)),
+        startup::Completion::Stopped => Ok(CleanShutdown::DuringStartup),
     }
 }
 

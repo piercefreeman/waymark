@@ -135,7 +135,7 @@ async fn a_checkpoint_after_the_cancel_stops_the_startup() {
 }
 
 #[tokio::test]
-async fn an_early_task_end_is_the_result_over_the_startup_outcome() {
+async fn an_early_task_end_is_the_result_over_a_completed_startup() {
     let (params, _stop_startup_token) = setup();
     let shutdown_token = params.shutdown_token.clone();
 
@@ -150,18 +150,27 @@ async fn an_early_task_end_is_the_result_over_the_startup_outcome() {
 
     let Err(Error::Task {
         supervisor_report,
-        startup_outcome,
+        startup_completion,
     }) = outcome
     else {
         panic!("{outcome:?}");
     };
     assert!(supervisor_report.any_before_shutdown());
     assert_eq!(supervisor_report.ended[0].name, "short");
-    assert!(matches!(startup_outcome, startup::Outcome::Success(())));
+    assert!(matches!(
+        startup_completion,
+        startup::Completion::Success(())
+    ));
 }
 
+/// A failed startup is the result over a task's early end, whichever came
+/// first: the task is in the report and counted in the message, not in
+/// the headline. The task ends before the startup fails here; the end on
+/// the drop of what the startup held cannot be produced on this runtime,
+/// where nothing yields between the startup's return and the guard's
+/// cancel, so that end is always classified after the request.
 #[tokio::test]
-async fn an_early_task_end_keeps_the_startup_outcome() {
+async fn a_failed_startup_is_the_result_over_an_early_task_end() {
     let (params, _stop_startup_token) = setup();
     let shutdown_token = params.shutdown_token.clone();
 
@@ -174,18 +183,62 @@ async fn an_early_task_end_keeps_the_startup_outcome() {
     })
     .await;
 
-    let Err(Error::Task {
+    let lifecycle_error = outcome.expect_err("the startup failed");
+    assert_eq!(
+        lifecycle_error.to_string(),
+        "startup failed: step failed (1 task ended before the shutdown was requested)"
+    );
+    let Error::Startup {
+        error,
         supervisor_report,
-        startup_outcome,
-    }) = outcome
+    } = lifecycle_error
     else {
-        panic!("{outcome:?}");
-    };
-    assert!(supervisor_report.any_before_shutdown());
-    let startup::Outcome::Failed(error) = startup_outcome else {
-        panic!("{startup_outcome:?}");
+        panic!("{lifecycle_error:?}");
     };
     assert_eq!(error.to_string(), "step failed");
+    assert!(supervisor_report.any_before_shutdown());
+    assert_eq!(supervisor_report.ended[0].name, "short");
+}
+
+/// The same when tasks ended with errors of their own, and may have
+/// caused the failure: the startup's failure is still the result, the
+/// tasks' errors stay in the report, and the message counts them.
+#[tokio::test]
+async fn a_failed_startup_is_the_result_over_tasks_that_failed_early() {
+    let (params, _stop_startup_token) = setup();
+    let shutdown_token = params.shutdown_token.clone();
+
+    let outcome = run_bounded(params, async |supervisor, _checkpoint| {
+        supervisor.spawn("broken", async { Err::<(), ShutdownError>(ShutdownError) });
+        supervisor.spawn("broken too", async {
+            Err::<(), ShutdownError>(ShutdownError)
+        });
+        shutdown_token.cancelled().await;
+        Err::<(), StartupError>(MessageError("step failed").into())
+    })
+    .await;
+
+    let lifecycle_error = outcome.expect_err("the startup failed");
+    assert_eq!(
+        lifecycle_error.to_string(),
+        "startup failed: step failed (2 tasks ended before the shutdown was requested)"
+    );
+    let Error::Startup {
+        error,
+        supervisor_report,
+    } = lifecycle_error
+    else {
+        panic!("{lifecycle_error:?}");
+    };
+    assert_eq!(error.to_string(), "step failed");
+    assert!(supervisor_report.any_before_shutdown());
+    let mut ended: Vec<_> = supervisor_report
+        .ended
+        .iter()
+        .map(|ended| ended.name)
+        .collect();
+    ended.sort_unstable();
+    assert_eq!(ended, ["broken", "broken too"]);
 }
 
 #[tokio::test]
