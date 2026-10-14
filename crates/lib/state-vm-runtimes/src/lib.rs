@@ -177,6 +177,7 @@ where
     ExecutableProvider: Send + Sync + 'static,
     ExecutableProvider::Error: Send + 'static,
     ExecutableProvider::Handle: waymark_state_vm_runtimes_core::ExecutableAccess,
+    ExecutableProvider::Handle: waymark_state_vm_runtimes_core::ExecutableMetadataAccess,
     ExecutableProvider::Handle: Send + Sync + 'static,
     waymark_state_vm_runtimes_core::ExecutableFor<ExecutableProvider>:
         waymark_vm_executable::InstructionsProvider + Send + Sync + 'static + Clone,
@@ -240,7 +241,10 @@ where
         Send + 'static,
     <EffectorProvider::Effector as waymark_vm_driver_core::PromiseSettler>::Error:
         Send + 'static,
-    HooksProvider: waymark_state_vm_runtimes_core::HooksProvider<VmId = Backend::VmId>,
+    HooksProvider: waymark_state_vm_runtimes_core::HooksProvider<
+        VmId = Backend::VmId,
+        ExecutableMetadata = waymark_state_vm_runtimes_core::ExecutableMetadataFor<ExecutableProvider>,
+    >,
     HooksProvider: Send + Sync + 'static,
     HooksProvider::Hooks: waymark_vm_driver::HooksFor<
             InterpreterProvider::Interpreter,
@@ -305,12 +309,17 @@ where
             batcher: self.snapshot_batcher.clone(),
         };
 
+        let executable_metadata =
+            waymark_state_vm_runtimes_core::ExecutableMetadataAccess::metadata(&executable_handle);
+
+        let hooks = self.hooks_provider.provide_hooks(key, executable_metadata);
+
         let spawned = spawner::spawn(
             Arc::clone(&self.codec),
             runtime,
             self.effector_provider.provide_effector(key),
             snapshotter,
-            self.hooks_provider.provide_hooks(key),
+            hooks,
             vec![Box::new(executable_handle)],
         )
         .instrument(tracing::info_span!("drive_runtime", ?key))

@@ -27,6 +27,7 @@ waymark-sleep-reconciler-backend = { workspace = true }
 waymark-state-manager = { workspace = true }
 waymark-state-vm-executables = { workspace = true }
 waymark-state-vm-executables-backend = { workspace = true }
+waymark-state-vm-executables-core = { workspace = true }
 waymark-state-vm-runtimes = { workspace = true }
 waymark-state-vm-runtimes-backend = { workspace = true }
 waymark-state-vm-runtimes-compat = { workspace = true }

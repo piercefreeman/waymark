@@ -48,3 +48,20 @@ where
         &waymark_state_manager::Handle::value(&self.0).executable
     }
 }
+
+impl<Key, Executable> waymark_state_vm_runtimes_core::ExecutableMetadataAccess
+    for Compat<
+        waymark_state_manager::Handle<
+            Key,
+            Arc<waymark_state_vm_executables_core::Entry<Key, Executable>>,
+        >,
+    >
+where
+    Key: Eq + Hash,
+{
+    type Metadata = waymark_state_vm_executables_core::ExecutableMetadata<Key>;
+
+    fn metadata(&self) -> &Self::Metadata {
+        &waymark_state_manager::Handle::value(&self.0).metadata
+    }
+}
