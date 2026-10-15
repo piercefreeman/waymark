@@ -42,19 +42,16 @@ where
 /// before the startup function returns and drops what it holds.
 pub type CheckpointFn<'a> = &'a (dyn Fn() -> Result<(), StoppedError> + Sync);
 
-/// How the startup function returned.
+/// How the startup function returned when it did not fail: with its
+/// value, or stopped at a checkpoint.
 #[derive(Debug)]
-pub enum Outcome<StartupOk, StartupError> {
+pub enum Completion<StartupOk> {
     /// The startup function returned its value.
     Success(StartupOk),
 
     /// The startup function stopped at a checkpoint: `stop_startup_token`
     /// was cancelled.
     Stopped,
-
-    /// The startup function returned an error (i.e. one of its steps
-    /// failed).
-    Failed(StartupError),
 }
 
 /// Run the startup function `startup_fn` under `supervisor` until it
@@ -64,7 +61,8 @@ pub enum Outcome<StartupOk, StartupError> {
 ///
 /// The future is never dropped, raced or timed out: whatever `startup_fn`
 /// is in the middle of always finishes. The stop is observed only where
-/// `startup_fn` asks for it, through its [`CheckpointFn`].
+/// `startup_fn` asks for it, through its [`CheckpointFn`]. Returns how
+/// the startup completed, or the error it failed with.
 pub(crate) async fn run<TaskError, StartupOk, StartupError>(
     supervisor: &mut waymark_task_supervisor::Supervisor<TaskError>,
     stop_startup_token: &tokio_util::sync::CancellationToken,
@@ -73,7 +71,7 @@ pub(crate) async fn run<TaskError, StartupOk, StartupError>(
         &mut waymark_task_supervisor::Supervisor<TaskError>,
         CheckpointFn<'_>,
     ) -> Result<StartupOk, StartupError>,
-) -> Outcome<StartupOk, StartupError>
+) -> Result<Completion<StartupOk>, StartupError>
 where
     StartupError: Error,
 {
@@ -90,9 +88,9 @@ where
         Ok(())
     };
     match startup_fn(supervisor, &checkpoint).await {
-        Ok(ok) => Outcome::Success(ok),
-        Err(error) if error.as_stopped().is_some() => Outcome::Stopped,
-        Err(error) => Outcome::Failed(error),
+        Ok(ok) => Ok(Completion::Success(ok)),
+        Err(error) if error.as_stopped().is_some() => Ok(Completion::Stopped),
+        Err(error) => Err(error),
     }
 }
 
