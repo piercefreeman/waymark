@@ -20,7 +20,7 @@ fn every_kind_reads_back_from_its_tag() {
     }
 
     assert_eq!(Kind::from_tag("not a kind"), None);
-    assert_eq!(tags.len(), 15);
+    assert_eq!(tags.len(), 16);
 }
 
 /// The tag is the path, source first, and it is the source's own tag.
@@ -37,6 +37,10 @@ fn tags_are_source_prefixed_paths() {
         ))
         .tag(),
         "vm_driver.vm_stopped.no_ready_frames_or_waiting_promises"
+    );
+    assert_eq!(
+        Kind::Bridge(bridge::Kind::ExecutableRegistered).tag(),
+        "bridge.executable_registered"
     );
 }
 
@@ -171,6 +175,41 @@ fn payload_round_trips_through_json() {
     }
 }
 
+/// The bridge's event survives the trip too, under its own source tag,
+/// with the executable's fields where the readers address them.
+#[test]
+fn bridge_payload_round_trips_through_json() {
+    let executable_id = waymark_ids::WorkflowVersionId::new_uuid_v4();
+    let payload = Payload::Bridge(bridge::Payload {
+        observation: bridge::Observation::ExecutableRegistered {
+            executable_id,
+            executable_name: "test_wf".to_owned(),
+            executable_version: "v1".to_owned(),
+        },
+    });
+
+    let json = serde_json::to_value(&payload).expect("serialize");
+
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "source": "bridge",
+            "observation": {
+                "kind": "executable_registered",
+                "executable_id": executable_id,
+                "executable_name": "test_wf",
+                "executable_version": "v1",
+            },
+        })
+    );
+
+    let back: Payload = serde_json::from_value(json).expect("deserialize");
+    assert_eq!(
+        waymark_observability_events_core::Kinded::kind(&back),
+        Kind::Bridge(bridge::Kind::ExecutableRegistered),
+    );
+}
+
 /// The JSON shape the store's access paths and the readers rely on.
 #[test]
 fn json_shape() {
@@ -210,28 +249,66 @@ fn json_shape() {
     );
 }
 
-/// The payload describes itself: the schema follows the serde shape, with
-/// the embedded ids and numbers described as what they serialize to.
+/// The definition a `$ref` points at, within the root schema's `$defs`,
+/// with the name it is defined under.
+fn definition<'a>(
+    schema: &'a serde_json::Value,
+    referrer: &'a serde_json::Value,
+) -> (&'a str, &'a serde_json::Value) {
+    let reference = referrer["$ref"].as_str().expect("a $ref");
+    let name = reference
+        .strip_prefix("#/$defs/")
+        .expect("a reference into $defs");
+    let definition = &schema["$defs"][name];
+    assert!(definition.is_object(), "{name} is not defined");
+    (name, definition)
+}
+
+/// The variant of a tagged union whose tag has the given value.
+fn variant<'a>(union: &'a serde_json::Value, tag: &str, value: &str) -> &'a serde_json::Value {
+    union["oneOf"]
+        .as_array()
+        .expect("a oneOf")
+        .iter()
+        .find(|variant| variant["properties"][tag]["const"] == value)
+        .unwrap_or_else(|| panic!("no variant with {tag} = {value}"))
+}
+
+/// The payload describes itself: the schema follows the serde shape for
+/// both sources, with the embedded ids and numbers described as what
+/// they serialize to, and every definition under the name its type
+/// declares (a second `Observation` would otherwise come out numbered).
 #[test]
 fn payload_has_a_schema() {
     let schema = schemars::schema_for!(Payload).to_value();
 
-    assert_eq!(
-        schema["oneOf"][0]["properties"]["source"]["const"],
-        "vm_driver"
-    );
+    for name in schema["$defs"].as_object().expect("the definitions").keys() {
+        assert!(
+            !name.ends_with(|character: char| character.is_ascii_digit()),
+            "{name}: a definition came out numbered"
+        );
+    }
 
-    let vm_id = &schema["$defs"]["VmDriverPayload"]["properties"]["vm_id"];
+    let (name, vm_driver) = definition(&schema, variant(&schema, "source", "vm_driver"));
+    assert_eq!(name, "VmDriverPayload");
+    let vm_id = &vm_driver["properties"]["vm_id"];
     assert_eq!(vm_id["type"], "string", "{vm_id}");
     assert_eq!(vm_id["format"], "uuid", "{vm_id}");
 
-    let effect_emitted = schema["$defs"]["Observation"]["oneOf"]
-        .as_array()
-        .expect("the observations")
-        .iter()
-        .find(|observation| observation["properties"]["kind"]["const"] == "effect_emitted")
-        .expect("the effect_emitted observation");
+    let (name, observation) = definition(&schema, &vm_driver["properties"]["observation"]);
+    assert_eq!(name, "VmDriverObservation");
+    let effect_emitted = variant(observation, "kind", "effect_emitted");
     let effect_number = &effect_emitted["properties"]["effect_number"];
     assert_eq!(effect_number["type"], "integer", "{effect_number}");
     assert_eq!(effect_number["minimum"], 0, "{effect_number}");
+
+    let (name, bridge) = definition(&schema, variant(&schema, "source", "bridge"));
+    assert_eq!(name, "BridgePayload");
+
+    let (name, observation) = definition(&schema, &bridge["properties"]["observation"]);
+    assert_eq!(name, "BridgeObservation");
+    let executable_registered = variant(observation, "kind", "executable_registered");
+    let executable_id = &executable_registered["properties"]["executable_id"];
+    assert_eq!(executable_id["type"], "string", "{executable_id}");
+    assert_eq!(executable_id["format"], "uuid", "{executable_id}");
 }

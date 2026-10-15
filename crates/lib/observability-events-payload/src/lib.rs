@@ -8,8 +8,10 @@
 
 #![warn(missing_docs)]
 
+pub mod bridge;
 mod kind;
 mod payload;
+mod schema;
 pub mod vm_driver;
 
 pub use kind::*;

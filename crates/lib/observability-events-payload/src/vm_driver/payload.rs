@@ -14,7 +14,7 @@ use super::{EffectKind, Kind, SettlementKind, StopKind};
 #[schemars(rename = "VmDriverPayload")]
 pub struct Payload {
     /// The VM whose run emitted the event.
-    #[schemars(schema_with = "uuid_schema")]
+    #[schemars(schema_with = "crate::schema::uuid")]
     pub vm_id: waymark_ids::InstanceId,
 
     /// The event's position within its VM driver run: 0 at the start of
@@ -36,12 +36,13 @@ impl Payload {
 
 /// What was observed of a run, one variant per observation, summarized.
 #[derive(Debug, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[schemars(rename = "VmDriverObservation")]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Observation {
     /// The VM driver run has started.
     VmStarted {
         /// The executable the run is of.
-        #[schemars(schema_with = "uuid_schema")]
+        #[schemars(schema_with = "crate::schema::uuid")]
         executable_id: waymark_ids::WorkflowVersionId,
 
         /// The name the executable was registered under.
@@ -233,14 +234,4 @@ impl StopReason {
             StopReason::Cancelled => StopKind::Cancelled,
         }
     }
-}
-
-/// The schema of an id serialized as its UUID's text: the id types carry
-/// no schema of their own, and this crate describes the payload it
-/// serializes.
-fn uuid_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-    schemars::json_schema!({
-        "type": "string",
-        "format": "uuid",
-    })
 }

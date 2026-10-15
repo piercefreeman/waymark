@@ -25,6 +25,9 @@ use waymark_observability_events_core::kind::SubsetExt as _;
 pub enum Kind {
     /// An event of the VM driver.
     VmDriver(crate::vm_driver::Kind),
+
+    /// An event of the bridge.
+    Bridge(crate::bridge::Kind),
 }
 
 // The root of the family: its own subset, the whole of it.
@@ -32,7 +35,7 @@ impl waymark_observability_events_core::kind::Subset for Kind {
     type RootKind = Kind;
 
     fn subset() -> impl Iterator<Item = Self> {
-        crate::vm_driver::Kind::root_subset()
+        crate::vm_driver::Kind::root_subset().chain(crate::bridge::Kind::root_subset())
     }
 
     fn root_kind(&self) -> Kind {
@@ -48,6 +51,7 @@ impl waymark_observability_events_core::kind::Tagged for Kind {
     fn tag(&self) -> &'static str {
         match self {
             Kind::VmDriver(kind) => kind.tag(),
+            Kind::Bridge(kind) => kind.tag(),
         }
     }
 }

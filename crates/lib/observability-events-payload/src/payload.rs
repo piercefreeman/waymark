@@ -18,6 +18,9 @@ use crate::Kind;
 pub enum Payload {
     /// An event of the VM driver.
     VmDriver(crate::vm_driver::Payload),
+
+    /// An event of the bridge.
+    Bridge(crate::bridge::Payload),
 }
 
 impl waymark_observability_events_core::Kinded for Payload {
@@ -26,6 +29,7 @@ impl waymark_observability_events_core::Kinded for Payload {
     fn kind(&self) -> Kind {
         match self {
             Payload::VmDriver(payload) => Kind::VmDriver(payload.kind()),
+            Payload::Bridge(payload) => Kind::Bridge(payload.kind()),
         }
     }
 }
