@@ -4390,6 +4390,7 @@ dependencies = [
  "waymark-state-manager",
  "waymark-state-vm-executables",
  "waymark-state-vm-executables-backend",
+ "waymark-state-vm-executables-core",
  "waymark-state-vm-runtimes",
  "waymark-state-vm-runtimes-backend",
  "waymark-state-vm-runtimes-compat",

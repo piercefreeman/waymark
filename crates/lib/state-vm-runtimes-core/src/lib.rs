@@ -27,18 +27,27 @@ pub trait EffectorProvider {
 
 /// Provides the driver hooks for a given VM.
 ///
-/// The driver knows no identity; the hooks observing a run are bound to
-/// the VM they observe here, when the VM is revived, exactly as the
-/// effector is.
+/// The hooks observe a VM driver run. The driver itself knows neither
+/// the VM's identity nor its executable's metadata, so the hooks are
+/// created here, when the VM is revived: bound to the VM they observe,
+/// and given the metadata of the executable it runs.
 pub trait HooksProvider {
     /// The VM identifier type.
     type VmId;
 
+    /// The metadata type of the VM's executable.
+    type ExecutableMetadata;
+
     /// The hooks type produced by this provider.
     type Hooks;
 
-    /// Provide the hooks for the given VM.
-    fn provide_hooks(&self, vm_id: &Self::VmId) -> Self::Hooks;
+    /// Provide the hooks for the given VM, running the executable with the
+    /// given metadata.
+    fn provide_hooks(
+        &self,
+        vm_id: &Self::VmId,
+        executable_metadata: &Self::ExecutableMetadata,
+    ) -> Self::Hooks;
 }
 
 /// Provides the executable a VM runs.
@@ -63,6 +72,11 @@ pub trait ExecutableProvider {
 pub type ExecutableFor<ExecutableProvider> =
     <<ExecutableProvider as self::ExecutableProvider>::Handle as ExecutableAccess>::Executable;
 
+/// The metadata of the executables behind the handles an
+/// [`ExecutableProvider`] hands out.
+pub type ExecutableMetadataFor<ExecutableProvider> =
+    <<ExecutableProvider as self::ExecutableProvider>::Handle as ExecutableMetadataAccess>::Metadata;
+
 /// Access to a provided executable.
 pub trait ExecutableAccess {
     /// The executable type.
@@ -70,6 +84,15 @@ pub trait ExecutableAccess {
 
     /// The executable.
     fn executable(&self) -> &Self::Executable;
+}
+
+/// Access to the metadata of a provided executable.
+pub trait ExecutableMetadataAccess {
+    /// The executable metadata type.
+    type Metadata;
+
+    /// The metadata of the executable.
+    fn metadata(&self) -> &Self::Metadata;
 }
 
 /// Provides an interpreter for a given VM.
@@ -147,12 +170,12 @@ where
 }
 
 /// A [`HooksProvider`] that wraps a closure.
-pub struct FnHooksProvider<F, VmId> {
+pub struct FnHooksProvider<F, VmId, ExecutableMetadata> {
     f: F,
-    phantom_data: std::marker::PhantomData<fn(&VmId)>,
+    phantom_data: std::marker::PhantomData<fn(&VmId, &ExecutableMetadata)>,
 }
 
-impl<F, VmId> FnHooksProvider<F, VmId> {
+impl<F, VmId, ExecutableMetadata> FnHooksProvider<F, VmId, ExecutableMetadata> {
     /// Create a new [`FnHooksProvider`] from a given `f`.
     pub fn new(f: F) -> Self {
         Self {
@@ -162,14 +185,20 @@ impl<F, VmId> FnHooksProvider<F, VmId> {
     }
 }
 
-impl<F, VmId, Hooks> HooksProvider for FnHooksProvider<F, VmId>
+impl<F, VmId, ExecutableMetadata, Hooks> HooksProvider
+    for FnHooksProvider<F, VmId, ExecutableMetadata>
 where
-    F: Fn(&VmId) -> Hooks,
+    F: Fn(&VmId, &ExecutableMetadata) -> Hooks,
 {
     type VmId = VmId;
+    type ExecutableMetadata = ExecutableMetadata;
     type Hooks = Hooks;
 
-    fn provide_hooks(&self, vm_id: &Self::VmId) -> Self::Hooks {
-        (self.f)(vm_id)
+    fn provide_hooks(
+        &self,
+        vm_id: &Self::VmId,
+        executable_metadata: &Self::ExecutableMetadata,
+    ) -> Self::Hooks {
+        (self.f)(vm_id, executable_metadata)
     }
 }

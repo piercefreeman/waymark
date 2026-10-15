@@ -485,7 +485,10 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
     spawner.spawn("snapshot batcher", snapshot_batcher_loop);
 
     let hooks_provider = waymark_state_vm_runtimes_core::FnHooksProvider::new(
-        move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
+        move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId,
+              _executable_metadata: &waymark_state_vm_executables_core::ExecutableMetadata<
+            <Backend as waymark_state_vm_runtimes_backend::HasExecutableId>::ExecutableId,
+        >| {
             (
                 waymark_vm_driver_hooks_tracing::Tracing::new(),
                 observability_events.as_ref().map(|observability_events| {
