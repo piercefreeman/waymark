@@ -50,7 +50,9 @@ checks the schema, and only when it starts: it waits for a migration in
 progress to finish, for up to `WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS`,
 then refuses to start unless the schema matches its own migrations
 exactly, neither older nor newer. A node with older migrations refuses
-the same way.
+the same way. The bridge's check of the observability store's schema
+works likewise, for up to
+`WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_STATEMENT_TIMEOUT_MS`.
 
 On a new database, start the app once a node is healthy. Until then,
 your app's workflow calls fail with `unable to boot waymark server`, and
@@ -175,16 +177,24 @@ Budget your Postgres connections per process:
   database open, so neither adds to the 33.
 - **Each app host** that queues workflows runs one singleton bridge, with
   up to 10 connections (`WAYMARK_DATABASE_MAX_CONNECTIONS`, the same
-  variable as the node's, with a default of its own). At startup it also
-  opens one connection to check the schema, and closes it before its pool
-  opens.
+  variable as the node's, with a default of its own), plus up to 4 for
+  its own observability write pool - 14 in total. At startup it also
+  opens one connection to check the main schema and one to check the
+  observability schema; each is closed before the pool of its database
+  opens, so neither adds to the 14.
 
 The observability store holds what the webapp shows: instance events and
 node load samples, kept for seven days by default. On a busy deployment
 you can move it off the main database by pointing
 `WAYMARK_OBSERVABILITY_DATABASE_URL` at another Postgres, and its reads
 at a replica with `WAYMARK_OBSERVABILITY_READ_DATABASE_URL`; the node's
-own connection count stays the same. See
+own connection count stays the same. Every host that boots the bridge,
+the SDK's included, then carries the same
+`WAYMARK_OBSERVABILITY_DATABASE_URL`: without it the bridge looks for
+the store in the main database and refuses to start. Once the nodes run
+on the new store, drop the old `observability` schema from the main
+database: a bridge still pointed at it would find a store at the right
+migrations, pass its check, and write where nothing reads. See
 [Configuration](/guides/configuration#observability).
 
 ## Logs, metrics and the webapp {{ id: 'observability' }}
