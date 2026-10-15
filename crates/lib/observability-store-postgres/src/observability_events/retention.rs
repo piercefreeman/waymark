@@ -32,6 +32,24 @@ impl waymark_observability_events_retention_backend::ApplyRetention for Store {
         )
         .await?;
 
+        // The executables no event has carried since the cutoff go last,
+        // and only once no instance refers to them: an instance alive past
+        // the last event carrying its executable keeps the executable with
+        // it.
+        delete_before_in_chunks!(
+            &self.pool,
+            "observability_vm_executables",
+            "last_at",
+            cutoff,
+            RETENTION_CHUNK,
+            r#"NOT EXISTS (
+                SELECT 1
+                FROM observability_vm_instances AS instance
+                WHERE instance.executable_id = observability_vm_executables.id
+            )"#,
+        )
+        .await?;
+
         Ok(events)
     }
 }
