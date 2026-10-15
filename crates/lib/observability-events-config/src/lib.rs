@@ -20,8 +20,7 @@ pub struct ObservabilityEventsConfig {
     pub vm_driver_hooks_policy: VmDriverHooksPolicy,
 }
 
-/// The config's own word on what the VM driver hooks record; the bringup
-/// turns it into the hooks' policy.
+/// The config's word on what the VM driver hooks record.
 #[derive(Debug, Clone, Copy)]
 pub struct VmDriverHooksPolicy {
     /// Record a `snapshot_persisted` event per persisted snapshot.
