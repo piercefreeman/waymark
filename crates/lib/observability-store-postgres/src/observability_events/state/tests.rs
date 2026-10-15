@@ -72,6 +72,14 @@ fn unhandled_exception() -> Observation {
     }
 }
 
+fn vm_started() -> Observation {
+    Observation::VmStarted {
+        executable_id: waymark_ids::WorkflowVersionId::new_uuid_v4(),
+        executable_name: "test_wf".to_owned(),
+        executable_version: "v1".to_owned(),
+    }
+}
+
 fn snapshot() -> Observation {
     Observation::SnapshotPersisted { size_in_bytes: 1 }
 }
@@ -113,7 +121,7 @@ async fn instances_are_derived_from_the_vm_driver_events() {
 
     let events = [
         // completed: start, complete, exhausted stop (t = 100..102)
-        first.event(100, completed, 0, Observation::VmStarted),
+        first.event(100, completed, 0, vm_started()),
         first.event(101, completed, 1, complete()),
         first.event(
             102,
@@ -122,7 +130,7 @@ async fn instances_are_derived_from_the_vm_driver_events() {
             stopped(StopReason::NoReadyFramesOrWaitingPromises),
         ),
         // failed: start, step failure (t = 200..201)
-        first.event(200, failed, 0, Observation::VmStarted),
+        first.event(200, failed, 0, vm_started()),
         first.event(
             201,
             failed,
@@ -132,16 +140,16 @@ async fn instances_are_derived_from_the_vm_driver_events() {
             }),
         ),
         // hopped: start + cancel on the first node, restart on the second (t = 300..302)
-        first.event(300, hopped, 0, Observation::VmStarted),
+        first.event(300, hopped, 0, vm_started()),
         first.event(301, hopped, 1, stopped(StopReason::Cancelled)),
-        second.event(302, hopped, 0, Observation::VmStarted),
+        second.event(302, hopped, 0, vm_started()),
         // startless: known by a snapshot alone, no run (t = 350)
         second.event(350, startless, 3, snapshot()),
         // running: start + snapshot, no stop (t = 400..401)
-        second.event(400, running, 0, Observation::VmStarted),
+        second.event(400, running, 0, vm_started()),
         second.event(401, running, 1, snapshot()),
         // raised: start, unhandled exception, exhausted stop (t = 500..502)
-        second.event(500, raised, 0, Observation::VmStarted),
+        second.event(500, raised, 0, vm_started()),
         second.event(501, raised, 1, unhandled_exception()),
         second.event(
             502,
@@ -311,7 +319,7 @@ async fn a_stop_absorbed_before_its_start_still_stops_the_run() {
 
     // The start takes the lower position, the stop the higher one; the
     // batch carrying the stop lands first.
-    let start = node.event(100, vm_id, 0, Observation::VmStarted);
+    let start = node.event(100, vm_id, 0, vm_started());
     let stop = node.event(101, vm_id, 1, stopped(StopReason::Cancelled));
     for batch in [[stop], [start]] {
         waymark_observability_events_sink_backend::AppendEvents::append_events(
@@ -346,8 +354,8 @@ async fn a_later_runs_stop_absorbed_before_its_start_follows_its_run() {
     let node = Node::new();
     let vm_id = waymark_ids::InstanceId::new_uuid_v4();
 
-    let first_start = node.event(100, vm_id, 0, Observation::VmStarted);
-    let second_start = node.event(200, vm_id, 0, Observation::VmStarted);
+    let first_start = node.event(100, vm_id, 0, vm_started());
+    let second_start = node.event(200, vm_id, 0, vm_started());
     let second_stop = node.event(201, vm_id, 1, stopped(StopReason::Cancelled));
     // The first run starts; the second run's stop lands before its start.
     for batch in [[first_start], [second_stop], [second_start]] {
@@ -387,9 +395,9 @@ async fn a_runs_own_earlier_stop_replaces_a_later_runs_stop() {
     let node = Node::new();
     let vm_id = waymark_ids::InstanceId::new_uuid_v4();
 
-    let first_start = node.event(100, vm_id, 0, Observation::VmStarted);
+    let first_start = node.event(100, vm_id, 0, vm_started());
     let first_stop = node.event(101, vm_id, 1, stopped(StopReason::Cancelled));
-    let second_start = node.event(200, vm_id, 0, Observation::VmStarted);
+    let second_start = node.event(200, vm_id, 0, vm_started());
     let second_stop = node.event(201, vm_id, 1, stopped(StopReason::Cancelled));
     let append = async |event: Event| {
         waymark_observability_events_sink_backend::AppendEvents::append_events(

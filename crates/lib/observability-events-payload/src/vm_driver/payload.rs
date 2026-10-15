@@ -39,7 +39,17 @@ impl Payload {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Observation {
     /// The VM driver run has started.
-    VmStarted,
+    VmStarted {
+        /// The executable the run is of.
+        #[schemars(schema_with = "uuid_schema")]
+        executable_id: waymark_ids::WorkflowVersionId,
+
+        /// The name the executable was registered under.
+        executable_name: String,
+
+        /// The version the executable was registered under.
+        executable_version: String,
+    },
 
     /// The runtime has emitted an effect.
     EffectEmitted {
@@ -78,7 +88,7 @@ impl Observation {
     /// The event's kind.
     pub fn kind(&self) -> Kind {
         match self {
-            Observation::VmStarted => Kind::VmStarted,
+            Observation::VmStarted { .. } => Kind::VmStarted,
             Observation::EffectEmitted { effect, .. } => Kind::EffectEmitted(effect.kind()),
             Observation::PromiseSettled { settlement, .. } => {
                 Kind::PromiseSettled(settlement.kind())
