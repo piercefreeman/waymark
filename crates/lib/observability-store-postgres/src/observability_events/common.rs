@@ -43,6 +43,22 @@ pub struct NegativeRunSequenceError {
     pub value: i64,
 }
 
+/// An instance's executable with one of `executable_name` and
+/// `executable_version` null and the other not: the executables row has
+/// both, and the join brings both or neither, so a half-null pair is
+/// corruption — surfaced, never decoded as either.
+///
+/// Surfaces as [`sqlx::Error::Decode`], downcastable to this type.
+#[derive(Debug, thiserror::Error)]
+#[error("executable: half-null name/version pair {name:?} / {version:?}")]
+pub struct HalfNullExecutableDataError {
+    /// The stored name.
+    pub name: Option<String>,
+
+    /// The stored version.
+    pub version: Option<String>,
+}
+
 /// A stored `kind` outside the production payload's closed set, or not
 /// the one the view expects at that point. The column is text, so a
 /// mismatch is corruption: surfaced, never skipped.

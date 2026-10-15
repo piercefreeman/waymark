@@ -73,10 +73,15 @@ fn unhandled_exception() -> Observation {
 }
 
 fn vm_started() -> Observation {
+    vm_started_with(waymark_ids::WorkflowVersionId::new_uuid_v4(), "v1")
+}
+
+/// A run's start of the given version of `test_wf`.
+fn vm_started_with(executable_id: waymark_ids::WorkflowVersionId, version: &str) -> Observation {
     Observation::VmStarted {
-        executable_id: waymark_ids::WorkflowVersionId::new_uuid_v4(),
+        executable_id,
         executable_name: "test_wf".to_owned(),
-        executable_version: "v1".to_owned(),
+        executable_version: version.to_owned(),
     }
 }
 
@@ -118,6 +123,9 @@ async fn instances_are_derived_from_the_vm_driver_events() {
     let hopped = waymark_ids::InstanceId::new_uuid_v4();
     let startless = waymark_ids::InstanceId::new_uuid_v4();
     let raised = waymark_ids::InstanceId::new_uuid_v4();
+    let running_executable = waymark_ids::WorkflowVersionId::new_uuid_v4();
+    let hopped_executable = waymark_ids::WorkflowVersionId::new_uuid_v4();
+    let hopped_again_executable = waymark_ids::WorkflowVersionId::new_uuid_v4();
 
     let events = [
         // completed: start, complete, exhausted stop (t = 100..102)
@@ -139,14 +147,20 @@ async fn instances_are_derived_from_the_vm_driver_events() {
                 error: "boom".to_owned(),
             }),
         ),
-        // hopped: start + cancel on the first node, restart on the second (t = 300..302)
-        first.event(300, hopped, 0, vm_started()),
+        // hopped: start + cancel on the first node, restart on the second (t = 300..302);
+        // a distinct executable per start tells the two starts apart in the derived state
+        first.event(300, hopped, 0, vm_started_with(hopped_executable, "v1")),
         first.event(301, hopped, 1, stopped(StopReason::Cancelled)),
-        second.event(302, hopped, 0, vm_started()),
+        second.event(
+            302,
+            hopped,
+            0,
+            vm_started_with(hopped_again_executable, "v2"),
+        ),
         // startless: known by a snapshot alone, no run (t = 350)
         second.event(350, startless, 3, snapshot()),
         // running: start + snapshot, no stop (t = 400..401)
-        second.event(400, running, 0, vm_started()),
+        second.event(400, running, 0, vm_started_with(running_executable, "v3")),
         second.event(401, running, 1, snapshot()),
         // raised: start, unhandled exception, exhausted stop (t = 500..502)
         second.event(500, raised, 0, vm_started()),
@@ -250,6 +264,11 @@ async fn instances_are_derived_from_the_vm_driver_events() {
     assert_eq!(run.node_id, second.node_id);
     assert_eq!(run.started_at.timestamp(), 400);
     assert!(run.stopped.is_none(), "no stop observed");
+    let executable = instance.executable.as_ref().expect("its start carried it");
+    assert_eq!(executable.id, running_executable);
+    let data = executable.data.as_ref().expect("the store holds its row");
+    assert_eq!(data.name, "test_wf");
+    assert_eq!(data.version, "v3");
     assert!(instance.outcome.is_none());
     assert_eq!(instance.last_event.at.timestamp(), 401);
     assert_eq!(instance.last_event.run_sequence, 1);
@@ -301,9 +320,19 @@ async fn instances_are_derived_from_the_vm_driver_events() {
         run.stopped.is_none(),
         "the cancel on the first node does not stop the run on the second"
     );
+    let executable = instance.executable.as_ref().expect("its start carried it");
+    assert_eq!(
+        executable.id, hopped_again_executable,
+        "the executable is the latest run's"
+    );
+    assert_eq!(
+        executable.data.as_ref().map(|data| data.version.as_str()),
+        Some("v2")
+    );
 
     let instance = get(startless).await.expect("known");
     assert!(instance.latest_run.is_none(), "no run of it");
+    assert!(instance.executable.is_none(), "no start carried one");
     assert_eq!(instance.last_event.run_sequence, 3);
 
     assert!(get(waymark_ids::InstanceId::new_uuid_v4()).await.is_none());
