@@ -5468,11 +5468,16 @@ dependencies = [
  "thiserror",
  "waymark-state-manager-core",
  "waymark-state-vm-executables-backend",
+ "waymark-state-vm-executables-core",
  "waymark-vm-codec-core",
 ]
 
 [[package]]
 name = "waymark-state-vm-executables-backend"
+version = "0.1.0"
+
+[[package]]
+name = "waymark-state-vm-executables-core"
 version = "0.1.0"
 
 [[package]]
@@ -5514,6 +5519,7 @@ name = "waymark-state-vm-runtimes-compat"
 version = "0.1.0"
 dependencies = [
  "waymark-state-manager",
+ "waymark-state-vm-executables-core",
  "waymark-state-vm-runtimes-core",
 ]
 

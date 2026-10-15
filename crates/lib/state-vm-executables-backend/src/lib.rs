@@ -9,6 +9,20 @@ pub trait HasExecutableId {
     type ExecutableId;
 }
 
+/// A previously-stored executable, as loaded from the backend: the
+/// identity it was registered under, and the executable itself.
+#[derive(Debug)]
+pub struct LoadedExecutable {
+    /// The name of the workflow the executable was compiled from.
+    pub name: String,
+
+    /// The version of the workflow the executable was compiled from.
+    pub version: String,
+
+    /// The serialized executable.
+    pub data: Vec<u8>,
+}
+
 /// Load a previously-stored executable.
 pub trait LoadExecutable: HasExecutableId {
     /// Error type for load operations.
@@ -18,5 +32,5 @@ pub trait LoadExecutable: HasExecutableId {
     fn load_executable<'a>(
         &'a self,
         id: &'a Self::ExecutableId,
-    ) -> impl Future<Output = Result<Vec<u8>, Self::Error>> + Send + 'a;
+    ) -> impl Future<Output = Result<LoadedExecutable, Self::Error>> + Send + 'a;
 }

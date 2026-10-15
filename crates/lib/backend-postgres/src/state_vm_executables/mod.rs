@@ -26,11 +26,11 @@ impl waymark_state_vm_executables_backend::LoadExecutable for PostgresBackend {
     async fn load_executable<'a>(
         &'a self,
         id: &'a Self::ExecutableId,
-    ) -> Result<Vec<u8>, Self::Error> {
+    ) -> Result<waymark_state_vm_executables_backend::LoadedExecutable, Self::Error> {
         Self::count_query(&self.query_counts, "select:vm_executables_by_id");
         let row = sqlx::query(
             r#"
-            SELECT bytecode FROM vm_executables
+            SELECT name, version, bytecode FROM vm_executables
             WHERE id = $1
             "#,
         )
@@ -39,6 +39,10 @@ impl waymark_state_vm_executables_backend::LoadExecutable for PostgresBackend {
         .await?
         .ok_or(error::LoadError::NotFound(*id))?;
 
-        Ok(row.get("bytecode"))
+        Ok(waymark_state_vm_executables_backend::LoadedExecutable {
+            name: row.get("name"),
+            version: row.get("version"),
+            data: row.get("bytecode"),
+        })
     }
 }

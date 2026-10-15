@@ -6,4 +6,5 @@ publish.workspace = true
 
 [dependencies]
 waymark-state-manager = { workspace = true }
+waymark-state-vm-executables-core = { workspace = true }
 waymark-state-vm-runtimes-core = { workspace = true }

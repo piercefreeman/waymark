@@ -4,6 +4,7 @@
 #![warn(missing_docs)]
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 /// A state manager type as an implementation of the state-vm-runtimes core
 /// traits.
@@ -31,14 +32,19 @@ where
     }
 }
 
-impl<Key, Value> waymark_state_vm_runtimes_core::ExecutableAccess
-    for Compat<waymark_state_manager::Handle<Key, Value>>
+impl<Key, Executable> waymark_state_vm_runtimes_core::ExecutableAccess
+    for Compat<
+        waymark_state_manager::Handle<
+            Key,
+            Arc<waymark_state_vm_executables_core::Entry<Key, Executable>>,
+        >,
+    >
 where
     Key: Eq + Hash,
 {
-    type Executable = Value;
+    type Executable = Arc<Executable>;
 
     fn executable(&self) -> &Self::Executable {
-        waymark_state_manager::Handle::value(&self.0)
+        &waymark_state_manager::Handle::value(&self.0).executable
     }
 }

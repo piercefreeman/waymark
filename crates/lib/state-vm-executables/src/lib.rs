@@ -48,7 +48,7 @@ impl<Backend, Codec, Executable> waymark_state_manager_core::Factory
 where
     Backend: waymark_state_vm_executables_backend::LoadExecutable,
     Backend: Send + Sync + 'static,
-    Backend::ExecutableId: Hash + Eq + Send + Sync,
+    Backend::ExecutableId: Hash + Eq + Clone + Send + Sync,
     <Backend as waymark_state_vm_executables_backend::LoadExecutable>::Error: Send + 'static,
     Codec: waymark_vm_codec_core::DeserializerProvider,
     Codec: Send + Sync + 'static,
@@ -57,22 +57,37 @@ where
     Executable: Send + Sync + 'static,
 {
     type Key = Backend::ExecutableId;
-    type Value = Arc<Executable>;
+    type Value = Arc<waymark_state_vm_executables_core::Entry<Backend::ExecutableId, Executable>>;
     type Error = LoadError<
         <Backend as waymark_state_vm_executables_backend::LoadExecutable>::Error,
         Codec::Error,
     >;
 
     async fn produce(&self, key: &Self::Key) -> Result<Self::Value, Self::Error> {
-        let bytes = self
+        let waymark_state_vm_executables_backend::LoadedExecutable {
+            name,
+            version,
+            data,
+        } = self
             .backend
             .load_executable(key)
             .await
             .map_err(LoadError::Backend)?;
-        let value = self
+
+        let executable = self
             .codec
-            .with_deserializer(&bytes, |de| serde::Deserialize::deserialize(de))
+            .with_deserializer(&data, |de| serde::Deserialize::deserialize(de))
             .map_err(LoadError::Deserialize)?;
-        Ok(Arc::new(value))
+
+        let metadata = waymark_state_vm_executables_core::ExecutableMetadata {
+            id: key.clone(),
+            name,
+            version,
+        };
+
+        Ok(Arc::new(waymark_state_vm_executables_core::Entry {
+            metadata,
+            executable: Arc::new(executable),
+        }))
     }
 }
