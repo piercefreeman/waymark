@@ -30,11 +30,18 @@ pub struct WorkflowStore {
         waymark_system_vm::ReadyValue,
         waymark_system_vm::RaisedException,
     >,
+    /// The bridge's observability-events emitter, for the executables
+    /// registered through the store.
+    observability_events_emitter: Arc<waymark_observability_bringup::Emitter>,
 }
 
 impl WorkflowStore {
-    /// The store over the main database's `pool`.
-    pub fn new(pool: sqlx::PgPool) -> Self {
+    /// The store over the main database's `pool`, emitting through
+    /// `observability_events_emitter`.
+    pub fn new(
+        pool: sqlx::PgPool,
+        observability_events_emitter: Arc<waymark_observability_bringup::Emitter>,
+    ) -> Self {
         let backend = PostgresBackend::new(pool);
         let codec = waymark_vm_codec_rmp::RmpCodec;
 
@@ -58,6 +65,7 @@ impl WorkflowStore {
             registration,
             executables,
             outcome_polling,
+            observability_events_emitter,
         }
     }
 
@@ -88,6 +96,22 @@ impl WorkflowStore {
             .compile_and_store(&registration.workflow_name, &workflow_version, &ast_program)
             .await
             .map_err(|err| color_eyre::eyre::eyre!("compile and store: {err}"))?;
+
+        // The registration, stored: whether the executable is new or was
+        // stored before, the store keeps it under the same id. Emitted on
+        // every registration by design: a dropped event is repaired by the
+        // executable's next registration through the bridge.
+        self.observability_events_emitter.emit(
+            waymark_observability_events_payload::Payload::Bridge(
+                waymark_observability_events_payload::bridge::Payload {
+                    observation: waymark_observability_events_payload::bridge::Observation::ExecutableRegistered {
+                        executable_id: id,
+                        executable_name: registration.workflow_name.clone(),
+                        executable_version: workflow_version,
+                    },
+                },
+            ),
+        );
 
         let entry_input_names = metadata
             .input_names(Default::default())
