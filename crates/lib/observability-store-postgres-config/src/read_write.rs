@@ -2,7 +2,7 @@
 
 use waymark_secret_string::SecretString;
 
-use waymark_postgres_config::pool;
+use waymark_postgres_config::{connection, pool};
 
 use crate::profiles;
 
@@ -16,6 +16,10 @@ pub struct ReadWrite {
     /// The pool the query backends read through. Its URL may point at the
     /// same database as the write pool's, or at a read replica of it.
     pub read: pool::Config,
+
+    /// The connection the migrations check runs through, to the write
+    /// pool's URL; its statement timeout is the migrations connection's.
+    pub migrations_check: connection::Config,
 }
 
 /// Error returned when reading a [`ReadWrite`] from the environment.
@@ -28,6 +32,10 @@ pub enum FromEnvError {
     /// The read pool's config could not be read.
     #[error("read pool: {0}")]
     Read(#[source] pool::FromUrlAndEnvError),
+
+    /// The migrations check connection's config could not be read.
+    #[error("migrations check connection: {0}")]
+    MigrationsCheck(#[source] connection::FromUrlAndEnvError),
 }
 
 impl ReadWrite {
@@ -37,11 +45,18 @@ impl ReadWrite {
         write_url: SecretString,
         read_url: SecretString,
     ) -> Result<Self, FromEnvError> {
-        let write = pool::Config::from_url_and_env::<profiles::WritePool>(write_url)
+        let write = pool::Config::from_url_and_env::<profiles::WritePool>(write_url.clone())
             .map_err(FromEnvError::Write)?;
         let read = pool::Config::from_url_and_env::<profiles::ReadPool>(read_url)
             .map_err(FromEnvError::Read)?;
+        let migrations_check =
+            connection::Config::from_url_and_env::<profiles::Migrations>(write_url)
+                .map_err(FromEnvError::MigrationsCheck)?;
 
-        Ok(Self { write, read })
+        Ok(Self {
+            write,
+            read,
+            migrations_check,
+        })
     }
 }
