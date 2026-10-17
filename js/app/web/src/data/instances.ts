@@ -2,13 +2,18 @@ import { ApiError, getInstance, listInstances } from "@/api/client";
 import type { Instance } from "@/domain/api";
 import { deriveFromInstance } from "@/domain/derive";
 import { instanceStates, type InstanceState } from "@/domain/status";
+import {
+  fetchTimelines,
+  forEachBounded,
+  type CachedTimeline,
+} from "./timelines";
 
 /**
  * One page of the instance ledger, read through the list endpoint's own
  * cursor. Search and state filters have no server-side parameters, so they
  * walk the cursor across the window page by page and keep the matches;
  * the walk is bounded and the page says how far it got. An exact `vm_id`
- * skips the walk and reads the instance directly.
+ * skips the filters and reads the instance directly so search can open it.
  */
 
 export const PAGE_SIZE = 100;
@@ -36,6 +41,87 @@ export interface InstancePage {
   direct: boolean;
 }
 
+export interface InstanceSnapshot extends InstancePage {
+  from: Date;
+  to: Date;
+  preview: Instance | null;
+  timelines: Map<string, CachedTimeline>;
+  complete: boolean;
+  /** Held rows the store no longer has: kept as last seen, not read again. */
+  gone: ReadonlySet<string>;
+}
+
+/** Refresh held rows by ID so activity outside the list window cannot remove them. */
+async function refreshInstances(
+  instances: Instance[],
+  gone: ReadonlySet<string>,
+  signal: AbortSignal,
+) {
+  const items = [...instances];
+  const stillGone = new Set(gone);
+  let complete = true;
+  await forEachBounded(instances, signal, async (instance, index) => {
+    if (stillGone.has(instance.vm_id)) return;
+    try {
+      items[index] = await getInstance(instance.vm_id, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      // A 404 is the store's final word on the row; a held row stays as
+      // last seen and is not asked for again while the hold lasts.
+      if (error instanceof ApiError && error.status === 404)
+        stillGone.add(instance.vm_id);
+      else complete = false;
+    }
+  });
+  return { items, complete, gone: stillGone };
+}
+
+export async function fetchInstanceSnapshot(
+  query: InstancePageQuery,
+  previous: InstanceSnapshot | null,
+  holdList: boolean,
+  previewId: string | null,
+  signal: AbortSignal,
+): Promise<InstanceSnapshot> {
+  const page =
+    holdList && previous
+      ? {
+          ...previous,
+          ...(await refreshInstances(previous.items, previous.gone, signal)),
+        }
+      : {
+          ...(await fetchInstancePage(query, signal)),
+          from: query.from,
+          to: query.to,
+          complete: true,
+          gone: new Set<string>(),
+        };
+  let preview =
+    page.items.find((instance) => instance.vm_id === previewId) ?? null;
+  if (previewId && !preview) {
+    try {
+      preview = await getInstance(previewId, signal);
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 404)) throw error;
+    }
+  }
+  const timelineItems = page.direct ? [] : [...page.items];
+  if (preview && !timelineItems.some((item) => item.vm_id === preview.vm_id))
+    timelineItems.push(preview);
+  const timelines = await fetchTimelines(
+    timelineItems,
+    previous?.timelines ?? new Map(),
+    signal,
+  );
+  signal.throwIfAborted();
+  return {
+    ...page,
+    preview,
+    ...timelines,
+    complete: page.complete && timelines.complete,
+  };
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isExactId(query: string): boolean {
@@ -54,6 +140,7 @@ export function matchesQuery(
   const needle = query.trim().toLowerCase();
   if (needle === "") return true;
   return (
+    (instance.executable?.data?.name.toLowerCase().includes(needle) ?? false) ||
     instance.vm_id.toLowerCase().includes(needle) ||
     instance.last_event.node_id.toLowerCase().includes(needle) ||
     (instance.latest_run?.node_id.toLowerCase().includes(needle) ?? false) ||
@@ -72,11 +159,8 @@ export async function fetchInstancePage(
   if (isExactId(text)) {
     try {
       const instance = await getInstance(text, signal);
-      const keep =
-        query.states.length === 0 ||
-        matchesQuery(instance, "", query.states, query.now);
       return {
-        items: keep ? [instance] : [],
+        items: [instance],
         next: null,
         scanned: 1,
         capped: false,

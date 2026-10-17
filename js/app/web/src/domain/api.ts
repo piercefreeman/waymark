@@ -30,8 +30,23 @@ export type StopKind =
 export interface Instance {
   vm_id: Uuid;
   latest_run: Run | null;
+  /** As the latest run's start carried it; null until a run was observed. */
+  executable: Executable | null;
   outcome: Outcome | null;
   last_event: LastEvent;
+}
+
+export interface Executable {
+  /** The workflow version the instance runs. */
+  id: Uuid;
+  /** Null when the store no longer holds the executable. */
+  data: ExecutableData | null;
+}
+
+export interface ExecutableData {
+  /** The workflow name the executable was registered under. */
+  name: string;
+  version: string;
 }
 
 export interface Run {
@@ -101,7 +116,12 @@ export type StopReason =
   | { kind: "cancelled" };
 
 export type Observation =
-  | { kind: "vm_started" }
+  | {
+      kind: "vm_started";
+      executable_id: Uuid;
+      executable_name: string;
+      executable_version: string;
+    }
   | { kind: "effect_emitted"; effect_number: number; effect: EffectSummary }
   | {
       kind: "promise_settled";

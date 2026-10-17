@@ -7,7 +7,7 @@ export interface SourceStatus {
   fetchedAt: Date | null;
   error: Error | null;
   loading: boolean;
-  /** False when a paged read stopped before the end. */
+  /** False when history was truncated or some workflow data could not refresh. */
   complete: boolean;
   refresh?: () => void;
 }
@@ -39,7 +39,9 @@ export function SourceNotice({
     >
       {source.error ? (
         <>
-          <span className="font-medium text-danger">Couldn't refresh.</span>
+          <span className="font-medium text-danger">
+            {source.fetchedAt ? "Couldn't refresh." : "Couldn't load data."}
+          </span>
           <span className="mono-data truncate text-fg-muted">
             {source.error.message}
           </span>
@@ -52,7 +54,8 @@ export function SourceNotice({
         </>
       ) : (
         <span className="text-fg-muted">
-          Showing a partial read; more history exists than was loaded.
+          Some data is missing or out of date. Timelines and counts may be
+          incomplete.
         </span>
       )}
       {source.refresh && (

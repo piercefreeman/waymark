@@ -28,11 +28,6 @@ import {
   TimeSeriesChart,
   type ChartSeries,
 } from "@/components/patterns/time-series";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 const NODE_TONES: Tone[] = ["running", "waiting", "success", "neutral"];
 
@@ -56,7 +51,8 @@ export function FleetPage({
   sampleIntervalMs: number;
   source: SourceStatus;
 }) {
-  const rows = latest
+  const rows = [...latest]
+    .sort((a, b) => a.node_id.localeCompare(b.node_id))
     .map((sample, index) => {
       const sampledAt = new Date(sample.sampled_at);
       const stale = isStale(sampledAt, now, sampleIntervalMs);
@@ -67,12 +63,7 @@ export function FleetPage({
         tone: NODE_TONES[index % NODE_TONES.length],
         rate: completionRate(seriesByNode[sample.node_id] ?? [sample]),
       };
-    })
-    .sort(
-      (a, b) =>
-        Number(a.stale) - Number(b.stale) ||
-        b.sampledAt.getTime() - a.sampledAt.getTime(),
-    );
+    });
   const fresh = rows.filter((row) => !row.stale);
   const excluded = rows.length - fresh.length;
   const sum = (pick: (sample: NodeSample) => number) =>
@@ -105,26 +96,18 @@ export function FleetPage({
 
   return (
     <div className="min-w-0">
-      <div className="px-gutter pt-5">
-        <SectionHeader
-          title="Fleet"
-          count={rows.length}
-          description={`node boot${rows.length === 1 ? "" : "s"} · sampled every ${Math.round(sampleIntervalMs / 1000)}s · stale after ${Math.round((sampleIntervalMs * 3) / 1000)}s`}
-        />
-      </div>
-
       <SourceNotice source={source} now={now} className="mx-gutter mt-4" />
 
-      {rows.length === 0 ? (
+      {source.loading && !source.fetchedAt && !source.error ? (
+        <p role="status" className="px-gutter py-6 text-label text-fg-muted">
+          Loading metrics…
+        </p>
+      ) : rows.length === 0 ? (
         <EmptyState
           className="mt-4 border-t border-line"
           variant={source.error ? "unavailable" : "empty"}
-          title={source.error ? "Metrics unavailable" : "No node samples yet"}
-          description={
-            source.error
-              ? source.error.message
-              : "Nodes appear after their first metrics sample."
-          }
+          title={source.error ? "Metrics unavailable" : "No node metrics yet"}
+          description={source.error?.message}
         />
       ) : (
         <>
@@ -156,7 +139,7 @@ export function FleetPage({
                 fresh.reduce((total, row) => total + (row.rate ?? 0), 0),
               )}
               unit="per second"
-              scope="from counter deltas, last interval"
+              scope="last interval"
             />
             <MetricTile
               label="Handling time"
@@ -165,13 +148,13 @@ export function FleetPage({
               scope={
                 handling
                   ? `p95 ${formatSeconds(histogramPercentile(handling, 0.95))} · since boot`
-                  : "no histogram"
+                  : "no timing data"
               }
             />
           </MetricStrip>
 
           <section className="px-gutter py-5">
-            <SectionHeader as="h3" title="Nodes" />
+            <SectionHeader as="h2" title="Nodes" count={rows.length} />
             <ol className="mt-2 divide-y divide-line border-y border-line">
               {rows.map((row) => {
                 const handlingP50 = row.sample.action_handling_seconds.p50;
@@ -187,7 +170,7 @@ export function FleetPage({
                   <li
                     key={row.sample.node_id}
                     className={cn(
-                      "grid items-center gap-x-6 gap-y-2 py-3 lg:grid-cols-[220px_minmax(200px,1fr)_minmax(0,1.6fr)]",
+                      "grid items-center gap-x-6 gap-y-2 py-3 lg:grid-cols-[300px_minmax(200px,1fr)_minmax(0,1.6fr)]",
                       row.stale && "text-fg-subtle",
                     )}
                   >
@@ -201,30 +184,20 @@ export function FleetPage({
                         style={{ background: `var(--${row.tone})` }}
                       />
                       <span className="min-w-0">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span
-                              className="mono-data block truncate text-label text-fg"
-                              tabIndex={0}
-                            >
-                              {shortId(row.sample.node_id)}
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent className="mono-data">
-                            {row.sample.node_id}
-                          </TooltipContent>
-                        </Tooltip>
+                        <span className="mono-data block break-all text-label text-fg">
+                          {row.sample.node_id}
+                        </span>
                         <span className="block text-micro">
                           {row.stale ? (
                             <StatusInk
                               tone="waiting"
-                              label={`stale · last sample ${formatRelative(row.sampledAt, now)}`}
+                              label={`stale · updated ${formatRelative(row.sampledAt, now)}`}
                               size="sm"
                             />
                           ) : (
                             <StatusInk
                               tone="success"
-                              label={`sampled ${formatRelative(row.sampledAt, now)}`}
+                              label={`updated ${formatRelative(row.sampledAt, now)}`}
                               size="sm"
                             />
                           )}
@@ -238,7 +211,7 @@ export function FleetPage({
                       <Meter
                         value={row.sample.in_flight_actions}
                         max={row.sample.max_in_flight_actions}
-                        label={`In-flight actions on ${shortId(row.sample.node_id)}`}
+                        label={`In-flight actions on ${row.sample.node_id}`}
                       />
                     </span>
                     <span
@@ -281,10 +254,6 @@ export function FleetPage({
                 );
               })}
             </ol>
-            <p className="mt-2 text-micro text-fg-subtle">
-              A node id names one boot; a restart shows up as a new node.
-              Hostnames, CPU, and memory are not reported.
-            </p>
           </section>
 
           <section className="grid gap-x-10 gap-y-6 border-t border-line px-gutter py-5 lg:grid-cols-2">

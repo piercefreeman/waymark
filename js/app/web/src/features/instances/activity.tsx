@@ -70,10 +70,7 @@ export function ActivityHistogram({
   return (
     <figure className={cn("min-w-0", className)}>
       <figcaption className="mb-1 flex items-baseline justify-between text-micro text-fg-muted">
-        <span>
-          Settlements per {bucketMs / 1000}s
-          <span className="ml-1 text-fg-subtle">· events in this window</span>
-        </span>
+        <span>Settlements per {bucketMs / 1000}s</span>
         <span className="flex gap-3">
           <Legend tone="success" label="resolved" value={total.resolved} />
           <Legend tone="danger" label="rejected" value={total.rejected} />
