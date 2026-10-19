@@ -126,6 +126,10 @@ services:
       WAYMARK_DATABASE_URL: postgresql://app:app@postgres:5432/app
       WAYMARK_USER_MODULE: yourapp.workflows
       WAYMARK_HTTP_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:24119/healthz')"]
+      interval: 5s
+      start_period: 60s
     ports:
       - "24119:24119"
 
@@ -133,7 +137,7 @@ services:
     build: .
     depends_on:
       executor:
-        condition: service_started
+        condition: service_healthy
     environment:
       WAYMARK_DATABASE_URL: postgresql://app:app@postgres:5432/app
     ports:
