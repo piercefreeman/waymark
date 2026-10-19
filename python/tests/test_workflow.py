@@ -198,6 +198,37 @@ def test_workflow_registration_overrides_defaults(monkeypatch: pytest.MonkeyPatc
     os.environ["PYTEST_CURRENT_TEST"] = "true"
 
 
+@pytest.mark.parametrize(
+    ("args", "kwargs"),
+    [
+        pytest.param((), {}, id="missing required argument"),
+        pytest.param((1, "a", "extra"), {}, id="extra positional argument"),
+        pytest.param((1,), {"unknown": "a"}, id="unknown keyword argument"),
+    ],
+)
+def test_workflow_arguments_bind_like_a_call(
+    args: tuple[object, ...], kwargs: dict[str, object]
+) -> None:
+    @workflow_decorator
+    class BindingWorkflow(Workflow):
+        async def run(self, count: int, name: str = "demo") -> str:
+            return name
+
+    with pytest.raises(TypeError):
+        BindingWorkflow._build_workflow_arguments(args, kwargs)
+
+
+def test_workflow_arguments_keep_an_explicit_none() -> None:
+    @workflow_decorator
+    class NoneArgWorkflow(Workflow):
+        async def run(self, value: Optional[int], name: str = "demo") -> str:
+            return name
+
+    arguments = NoneArgWorkflow._build_workflow_arguments((None,), {})
+    inputs = workflow_arguments_to_kwargs(arguments.SerializeToString())
+    assert inputs == {"value": None, "name": "demo"}
+
+
 @action
 async def fetch_identifier(identifier: str) -> str:
     raise NotImplementedError

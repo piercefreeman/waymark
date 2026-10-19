@@ -92,9 +92,9 @@ serialized form. An argument without an annotation is passed through as
 received.
 
 Workflow `run()` inputs are bound to the `run()` signature when you
-queue the workflow, and its defaults are filled in there. A misnamed
-argument fails immediately at the call site; a missing required one
-currently doesn't (see [Known issues](/python/control-flow#known-issues)).
+queue the workflow, and its defaults are filled in there. A misnamed or
+missing argument, or an extra positional one, raises `TypeError` at the
+call site.
 
 ## Dependency injection {{ id: 'dependency-injection' }}
 
