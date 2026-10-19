@@ -36,9 +36,9 @@ $ cargo run --bin waymark-boot-singleton
 24117
 ```
 
-The Python bridge automatically shells out to the helper unless you provide
-`WAYMARK_BRIDGE_GRPC_ADDR` (or `WAYMARK_BRIDGE_GRPC_HOST` + `WAYMARK_BRIDGE_GRPC_PORT`) overrides.
-Once the port is known it opens a gRPC channel to the
+The Python bridge automatically shells out to the helper unless you set
+`WAYMARK_BRIDGE_GRPC_PORT`; `WAYMARK_BRIDGE_GRPC_ADDR` alone only changes where it connects,
+and the helper still runs. Once the port is known it opens a gRPC channel to the
 `WorkflowService`.
 
 ### Benchmarking
