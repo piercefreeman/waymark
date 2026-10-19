@@ -69,6 +69,17 @@ class SingleKeyMappingWorkflow(Workflow):
         return {"only": "value"}
 
 
+@action
+async def describe_value(value: int | None = 5) -> str:
+    return repr(value)
+
+
+@workflow
+class ExplicitNoneArgumentWorkflow(Workflow):
+    async def run(self) -> str:
+        return await describe_value(value=None)
+
+
 def test_pytest_runtime_raises_for_unhandled_action_failure() -> None:
     with pytest.raises(WorkflowFailedError) as exc_info:
         asyncio.run(UnhandledFailureWorkflow().run())
@@ -118,3 +129,10 @@ def test_pytest_runtime_preserves_single_key_mapping() -> None:
     result = asyncio.run(SingleKeyMappingWorkflow().run())
 
     assert result == {"only": "value"}
+
+
+def test_pytest_runtime_passes_an_explicit_none_to_the_action() -> None:
+    """An explicit `None` reaches the action instead of its default."""
+    result = asyncio.run(ExplicitNoneArgumentWorkflow().run())
+
+    assert result == "None"
