@@ -87,7 +87,7 @@ the JSON to stdout after the summary lines. Under `make benchmark`, a `--json <f
 ### Rust tests (unit + integration)
 
 Integration fixtures are run by the Rust entrypoint binary `crates/bin/integration-test`.
-It runs curated fixtures from `tests/waymark-integration-tests` and checks parity:
+It runs curated fixtures from `tests/integration_tests` and checks parity:
 
 - Baseline execution via direct inline Python workflow logic
 - Runtime execution via the VM in transient mode (in-memory, no persistence)
