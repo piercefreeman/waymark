@@ -28,7 +28,11 @@ kill and restart at will, outside an [upgrade](#upgrades).
 - **Your app** is whatever serves traffic today - a FastAPI service, a
   script, a cron job. It queues workflows when it wants to delegate processing to the job cluster. The SDK boots a singleton
   `waymark-bridge` inside the container on first use, so the app needs
-  nothing beyond a connection to the database. The bridge never changes
+  nothing beyond what the nodes have: a connection to the main database
+  and to the observability store, with the nodes' database and
+  observability-store settings, apart from the migrations URLs, which it
+  never reads, and the pool sizes, which each process budgets on its own (see
+  [Database connections](#database-connections)). The bridge never changes
   the database schema, so its database role only needs to read and write
   rows.
 - **The node** is one container running `waymark-executor`. It runs your
