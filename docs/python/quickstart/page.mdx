@@ -41,7 +41,8 @@ our rust backend which allows you to run your code: you can call this with `uv r
 It's helpful to think of workflows as the coordination layer of your code, orchestrating
 from the top down. You connect the data flow of how you want the more atomic bits of code
 to run. We'll create the full workflow first here: run two computations in parallel, then merge their
-results into a summary.
+results into a summary. Save it, and the actions after it, in one file,
+`workflows.py`, at the root of your project.
 
 ```python
 import asyncio
