@@ -295,9 +295,13 @@ rejected. The rejected patterns:
   workflow when it is first run or scheduled
   ([#790](https://github.com/piercefreeman/waymark/issues/790)). Catch
   the class with an `except` clause instead.
-- **Constructing classes other than pydantic models and dataclasses.**
-  Models and dataclasses defined in your code can be constructed
-  anywhere; any other class has to be built inside an action.
+- **Constructing classes other than simple pydantic models and
+  dataclasses.** A pydantic model with no validators and no `__init__` of
+  its own, or a dataclass with no `__post_init__`, defined in or imported
+  by name into the workflow's module, can be constructed anywhere, and
+  inside the workflow it becomes a plain dict. Build any other class
+  inside an action: some of them are rejected, and some compile with
+  their own construction logic left out.
 - **`raise`.** Raise inside an action; the workflow handles it with
   `try/except`.
 - **`with`, `lambda`, `match`, `yield`, walrus (`:=`), `assert`, `del`,
@@ -377,6 +381,15 @@ Until then, avoid them.
   list passed into a helper method - doesn't reach that other name
   ([#770](https://github.com/piercefreeman/waymark/issues/770)). Return
   the extended list and reassign it instead.
+- Constructing a model or dataclass fills the fields the call leaves out
+  only from `None`, boolean, number and string defaults: a field with a
+  `default_factory` or any other default (`[]`, `{}`, a tuple, an enum
+  member) is missing from the dict, so reading it fails; and
+  `model_post_init`, computed fields and an inherited `__init__` or
+  `__post_init__` never run, silently
+  ([#829](https://github.com/piercefreeman/waymark/issues/829)). Pass
+  every such field in the call, and build a class that relies on such a
+  hook inside an action.
 
 **Compiles, then fails at runtime where Python works:**
 

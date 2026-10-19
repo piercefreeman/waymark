@@ -212,10 +212,12 @@ A few Python-specific things worth knowing about workflow `run()`
 bodies that don't apply to actions:
 
 - **No f-strings.** Build formatted values inside an action.
-- **Only models and dataclasses can be constructed.** `MyResult(...)`
-  compiles when `MyResult` is a pydantic model or dataclass defined in
-  your code - inside the workflow it becomes a plain dict. Any other
-  class has to be built inside an action.
+- **Only simple models and dataclasses can be constructed.**
+  `MyResult(...)` compiles when `MyResult` is a pydantic model with no
+  validators and no `__init__` of its own, or a dataclass with no
+  `__post_init__`, defined in or imported by name into the workflow's module -
+  inside the workflow it becomes a plain dict. Any other class has to be
+  built inside an action.
 - **Most module-level globals are off limits.** Enum members and
   exception classes resolve fine; other module-level names are rejected
   when the workflow is compiled. Pass values in as workflow inputs or
@@ -231,4 +233,6 @@ whose message carries what the runtime could not lower (under pytest,
 `workflow.run(...)` raises the gRPC error itself; see
 [Exceptions](/python/api/exceptions)). The
 [Control Flow guide](/python/control-flow) walks through the patterns
-that *are* supported, with examples for each.
+that *are* supported, with examples for each, and lists the
+[known issues](/python/control-flow#known-issues), the construction of
+models and dataclasses among them.
