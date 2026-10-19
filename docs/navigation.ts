@@ -3,7 +3,11 @@ export const navigation = [
     title: 'Getting Started',
     links: [
       { title: 'Introduction', href: '/' },
-      { title: 'Quickstart', href: '/python/quickstart' },
+      {
+        title: 'Quickstart with Python',
+        href: '/quickstart/python',
+        aliasOf: '/python/quickstart',
+      },
       { title: 'Why Waymark', href: '/guides/motivation' },
     ],
   },
@@ -18,6 +22,7 @@ export const navigation = [
   {
     title: 'Python',
     links: [
+      { title: 'Quickstart', href: '/python/quickstart' },
       { title: 'Workflows & Actions', href: '/python/workflows-and-actions' },
       { title: 'Control Flow', href: '/python/control-flow' },
       { title: 'Retries & Timeouts', href: '/python/retries' },
