@@ -187,7 +187,7 @@ This is convenient in practice because it means that if your workflow compiles, 
 
 **When should you use Waymark?**
 
-- You're already using Python & Postgres for the core of your stack, either with Mountaineer or FastAPI
+- You're already using Python & Postgres for the core of your stack, with Mountaineer, FastAPI or any other framework
 - You have a lot of async heavy logic that needs to be durable and can be retried if it fails (common with 3rd party API calls, db jobs, etc)
 - You want something that works the same locally as when deployed remotely
 - You want background job code to plug and play with your existing unit test & static analysis stack
