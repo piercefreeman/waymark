@@ -213,7 +213,10 @@ where nothing reads. See
 ## Logs, metrics and the webapp {{ id: 'observability' }}
 
 The node logs to standard output, filtered by `RUST_LOG`. It always
-serves Prometheus metrics on port `9118` (`METRICS_ADDR`). Setting
+serves a metrics endpoint on port `9118` (`METRICS_ADDR`): `/metrics` in
+the Prometheus format, and `/health`, which answers once the endpoint is
+up, before the migrations run, so it tells you the process is alive, not
+that the node is ready; readiness is `/healthz`. Setting
 `WAYMARK_HTTP_ENABLED=true` also serves the HTTP API, the
 [webapp](/guides/webapp) and `/healthz` on port `24119`.
 
