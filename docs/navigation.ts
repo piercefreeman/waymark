@@ -8,6 +8,14 @@ export const navigation = [
     ],
   },
   {
+    title: 'Running Waymark',
+    links: [
+      { title: 'Configuration', href: '/guides/configuration' },
+      { title: 'Webapp', href: '/guides/webapp' },
+      { title: 'Production Deployment', href: '/guides/production' },
+    ],
+  },
+  {
     title: 'Python',
     links: [
       { title: 'Workflows & Actions', href: '/python/workflows-and-actions' },
@@ -37,14 +45,6 @@ export const navigation = [
       { title: 'Retry Policy', href: '/python/api/retry' },
       { title: 'Scheduling API', href: '/python/api/scheduling' },
       { title: 'Exceptions', href: '/python/api/exceptions' },
-    ],
-  },
-  {
-    title: 'Running Waymark',
-    links: [
-      { title: 'Configuration', href: '/guides/configuration' },
-      { title: 'Webapp', href: '/guides/webapp' },
-      { title: 'Production Deployment', href: '/guides/production' },
     ],
   },
   {
