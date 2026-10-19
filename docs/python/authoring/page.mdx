@@ -224,7 +224,11 @@ bodies that don't apply to actions:
   `Depends(...)` resolution. The body is compiled, never run as Python.
 
 The compiler diagnostic is raised the first time the workflow is run or
-scheduled. When the SDK rejects a pattern it tells you the offending node
-and offers a fix; when the runtime rejects one it names only what it
-could not lower. The [Control Flow guide](/python/control-flow) walks
-through the patterns that *are* supported, with examples for each.
+scheduled. When the SDK rejects a pattern it raises an
+`UnsupportedPatternError` that points at the offending node and offers a
+fix; when the runtime rejects one, the call raises a plain `RuntimeError`
+whose message carries what the runtime could not lower (under pytest,
+`workflow.run(...)` raises the gRPC error itself; see
+[Exceptions](/python/api/exceptions)). The
+[Control Flow guide](/python/control-flow) walks through the patterns
+that *are* supported, with examples for each.

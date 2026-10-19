@@ -12,6 +12,23 @@ source line and column, and a recommendation for how to restructure. See
 [Control Flow](/python/control-flow) for the supported and rejected
 patterns.
 
+A pattern the SDK accepts can still be rejected by the runtime's own
+compiler when the workflow is registered. That rejection is not an
+`UnsupportedPatternError` but a plain `RuntimeError`: `register_workflow
+failed: …` from `workflow.run(...)`, `Failed to register schedule: …`
+from `schedule_workflow(...)`. Its message carries what the runtime could
+not lower. A typed exception for it is tracked in
+[#821](https://github.com/piercefreeman/waymark/issues/821). Under
+pytest, `workflow.run(...)` raises the gRPC error itself instead, a
+`grpc.aio.AioRpcError` without the prefix
+([#825](https://github.com/piercefreeman/waymark/issues/825)). It also
+boots the bridge in memory mode, with no database, and a bridge already
+running is reused whatever its mode
+([#828](https://github.com/piercefreeman/waymark/issues/828)). Against an
+in-memory bridge, `schedule_workflow(...)` fails before the runtime
+compiles the workflow, with `Failed to register schedule: …` carrying `bridge running
+in memory mode`.
+
 ::: waymark.ir_builder.UnsupportedPatternError
 
 ---

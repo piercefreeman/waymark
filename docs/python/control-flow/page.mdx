@@ -271,11 +271,14 @@ class LoopReturnWorkflow(Workflow):
 ## What does not compile (yet) {{ id: 'limitations' }}
 
 The compiler refuses anything it can't lower to IR, and it tells you when
-the workflow is first run or scheduled. A pattern the SDK rejects comes
-with the offending line and a suggested fix; one the runtime rejects
-names only what it could not lower. Waymark compiles only a deterministic
-set of instructions and effects; anything outside it is rejected. The
-rejected patterns:
+the workflow is first run or scheduled. A pattern the SDK rejects raises
+an `UnsupportedPatternError` with the offending line and a suggested fix;
+one the runtime rejects raises a plain `RuntimeError` whose message
+carries what the runtime could not lower (under pytest,
+`workflow.run(...)` raises the gRPC error itself; see
+[Exceptions](/python/api/exceptions)). Waymark compiles only a
+deterministic set of instructions and effects; anything outside it is
+rejected. The rejected patterns:
 
 - **f-strings.** Anywhere in the workflow body. Build formatted strings
   inside an action.
