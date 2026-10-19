@@ -14,7 +14,7 @@ Getting started:
 Running Waymark:
 
 - [Configuration](https://waymark.sh/guides/configuration) - every environment variable
-- [Webapp](https://waymark.sh/guides/webapp) - the built-in view of your instances and nodes
+- [Webapp](https://waymark.sh/guides/webapp) - the built-in view of your workflows and nodes
 - [Production Deployment](https://waymark.sh/guides/production) - images, services, connections, scaling
 
 Python:
