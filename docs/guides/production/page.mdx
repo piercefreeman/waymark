@@ -186,7 +186,9 @@ Budget your Postgres connections per process:
   also opens one connection for the main migrations and one for the
   observability migrations; each is closed before the pools of its
   database open, so neither adds to the 33.
-- **Each app host** that queues workflows runs one singleton bridge, with
+- **Each app container, pod or host** (whatever shares one `localhost`)
+  that queues workflows runs one singleton bridge, shared by its
+  processes, with
   up to 10 connections (`WAYMARK_DATABASE_MAX_CONNECTIONS`, the same
   variable as the node's, with a default of its own), plus up to 4 for
   its own observability write pool - 14 in total. At startup it also
