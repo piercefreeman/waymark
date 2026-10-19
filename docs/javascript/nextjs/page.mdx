@@ -22,8 +22,9 @@ Waymark's first JavaScript target is Next.js. The runtime model is the
 same - workflows define durable control flow, actions define distributed
 work - but the front-end will be a TypeScript compiler that lowers your
 authored source into the same Waymark IR the Rust runtime already
-executes. The runtime, Postgres persistence, and worker pool need no
-changes; only the compiler in front of them is new.
+executes. The runtime and Postgres persistence need no changes. The new
+parts are the compiler in front of them and a JavaScript worker for the
+actions: today's worker pool starts only Python workers.
 
 ## Status {{ id: 'status' }}
 
