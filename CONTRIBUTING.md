@@ -112,7 +112,9 @@ cargo run --bin waymark-integration-test -- --modes transient
 
 Prereqs:
 
-- No manual Postgres startup is required for the default test harness configuration.
+- No manual Postgres startup is required for the default test harness configuration: the
+  harness uses a Postgres on `127.0.0.1:5433`, and when none answers there it starts one with
+  `docker compose up`, which needs Docker installed and running.
 - Ensure `uv` is installed and `.venv` is prepared (`uv sync`)
 
 ### Python tests
