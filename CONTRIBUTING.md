@@ -97,7 +97,7 @@ It runs curated fixtures from `tests/integration_tests` and checks parity:
 Commands:
 
 ```bash
-# Everything (unit + integration)
+# Unit and crate tests (the fixture parity runner below is a separate binary)
 cargo test
 
 # Run fixture integration parity (default modes: transient,durable)
