@@ -123,7 +123,9 @@ anything from the database.
 
 The node records what it does into an observability store: events for
 every workflow instance, which the webapp's Workflows views read, and
-periodic samples of each node's load, which its Fleet view reads. The
+periodic samples of each node's load, which its Fleet view reads. With
+a database, the [bridge](#bridge) records there the workflows registered
+through it. The
 store gets its own schema and pools even when it shares the main
 database; the observability API reads from it over a separate read pool.
 
