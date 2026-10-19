@@ -20,14 +20,35 @@ pub struct ActionArgumentsConverter;
 /// written and read, and losses rendered.
 pub struct ActionOutcomeConverter;
 
+/// Error converting an action call into the worker protocol's dispatch
+/// message.
+#[derive(Debug, thiserror::Error)]
+pub enum ActionDispatchError {
+    /// The ref carries a different number of argument names than the
+    /// call has values.
+    #[error("the action ref carries {names} argument names for {values} values")]
+    ArgumentCountMismatch {
+        /// The number of argument names the ref carries.
+        names: usize,
+
+        /// The number of values the call has.
+        values: usize,
+    },
+
+    /// An argument value is a promise that has not settled.
+    #[error("converting an argument value: {0}")]
+    PendingPromise(#[source] PendingPromiseError),
+}
+
 /// Convert an action call — its ref, argument values, and the encoded
 /// correlation metadata — into the worker protocol's dispatch message.
 ///
 /// This is the flavor's calling convention: `call_args` names from the
 /// ref paired positionally with the argument values from the VM into
 /// named arguments, in pairing order, and the action's identity rides
-/// as its name and module.  The metadata bytes are opaque here —
-/// encoded by the envelope, echoed by the worker untouched.
+/// as its name and module.  A count of names other than the count of
+/// values is refused.  The metadata bytes are opaque here — encoded by
+/// the envelope, echoed by the worker untouched.
 ///
 /// No arguments encode as no bytes — an entry-less message has the
 /// empty encoding, so "empty payload means no arguments" needs no case
@@ -38,7 +59,7 @@ impl
         waymark_proto::messages::ActionDispatch,
     > for ActionArgumentsConverter
 {
-    type Error = PendingPromiseError;
+    type Error = ActionDispatchError;
 
     fn try_convert(
         (action_ref, values, metadata): (waymark_action_core::ActionRef, Vec<ReadyValue>, Vec<u8>),
@@ -49,9 +70,17 @@ impl
             call_args,
         } = action_ref;
 
+        if call_args.len() != values.len() {
+            return Err(ActionDispatchError::ArgumentCountMismatch {
+                names: call_args.len(),
+                values: values.len(),
+            });
+        }
+
         let mut arguments = Vec::with_capacity(call_args.len());
         for (name, value) in call_args.iter().zip(values.iter()) {
-            let value: proto_value::Value = Converter::try_convert(value)?;
+            let value: proto_value::Value =
+                Converter::try_convert(value).map_err(ActionDispatchError::PendingPromise)?;
             arguments.push(proto_value::ActionArgument {
                 key: name.clone(),
                 value: Some(value),
@@ -455,6 +484,26 @@ mod tests {
                 ("count".to_owned(), ReadyValue::Int(3)),
             ])
         );
+    }
+
+    #[test]
+    fn a_name_count_other_than_the_value_count_is_refused() {
+        let converted: Result<waymark_proto::messages::ActionDispatch, _> =
+            ActionArgumentsConverter::try_convert((
+                waymark_action_core::ActionRef {
+                    action_name: "notify".to_owned(),
+                    module_name: None,
+                    call_args: vec!["first".to_owned(), "second".to_owned()],
+                },
+                vec![ReadyValue::Int(1)],
+                Vec::new(),
+            ));
+
+        let error = converted.expect_err("every name needs its value");
+        let ActionDispatchError::ArgumentCountMismatch { names, values } = error else {
+            panic!("a count mismatch, got {error:?}");
+        };
+        assert_eq!((names, values), (2, 1));
     }
 
     #[test]
