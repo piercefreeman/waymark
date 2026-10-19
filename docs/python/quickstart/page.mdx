@@ -174,10 +174,15 @@ asyncio.run(main())
 ```
 
 <Note>
-If the script hangs instead of printing: check that Postgres is up, and
-that `waymark-executor` is running against the same database. If it raises
-`WorkflowFailedError` instead, an action failed; the error carries the
-action's exception.
+If the script hangs instead of printing, check that `waymark-executor` is
+running against the same database. If it raises `unable to boot waymark
+server`, the client's bridge did not start: check that Postgres is up,
+that this shell has sourced `.env`, and that `waymark-executor` has
+started once against the same database (it runs the migrations the
+bridge checks for). The error does not show the bridge's reason yet
+([#820](https://github.com/piercefreeman/waymark/issues/820)). If it
+raises `WorkflowFailedError` instead, an action failed; the error carries
+the action's exception.
 </Note>
 
 From here you can plug `workflow.run(...)` straight into a FastAPI
