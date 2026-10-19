@@ -78,29 +78,9 @@ load in a browser. If tokio-console shows "RECONNECTING", reinstall it so the cl
 protocols match. We track the latest `console-subscriber` (0.5.x), while the CLI is still
 0.1.x, so a stale install often causes reconnect loops.
 
-Stream benchmark output directly into our parser to summarize throughput and latency samples:
-
-````bash
-$ cargo run --bin waymark-benchmark -- \
-  --messages 100000 \
-  --payload 1024 \
-  --concurrency 64 \
-  --workers 4 \
-  --log-interval 15 \
-  uv run python/tools/parse_bench_logs.py
-
-The `bench` binary seeds raw actions to measure dequeue/execute/ack throughput. Use `bench_instances` for an end-to-end workflow run (queueing and executing full workflow instances via the scheduler) without installing a separate `waymark-worker` binary—the harness shells out to `uv run python -m waymark.worker` automatically:
-
-```bash
-$ cargo run --bin bench_instances -- \
-  --instances 200 \
-  --batch-size 4 \
-  --payload-size 1024 \
-  --concurrency 64 \
-  --workers 4
-````
-
-Add `--json` to the parser if you prefer JSON output.
+For machine-readable results, pass `--json <file>` to `waymark-benchmark`; a bare `--json` prints
+the JSON to stdout after the summary lines. Under `make benchmark`, a `--json <file>` in
+`BENCH_ARGS` is overwritten by each run of the sweep.
 
 ## Testing
 
