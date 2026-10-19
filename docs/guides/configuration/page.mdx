@@ -200,7 +200,7 @@ node's defaults.
 | Variable | Description | Default |
 | --- | --- | --- |
 | `WAYMARK_BRIDGE_GRPC_ADDR` | gRPC bind address. | `127.0.0.1:24117` |
-| `WAYMARK_BRIDGE_IN_MEMORY` | Run with no Postgres backend (test / dev only). | `false` |
+| `WAYMARK_BRIDGE_IN_MEMORY` | Run with no Postgres backend (test / dev only). Any value but empty, `0`, `false` or `no` (trimmed, in any case) turns it on. When a workflow's `run()` is called under pytest, the SDK sets it to `1` unless it is already set. | `false` |
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN. | Required unless in-memory |
 | `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the bridge's database pool. | `10` |
 | `WAYMARK_DATABASE_STATEMENT_TIMEOUT_MS` | How long one statement on the bridge's database pool may run. `0` turns the limit off. | `60000` |
