@@ -59,6 +59,13 @@ your app's workflow calls fail with `unable to boot waymark server`, and
 each call tries again. The same error shows when the app and the nodes
 run releases with different migrations.
 
+A workflow call waits about 5 seconds for the bridge the SDK starts. While
+a migration is in progress, the call fails with that error even though
+the bridge itself keeps waiting for the migration. The bridge the SDK
+starts keeps no logs, so the error does not say why the bridge did not start
+([#820](https://github.com/piercefreeman/waymark/issues/820)); to see
+the reason, run `waymark-bridge` by hand with the app's environment.
+
 To upgrade, stop every container that runs the app, every
 `waymark-bridge` wherever it runs (the SDK starts it as a process of its
 own, which outlives the app's), and every node, all at once rather than
