@@ -14,7 +14,7 @@ $ uv run scripts/build_wheel.py --out-dir target/wheels
 ```
 
 The script compiles every Rust binary (release profile), stages the required entrypoints
-(`waymark-bridge`, `waymark-boot-singleton`) inside the Python package, and invokes
+(`waymark-bridge`, `waymark-boot-singleton`, `waymark-executor`) inside the Python package, and invokes
 `uv build --wheel` to produce an artifact suitable for publishing to PyPI.
 
 ### Local Server Runtime
