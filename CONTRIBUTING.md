@@ -49,10 +49,13 @@ Run the Rust benchmark harness (defaults to `--count 1000`) via:
 $ make benchmark
 ```
 
-`make benchmark` builds with `RUSTFLAGS="--cfg waymark_observability_chrome_trace"`,
-writes a tracing-chrome file, and prints a pyinstrument-style summary
-via `scripts/parse_chrome_trace.py`. Override the trace path
-with `BENCH_TRACE=...`, the summary size with `BENCH_TRACE_TOP=...`, or benchmark args with
+`make benchmark` builds with `RUSTFLAGS="--cfg waymark_observability_chrome_trace"`, then
+runs the benchmark once per value of `BENCH_CONCURRENCY_SWEEP` (default `25 100 250 1000`,
+each as `WAYMARK_MAX_CONCURRENT_INSTANCES`). Each run writes a tracing-chrome file,
+`target/benchmark-trace-<N>.json` by default, and prints a pyinstrument-style summary
+via `scripts/parse_chrome_trace.py`. Override the trace path prefix
+with `BENCH_TRACE=...` (the `.json` is dropped and `-<N>.json` appended), the sweep with
+`BENCH_CONCURRENCY_SWEEP="100"`, the summary size with `BENCH_TRACE_TOP=...`, or benchmark args with
 `BENCH_ARGS="--count 200 --base 10"`. Registration and persistence batch sizes are environment
 knobs (`WAYMARK_REGISTRATION_BATCH_MAX`, `WAYMARK_SNAPSHOT_BATCH_MAX`, …), not CLI flags.
 Set `BENCH_RELEASE=1` to run the benchmark binary
