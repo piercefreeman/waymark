@@ -17,7 +17,10 @@ your own inputs:
 A blocking run(...) raises `WorkflowFailedError` (whose `exception_value`
 is the exception the workflow raised) if the workflow fails. It waits as
 long as the workflow takes; it raises `TimeoutError` only if the server
-no longer knows the instance. With `WAYMARK_SKIP_WAIT_FOR_INSTANCE` set,
+no longer knows the instance. Outside pytest, if the bridge shuts down
+while run(...) waits, run(...) raises `RuntimeError` (`wait_for_instance failed: …`,
+carrying `the bridge is shutting down`); the workflow itself keeps
+running on the nodes. With `WAYMARK_SKIP_WAIT_FOR_INSTANCE` set,
 a blocking run(...) queues the workflow and returns `None` without
 waiting.
 
