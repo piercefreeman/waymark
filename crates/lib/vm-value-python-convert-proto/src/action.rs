@@ -51,13 +51,6 @@ impl
 
         let mut arguments = Vec::with_capacity(call_args.len());
         for (name, value) in call_args.iter().zip(values.iter()) {
-            // Skip `None`-valued parameters (dependency markers such as
-            // `Annotated[T, Depend(…)]` are serialized as `None` by the
-            // VM).  The Python side (`provide_dependencies`) will resolve
-            // them from the function signature instead.
-            if matches!(value, ReadyValue::None) {
-                continue;
-            }
             let value: proto_value::Value = Converter::try_convert(value)?;
             arguments.push(proto_value::ActionArgument {
                 key: name.clone(),
@@ -446,10 +439,10 @@ mod tests {
     }
 
     #[test]
-    fn none_valued_action_arguments_are_left_out() {
-        // A `None` argument is a dependency marker for the Python side
-        // to resolve from the signature, so it never reaches the message.
-        let names = vec!["dependency".to_owned(), "count".to_owned()];
+    fn none_valued_action_arguments_are_kept() {
+        // An explicit `None` is an argument like any other: the action is
+        // called with it.
+        let names = vec!["value".to_owned(), "count".to_owned()];
         let values = vec![ReadyValue::None, ReadyValue::Int(3)];
 
         let bytes = dispatch_arguments(names, values);
@@ -457,7 +450,10 @@ mod tests {
             ActionArgumentsConverter::try_convert(bytes).expect("every entry carries a value");
         assert_eq!(
             named,
-            std::collections::HashMap::from([("count".to_owned(), ReadyValue::Int(3))])
+            std::collections::HashMap::from([
+                ("value".to_owned(), ReadyValue::None),
+                ("count".to_owned(), ReadyValue::Int(3)),
+            ])
         );
     }
 
