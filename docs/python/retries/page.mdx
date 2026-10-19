@@ -111,6 +111,10 @@ the calls in flight on it are redelivered by the node that resumes the
 workflow, as [Production Deployment](/guides/production#scaling-out)
 explains.
 
+Besides a policy, the workflow can catch `ActionTimeout`,
+`ActionExecutionLost` or `ActionExecutionNotStarted` in a `try/except`
+around the call and retry it with code of its own.
+
 ## Timeouts {{ id: 'timeouts' }}
 
 A per-call `timeout` caps how long an individual action attempt may
