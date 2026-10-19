@@ -249,6 +249,26 @@ or `ActionExecutionNotStarted` if it provably never started.
 `ActionExecutionNotStarted` is retried like any other exception. Without
 a matching policy, the exception propagates like any other.
 
+On a termination request to the node process (`SIGTERM`, what `docker
+stop` and Kubernetes send, or `SIGINT`), a node shuts down gracefully:
+it lets its in-flight action calls finish, releases its workflows for
+another node to resume, then exits. Nothing inside the node bounds how
+long that takes; your orchestrator's grace period does
+(`stop_grace_period` in Compose, `terminationGracePeriodSeconds` in
+Kubernetes), and a node it kills once that runs out is picked up as
+described above. On Linux and macOS, further shutdown requests while the
+node is shutting down do nothing today; this may change.
+
+A Ctrl+C typed in the terminal running `waymark-executor` reaches its
+worker processes too, and they stop at once: their in-flight action
+calls fail with `ActionExecutionLost`
+([#827](https://github.com/piercefreeman/waymark/issues/827)). On
+Windows, a second Ctrl+C during the shutdown terminates the node at once
+([#826](https://github.com/piercefreeman/waymark/issues/826)), and
+closing its console, logging off or shutting Windows down terminates it
+after the system's own timeout, or at once during a shutdown already
+under way.
+
 When Postgres is the bottleneck, you'll see it in queue latency long
 before correctness suffers. Until then, one database is all the
 infrastructure Waymark asks for. On very large deployments, we've seen some users
