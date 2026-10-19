@@ -296,9 +296,9 @@ class WorkflowRegistration(google.protobuf.message.Message):
     """The workflow's initial arguments as one opaque encoded payload (the
     language's own arguments message — e.g.
     `waymark.python_value.WorkflowArguments`).  The framing knows
-    neither the values nor the shape of the argument list.  Empty means
-    no arguments; inputs the payload does not name default to the
-    language's "nothing" value.
+    neither the values nor the shape of the argument list; how the
+    payload maps onto the entry function is the language's own
+    convention.
     """
     priority: builtins.int
     """Priority for queue ordering (higher values are processed first, default 0)"""

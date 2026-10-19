@@ -30,15 +30,31 @@ pub enum WorkflowArgumentsError {
     /// The decoded arguments are malformed.
     #[error("reading the workflow arguments: {0}")]
     Arguments(#[source] MissingArgumentValueError),
+
+    /// The payload carries no argument for one of the entry function's
+    /// inputs.
+    #[error("no argument for the input {name:?}")]
+    MissingInput {
+        /// The input without an argument.
+        name: String,
+    },
+
+    /// The payload carries an argument that matches none of the entry
+    /// function's inputs.
+    #[error("the argument {name:?} matches no input")]
+    UnknownArgument {
+        /// The key of the argument.
+        name: String,
+    },
 }
 
 /// Convert a workflow-arguments payload and the entry function's
 /// ordered input names into positional arguments.
 ///
 /// This flavor's initiation convention: named arguments are matched to
-/// inputs by name; inputs the payload does not name default to this
-/// language's nothing value.  An empty payload (the no-arguments
-/// encoding) defaults every input.
+/// inputs by name, every input takes exactly one, and an argument that
+/// matches no input is refused.  The client fills in the defaults
+/// before it sends the payload, so the payload carries every input.
 impl TryConvert<(&[u8], &[String]), Vec<Value>> for WorkflowArgumentsConverter {
     type Error = WorkflowArgumentsError;
 
@@ -47,7 +63,7 @@ impl TryConvert<(&[u8], &[String]), Vec<Value>> for WorkflowArgumentsConverter {
     ) -> Result<Vec<Value>, Self::Error> {
         let message: proto_value::WorkflowArguments =
             prost::Message::decode(arguments).map_err(WorkflowArgumentsError::Decode)?;
-        let args_map = named_arguments(
+        let mut args_map = named_arguments(
             message
                 .arguments
                 .iter()
@@ -55,16 +71,21 @@ impl TryConvert<(&[u8], &[String]), Vec<Value>> for WorkflowArgumentsConverter {
         )
         .map_err(WorkflowArgumentsError::Arguments)?;
 
-        Ok(input_names
-            .iter()
-            .map(|name| {
-                args_map
-                    .get(name)
-                    .cloned()
-                    .map(Value::Ready)
-                    .unwrap_or(Value::Ready(ReadyValue::None))
-            })
-            .collect())
+        let mut values = Vec::with_capacity(input_names.len());
+        for name in input_names {
+            let Some(value) = args_map.remove(name) else {
+                return Err(WorkflowArgumentsError::MissingInput { name: name.clone() });
+            };
+            values.push(Value::Ready(value));
+        }
+
+        // The smallest key, so the same payload always reports the same
+        // argument.
+        if let Some(name) = args_map.into_keys().min() {
+            return Err(WorkflowArgumentsError::UnknownArgument { name });
+        }
+
+        Ok(values)
     }
 }
 

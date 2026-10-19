@@ -42,9 +42,51 @@ fn positional_args_follow_input_name_order() {
 }
 
 #[test]
-fn missing_keys_default_to_none() {
+fn a_missing_input_is_refused() {
     let payload = encoded(vec![int_arg("present", 7)]);
     let input_names = vec!["present".to_string(), "absent".to_string()];
+
+    let converted: Result<waymark_vm_runtime::CallSpec<usize, waymark_vm_value_python::Value>, _> =
+        Converter::try_convert((payload.as_slice(), input_names.as_slice()));
+
+    let error = converted.expect_err("every input needs an argument");
+    let waymark_vm_value_python_convert_proto::WorkflowArgumentsError::MissingInput { name } =
+        error
+    else {
+        panic!("a missing input, got {error:?}");
+    };
+    assert_eq!(name, "absent");
+}
+
+#[test]
+fn an_argument_matching_no_input_is_refused() {
+    let payload = encoded(vec![int_arg("present", 7), int_arg("stray", 8)]);
+    let input_names = vec!["present".to_string()];
+
+    let converted: Result<waymark_vm_runtime::CallSpec<usize, waymark_vm_value_python::Value>, _> =
+        Converter::try_convert((payload.as_slice(), input_names.as_slice()));
+
+    let error = converted.expect_err("every argument must match an input");
+    let waymark_vm_value_python_convert_proto::WorkflowArgumentsError::UnknownArgument { name } =
+        error
+    else {
+        panic!("an unknown argument, got {error:?}");
+    };
+    assert_eq!(name, "stray");
+}
+
+#[test]
+fn an_explicit_none_reaches_its_input() {
+    let none: waymark_proto::python_value::Value =
+        waymark_vm_value_python_convert_proto::Converter::try_convert(
+            &waymark_vm_value_python::ReadyValue::None,
+        )
+        .expect("None holds no pending promise");
+    let payload = encoded(vec![waymark_proto::python_value::WorkflowArgument {
+        key: "value".to_string(),
+        value: Some(none),
+    }]);
+    let input_names = vec!["value".to_string()];
 
     let call_spec: waymark_vm_runtime::CallSpec<usize, waymark_vm_value_python::Value> =
         Converter::try_convert((payload.as_slice(), input_names.as_slice()))
@@ -52,9 +94,8 @@ fn missing_keys_default_to_none() {
 
     assert_eq!(
         call_spec.args,
-        vec![
-            ready_int(7),
-            waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::None),
-        ],
+        vec![waymark_vm_value_python::Value::Ready(
+            waymark_vm_value_python::ReadyValue::None
+        )],
     );
 }
