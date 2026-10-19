@@ -160,7 +160,7 @@ The defaults are tuned for a single host. Tuning in production is usually govern
 
 | Variable | What it controls |
 | --- | --- |
-| `WAYMARK_WORKER_COUNT` | Python worker processes per node. Defaults to host CPU count to effectively allow Python to saturate each core. |
+| `WAYMARK_WORKER_COUNT` | Python worker processes per node. Defaults to the CPUs available to the node, container CPU limits included, so Python can saturate each core. |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Concurrent actions per worker. Raise it for IO-bound actions like api requests. |
 | `WAYMARK_MAX_CONCURRENT_INSTANCES` | Workflow instances one node holds at once. |
 | `RUST_LOG` | The node's log filter, e.g. `info` or `warn`. |
