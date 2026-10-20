@@ -3,13 +3,26 @@ export const navigation = [
     title: 'Getting Started',
     links: [
       { title: 'Introduction', href: '/' },
-      { title: 'Quickstart', href: '/python/quickstart' },
+      {
+        title: 'Quickstart with Python',
+        href: '/quickstart/python',
+        aliasOf: '/python/quickstart',
+      },
       { title: 'Why Waymark', href: '/guides/motivation' },
+    ],
+  },
+  {
+    title: 'Running Waymark',
+    links: [
+      { title: 'Configuration', href: '/guides/configuration' },
+      { title: 'Webapp', href: '/guides/webapp' },
+      { title: 'Production Deployment', href: '/guides/production' },
     ],
   },
   {
     title: 'Python',
     links: [
+      { title: 'Quickstart', href: '/python/quickstart' },
       { title: 'Workflows & Actions', href: '/python/workflows-and-actions' },
       { title: 'Control Flow', href: '/python/control-flow' },
       { title: 'Retries & Timeouts', href: '/python/retries' },
@@ -37,14 +50,6 @@ export const navigation = [
       { title: 'Retry Policy', href: '/python/api/retry' },
       { title: 'Scheduling API', href: '/python/api/scheduling' },
       { title: 'Exceptions', href: '/python/api/exceptions' },
-    ],
-  },
-  {
-    title: 'Running Waymark',
-    links: [
-      { title: 'Configuration', href: '/guides/configuration' },
-      { title: 'Webapp', href: '/guides/webapp' },
-      { title: 'Production Deployment', href: '/guides/production' },
     ],
   },
   {
