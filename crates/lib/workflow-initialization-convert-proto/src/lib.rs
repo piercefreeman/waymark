@@ -4,7 +4,7 @@
 //!
 //! [`Converter`] is generic over a wrapped value converter: the payload
 //! decoding — including the flavor's initiation convention of matching
-//! named arguments to inputs and defaulting the rest — is delegated
+//! named arguments to inputs — is delegated
 //! through a [`TryConvert`] bound on the `ValueConverter` parameter,
 //! and this crate keeps only what is language-free: resolving the entry
 //! function's input names from the compiler metadata and assembling the

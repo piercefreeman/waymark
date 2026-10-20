@@ -133,14 +133,10 @@ class Workflow:
         except AttributeError:
             run_impl = cls.run
         sig = inspect.signature(run_impl)
-        params = list(sig.parameters.keys())[1:]  # Skip 'self'
 
-        normalized = dict(kwargs)
-        for i, arg in enumerate(args):
-            if i < len(params):
-                normalized[params[i]] = arg
-
-        bound = sig.bind_partial(None, **normalized)
+        # Bound like a call to `run()`: a missing required argument, an extra
+        # positional one or an unknown keyword raises `TypeError` here.
+        bound = sig.bind(None, *args, **kwargs)
         bound.apply_defaults()
         return {key: value for key, value in bound.arguments.items() if key != "self"}
 

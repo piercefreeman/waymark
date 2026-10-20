@@ -621,11 +621,9 @@ async def run_batch_workflow(payload: BatchRunRequest) -> StreamingResponse:
                 base_arguments_message = None
             else:
                 batch_arguments = None
-                base_arguments_message = (
-                    workflow_cls._build_workflow_arguments((), base_arguments).SerializeToString()
-                    if payload.arguments is not None
-                    else None
-                )
+                base_arguments_message = workflow_cls._build_workflow_arguments(
+                    (), base_arguments
+                ).SerializeToString()
 
             batch_result = await bridge.run_instances_batch(
                 registration.SerializeToString(),

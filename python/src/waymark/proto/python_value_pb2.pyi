@@ -355,8 +355,8 @@ class ActionArguments(google.protobuf.message.Message):
 
     The client -> worker counterpart of `WorkflowArguments`, kept
     separate because the two planes can diverge independently — the
-    calling convention (positional-to-named pairing, dependency-marker
-    omission) is this seam's own.
+    calling convention (the call's keyword-argument names paired with its
+    values, one each) is this seam's own.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor

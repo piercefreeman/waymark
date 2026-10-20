@@ -14,6 +14,11 @@ your own inputs:
 - `_priority=` is accepted and sent with the instance, but the current
   runtime does not use it.
 
+Your own inputs bind the way a Python call to `run()` does: the defaults
+are filled in, and a missing required argument, an extra positional one
+or an unknown keyword raises `TypeError` before anything is queued. The
+`arguments` of `schedule_workflow(...)` bind the same way.
+
 A blocking run(...) raises `WorkflowFailedError` (whose `exception_value`
 is the exception the workflow raised) if the workflow fails. It waits as
 long as the workflow takes; it raises `TimeoutError` only if the server

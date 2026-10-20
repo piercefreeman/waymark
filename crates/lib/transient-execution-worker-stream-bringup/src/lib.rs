@@ -62,10 +62,8 @@ pub enum SetupRuntimeError {
 ///
 /// The entry function (function 0, the first function in source order)
 /// receives its arguments from
-/// [`proto::WorkflowRegistration::arguments`].  Each
-/// keyword argument is mapped to a positional argument by matching the
-/// entry function's input names; absent inputs are filled with
-/// [`waymark_system_vm::ReadyValue::None`].
+/// [`proto::WorkflowRegistration::arguments`], read by
+/// [`waymark_vm_value_python_convert_proto::WorkflowArgumentsConverter`].
 pub fn setup_runtime(
     registration: &waymark_proto::messages::WorkflowRegistration,
 ) -> Result<waymark_system_vm::Runtime, SetupRuntimeError> {

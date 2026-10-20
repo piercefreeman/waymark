@@ -425,9 +425,6 @@ Until then, avoid them.
   ([#596](https://github.com/piercefreeman/waymark/issues/596)).
 - `NaN` and infinities become `None`; integers of 2⁶³ and above fail
   ([#597](https://github.com/piercefreeman/waymark/issues/597)).
-- An explicit `None` argument to an action is dropped, and a required
-  `run()` argument the caller leaves out arrives as `None` instead of
-  failing the call ([#598](https://github.com/piercefreeman/waymark/issues/598)).
 - `datetime`, `Decimal`, `UUID`, `bytes`, `set` and `Enum` values lose
   their type unless the receiving parameter's annotation restores it
   ([#599](https://github.com/piercefreeman/waymark/issues/599)).
