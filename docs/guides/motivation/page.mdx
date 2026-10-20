@@ -39,8 +39,10 @@ A workflow is a durable definition: it defines how units of work
 relate to one another - what runs first, what runs in parallel, what
 happens when something fails. An action is a unit of distributed work: it
 runs in isolation with just its own context, so it can execute on any
-worker and be repeated safely on retry. You write both as plain
-`async def` Python:
+worker and be repeated safely on retry. You write both as ordinary code
+in a supported language; here they are in Python, the first one:
+
+<CodeGroup>
 
 ```python
 import asyncio
@@ -67,7 +69,10 @@ class WelcomeEmailWorkflow(Workflow):
         return results
 ```
 
-Waymark parses the AST of `run()` and compiles it like you would in a language like Rust or C++:
+</CodeGroup>
+
+Waymark compiles the workflow like you would a program in a language like
+Rust or C++ - in Python, from the AST of `run()`:
 
 - each `await` on an action dispatches it to another machine
 - the comprehension becomes a filter
@@ -85,20 +90,20 @@ function as the source of truth. To make recovery work, they re-run your code
 from the top on each step, returning cached results for already-completed
 activities. The price is determinism: you're not allowed to have any `random()`, `datetime.now()`, or
 side effects in the workflow body or call any functions that do. Get any of that wrong and your bug shows
-up at recovery time instead of registration time. If you have large workflows this replay within a Python
-interpreter can also be relatively inefficient to resume state.
+up at recovery time instead of registration time. If you have large workflows, this replay can
+also be slow to resume state.
 
 Waymark inverts the tradeoff. Your code is compiled *once* - the first time the workflow
 is run or scheduled - into a program the runtime executes directly. We'll tell you the supported
 patterns and violations up front. Want
-non-determinism? That's exactly what an `@action` is for. If it compiles with Waymark, it's guaranteed
+non-determinism? That's exactly what an action is for. If it compiles with Waymark, it's guaranteed
 to work as you expect in production. The few patterns that still slip past the compiler are
 listed under [Known issues](/python/control-flow#known-issues) and are being closed.
 
 ## When to reach for Waymark {{ id: 'when-to-reach-for-waymark' }}
 
-- You're already on Python and Postgres. Mountaineer, FastAPI, Django,
-  Flask - any framework works.
+- You're already on Postgres and a supported language (Python today),
+  with any framework.
 - You have async-heavy code that needs to be durable and retryable: third-party
   API calls, slow database jobs, fan-outs.
 - You want local and production behavior to match.
