@@ -7,7 +7,7 @@ export const metadata = {
 export const sections = [
   { title: 'Topology', id: 'topology' },
   { title: 'Migrations and upgrades', id: 'upgrades' },
-  { title: 'One image, two commands', id: 'one-image' },
+  { title: 'Share an image', id: 'one-image' },
   { title: 'Compose the services', id: 'compose' },
   { title: 'Production settings', id: 'production-settings' },
   { title: 'Database connections', id: 'database-connections' },
@@ -28,7 +28,11 @@ kill and restart at will, outside an [upgrade](#upgrades).
 - **Your app** is whatever serves traffic today - a FastAPI service, a
   script, a cron job. It queues workflows when it wants to delegate processing to the job cluster. The SDK boots a singleton
   `waymark-bridge` inside the container on first use, so the app needs
-  nothing beyond a connection to the database. The bridge never changes
+  nothing beyond what the nodes have: a connection to the main database
+  and to the observability store, with the nodes' database and
+  observability-store settings, apart from the migrations URLs, which it
+  never reads, and the pool sizes, which each process budgets on its own (see
+  [Database connections](#database-connections)). The bridge never changes
   the database schema, so its database role only needs to read and write
   rows.
 - **The node** is one container running `waymark-executor`. It runs your
@@ -58,6 +62,13 @@ On a new database, start the app once a node is healthy. Until then,
 your app's workflow calls fail with `unable to boot waymark server`, and
 each call tries again. The same error shows when the app and the nodes
 run releases with different migrations.
+
+A workflow call waits about 5 seconds for the bridge the SDK starts. While
+a migration is in progress, the call fails with that error even though
+the bridge itself keeps waiting for the migration. The bridge the SDK
+starts keeps no logs, so the error does not say why the bridge did not start
+([#820](https://github.com/piercefreeman/waymark/issues/820)); to see
+the reason, run `waymark-bridge` by hand with the app's environment.
 
 To upgrade, stop every container that runs the app, every
 `waymark-bridge` wherever it runs (the SDK starts it as a process of its
@@ -126,6 +137,10 @@ services:
       WAYMARK_DATABASE_URL: postgresql://app:app@postgres:5432/app
       WAYMARK_USER_MODULE: yourapp.workflows
       WAYMARK_HTTP_ENABLED: "true"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:24119/healthz')"]
+      interval: 5s
+      start_period: 60s
     ports:
       - "24119:24119"
 
@@ -133,7 +148,7 @@ services:
     build: .
     depends_on:
       executor:
-        condition: service_started
+        condition: service_healthy
     environment:
       WAYMARK_DATABASE_URL: postgresql://app:app@postgres:5432/app
     ports:
@@ -149,7 +164,7 @@ The defaults are tuned for a single host. Tuning in production is usually govern
 
 | Variable | What it controls |
 | --- | --- |
-| `WAYMARK_WORKER_COUNT` | Python worker processes per node. Defaults to host CPU count to effectively allow Python to saturate each core. |
+| `WAYMARK_WORKER_COUNT` | Python worker processes per node. Defaults to the CPUs available to the node, container CPU limits included, so Python can saturate each core. |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Concurrent actions per worker. Raise it for IO-bound actions like api requests. |
 | `WAYMARK_MAX_CONCURRENT_INSTANCES` | Workflow instances one node holds at once. |
 | `RUST_LOG` | The node's log filter, e.g. `info` or `warn`. |
@@ -175,7 +190,9 @@ Budget your Postgres connections per process:
   also opens one connection for the main migrations and one for the
   observability migrations; each is closed before the pools of its
   database open, so neither adds to the 33.
-- **Each app host** that queues workflows runs one singleton bridge, with
+- **Each app container, pod or host** (whatever shares one `localhost`)
+  that queues workflows runs one singleton bridge, shared by its
+  processes, with
   up to 10 connections (`WAYMARK_DATABASE_MAX_CONNECTIONS`, the same
   variable as the node's, with a default of its own), plus up to 4 for
   its own observability write pool - 14 in total. At startup it also
@@ -200,7 +217,10 @@ where nothing reads. See
 ## Logs, metrics and the webapp {{ id: 'observability' }}
 
 The node logs to standard output, filtered by `RUST_LOG`. It always
-serves Prometheus metrics on port `9118` (`METRICS_ADDR`). Setting
+serves a metrics endpoint on port `9118` (`METRICS_ADDR`): `/metrics` in
+the Prometheus format, and `/health`, which answers once the endpoint is
+up, before the migrations run, so it tells you the process is alive, not
+that the node is ready; readiness is `/healthz`. Setting
 `WAYMARK_HTTP_ENABLED=true` also serves the HTTP API, the
 [webapp](/guides/webapp) and `/healthz` on port `24119`.
 
@@ -235,6 +255,26 @@ or `ActionExecutionNotStarted` if it provably never started.
 [retry policy](/python/retries) that lists it retries the call;
 `ActionExecutionNotStarted` is retried like any other exception. Without
 a matching policy, the exception propagates like any other.
+
+On a termination request to the node process (`SIGTERM`, what `docker
+stop` and Kubernetes send, or `SIGINT`), a node shuts down gracefully:
+it lets its in-flight action calls finish, releases its workflows for
+another node to resume, then exits. Nothing inside the node bounds how
+long that takes; your orchestrator's grace period does
+(`stop_grace_period` in Compose, `terminationGracePeriodSeconds` in
+Kubernetes), and a node it kills once that runs out is picked up as
+described above. On Linux and macOS, further shutdown requests while the
+node is shutting down do nothing today; this may change.
+
+A Ctrl+C typed in the terminal running `waymark-executor` reaches its
+worker processes too, and they stop at once: their in-flight action
+calls fail with `ActionExecutionLost`
+([#827](https://github.com/piercefreeman/waymark/issues/827)). On
+Windows, a second Ctrl+C during the shutdown terminates the node at once
+([#826](https://github.com/piercefreeman/waymark/issues/826)), and
+closing its console, logging off or shutting Windows down terminates it
+after the system's own timeout, or at once during a shutdown already
+under way.
 
 When Postgres is the bottleneck, you'll see it in queue latency long
 before correctness suffers. Until then, one database is all the

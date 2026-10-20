@@ -14,7 +14,7 @@ $ uv run scripts/build_wheel.py --out-dir target/wheels
 ```
 
 The script compiles every Rust binary (release profile), stages the required entrypoints
-(`waymark-bridge`, `waymark-boot-singleton`) inside the Python package, and invokes
+(`waymark-bridge`, `waymark-boot-singleton`, `waymark-executor`) inside the Python package, and invokes
 `uv build --wheel` to produce an artifact suitable for publishing to PyPI.
 
 ### Local Server Runtime
@@ -36,9 +36,9 @@ $ cargo run --bin waymark-boot-singleton
 24117
 ```
 
-The Python bridge automatically shells out to the helper unless you provide
-`WAYMARK_BRIDGE_GRPC_ADDR` (or `WAYMARK_BRIDGE_GRPC_HOST` + `WAYMARK_BRIDGE_GRPC_PORT`) overrides.
-Once the port is known it opens a gRPC channel to the
+The Python bridge automatically shells out to the helper unless you set
+`WAYMARK_BRIDGE_GRPC_PORT`; `WAYMARK_BRIDGE_GRPC_ADDR` alone only changes where it connects,
+and the helper still runs. Once the port is known it opens a gRPC channel to the
 `WorkflowService`.
 
 ### Benchmarking
@@ -49,10 +49,13 @@ Run the Rust benchmark harness (defaults to `--count 1000`) via:
 $ make benchmark
 ```
 
-`make benchmark` builds with `RUSTFLAGS="--cfg waymark_observability_chrome_trace"`,
-writes a tracing-chrome file, and prints a pyinstrument-style summary
-via `scripts/parse_chrome_trace.py`. Override the trace path
-with `BENCH_TRACE=...`, the summary size with `BENCH_TRACE_TOP=...`, or benchmark args with
+`make benchmark` builds with `RUSTFLAGS="--cfg waymark_observability_chrome_trace"`, then
+runs the benchmark once per value of `BENCH_CONCURRENCY_SWEEP` (default `25 100 250 1000`,
+each as `WAYMARK_MAX_CONCURRENT_INSTANCES`). Each run writes a tracing-chrome file,
+`target/benchmark-trace-<N>.json` by default, and prints a pyinstrument-style summary
+via `scripts/parse_chrome_trace.py`. Override the trace path prefix
+with `BENCH_TRACE=...` (the `.json` is dropped and `-<N>.json` appended), the sweep with
+`BENCH_CONCURRENCY_SWEEP="100"`, the summary size with `BENCH_TRACE_TOP=...`, or benchmark args with
 `BENCH_ARGS="--count 200 --base 10"`. Registration and persistence batch sizes are environment
 knobs (`WAYMARK_REGISTRATION_BATCH_MAX`, `WAYMARK_SNAPSHOT_BATCH_MAX`, …), not CLI flags.
 Set `BENCH_RELEASE=1` to run the benchmark binary
@@ -75,36 +78,16 @@ load in a browser. If tokio-console shows "RECONNECTING", reinstall it so the cl
 protocols match. We track the latest `console-subscriber` (0.5.x), while the CLI is still
 0.1.x, so a stale install often causes reconnect loops.
 
-Stream benchmark output directly into our parser to summarize throughput and latency samples:
-
-````bash
-$ cargo run --bin waymark-benchmark -- \
-  --messages 100000 \
-  --payload 1024 \
-  --concurrency 64 \
-  --workers 4 \
-  --log-interval 15 \
-  uv run python/tools/parse_bench_logs.py
-
-The `bench` binary seeds raw actions to measure dequeue/execute/ack throughput. Use `bench_instances` for an end-to-end workflow run (queueing and executing full workflow instances via the scheduler) without installing a separate `waymark-worker` binary—the harness shells out to `uv run python -m waymark.worker` automatically:
-
-```bash
-$ cargo run --bin bench_instances -- \
-  --instances 200 \
-  --batch-size 4 \
-  --payload-size 1024 \
-  --concurrency 64 \
-  --workers 4
-````
-
-Add `--json` to the parser if you prefer JSON output.
+For machine-readable results, pass `--json <file>` to `waymark-benchmark`; a bare `--json` prints
+the JSON to stdout after the summary lines. Under `make benchmark`, a `--json <file>` in
+`BENCH_ARGS` is overwritten by each run of the sweep.
 
 ## Testing
 
 ### Rust tests (unit + integration)
 
 Integration fixtures are run by the Rust entrypoint binary `crates/bin/integration-test`.
-It runs curated fixtures from `tests/waymark-integration-tests` and checks parity:
+It runs curated fixtures from `tests/integration_tests` and checks parity:
 
 - Baseline execution via direct inline Python workflow logic
 - Runtime execution via the VM in transient mode (in-memory, no persistence)
@@ -114,7 +97,7 @@ It runs curated fixtures from `tests/waymark-integration-tests` and checks parit
 Commands:
 
 ```bash
-# Everything (unit + integration)
+# Unit and crate tests (the fixture parity runner below is a separate binary)
 cargo test
 
 # Run fixture integration parity (default modes: transient,durable)
@@ -129,7 +112,9 @@ cargo run --bin waymark-integration-test -- --modes transient
 
 Prereqs:
 
-- No manual Postgres startup is required for the default test harness configuration.
+- No manual Postgres startup is required for the default test harness configuration: the
+  harness uses a Postgres on `127.0.0.1:5433`, and when none answers there it starts one with
+  `docker compose up`, which needs Docker installed and running.
 - Ensure `uv` is installed and `.venv` is prepared (`uv sync`)
 
 ### Python tests

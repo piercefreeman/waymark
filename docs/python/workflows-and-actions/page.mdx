@@ -171,7 +171,10 @@ inside a workflow body:
 - Calling most functions other than actions and the workflow's own
   methods; see [what does not compile](/python/control-flow#limitations)
   for the exact list.
-- Constructing classes other than pydantic models and dataclasses.
+- Constructing classes other than simple pydantic models and
+  dataclasses (models without validators or an `__init__` of their own,
+  dataclasses without `__post_init__`, defined in or imported by name
+  into the workflow's module).
 
 The error you get back tells you what wasn't recognized, and one from
 the SDK's builder also says what to do instead. The [Control Flow

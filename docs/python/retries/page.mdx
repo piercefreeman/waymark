@@ -111,6 +111,19 @@ the calls in flight on it are redelivered by the node that resumes the
 workflow, as [Production Deployment](/guides/production#scaling-out)
 explains.
 
+Besides a policy, the workflow can catch `ActionTimeout`,
+`ActionExecutionLost` or `ActionExecutionNotStarted` in a `try/except`
+around the call and retry it with code of its own.
+
+An action itself should raise only `Exception` subclasses. The worker
+reports only those back, so a `BaseException` the action raises never
+reaches the workflow, and neither a policy nor an `except` sees it. The
+call fails some other way instead: a `SystemExit` or `KeyboardInterrupt`
+stops the worker process, so the call fails with `ActionExecutionLost`;
+any other `BaseException` leaves the call waiting for its timeout, which
+fails it with `ActionTimeout` - and with no timeout, until its worker
+process dies or is recycled, which fails it with `ActionExecutionLost`.
+
 ## Timeouts {{ id: 'timeouts' }}
 
 A per-call `timeout` caps how long an individual action attempt may

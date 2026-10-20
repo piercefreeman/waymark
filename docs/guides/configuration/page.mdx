@@ -40,7 +40,7 @@ These are the variables you'll touch most often when running
 | --- | --- | --- |
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN for runtime state. | Required |
 | `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the main database pool. | `25` |
-| `WAYMARK_WORKER_COUNT` | Number of Python worker processes. | Host CPU count |
+| `WAYMARK_WORKER_COUNT` | Number of Python worker processes. | The CPUs available to the node, container CPU limits included |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per worker. | `10` |
 | `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently, per node. | `500` |
 | `WAYMARK_USER_MODULE` | Comma-separated Python modules each worker imports at startup. | Unset |
@@ -122,8 +122,10 @@ anything from the database.
 ## Observability {{ id: 'observability' }}
 
 The node records what it does into an observability store: events for
-every workflow instance, which the webapp's instance views read, and
-periodic samples of each node's load, which its Fleet view reads. The
+every workflow instance, which the webapp's Workflows views read, and
+periodic samples of each node's load, which its Fleet view reads. With
+a database, the [bridge](#bridge) records there the workflows registered
+through it. The
 store gets its own schema and pools even when it shares the main
 database; the observability API reads from it over a separate read pool.
 
@@ -200,7 +202,7 @@ node's defaults.
 | Variable | Description | Default |
 | --- | --- | --- |
 | `WAYMARK_BRIDGE_GRPC_ADDR` | gRPC bind address. | `127.0.0.1:24117` |
-| `WAYMARK_BRIDGE_IN_MEMORY` | Run with no Postgres backend (test / dev only). | `false` |
+| `WAYMARK_BRIDGE_IN_MEMORY` | Run with no Postgres backend (test / dev only). Any value but empty, `0`, `false` or `no` (trimmed, in any case) turns it on. When a workflow's `run()` is called under pytest, the SDK sets it to `1` unless it is already set. | `false` |
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN. | Required unless in-memory |
 | `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the bridge's database pool. | `10` |
 | `WAYMARK_DATABASE_STATEMENT_TIMEOUT_MS` | How long one statement on the bridge's database pool may run. `0` turns the limit off. | `60000` |

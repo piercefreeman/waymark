@@ -26,8 +26,8 @@ instructions of what you'll need. With our simple runtime requirements it's not 
 
 ## Install {{ id: 'install' }}
 
-Waymark ships as a single Python package. Install it with whichever package
-manager you prefer:
+Waymark ships as a single Python package. Add it to your project with
+whichever package manager you prefer:
 
 ```bash
 uv add waymark
@@ -41,7 +41,8 @@ our rust backend which allows you to run your code: you can call this with `uv r
 It's helpful to think of workflows as the coordination layer of your code, orchestrating
 from the top down. You connect the data flow of how you want the more atomic bits of code
 to run. We'll create the full workflow first here: run two computations in parallel, then merge their
-results into a summary.
+results into a summary. Save it, and the actions after it, in one file,
+`workflows.py`, at the root of your project.
 
 ```python
 import asyncio
@@ -173,10 +174,15 @@ asyncio.run(main())
 ```
 
 <Note>
-If the script hangs instead of printing: check that Postgres is up, and
-that `waymark-executor` is running against the same database. If it raises
-`WorkflowFailedError` instead, an action failed; the error carries the
-action's exception.
+If the script hangs instead of printing, check that `waymark-executor` is
+running against the same database. If it raises `unable to boot waymark
+server`, the client's bridge did not start: check that Postgres is up,
+that this shell has sourced `.env`, and that `waymark-executor` has
+started once against the same database (it runs the migrations the
+bridge checks for). The error does not show the bridge's reason yet
+([#820](https://github.com/piercefreeman/waymark/issues/820)). If it
+raises `WorkflowFailedError` instead, an action failed; the error carries
+the action's exception.
 </Note>
 
 From here you can plug `workflow.run(...)` straight into a FastAPI
