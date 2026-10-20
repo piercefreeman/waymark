@@ -25,7 +25,8 @@ else has a default tuned for a single-host deployment.
 Configuration is entirely through environment variables. The runtime
 reads them directly from the process environment - there's no auto-loading
 of `.env` files, so set them before launching `waymark-executor` (or
-import `python-dotenv` yourself if that's your preference).
+load the file with your language's tooling, such as `python-dotenv` in
+Python, if that's your preference).
 
 The variables are grouped by which process reads them:
 `waymark-executor`, the bridge, and the Python SDK / boot helpers.
@@ -40,7 +41,7 @@ These are the variables you'll touch most often when running
 | --- | --- | --- |
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN for runtime state. | Required |
 | `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the main database pool. | `25` |
-| `WAYMARK_WORKER_COUNT` | Number of Python worker processes. | The CPUs available to the node, container CPU limits included |
+| `WAYMARK_WORKER_COUNT` | Number of worker processes. | The CPUs available to the node, container CPU limits included |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per worker. | `10` |
 | `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max workflow instances held concurrently, per node. | `500` |
 | `WAYMARK_USER_MODULE` | Comma-separated Python modules each worker imports at startup. | Unset |
@@ -75,7 +76,7 @@ reason.
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `WAYMARK_WORKER_GRPC_ADDR` | gRPC bind for the Python worker bridge server. | `127.0.0.1:24118` |
+| `WAYMARK_WORKER_GRPC_ADDR` | gRPC bind for the worker bridge server. | `127.0.0.1:24118` |
 | `WAYMARK_DATABASE_STATEMENT_TIMEOUT_MS` | How long one statement on the main database pool may run. `0` turns the limit off. | `60000` |
 | `WAYMARK_DATABASE_ACQUIRE_TIMEOUT_MS` | How long taking a connection from the main database pool may wait before it fails. `0` refuses to boot. | `30000` |
 | `WAYMARK_MIGRATIONS_DATABASE_URL` | DSN the main database's migrations run through, on a connection of their own at startup. Use it to give the migrations a role that can create and alter the schema, while `WAYMARK_DATABASE_URL` keeps a role that only reads and writes. The migrations role owns what it creates, so before the first boot run `ALTER DEFAULT PRIVILEGES FOR ROLE <migrations role>` to grant the other role `USAGE` on schemas and `SELECT, INSERT, UPDATE, DELETE` on tables; every table the migrations create, the observability store's included while it shares this database, then comes with these rights, now and in later upgrades. After the first boot, revoke all but `SELECT` on `public._sqlx_migrations` and `observability._sqlx_migrations`, which the bridge only reads. | `WAYMARK_DATABASE_URL` |
@@ -174,13 +175,14 @@ fewer than buffers.
 
 ## Bridge {{ id: 'bridge' }}
 
-`waymark-bridge` is the gRPC server that translates between the Python
-SDK and the Rust runtime. Most users never run this binary directly -
-the Python SDK boots a singleton bridge automatically on first workflow
-invocation - but it can run as its own service (e.g., a sidecar
-container). The variables below apply to the bridge however it runs;
-when the nodes' values differ from the defaults, the SDK's environment
-carries them too. It needs a database the nodes have
+`waymark-bridge` is the gRPC server between your app and the Rust
+runtime; like the rest of the Rust code, it holds the support for every
+supported language. Most users never run this binary directly - a
+language-specific SDK starts it (the Python SDK boots a singleton bridge
+automatically on first workflow invocation) - but it can run as its own
+service (e.g., a sidecar container). The variables below apply to the
+bridge however it runs; when the nodes' values differ from the defaults,
+the app's environment carries them too. It needs a database the nodes have
 [migrated](/guides/production#upgrades), and a role that reads and
 writes rows. It reads the node's `WAYMARK_DATABASE_*` variables with
 defaults of its own, so in an environment both share, one setting
@@ -202,7 +204,7 @@ node's defaults.
 | Variable | Description | Default |
 | --- | --- | --- |
 | `WAYMARK_BRIDGE_GRPC_ADDR` | gRPC bind address. | `127.0.0.1:24117` |
-| `WAYMARK_BRIDGE_IN_MEMORY` | Run with no Postgres backend (test / dev only). Any value but empty, `0`, `false` or `no` (trimmed, in any case) turns it on. When a workflow's `run()` is called under pytest, the SDK sets it to `1` unless it is already set. | `false` |
+| `WAYMARK_BRIDGE_IN_MEMORY` | Run with no Postgres backend (test / dev only). Any value but empty, `0`, `false` or `no` (trimmed, in any case) turns it on. When a workflow's `run()` is called under pytest, the Python SDK sets it to `1` unless it is already set. | `false` |
 | `WAYMARK_DATABASE_URL` | PostgreSQL DSN. | Required unless in-memory |
 | `WAYMARK_DATABASE_MAX_CONNECTIONS` | Connection cap for the bridge's database pool. | `10` |
 | `WAYMARK_DATABASE_STATEMENT_TIMEOUT_MS` | How long one statement on the bridge's database pool may run. `0` turns the limit off. | `60000` |
@@ -246,7 +248,7 @@ include it.
 
 ## Worker recycling {{ id: 'worker-recycling' }}
 
-`WAYMARK_MAX_ACTION_LIFECYCLE` controls how many actions a Python worker
+`WAYMARK_MAX_ACTION_LIFECYCLE` controls how many actions a worker
 can execute before it's automatically replaced. Useful when a third-party
 library leaks memory: set the variable to something like `1000` or
 `10000` and Waymark will spin up a fresh worker before retiring the old
