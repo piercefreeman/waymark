@@ -2,7 +2,7 @@
 
 ![Waymark Logo](https://raw.githubusercontent.com/piercefreeman/waymark/main/media/header.png)
 
-waymark is a library to let you build durable background tasks that withstand server restarts, task crashes, and long-running jobs. It's built for Python and Postgres without any additional deploy time requirements. More languages are coming soon.
+waymark is a library to let you build durable background tasks that withstand server restarts, task crashes, and long-running jobs. It's built on Postgres, with no other infrastructure to deploy. Python is the first supported language; more are coming.
 
 **Documentation: [waymark.sh](https://waymark.sh)**
 
@@ -162,7 +162,7 @@ Background jobs in webapps are so frequently used that they should really be a p
 
 After trying most of the ecosystem in the last 3 years, I believe background jobs should provide a few key features:
 
-- Easy to write control flow in normal Python
+- Easy to write control flow as ordinary code in the language you already use
 - Should be both very simple to test locally and very simple to deploy remotely
 - Reasonable default configurations to scale to a reasonable request volume without performance tuning
 
@@ -177,17 +177,17 @@ Waymark takes a different approach from replay-based workflow engines like Tempo
 | Approach | How it works | Constraint on users |
 | --- | --- | --- |
 | **Temporal/Vercel Workflows** | Replay-based. Your workflow code re-executes from the beginning on each step; completed activities return cached results. | Code must be deterministic. No `random()`, no `datetime.now()`, no side effects in workflow logic. |
-| **Waymark** | Compile-once. Parse your Python AST → intermediate representation → bytecode. A durable VM executes the bytecode. Your code never re-runs. | Code must use supported patterns. But once compiled, the runtime always knows exactly where the workflow is in its execution. |
+| **Waymark** | Compile-once. Your workflow's source (any supported language, e.g. Python) → intermediate representation → bytecode for a durable virtual machine. Your code never re-runs. | Code must use supported patterns. But once compiled, the runtime always knows exactly where the workflow is in its execution. |
 
-The first time a workflow is run or scheduled, the Python SDK parses its `run()` method's AST and compiles it to an intermediate representation (IR). This IR captures your control flow - loops, conditionals, parallel branches - and is lowered to bytecode for a durable virtual machine. The Rust runtime executes the bytecode and snapshots the VM's state to Postgres as it goes, so a workflow resumes from where it was after a crash. Your original Python `run()` definition is never re-executed during workflow recovery.
+The first time a workflow is run or scheduled, it is compiled to an intermediate representation (IR); in Python, the SDK parses its `run()` method's AST. This IR captures your control flow - loops, conditionals, parallel branches - and is lowered to bytecode for a durable virtual machine. The Rust runtime executes the bytecode and snapshots the VM's state to Postgres as it goes, so a workflow resumes from where it was after a crash. Your original workflow definition is never re-executed during workflow recovery.
 
-This is convenient in practice because it means that if your workflow compiles, your workflow will run as advertised. There's no need to hack around stdlib functions that are non-deterministic (like time/uuid/etc) because you'll get an error on compilation to switch these into an explicit `@action`. The few patterns that currently slip past the compiler are listed under [known issues](https://waymark.sh/python/control-flow#known-issues) and tracked in [#772](https://github.com/piercefreeman/waymark/issues/772).
+This is convenient in practice because it means that if your workflow compiles, your workflow will run as advertised. There's no need to hack around stdlib functions that are non-deterministic (like time/uuid/etc) because you'll get an error on compilation to switch these into an explicit action. The few patterns that currently slip past the compiler are listed under [known issues](https://waymark.sh/python/control-flow#known-issues) and tracked in [#772](https://github.com/piercefreeman/waymark/issues/772).
 
 ## When to use it
 
 **When should you use Waymark?**
 
-- You're already using Python & Postgres for the core of your stack, with Mountaineer, FastAPI or any other framework
+- You're already using Postgres and a supported language (Python today), with any framework
 - You have a lot of async heavy logic that needs to be durable and can be retried if it fails (common with 3rd party API calls, db jobs, etc)
 - You want something that works the same locally as when deployed remotely
 - You want background job code to plug and play with your existing unit test & static analysis stack
@@ -201,7 +201,7 @@ Performance is a top priority of waymark. That's why it's written with a Rust co
 - You have a huge scale of concurrent background jobs, order of magnitude >10k actions being coordinated concurrently.
 - You have tried some existing task coordinators and need to scale your solution to the next 10x worth of traffic.
 
-There is no shortage of robust background queues in Python, including ones like Temporal.io/RabbitMQ that scale to millions of requests a second.
+There is no shortage of robust background queues, including ones like Temporal.io/RabbitMQ that scale to millions of requests a second.
 
 Almost all of these require a dedicated task broker that you host alongside your app. This usually isn't a huge deal during POCs but can get complex as you need to performance tune it for production. Cloud hosting of most of these are billed per-event and can get very expensive depending on how you orchestrate your jobs. They also typically force you to migrate your logic to fit the conventions of the framework.
 
