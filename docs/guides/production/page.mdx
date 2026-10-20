@@ -25,9 +25,10 @@ kill and restart at will, outside an [upgrade](#upgrades).
 
 ## Topology {{ id: 'topology' }}
 
-- **Your app** is whatever serves traffic today - a FastAPI service, a
-  script, a cron job. It queues workflows when it wants to delegate processing to the job cluster. The SDK boots a singleton
-  `waymark-bridge` inside the container on first use, so the app needs
+- **Your app** is whatever serves traffic today - a web service, a
+  script, a cron job. It queues workflows when it wants to delegate processing to the job cluster. Its
+  language-specific SDK starts a `waymark-bridge` for it (the Python SDK
+  boots a singleton inside the container on first use), so the app needs
   nothing beyond what the nodes have: a connection to the main database
   and to the observability store, with the nodes' database and
   observability-store settings, apart from the migrations URLs, which it
@@ -36,8 +37,8 @@ kill and restart at will, outside an [upgrade](#upgrades).
   the database schema, so its database role only needs to read and write
   rows.
 - **The node** is one container running `waymark-executor`. It runs your
-  workflows, dispatches their actions to a pool of Python worker
-  processes, and persists every step in Postgres. It also runs the
+  workflows, dispatches their actions to a pool of worker processes, and
+  persists every step in Postgres. It also runs the
   scheduler and, if you enable it, serves the HTTP API and the webapp.
 - **Postgres** is the only stateful piece. Anything 14+ works, including
   the managed instance you already have.
@@ -82,10 +83,11 @@ upgrade.
 
 ## Share an image {{ id: 'one-image' }}
 
-Build a single image that contains your application code and the
-waymark package. They're both referencing the same underlying workflow and
-action code, so it makes sense for the image to have parity. The app and
-`waymark-executor` only need different commands in the entrypoint.
+Build a single image that contains your application code and Waymark's
+support for its language (in Python, the waymark package). They're both
+referencing the same underlying workflow and action code, so it makes sense
+for the image to have parity. The app and `waymark-executor` only need
+different commands in the entrypoint.
 
 If you already have Dockerfile, you just need a new service that mounts
 with `waymark-executor`. If you don't already have one, this basic one should
@@ -164,7 +166,7 @@ The defaults are tuned for a single host. Tuning in production is usually govern
 
 | Variable | What it controls |
 | --- | --- |
-| `WAYMARK_WORKER_COUNT` | Python worker processes per node. Defaults to the CPUs available to the node, container CPU limits included, so Python can saturate each core. |
+| `WAYMARK_WORKER_COUNT` | Worker processes per node. Defaults to the CPUs available to the node, container CPU limits included, so the workers can saturate each core. |
 | `WAYMARK_CONCURRENT_PER_WORKER` | Concurrent actions per worker. Raise it for IO-bound actions like api requests. |
 | `WAYMARK_MAX_CONCURRENT_INSTANCES` | Workflow instances one node holds at once. |
 | `RUST_LOG` | The node's log filter, e.g. `info` or `warn`. |
