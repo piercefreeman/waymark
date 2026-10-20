@@ -93,7 +93,9 @@ If you already have Dockerfile, you just need a new service that mounts
 with `waymark-executor`. If you don't already have one, this basic one should
 get you started.
 
-```dockerfile
+<CodeGroup>
+
+```dockerfile {{ title: 'Python' }}
 FROM python:3.12-slim
 
 RUN pip install uv
@@ -110,12 +112,16 @@ ENV PATH="/app/.venv/bin:${PATH}"
 CMD ["uvicorn", "yourapp.web:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
+</CodeGroup>
+
 ## Compose the services {{ id: 'compose' }}
 
 The same shape works in Docker Compose, Kubernetes, or anything that runs
 containers. In Compose:
 
-```yaml
+<CodeGroup>
+
+```yaml {{ title: 'Python' }}
 services:
   postgres:
     image: postgres:16-alpine
@@ -159,6 +165,8 @@ services:
 volumes:
   postgres-data: {}
 ```
+
+</CodeGroup>
 
 ## Production settings {{ id: 'production-settings' }}
 
