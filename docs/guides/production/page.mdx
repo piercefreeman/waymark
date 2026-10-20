@@ -89,9 +89,9 @@ referencing the same underlying workflow and action code, so it makes sense
 for the image to have parity. The app and `waymark-executor` only need
 different commands in the entrypoint.
 
-If you already have Dockerfile, you just need a new service that mounts
-with `waymark-executor`. If you don't already have one, this basic one should
-get you started.
+Run the node as a second container from your app's image, with
+`waymark-executor` as its command. If you don't have a Dockerfile yet, use
+this one:
 
 <CodeGroup>
 
