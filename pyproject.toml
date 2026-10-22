@@ -3,7 +3,7 @@
 # on every invocation, read by CI via `setup-uv`'s `version-file`, and
 # mirrored by the Dockerfile's UV_VERSION arg (a mismatch there fails
 # loudly since the mismatched uv refuses to run).
-required-version = "==0.12.3"
+required-version = "==0.13.4"
 
 # Build-backend versions are not covered by uv.lock (they resolve in
 # isolated build environments); this constrains them everywhere a

@@ -2,7 +2,7 @@
 
 # Mirrors `tool.uv.required-version` in the root pyproject.toml; a
 # mismatch fails loudly (uv refuses to run under required-version).
-ARG UV_VERSION=0.12.3
+ARG UV_VERSION=0.13.4
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 
