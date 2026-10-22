@@ -7,7 +7,7 @@ ARG UV_VERSION=0.13.4
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 
 # Must match .node-version; the check below fails the build otherwise.
-FROM node:24.13.0-bookworm AS js-deps
+FROM node:24.22.1-bookworm AS js-deps
 WORKDIR /repo
 COPY .node-version ./
 RUN test "v$(cat .node-version)" = "$(node --version)" \
