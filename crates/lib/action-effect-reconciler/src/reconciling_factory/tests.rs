@@ -200,6 +200,56 @@ async fn requests_held_by_a_live_owner_are_left_alone() {
     assert_eq!(row.locked_by, Some(99));
 }
 
+/// A replacement must recover an action whose old owner's lease expires after revival.
+#[tokio::test(start_paused = true)]
+#[ignore = "reproduces an action stranded when its old owner's lease expires after revival"]
+async fn redelivers_when_previous_owners_lease_expires_after_revival() {
+    let h = harness();
+    seed_row(
+        &h.backend,
+        42,
+        11,
+        3,
+        vec![5i64],
+        Some(99),
+        Duration::minutes(5),
+    );
+
+    // The VM moves to node 7 while node 99 still holds the action lease.
+    h.factory.produce(&42u64).await.expect("initial revival");
+    assert!(h.requester.requests.lock().unwrap().is_empty());
+
+    // Node 99 dies without completing or unlocking. Tokio's clock does not move Utc.
+    let key = TestKey {
+        vm_id: 42,
+        promise_state_id: PromiseStateId(11),
+    };
+    h.backend
+        .rows
+        .lock()
+        .unwrap()
+        .get_mut(&key)
+        .unwrap()
+        .lock_expires_at = Some(Utc::now() - Duration::seconds(1));
+
+    // Keep the VM resident while two lease periods elapse, without a real-time wait.
+    tokio::time::sleep(2 * LOCK_TIME_TO_LIVE).await;
+    let deliveries_without_another_revival = h.requester.requests.lock().unwrap().len();
+
+    // Control: the same expired row is deliverable if the VM is revived again.
+    h.factory.produce(&42u64).await.expect("second revival");
+    let requests = h.requester.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].arguments, vec![5]);
+    assert_eq!(requests[0].metadata.promise_state_id, PromiseStateId(11));
+    assert_eq!(h.backend.rows.lock().unwrap()[&key].locked_by, Some(7));
+
+    assert_eq!(
+        deliveries_without_another_revival, 1,
+        "the expired action was stranded until a second VM revival"
+    );
+}
+
 #[tokio::test]
 async fn reconcile_failure_fails_the_spawn() {
     let h = harness();
