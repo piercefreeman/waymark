@@ -9,18 +9,19 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock, RLock
-from typing import AsyncIterator, NoReturn, Optional
-
-import grpc
-from grpc import aio  # type: ignore[attr-defined]
+from typing import TYPE_CHECKING, AsyncIterator, NoReturn, Optional
 
 from waymark.logger import configure as configure_logger
 from waymark.proto import messages_pb2 as pb2
-from waymark.proto import messages_pb2_grpc as pb2_grpc
 
 from .actions import serialize_raised_exception, serialize_returned_value
 from .grpc_config import GRPC_CHANNEL_OPTIONS
 from .workflow_runtime import execute_action
+
+if TYPE_CHECKING:
+    import grpc.aio as aio
+
+    from waymark.proto import messages_pb2_grpc as pb2_grpc
 
 DEFAULT_HOST = "127.0.0.1"
 LOGGER = configure_logger("waymark.bridge")
@@ -28,8 +29,8 @@ LOGGER = configure_logger("waymark.bridge")
 _PORT_LOCK = RLock()
 _CACHED_GRPC_PORT: Optional[int] = None
 _GRPC_TARGET: Optional[str] = None
-_GRPC_CHANNEL: Optional[aio.Channel] = None
-_GRPC_STUB: Optional[pb2_grpc.WorkflowServiceStub] = None
+_GRPC_CHANNEL: Optional["aio.Channel"] = None
+_GRPC_STUB: Optional["pb2_grpc.WorkflowServiceStub"] = None
 _GRPC_LOOP: Optional[asyncio.AbstractEventLoop] = None
 _BOOT_MUTEX = Lock()
 _ASYNC_BOOT_LOCK: asyncio.Lock = asyncio.Lock()
@@ -238,7 +239,12 @@ def assert_never(value: object) -> NoReturn:
     raise AssertionError(f"Unhandled value: {value!r}")
 
 
-async def _workflow_stub() -> pb2_grpc.WorkflowServiceStub:
+async def _workflow_stub() -> "pb2_grpc.WorkflowServiceStub":
+    # Loading gRPC can start native threads; defer it until after the reloader forks.
+    import grpc.aio as aio
+
+    from waymark.proto import messages_pb2_grpc as pb2_grpc
+
     global _GRPC_TARGET, _GRPC_CHANNEL, _GRPC_STUB, _GRPC_LOOP
     target = _grpc_target()
     loop = asyncio.get_running_loop()
@@ -265,6 +271,8 @@ async def _workflow_stub() -> pb2_grpc.WorkflowServiceStub:
 
 async def run_instance(payload: bytes) -> RunInstanceResult:
     """Register a workflow definition and start an instance over the gRPC bridge."""
+    import grpc.aio as aio
+
     async with ensure_singleton():
         stub = await _workflow_stub()
     registration = pb2.WorkflowRegistration()
@@ -292,6 +300,8 @@ async def run_instances_batch(
     include_instance_ids: bool = False,
 ) -> RunBatchResult:
     """Register a workflow definition and start multiple instances over the gRPC bridge."""
+    import grpc.aio as aio
+
     if count < 1 and not arguments_list:
         raise ValueError("count must be >= 1 when arguments_list is empty")
     if batch_size < 1:
@@ -404,6 +414,9 @@ async def wait_for_instance(
     poll_interval_secs: float = 1.0,
 ) -> Optional[bytes]:
     """Block until the workflow daemon produces the requested instance payload."""
+    import grpc
+    import grpc.aio as aio
+
     async with ensure_singleton():
         stub = await _workflow_stub()
     request = pb2.WaitForInstanceRequest(
