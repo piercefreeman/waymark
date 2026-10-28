@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional, Type, Union, overload
 
-from grpc import StatusCode, aio  # type: ignore[attr-defined]
 from typing_extensions import deprecated
 
 from waymark.proto import messages_pb2 as pb2
@@ -168,6 +167,8 @@ async def schedule_workflow(
         RuntimeError: If the gRPC call fails. An invalid cron expression is
                       rejected by the server as INVALID_ARGUMENT.
     """
+    import grpc.aio as aio
+
     if isinstance(schedule_name, str):
         schedule_name = WorkflowScoped(workflow=workflow_cls, name=schedule_name)
     flat_schedule_name = _normalize_schedule_name(schedule_name)
@@ -246,6 +247,9 @@ def _resolve_management_target(
 async def _update_schedule_status(
     flat_schedule_name: str, status: "pb2.ScheduleStatus", operation: str
 ) -> bool:
+    import grpc.aio as aio
+    from grpc import StatusCode
+
     request = pb2.UpdateScheduleStatusRequest(
         schedule_name=flat_schedule_name,
         status=status,
@@ -382,6 +386,9 @@ async def delete_schedule(
     Raises:
         RuntimeError: If the gRPC call fails.
     """
+    import grpc.aio as aio
+    from grpc import StatusCode
+
     flat_schedule_name = _resolve_management_target(arg, schedule_name, "delete_schedule")
     request = pb2.DeleteScheduleRequest(schedule_name=flat_schedule_name)
 
@@ -469,6 +476,8 @@ async def list_schedules(
     Raises:
         RuntimeError: If the gRPC call fails.
     """
+    import grpc.aio as aio
+
     request = pb2.ListSchedulesRequest()
     match status_filter:
         case None:
