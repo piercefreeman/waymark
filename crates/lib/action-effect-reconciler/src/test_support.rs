@@ -42,8 +42,15 @@ pub(crate) struct MockBackend {
     pub rows: Mutex<HashMap<TestKey, MockRow>>,
     /// Fail this many record calls with a retryable error first.
     pub fail_records: Mutex<u32>,
+    /// Insert the rows, then fail this many record calls with a retryable
+    /// error: the statement committed but reported failure.
+    pub fail_records_after_insert: Mutex<u32>,
     /// Fail every lock call when set.
     pub fail_locks: Mutex<bool>,
+    pub lock_calls: Mutex<u32>,
+    /// Fail every unlock call when set.
+    pub fail_unlocks: Mutex<bool>,
+    pub unlock_calls: Mutex<u32>,
     /// Fail every renew call when set.
     pub fail_renewals: Mutex<bool>,
     /// Report every present row as [`RenewalStatus::Unconfirmed`] when set.
@@ -143,6 +150,15 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Mock
         if let Some(keys) = NEVec::try_from_vec(divergent) {
             return Err(MockRecordError::DivergentPayload(keys));
         }
+
+        {
+            let mut fail_records_after_insert = self.fail_records_after_insert.lock().unwrap();
+            if *fail_records_after_insert > 0 {
+                *fail_records_after_insert -= 1;
+                return Err(MockRecordError::Internal);
+            }
+        }
+
         Ok(match NEVec::try_from_vec(already_recorded) {
             Some(keys) => RecordingSuccess::SomeAlreadyRecorded(keys),
             None => RecordingSuccess::AllRecorded,
@@ -163,6 +179,7 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for MockBa
         lock: TestLock,
         vm_ids: NESlice<'a, TestVmId>,
     ) -> Result<NEVec<VmLockOutcome<TestVmId>>, MockLockError> {
+        *self.lock_calls.lock().unwrap() += 1;
         if *self.fail_locks.lock().unwrap() {
             return Err(MockLockError);
         }
@@ -205,6 +222,38 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for MockBa
         }
 
         Ok(NEVec::try_from_vec(outcomes).expect("one outcome per input vm; inputs are non-empty"))
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("mock unlock failure")]
+pub(crate) struct MockUnlockError;
+
+impl waymark_action_effect_reconciler_backend::UnlockActionCallRequests for MockBackend {
+    type Error = MockUnlockError;
+
+    async fn unlock_action_call_requests<'a>(
+        &'a self,
+        owner: &'a TestLockOwnerId,
+        keys: NESlice<'a, TestKey>,
+    ) -> Result<(), MockUnlockError> {
+        *self.unlock_calls.lock().unwrap() += 1;
+        if *self.fail_unlocks.lock().unwrap() {
+            return Err(MockUnlockError);
+        }
+
+        let mut rows = self.rows.lock().unwrap();
+        for key in keys.iter() {
+            let Some(row) = rows.get_mut(key) else {
+                continue;
+            };
+            if row.locked_by == Some(*owner) {
+                row.locked_by = None;
+                row.lock_expires_at = None;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -304,4 +353,98 @@ pub(crate) fn action_ref(name: &str) -> waymark_action_core::ActionRef {
         module_name: None,
         call_args: vec!["value".to_owned()],
     }
+}
+
+/// The lock time-to-live the test batchers take locks with.
+pub(crate) const LOCK_TIME_TO_LIVE: Duration = Duration::from_secs(60);
+
+/// The lock owner the test batchers take locks as.
+pub(crate) const LOCK_OWNER: TestLockOwnerId = 7;
+
+/// A tracker of action-call request locks, shared the way the bringup
+/// shares it.
+pub(crate) fn shared_tracker() -> Arc<Mutex<crate::action_call_request_locks::Tracker<TestVmId>>> {
+    Arc::new(Mutex::new(crate::action_call_request_locks::Tracker::new()))
+}
+
+/// A locker over the mock backend, with its batcher spawned onto the test
+/// runtime.  Small delay window so single submissions flush promptly.
+pub(crate) fn spawn_locker(
+    backend: &Arc<MockBackend>,
+    tracker: &Arc<Mutex<crate::action_call_request_locks::Tracker<TestVmId>>>,
+) -> crate::lock_batcher::VmLockerHandle<TestVmId> {
+    let (locker, batcher) = crate::lock_batcher::lock_batcher(
+        Arc::clone(backend),
+        LOCK_OWNER,
+        LOCK_TIME_TO_LIVE.try_into().unwrap(),
+        Arc::clone(tracker),
+        waymark_batcher::Policy {
+            max_batch: 16.try_into().unwrap(),
+            max_delay: waymark_nonzero_duration::NonZeroDuration::from_millis(1).unwrap(),
+        },
+        std::future::pending(),
+    );
+    tokio::spawn(batcher);
+    locker
+}
+
+/// A recorder over the mock backend, with its batcher spawned onto the
+/// test runtime.  Small delay window so single submissions flush promptly.
+pub(crate) fn spawn_recorder(
+    backend: &Arc<MockBackend>,
+    tracker: &Arc<Mutex<crate::action_call_request_locks::Tracker<TestVmId>>>,
+) -> crate::request_batcher::RequestRecorderHandle<TestVmId> {
+    let (recorder, batcher) = crate::request_batcher::request_batcher(
+        Arc::clone(backend),
+        LOCK_OWNER,
+        LOCK_TIME_TO_LIVE.try_into().unwrap(),
+        Arc::clone(tracker),
+        waymark_batcher::Policy {
+            max_batch: 16.try_into().unwrap(),
+            max_delay: waymark_nonzero_duration::NonZeroDuration::from_millis(1).unwrap(),
+        },
+        std::future::pending(),
+    );
+    tokio::spawn(batcher);
+    recorder
+}
+
+/// An rmp-encoded request payload for the `greet` action.
+pub(crate) fn encode_payload(arguments: Vec<i64>) -> Vec<u8> {
+    let payload = crate::ActionCallRequestPayload {
+        action_ref: action_ref("greet"),
+        arguments,
+    };
+    let mut blob = Vec::new();
+    waymark_vm_codec_core::SerializerProvider::with_serializer(
+        &waymark_vm_codec_rmp::RmpCodec,
+        &mut blob,
+        |serializer| serde::Serialize::serialize(&payload, serializer),
+    )
+    .expect("encode payload");
+    blob
+}
+
+/// Seed a stored request row with an rmp-encoded `greet` payload.
+pub(crate) fn seed_row(
+    backend: &MockBackend,
+    vm_id: TestVmId,
+    promise: usize,
+    effect: usize,
+    arguments: Vec<i64>,
+    locked_by: Option<TestLockOwnerId>,
+    expires_in: chrono::Duration,
+) {
+    backend.rows.lock().unwrap().insert(
+        TestKey {
+            vm_id,
+            promise_state_id: waymark_vm_runtime_promise_core::PromiseStateId(promise),
+        },
+        MockRow {
+            effect_number: waymark_vm_runtime_effect::EffectNumber(effect),
+            request: encode_payload(arguments),
+            locked_by,
+            lock_expires_at: locked_by.map(|_| Utc::now() + expires_in),
+        },
+    );
 }

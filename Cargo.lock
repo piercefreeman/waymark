@@ -3857,9 +3857,9 @@ dependencies = [
  "waymark-batcher",
  "waymark-extcall-reconciler-core",
  "waymark-nonzero-duration",
- "waymark-state-manager-core",
  "waymark-vm-codec-core",
  "waymark-vm-codec-rmp",
+ "waymark-vm-driver-core",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
 ]

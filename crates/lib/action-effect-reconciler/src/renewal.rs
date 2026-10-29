@@ -3,36 +3,20 @@
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use nonempty_collections::NEVec;
-use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::{
-    RenewalStatus, RequestLockRenewal,
-};
+use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::RenewalStatus;
 use waymark_action_effect_reconciler_backend::{
     ActionCallRequestKey, HasLockOwnerId, HasTimestamp, HasVmId, RenewActionCallRequestLocks,
+    UnlockActionCallRequests,
 };
 use waymark_nonzero_duration::NonZeroDuration;
 
+use crate::action_call_request_locks::Tracker;
 use crate::issuance::fresh_lock;
-
-/// A held request lock to keep renewed: the delivered call's key and the
-/// instant captured **before** the lock-taking call was sent.
-///
-/// The pre-send instant makes the local fence deadline (`taken_at` + the
-/// time-to-live, on the monotonic clock) conservative with respect to the
-/// database-authoritative expiry.
-#[derive(Debug, Clone, Copy)]
-pub struct HeldLock<VmId> {
-    /// The request whose lock this process holds.
-    pub key: ActionCallRequestKey<VmId>,
-
-    /// When the lock-taking call was sent, on the local monotonic clock.
-    pub taken_at: Instant,
-}
 
 /// Error returned when [`run`] stops with locks it can no longer vouch
 /// for.
@@ -84,9 +68,10 @@ where
     /// How often to renew the held locks.
     pub heartbeat: NonZeroDuration,
 
-    /// Locks taken by the issuance paths for calls delivered to the
-    /// local pool.
-    pub held_locks_rx: tokio::sync::mpsc::UnboundedReceiver<HeldLock<Backend::VmId>>,
+    /// The tracker of this process's action-call request locks: the
+    /// locks to renew, and the requests that never went through, to
+    /// unlock.
+    pub action_call_request_locks_tracker: Arc<std::sync::Mutex<Tracker<Backend::VmId>>>,
 }
 
 /// Run the lock renewal heartbeat.
@@ -111,30 +96,32 @@ where
 /// [`RenewalStatus::Unconfirmed`] keeps the lock tracked with its
 /// existing fence deadline — the next heartbeat retries the extension.
 ///
+/// Each heartbeat first unlocks the requests that never went through:
+/// their locks authorize no attempt, and unlocked, their rows are up for
+/// adoption at once instead of at their time-to-live.  A failed unlock
+/// call leaves them pending for the next heartbeat.
+///
 /// Renewal call failures are logged and retried at the next heartbeat —
 /// they only matter once they push a lock to its fence (keep the
 /// heartbeat well under the time-to-live). The last heartbeat on
 /// shutdown, below, has no next one.
 ///
-/// Returns `Ok(())` once the channel is closed and every tracked lock has
-/// been reported gone — the natural graceful-shutdown drain.
-///
-/// The loop also stops once `shutdown` resolves. Resolve it only once no
+/// The loop stops once `shutdown` resolves. Resolve it only once no
 /// attempt the tracked locks authorize runs anymore, or on a forced stop:
 /// the locks still tracked then lapse by their time-to-live. With nothing
 /// tracked it returns `Ok(())` at once. With locks still tracked it first
 /// runs one last heartbeat, which can breach or lose a lock as above, and
-/// then returns [`Error::Abandoned`] naming the locks still tracked after
+/// then returns [`Error::Abandoned`] listing the locks still tracked after
 /// it, or `Ok(())` when that heartbeat reported every one gone. When that
-/// renewal call fails, every tracked lock is named.
+/// renewal call fails, every tracked lock is listed.
 pub async fn run<Backend, Shutdown>(
     params: Params<Backend>,
     shutdown: Shutdown,
 ) -> Result<(), Error<Backend::VmId>>
 where
     Backend: HasVmId + HasLockOwnerId + HasTimestamp<Timestamp = DateTime<Utc>>,
-    Backend: RenewActionCallRequestLocks + Send + Sync,
-    Backend::VmId: Copy + Eq + std::hash::Hash + Send + Sync + core::fmt::Debug,
+    Backend: RenewActionCallRequestLocks + UnlockActionCallRequests + Send + Sync,
+    Backend::VmId: Clone + Eq + std::hash::Hash + Send + Sync + core::fmt::Debug,
     Backend::LockOwnerId: Clone + Send + Sync,
     Shutdown: Future<Output = ()>,
 {
@@ -143,28 +130,15 @@ where
         lock_owner_id,
         lock_time_to_live,
         heartbeat,
-        mut held_locks_rx,
+        action_call_request_locks_tracker: tracker,
     } = params;
-
-    let time_to_live = lock_time_to_live.get();
 
     let mut interval = tokio::time::interval(heartbeat.get());
     // A heartbeat held up by a slow renewal is not made up for in a burst.
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    // Tracked locks: key → fence deadline on the local monotonic clock.
-    let mut tracked: HashMap<ActionCallRequestKey<Backend::VmId>, Instant> = HashMap::new();
-    let mut channel_closed = false;
     let mut shutdown = std::pin::pin!(shutdown);
 
     loop {
-        // One stop for both the channel closing and the heartbeat that
-        // empties the tracked set, checked before every wait so neither
-        // waits for the next tick.
-        if channel_closed && tracked.is_empty() {
-            tracing::info!("all locks accounted for and channel closed; stopping");
-            return Ok(());
-        }
-
         tokio::select! {
             biased;
             // FIXME(#725): this arm is a stand-in. What should stop an
@@ -176,25 +150,26 @@ where
             // whether the action-call completion was recorded or the
             // processing ended without one, the request lock should be
             // released at once and dropped from the renewal's tracked
-            // set. The proper mechanism is a fulfillment token travelling
-            // with the action call's outcome to the action completions
-            // writer and releasing the request lock and its renewal
-            // tracking on drop, the workload pinning shape. Until then,
+            // set. The proper mechanism is the pending call request
+            // travelling on with the action call's outcome to the action
+            // completions writer and releasing the request lock and its
+            // renewal tracking on drop, the workload pinning shape; today
+            // it lives only until the call is requested. Until then,
             // `shutdown` stands for the local worker pool's shutdown: no
             // action-call request fulfillment attempt runs there anymore
             // unless the stop is forced, and the request locks still held
             // lapse by their time-to-live instead of being released. They
-            // are renewed once more first, so the `Abandoned` list names the
-            // locks still tracked after it; when that renewal call fails, every
-            // tracked lock is named. Locks queued in the channel at the stop
-            // are not read.
+            // are renewed once more first, so the `Abandoned` list holds
+            // the locks still tracked after it; when that renewal call
+            // fails, every tracked lock is listed.
             () = &mut shutdown => {
-                if tracked.is_empty() {
+                if tracker.lock().expect("action-call request locks tracker poisoned").tracked_keys().is_empty() {
                     tracing::info!("shutdown with no locks held; stopping");
                     return Ok(());
                 }
-                heartbeat_once(&*backend, &lock_owner_id, lock_time_to_live, &mut tracked).await?;
-                return match NEVec::try_from_vec(tracked.into_keys().collect()) {
+                heartbeat_once(&*backend, &lock_owner_id, lock_time_to_live, &tracker).await?;
+                let still_tracked = tracker.lock().expect("action-call request locks tracker poisoned").tracked_keys();
+                return match NEVec::try_from_vec(still_tracked) {
                     None => {
                         tracing::info!("shutdown with every lock accounted for; stopping");
                         Ok(())
@@ -202,64 +177,76 @@ where
                     Some(keys) => Err(Error::Abandoned(keys)),
                 };
             }
-            held_lock = held_locks_rx.recv(), if !channel_closed => {
-                match held_lock {
-                    Some(HeldLock { key, taken_at }) => {
-                        tracked.insert(key, taken_at + time_to_live);
-                    }
-                    None => {
-                        channel_closed = true;
-                    }
-                }
-            }
             _ = interval.tick() => {
-                if tracked.is_empty() {
-                    continue;
-                }
-
-                // A failed renewal call and an unconfirmed renewal are
-                // retried here, at the next heartbeat.
-                heartbeat_once(&*backend, &lock_owner_id, lock_time_to_live, &mut tracked).await?;
+                // A failed unlock or renewal call and an unconfirmed
+                // renewal are retried here, at the next heartbeat.
+                heartbeat_once(&*backend, &lock_owner_id, lock_time_to_live, &tracker).await?;
             }
         }
     }
 }
 
-/// One heartbeat over the non-empty tracked set: the fence check, then
-/// one renewal call, each reported status applied to the set. A failed
-/// renewal call is logged and leaves the set as it was.
+/// One heartbeat: the unlock of the requests that never went through,
+/// then, over a non-empty tracked set, the fence check and one renewal
+/// call, each reported status applied to the set.  A failed backend call
+/// is logged and leaves the tracker as it was.
 async fn heartbeat_once<Backend>(
     backend: &Backend,
     lock_owner_id: &Backend::LockOwnerId,
     lock_time_to_live: NonZeroDuration,
-    tracked: &mut HashMap<ActionCallRequestKey<Backend::VmId>, Instant>,
+    tracker: &std::sync::Mutex<Tracker<Backend::VmId>>,
 ) -> Result<(), Error<Backend::VmId>>
 where
     Backend: HasVmId + HasLockOwnerId + HasTimestamp<Timestamp = DateTime<Utc>>,
-    Backend: RenewActionCallRequestLocks + Send + Sync,
-    Backend::VmId: Copy + Eq + std::hash::Hash + Send + Sync + core::fmt::Debug,
+    Backend: RenewActionCallRequestLocks + UnlockActionCallRequests + Send + Sync,
+    Backend::VmId: Clone + Eq + std::hash::Hash + Send + Sync + core::fmt::Debug,
     Backend::LockOwnerId: Clone + Send + Sync,
 {
     let time_to_live = lock_time_to_live.get();
+
+    let pending_unlocks = tracker
+        .lock()
+        .expect("action-call request locks tracker poisoned")
+        .pending_unlocks();
+    if let Some(pending_unlocks) = pending_unlocks {
+        let unlocked = backend
+            .unlock_action_call_requests(lock_owner_id, pending_unlocks.keys())
+            .await;
+        match unlocked {
+            Ok(()) => {
+                pending_unlocks.confirm_unlocked(
+                    &mut tracker
+                        .lock()
+                        .expect("action-call request locks tracker poisoned"),
+                );
+            }
+            Err(error) => {
+                tracing::warn!(?error, "unlocking requests that never went through failed");
+            }
+        }
+    }
 
     // One instant per heartbeat: the fence-check point, and — being no
     // later than the renewal send — the conservative base for the renewed
     // deadlines.
     let now = Instant::now();
 
-    // Fence check first: a deadline passing without a confirmed renewal
-    // means the attempt can no longer be authorized.
-    let breached: Vec<_> = tracked
-        .iter()
-        .filter(|(_, fence_deadline)| **fence_deadline <= now)
-        .map(|(key, _)| *key)
-        .collect();
-    if let Some(keys) = NEVec::try_from_vec(breached) {
-        return Err(Error::FenceBreached(keys));
-    }
+    let keys = {
+        let tracker = tracker
+            .lock()
+            .expect("action-call request locks tracker poisoned");
 
-    let keys =
-        NEVec::try_from_vec(tracked.keys().copied().collect()).expect("tracked is non-empty");
+        // Fence check first: a deadline passing without a confirmed
+        // renewal means the attempt can no longer be authorized.
+        if let Some(keys) = NEVec::try_from_vec(tracker.keys_past_fence(now)) {
+            return Err(Error::FenceBreached(keys));
+        }
+
+        tracker.tracked_keys()
+    };
+    let Some(keys) = NEVec::try_from_vec(keys) else {
+        return Ok(());
+    };
 
     // One wall-clock instant for both the lock expiry and the store-clock
     // baseline, so the store reconstructs the intended time-to-live
@@ -278,29 +265,27 @@ where
     };
 
     let mut held_elsewhere = Vec::new();
+    let mut tracker = tracker
+        .lock()
+        .expect("action-call request locks tracker poisoned");
     for renewal in renewals {
-        let RequestLockRenewal { key, status } = renewal;
-        match status {
-            RenewalStatus::Renewed => {
-                tracked.insert(key, now + time_to_live);
-            }
+        match renewal.status {
             RenewalStatus::Missing => {
                 // The completion was durably recorded (the store removed
-                // the row), or the VM was purged.  Also the future
-                // cancellation signal: removed row ⇒ cancel the local
-                // attempt.
-                tracing::debug!(?key, "request row gone; untracking");
-                tracked.remove(&key);
+                // the row), or the VM was purged.
+                tracing::debug!(key = ?renewal.key, "request row gone; untracking");
             }
             RenewalStatus::HeldElsewhere => {
-                held_elsewhere.push(key);
+                held_elsewhere.push(renewal.key.clone());
             }
             RenewalStatus::Unconfirmed => {
                 // Still ours, but this pass could not confirm the
                 // extension — the existing fence deadline stands.
-                tracing::debug!(?key, "lock renewal unconfirmed");
+                tracing::debug!(key = ?renewal.key, "lock renewal unconfirmed");
             }
+            RenewalStatus::Renewed => {}
         }
+        tracker.apply_renewal(renewal, now, time_to_live);
     }
     if let Some(keys) = NEVec::try_from_vec(held_elsewhere) {
         return Err(Error::HeldElsewhere(keys));

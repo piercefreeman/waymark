@@ -5,8 +5,9 @@ use chrono::Utc;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::renewal::{Error, HeldLock, Params, run};
-use crate::test_support::{MockBackend, MockRow, TestKey};
+use crate::action_call_request_locks::Tracker;
+use crate::renewal::{Error, Params, run};
+use crate::test_support::{LOCK_OWNER, MockBackend, MockRow, TestKey, shared_tracker};
 
 const HEARTBEAT: Duration = Duration::from_millis(5);
 
@@ -17,11 +18,19 @@ fn key(promise: usize) -> TestKey {
     }
 }
 
-fn held(key: TestKey) -> HeldLock<u64> {
-    HeldLock {
+/// Track the lock of `key`, taken now with the given time-to-live, its
+/// call requested.
+fn track(tracker: &Arc<std::sync::Mutex<Tracker<u64>>>, key: TestKey, time_to_live: Duration) {
+    Tracker::track_lock(tracker, key, Instant::now() + time_to_live).confirm_requested();
+}
+
+/// Track the lock of `key`, taken now, its call never going through.
+fn track_never_requested(tracker: &Arc<std::sync::Mutex<Tracker<u64>>>, key: TestKey) {
+    drop(Tracker::track_lock(
+        tracker,
         key,
-        taken_at: Instant::now(),
-    }
+        Instant::now() + Duration::from_secs(60),
+    ));
 }
 
 fn seed_locked_row(backend: &MockBackend, key: TestKey, locked_by: u32) {
@@ -40,30 +49,53 @@ fn seed_locked_row(backend: &MockBackend, key: TestKey, locked_by: u32) {
 fn params(
     backend: &Arc<MockBackend>,
     lock_time_to_live: Duration,
-    held_locks_rx: tokio::sync::mpsc::UnboundedReceiver<HeldLock<u64>>,
+    tracker: &Arc<std::sync::Mutex<Tracker<u64>>>,
 ) -> Params<MockBackend> {
     Params {
         backend: Arc::clone(backend),
-        lock_owner_id: 7u32,
+        lock_owner_id: LOCK_OWNER,
         lock_time_to_live: lock_time_to_live.try_into().unwrap(),
         heartbeat: HEARTBEAT.try_into().unwrap(),
-        held_locks_rx,
+        action_call_request_locks_tracker: Arc::clone(tracker),
     }
 }
 
+/// Paused-time parameters: a heartbeat a minute apart, so a stop that
+/// waits for the next heartbeat is told apart from one that does not.
+fn slow_params(
+    backend: &Arc<MockBackend>,
+    tracker: &Arc<std::sync::Mutex<Tracker<u64>>>,
+) -> Params<MockBackend> {
+    Params {
+        backend: Arc::clone(backend),
+        lock_owner_id: LOCK_OWNER,
+        lock_time_to_live: Duration::from_secs(600).try_into().unwrap(),
+        heartbeat: Duration::from_secs(60).try_into().unwrap(),
+        action_call_request_locks_tracker: Arc::clone(tracker),
+    }
+}
+
+/// A shutdown future and the sender resolving it.
+fn shutdown() -> (tokio::sync::oneshot::Sender<()>, impl Future<Output = ()>) {
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    (shutdown_tx, async move {
+        let _ = shutdown_rx.await;
+    })
+}
+
 #[tokio::test]
-async fn renews_prunes_missing_and_drains() {
+async fn renews_and_prunes_missing() {
     let backend = Arc::new(MockBackend::default());
-    seed_locked_row(&backend, key(1), 7);
-
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    held_locks_tx.send(held(key(1))).unwrap();
+    let tracker = shared_tracker();
+    seed_locked_row(&backend, key(1), LOCK_OWNER);
+    track(&tracker, key(1), Duration::from_secs(60));
     // No row for this key: reported missing, pruned quietly.
-    held_locks_tx.send(held(key(3))).unwrap();
+    track(&tracker, key(3), Duration::from_secs(60));
 
+    let (shutdown_tx, shutdown) = shutdown();
     let renewal = tokio::spawn(run(
-        params(&backend, Duration::from_secs(60), held_locks_rx),
-        std::future::pending(),
+        params(&backend, Duration::from_secs(60), &tracker),
+        shutdown,
     ));
 
     // Wait until the heartbeat has renewed at least once.
@@ -71,38 +103,120 @@ async fn renews_prunes_missing_and_drains() {
         tokio::time::sleep(HEARTBEAT).await;
     }
 
-    // The owned lock was pushed out.
+    // The owned lock was pushed out; the missing one was pruned.
     {
         let rows = backend.rows.lock().unwrap();
         let renewed_expiry = rows[&key(1)].lock_expires_at.expect("locked");
         assert!(renewed_expiry > Utc::now() + chrono::Duration::seconds(30));
     }
+    assert_eq!(tracker.lock().unwrap().tracked_keys(), vec![key(1)]);
 
     // Simulate the schema trigger: the completion gets recorded, the row
-    // vanishes.  With the channel closed, the loop drains and stops.
-    drop(held_locks_tx);
+    // vanishes.  The shutdown's last heartbeat then finds every lock gone.
     backend.rows.lock().unwrap().remove(&key(1));
+    shutdown_tx.send(()).unwrap();
 
     tokio::time::timeout(Duration::from_secs(5), renewal)
         .await
-        .expect("renewal loop drains once all tracked locks are gone")
+        .expect("renewal loop stops on the shutdown future")
         .expect("renewal loop task")
-        .expect("drain is a peaceful stop");
+        .expect("every lock was accounted for by the last heartbeat");
+}
+
+/// The locks of requests that never went through are unlocked on the next
+/// heartbeat and never tracked.
+#[tokio::test]
+async fn unlocks_the_requests_that_never_went_through() {
+    let backend = Arc::new(MockBackend::default());
+    let tracker = shared_tracker();
+    seed_locked_row(&backend, key(1), LOCK_OWNER);
+    track_never_requested(&tracker, key(1));
+
+    let (shutdown_tx, shutdown) = shutdown();
+    let renewal = tokio::spawn(run(
+        params(&backend, Duration::from_secs(60), &tracker),
+        shutdown,
+    ));
+
+    while *backend.unlock_calls.lock().unwrap() == 0 {
+        tokio::time::sleep(HEARTBEAT).await;
+    }
+    tokio::time::sleep(HEARTBEAT).await;
+
+    {
+        let rows = backend.rows.lock().unwrap();
+        assert_eq!(rows[&key(1)].locked_by, None);
+    }
+    {
+        let tracker = tracker.lock().unwrap();
+        assert!(tracker.pending_unlocks().is_none());
+        assert!(!tracker.is_tracking(&key(1)));
+    }
+    assert_eq!(*backend.renew_calls.lock().unwrap(), 0);
+
+    shutdown_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), renewal)
+        .await
+        .expect("renewal loop stops on the shutdown future")
+        .expect("renewal loop task")
+        .expect("nothing tracked is a peaceful stop");
+}
+
+/// A failed unlock call leaves the keys pending; the next heartbeat
+/// retries.
+#[tokio::test]
+async fn unlock_failures_are_retried_at_the_next_heartbeat() {
+    let backend = Arc::new(MockBackend::default());
+    let tracker = shared_tracker();
+    seed_locked_row(&backend, key(1), LOCK_OWNER);
+    *backend.fail_unlocks.lock().unwrap() = true;
+    track_never_requested(&tracker, key(1));
+
+    let (shutdown_tx, shutdown) = shutdown();
+    let renewal = tokio::spawn(run(
+        params(&backend, Duration::from_secs(60), &tracker),
+        shutdown,
+    ));
+
+    while *backend.unlock_calls.lock().unwrap() < 3 {
+        tokio::time::sleep(HEARTBEAT).await;
+    }
+    assert!(tracker.lock().unwrap().pending_unlocks().is_some());
+    assert_eq!(
+        backend.rows.lock().unwrap()[&key(1)].locked_by,
+        Some(LOCK_OWNER)
+    );
+
+    // Recovery: the next heartbeat's unlock goes through.
+    *backend.fail_unlocks.lock().unwrap() = false;
+    let recovered_calls = *backend.unlock_calls.lock().unwrap() + 1;
+    while *backend.unlock_calls.lock().unwrap() < recovered_calls {
+        tokio::time::sleep(HEARTBEAT).await;
+    }
+    tokio::time::sleep(HEARTBEAT).await;
+    assert!(tracker.lock().unwrap().pending_unlocks().is_none());
+    assert_eq!(backend.rows.lock().unwrap()[&key(1)].locked_by, None);
+
+    shutdown_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), renewal)
+        .await
+        .expect("renewal loop stops on the shutdown future")
+        .expect("renewal loop task")
+        .expect("nothing tracked is a peaceful stop");
 }
 
 #[tokio::test]
 async fn unrenewable_locks_breach_the_fence() {
     let backend = Arc::new(MockBackend::default());
-    seed_locked_row(&backend, key(1), 7);
+    let tracker = shared_tracker();
+    seed_locked_row(&backend, key(1), LOCK_OWNER);
     *backend.fail_renewals.lock().unwrap() = true;
-
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    held_locks_tx.send(held(key(1))).unwrap();
+    track(&tracker, key(1), Duration::from_millis(50));
 
     let outcome = tokio::time::timeout(
         Duration::from_secs(5),
         run(
-            params(&backend, Duration::from_millis(50), held_locks_rx),
+            params(&backend, Duration::from_millis(50), &tracker),
             std::future::pending(),
         ),
     )
@@ -118,15 +232,14 @@ async fn unrenewable_locks_breach_the_fence() {
 #[tokio::test]
 async fn locks_taken_by_another_owner_breach_the_fence() {
     let backend = Arc::new(MockBackend::default());
+    let tracker = shared_tracker();
     seed_locked_row(&backend, key(1), 99);
-
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    held_locks_tx.send(held(key(1))).unwrap();
+    track(&tracker, key(1), Duration::from_secs(60));
 
     let outcome = tokio::time::timeout(
         Duration::from_secs(5),
         run(
-            params(&backend, Duration::from_secs(60), held_locks_rx),
+            params(&backend, Duration::from_secs(60), &tracker),
             std::future::pending(),
         ),
     )
@@ -145,21 +258,22 @@ async fn locks_taken_by_another_owner_breach_the_fence() {
 #[tokio::test]
 async fn unconfirmed_renewals_are_retried_within_the_fence() {
     let backend = Arc::new(MockBackend::default());
-    seed_locked_row(&backend, key(1), 7);
+    let tracker = shared_tracker();
+    seed_locked_row(&backend, key(1), LOCK_OWNER);
     *backend.report_unconfirmed_renewals.lock().unwrap() = true;
+    track(&tracker, key(1), Duration::from_secs(60));
 
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    held_locks_tx.send(held(key(1))).unwrap();
-
+    let (shutdown_tx, shutdown) = shutdown();
     let renewal = tokio::spawn(run(
-        params(&backend, Duration::from_secs(60), held_locks_rx),
-        std::future::pending(),
+        params(&backend, Duration::from_secs(60), &tracker),
+        shutdown,
     ));
 
     // Several unconfirmed passes: the lock stays tracked, nothing breaches.
     while *backend.renew_calls.lock().unwrap() < 3 {
         tokio::time::sleep(HEARTBEAT).await;
     }
+    assert!(tracker.lock().unwrap().is_tracking(&key(1)));
 
     // Recovery: a confirmed renewal pushes the expiry out.
     *backend.report_unconfirmed_renewals.lock().unwrap() = false;
@@ -173,12 +287,12 @@ async fn unconfirmed_renewals_are_retried_within_the_fence() {
         assert!(renewed_expiry > Utc::now() + chrono::Duration::seconds(30));
     }
 
-    // And the loop still drains peacefully.
-    drop(held_locks_tx);
+    // And the loop still stops peacefully once the row is gone.
     backend.rows.lock().unwrap().remove(&key(1));
+    shutdown_tx.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(5), renewal)
         .await
-        .expect("renewal loop drains once all tracked locks are gone")
+        .expect("renewal loop stops on the shutdown future")
         .expect("renewal loop task")
         .expect("no breach: unconfirmed renewals stay within the fence");
 }
@@ -186,15 +300,15 @@ async fn unconfirmed_renewals_are_retried_within_the_fence() {
 #[tokio::test]
 async fn renewal_failures_within_the_fence_are_survived() {
     let backend = Arc::new(MockBackend::default());
-    seed_locked_row(&backend, key(1), 7);
+    let tracker = shared_tracker();
+    seed_locked_row(&backend, key(1), LOCK_OWNER);
     *backend.fail_renewals.lock().unwrap() = true;
+    track(&tracker, key(1), Duration::from_secs(60));
 
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    held_locks_tx.send(held(key(1))).unwrap();
-
+    let (shutdown_tx, shutdown) = shutdown();
     let renewal = tokio::spawn(run(
-        params(&backend, Duration::from_secs(60), held_locks_rx),
-        std::future::pending(),
+        params(&backend, Duration::from_secs(60), &tracker),
+        shutdown,
     ));
 
     // Let a few renewal attempts fail, well within the time-to-live.
@@ -214,90 +328,14 @@ async fn renewal_failures_within_the_fence_are_survived() {
         assert!(renewed_expiry > Utc::now() + chrono::Duration::seconds(30));
     }
 
-    // And the loop still drains peacefully.
-    drop(held_locks_tx);
+    // And the loop still stops peacefully once the row is gone.
     backend.rows.lock().unwrap().remove(&key(1));
+    shutdown_tx.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(5), renewal)
         .await
-        .expect("renewal loop drains once all tracked locks are gone")
+        .expect("renewal loop stops on the shutdown future")
         .expect("renewal loop task")
         .expect("no breach: the failures stayed within the fence");
-}
-
-/// Paused-time parameters: a heartbeat a minute apart, so a stop that
-/// waits for the next heartbeat is told apart from one that does not.
-fn slow_params(
-    backend: &Arc<MockBackend>,
-    held_locks_rx: tokio::sync::mpsc::UnboundedReceiver<HeldLock<u64>>,
-) -> Params<MockBackend> {
-    Params {
-        backend: Arc::clone(backend),
-        lock_owner_id: 7u32,
-        lock_time_to_live: Duration::from_secs(600).try_into().unwrap(),
-        heartbeat: Duration::from_secs(60).try_into().unwrap(),
-        held_locks_rx,
-    }
-}
-
-/// The channel closing with nothing tracked stops the loop at once, not
-/// at the next heartbeat.
-#[tokio::test(start_paused = true)]
-async fn a_closed_channel_with_nothing_tracked_stops_at_once() {
-    let backend = Arc::new(MockBackend::default());
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-
-    let renewal = tokio::spawn(run(
-        slow_params(&backend, held_locks_rx),
-        std::future::pending(),
-    ));
-
-    // Past the interval's first tick; the next one is a minute out.
-    tokio::time::sleep(Duration::from_secs(1)).await;
-    assert!(!renewal.is_finished());
-
-    drop(held_locks_tx);
-
-    tokio::time::timeout(Duration::from_secs(1), renewal)
-        .await
-        .expect("the loop stops without waiting for the next heartbeat")
-        .expect("renewal loop task")
-        .expect("drain is a peaceful stop");
-}
-
-/// The channel closing with a lock still tracked, then the heartbeat
-/// that finds its row gone: the loop stops on that heartbeat, not the
-/// next one.
-#[tokio::test(start_paused = true)]
-async fn the_heartbeat_that_empties_the_tracked_set_stops_at_once() {
-    let backend = Arc::new(MockBackend::default());
-    seed_locked_row(&backend, key(1), 7);
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    held_locks_tx.send(held(key(1))).unwrap();
-
-    let renewal = tokio::spawn(run(
-        slow_params(&backend, held_locks_rx),
-        std::future::pending(),
-    ));
-
-    // The lock is tracked and renewed once; the next heartbeat is a
-    // minute out.
-    while *backend.renew_calls.lock().unwrap() == 0 {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
-
-    // The channel closes, then the row goes: the next heartbeat empties
-    // the tracked set.
-    drop(held_locks_tx);
-    backend.rows.lock().unwrap().remove(&key(1));
-
-    // Between one and two heartbeats: a stop deferred to the heartbeat
-    // after the emptying one misses the bound.
-    tokio::time::timeout(Duration::from_secs(90), renewal)
-        .await
-        .expect("the loop stops on the heartbeat that empties the tracked set")
-        .expect("renewal loop task")
-        .expect("drain is a peaceful stop");
-    assert_eq!(*backend.renew_calls.lock().unwrap(), 2);
 }
 
 /// A renewal slower than the heartbeat leaves no backlog of ticks behind
@@ -307,16 +345,14 @@ async fn the_heartbeat_that_empties_the_tracked_set_stops_at_once() {
 #[tokio::test(start_paused = true)]
 async fn a_slow_renewal_skips_the_heartbeats_it_held_up() {
     let backend = Arc::new(MockBackend::default());
-    seed_locked_row(&backend, key(1), 7);
+    let tracker = shared_tracker();
+    seed_locked_row(&backend, key(1), LOCK_OWNER);
     // The first renewal stalls for two and a half heartbeats.
     *backend.renew_delay.lock().unwrap() = Some(Duration::from_secs(150));
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    held_locks_tx.send(held(key(1))).unwrap();
+    track(&tracker, key(1), Duration::from_secs(600));
 
-    let renewal = tokio::spawn(run(
-        slow_params(&backend, held_locks_rx),
-        std::future::pending(),
-    ));
+    let (shutdown_tx, shutdown) = shutdown();
+    let renewal = tokio::spawn(run(slow_params(&backend, &tracker), shutdown));
 
     // Just past the stall: the stalled renewal, then the one immediate
     // post-stall renewal; the two grid points the stall swallowed fire
@@ -330,13 +366,13 @@ async fn a_slow_renewal_skips_the_heartbeats_it_held_up() {
     tokio::time::sleep(Duration::from_secs(2)).await;
     assert_eq!(*backend.renew_calls.lock().unwrap(), 3);
 
-    drop(held_locks_tx);
     backend.rows.lock().unwrap().remove(&key(1));
+    shutdown_tx.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(90), renewal)
         .await
-        .expect("the loop stops on the heartbeat that finds the row gone")
+        .expect("renewal loop stops on the shutdown future")
         .expect("renewal loop task")
-        .expect("drain is a peaceful stop");
+        .expect("the last heartbeat found the row gone");
 }
 
 /// The shutdown future resolving after the rows are gone, but before a
@@ -345,25 +381,21 @@ async fn a_slow_renewal_skips_the_heartbeats_it_held_up() {
 #[tokio::test]
 async fn shutdown_after_the_rows_are_gone_is_peaceful() {
     let backend = Arc::new(MockBackend::default());
-    seed_locked_row(&backend, key(1), 7);
+    let tracker = shared_tracker();
+    seed_locked_row(&backend, key(1), LOCK_OWNER);
+    track(&tracker, key(1), Duration::from_secs(60));
 
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    held_locks_tx.send(held(key(1))).unwrap();
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-
+    let (shutdown_tx, shutdown) = shutdown();
     let renewal = tokio::spawn(run(
-        params(&backend, Duration::from_secs(60), held_locks_rx),
-        async move {
-            let _ = shutdown_rx.await;
-        },
+        params(&backend, Duration::from_secs(60), &tracker),
+        shutdown,
     ));
 
     while *backend.renew_calls.lock().unwrap() == 0 {
         tokio::time::sleep(HEARTBEAT).await;
     }
 
-    // The completion gets recorded and the shutdown follows at once,
-    // with the channel still open.
+    // The completion gets recorded and the shutdown follows at once.
     backend.rows.lock().unwrap().remove(&key(1));
     shutdown_tx.send(()).unwrap();
 
@@ -372,7 +404,6 @@ async fn shutdown_after_the_rows_are_gone_is_peaceful() {
         .expect("renewal loop stops on the shutdown future")
         .expect("renewal loop task")
         .expect("every lock was accounted for by the last heartbeat");
-    drop(held_locks_tx);
 }
 
 /// The shutdown future resolving with nothing tracked is a peaceful stop
@@ -380,14 +411,12 @@ async fn shutdown_after_the_rows_are_gone_is_peaceful() {
 #[tokio::test]
 async fn shutdown_with_nothing_tracked_stops_at_once() {
     let backend = Arc::new(MockBackend::default());
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let tracker = shared_tracker();
+    let (shutdown_tx, shutdown) = shutdown();
 
     let renewal = tokio::spawn(run(
-        params(&backend, Duration::from_secs(60), held_locks_rx),
-        async move {
-            let _ = shutdown_rx.await;
-        },
+        params(&backend, Duration::from_secs(60), &tracker),
+        shutdown,
     ));
 
     shutdown_tx.send(()).unwrap();
@@ -398,7 +427,6 @@ async fn shutdown_with_nothing_tracked_stops_at_once() {
         .expect("renewal loop task")
         .expect("nothing tracked is a peaceful stop");
     assert_eq!(*backend.renew_calls.lock().unwrap(), 0);
-    drop(held_locks_tx);
 }
 
 /// The shutdown future resolving with locks still held stops the loop
@@ -406,17 +434,14 @@ async fn shutdown_with_nothing_tracked_stops_at_once() {
 #[tokio::test]
 async fn shutdown_with_locks_still_held_abandons_them() {
     let backend = Arc::new(MockBackend::default());
-    seed_locked_row(&backend, key(1), 7);
+    let tracker = shared_tracker();
+    seed_locked_row(&backend, key(1), LOCK_OWNER);
+    track(&tracker, key(1), Duration::from_secs(60));
 
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    held_locks_tx.send(held(key(1))).unwrap();
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-
+    let (shutdown_tx, shutdown) = shutdown();
     let renewal = tokio::spawn(run(
-        params(&backend, Duration::from_secs(60), held_locks_rx),
-        async move {
-            let _ = shutdown_rx.await;
-        },
+        params(&backend, Duration::from_secs(60), &tracker),
+        shutdown,
     ));
 
     while *backend.renew_calls.lock().unwrap() == 0 {
@@ -433,7 +458,6 @@ async fn shutdown_with_locks_still_held_abandons_them() {
         panic!("expected the held lock abandoned, got {outcome:?}");
     };
     assert_eq!(keys.into_iter().collect::<Vec<_>>(), vec![key(1)]);
-    drop(held_locks_tx);
 }
 
 /// The last heartbeat's renewal call failing names every tracked lock as
@@ -441,17 +465,14 @@ async fn shutdown_with_locks_still_held_abandons_them() {
 #[tokio::test]
 async fn shutdown_with_the_last_renewal_failing_abandons_every_tracked_lock() {
     let backend = Arc::new(MockBackend::default());
-    seed_locked_row(&backend, key(1), 7);
+    let tracker = shared_tracker();
+    seed_locked_row(&backend, key(1), LOCK_OWNER);
+    track(&tracker, key(1), Duration::from_secs(60));
 
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    held_locks_tx.send(held(key(1))).unwrap();
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-
+    let (shutdown_tx, shutdown) = shutdown();
     let renewal = tokio::spawn(run(
-        params(&backend, Duration::from_secs(60), held_locks_rx),
-        async move {
-            let _ = shutdown_rx.await;
-        },
+        params(&backend, Duration::from_secs(60), &tracker),
+        shutdown,
     ));
 
     while *backend.renew_calls.lock().unwrap() == 0 {
@@ -477,7 +498,6 @@ async fn shutdown_with_the_last_renewal_failing_abandons_every_tracked_lock() {
         *backend.renew_calls.lock().unwrap() > calls_before_shutdown,
         "the last heartbeat was attempted"
     );
-    drop(held_locks_tx);
 }
 
 /// A lock the last heartbeat on shutdown finds taken by another owner is
@@ -485,14 +505,12 @@ async fn shutdown_with_the_last_renewal_failing_abandons_every_tracked_lock() {
 #[tokio::test(start_paused = true)]
 async fn shutdown_reports_a_lock_the_last_heartbeat_finds_taken_elsewhere() {
     let backend = Arc::new(MockBackend::default());
-    seed_locked_row(&backend, key(1), 7);
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    held_locks_tx.send(held(key(1))).unwrap();
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let tracker = shared_tracker();
+    seed_locked_row(&backend, key(1), LOCK_OWNER);
+    track(&tracker, key(1), Duration::from_secs(600));
+    let (shutdown_tx, shutdown) = shutdown();
 
-    let renewal = tokio::spawn(run(slow_params(&backend, held_locks_rx), async move {
-        let _ = shutdown_rx.await;
-    }));
+    let renewal = tokio::spawn(run(slow_params(&backend, &tracker), shutdown));
 
     // The lock is tracked and renewed once; the next heartbeat is a
     // minute out, so the only heartbeat from here is the shutdown's.
@@ -523,5 +541,4 @@ async fn shutdown_reports_a_lock_the_last_heartbeat_finds_taken_elsewhere() {
         2,
         "the last heartbeat made the one renewal call that found the lock taken"
     );
-    drop(held_locks_tx);
 }

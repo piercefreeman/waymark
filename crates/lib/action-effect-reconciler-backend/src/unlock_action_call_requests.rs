@@ -13,7 +13,7 @@ pub trait UnlockActionCallRequests: HasVmId + HasLockOwnerId {
     ///
     /// Called at graceful shutdown for requests whose calls were never
     /// delivered to the local pool — an unlocked row is immediately
-    /// eligible for delivery by another process's revival reconcile.
+    /// eligible for relocking by the process hosting the VM.
     /// Unlocking is idempotent: keys with no matching row, or rows locked
     /// by a different owner, are silently skipped.
     fn unlock_action_call_requests<'a>(

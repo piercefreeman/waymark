@@ -8,18 +8,24 @@ use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
+use crate::action_call_request_locks::Tracker;
 use crate::lock_batcher::{LockError, VmLockerHandle, lock_batcher};
-use crate::test_support::{MockBackend, MockRow, TestKey};
-
-const LOCK_TIME_TO_LIVE: std::time::Duration = std::time::Duration::from_secs(60);
+use crate::test_support::{
+    LOCK_OWNER, LOCK_TIME_TO_LIVE, MockBackend, MockRow, TestKey, shared_tracker,
+};
 
 /// A locker whose batcher only ever flushes on the size trigger, so a test
 /// that completes proves its submissions shared one batch.
-fn spawn_size_gated_locker(backend: &Arc<MockBackend>, max_batch: usize) -> VmLockerHandle<u64> {
+fn spawn_size_gated_locker(
+    backend: &Arc<MockBackend>,
+    tracker: &Arc<std::sync::Mutex<Tracker<u64>>>,
+    max_batch: usize,
+) -> VmLockerHandle<u64> {
     let (locker, batcher) = lock_batcher(
         Arc::clone(backend),
-        7u32,
+        LOCK_OWNER,
         LOCK_TIME_TO_LIVE.try_into().unwrap(),
+        Arc::clone(tracker),
         waymark_batcher::Policy {
             max_batch: NonZeroUsize::new(max_batch).expect("non-zero"),
             max_delay: NonZeroDuration::from_secs(3600).expect("non-zero"),
@@ -48,8 +54,9 @@ fn seed_unlocked_row(backend: &MockBackend, vm_id: u64, promise: usize) {
 #[tokio::test]
 async fn each_vm_gets_its_own_outcome_from_one_batch() {
     let backend = Arc::new(MockBackend::default());
+    let tracker = shared_tracker();
     seed_unlocked_row(&backend, 1, 10);
-    let locker = spawn_size_gated_locker(&backend, 2);
+    let locker = spawn_size_gated_locker(&backend, &tracker, 2);
 
     // The delay trigger is effectively off, so these can only resolve if
     // both VMs left in the same batch.
@@ -62,34 +69,53 @@ async fn each_vm_gets_its_own_outcome_from_one_batch() {
         tokio::spawn(async move { locker.submit(2).await })
     };
 
-    let (outcome, seeded_taken_at) = seeded
+    let seeded = seeded
         .await
         .expect("join")
         .expect("not closed")
         .expect("locked");
-    assert_eq!(outcome.vm_id, 1);
-    assert_eq!(outcome.locked.len(), 1);
-    assert_eq!(outcome.locked[0].promise_state_id, PromiseStateId(10));
+    assert_eq!(seeded.vm_id, 1);
+    assert_eq!(seeded.locked.len(), 1);
+    assert_eq!(seeded.locked[0].record.promise_state_id, PromiseStateId(10));
 
-    let (outcome, empty_taken_at) = empty
+    let empty = empty
         .await
         .expect("join")
         .expect("not closed")
         .expect("locked");
-    assert_eq!(outcome.vm_id, 2);
-    assert!(outcome.locked.is_empty());
-    assert!(outcome.held_elsewhere.is_empty());
+    assert_eq!(empty.vm_id, 2);
+    assert!(empty.locked.is_empty());
+    assert!(empty.held_elsewhere.is_empty());
+    assert!(empty.held_by_this_owner.is_empty());
 
-    // One pre-send instant per flush: same-batch locks share their
-    // fence base.
-    assert_eq!(seeded_taken_at, empty_taken_at);
+    // The locked row's lock is tracked, its call pending; dropped
+    // unconfirmed, the lock leaves the tracked set and is up for
+    // unlocking.
+    assert!(tracker.lock().unwrap().is_tracking(&TestKey {
+        vm_id: 1,
+        promise_state_id: PromiseStateId(10),
+    }));
+    drop(seeded);
+    let tracker = tracker.lock().unwrap();
+    assert!(tracker.tracked_keys().is_empty());
+    let pending = tracker
+        .pending_unlocks()
+        .expect("the dropped pending call request's lock");
+    assert_eq!(
+        pending.keys().iter().copied().collect::<Vec<_>>(),
+        vec![TestKey {
+            vm_id: 1,
+            promise_state_id: PromiseStateId(10),
+        }]
+    );
 }
 
 #[tokio::test]
 async fn a_duplicate_vm_submission_routes_to_the_live_waiter() {
     let backend = Arc::new(MockBackend::default());
+    let tracker = shared_tracker();
     seed_unlocked_row(&backend, 1, 10);
-    let locker = spawn_size_gated_locker(&backend, 2);
+    let locker = spawn_size_gated_locker(&backend, &tracker, 2);
 
     // Same-vm duplicate in one window, submitted in listing order: the
     // earlier occurrence models the abandoned waiter and is folded out
@@ -100,17 +126,18 @@ async fn a_duplicate_vm_submission_routes_to_the_live_waiter() {
         abandoned.expect("not closed"),
         Err(LockError::Failed)
     ));
-    let (outcome, _taken_at) = live.expect("not closed").expect("locked");
-    assert_eq!(outcome.vm_id, 1);
-    assert_eq!(outcome.locked.len(), 1);
-    assert_eq!(outcome.locked[0].promise_state_id, PromiseStateId(10));
+    let live = live.expect("not closed").expect("locked");
+    assert_eq!(live.vm_id, 1);
+    assert_eq!(live.locked.len(), 1);
+    assert_eq!(live.locked[0].record.promise_state_id, PromiseStateId(10));
 }
 
 #[tokio::test]
 async fn a_failed_batch_fails_every_waiter_without_retry() {
     let backend = Arc::new(MockBackend::default());
+    let tracker = shared_tracker();
     *backend.fail_locks.lock().unwrap() = true;
-    let locker = spawn_size_gated_locker(&backend, 2);
+    let locker = spawn_size_gated_locker(&backend, &tracker, 2);
 
     let a = {
         let locker = locker.clone();

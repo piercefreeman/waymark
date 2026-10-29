@@ -749,7 +749,7 @@ async fn concurrent_renewal_and_snapshot_sweep_do_not_deadlock() {
 /// hands the trigger's requests pass rows spanning two VMs in heap
 /// (registration) order — arranged DESCENDING by vm_id below, so a
 /// trigger without the ordered lock pass provably inverts primary-key
-/// order — contended against the canonically-ordered revival lock.  No
+/// order — contended against the canonically-ordered adoption lock.  No
 /// production multi-row snapshot delete exists yet, but 0020's design
 /// anticipates them; this pins the trigger body for that day.
 ///
@@ -757,8 +757,8 @@ async fn concurrent_renewal_and_snapshot_sweep_do_not_deadlock() {
 /// contended row is staged so it blocks holding nothing, and the
 /// follower locks the other row and queues behind it — a discipline
 /// missing from the trigger fails the sweep-first run, one missing from
-/// the revival lock fails the other.
-async fn multi_vm_sweep_and_revival_lock_across_a_staged_row(sweep_first: bool) {
+/// the adoption lock fails the other.
+async fn multi_vm_sweep_and_adoption_lock_across_a_staged_row(sweep_first: bool) {
     let backend = setup_backend().await;
 
     // The snapshots table is tiny and fresh, so the sweep's scan order
@@ -771,7 +771,7 @@ async fn multi_vm_sweep_and_revival_lock_across_a_staged_row(sweep_first: bool) 
     register_test_vm_with_id(&backend, vm_hi).await;
     register_test_vm_with_id(&backend, vm_lo).await;
 
-    // One expired-locked request row per VM, so the revival lock is
+    // One expired-locked request row per VM, so the adoption lock is
     // eligible to take both.
     let dead_owner = uuid::Uuid::new_v4();
     let records = nev![record(vm_lo, 1, 10, b"lo"), record(vm_hi, 1, 11, b"hi")];
@@ -808,7 +808,7 @@ async fn multi_vm_sweep_and_revival_lock_across_a_staged_row(sweep_first: bool) 
     );
 
     // The staged row is the leader's first contact: vm_hi's request row
-    // (heap-first for the sweep, input-first for the revival lock).
+    // (heap-first for the sweep, input-first for the adoption lock).
     let staging = deadlock::hold_row_for_update(
         backend.pool(),
         deadlock::SweptTable::ActionCallRequests,
@@ -817,7 +817,7 @@ async fn multi_vm_sweep_and_revival_lock_across_a_staged_row(sweep_first: bool) 
     )
     .await;
 
-    let spawn_revival_lock = |vm_ids: Vec<InstanceId>| {
+    let spawn_adoption_lock = |vm_ids: Vec<InstanceId>| {
         let backend = backend.clone();
         tokio::spawn(async move {
             let vm_ids = NEVec::try_from_vec(vm_ids).unwrap();
@@ -830,48 +830,48 @@ async fn multi_vm_sweep_and_revival_lock_across_a_staged_row(sweep_first: bool) 
                 .await
         })
     };
-    let revival_pattern = "%locked_by IS NULL OR%";
+    let adoption_pattern = "%locked_by IS NULL OR%";
 
     if sweep_first {
         let sweep = deadlock::spawn_snapshot_sweep(backend.pool(), vec![vm_hi, vm_lo]);
         deadlock::wait_until_lock_blocked(backend.pool(), deadlock::SNAPSHOT_SWEEP_PATTERN).await;
-        let revival = spawn_revival_lock(vec![vm_lo, vm_hi]);
-        deadlock::wait_until_lock_blocked(backend.pool(), revival_pattern).await;
+        let adoption = spawn_adoption_lock(vec![vm_lo, vm_hi]);
+        deadlock::wait_until_lock_blocked(backend.pool(), adoption_pattern).await;
 
         staging.rollback().await.expect("release staged row");
 
         sweep
             .await
             .expect("join sweep")
-            .expect("the snapshot sweep must not deadlock against the revival lock");
-        revival
+            .expect("the snapshot sweep must not deadlock against the adoption lock");
+        adoption
             .await
-            .expect("join revival")
-            .expect("the revival lock must not deadlock against the snapshot sweep");
+            .expect("join adoption")
+            .expect("the adoption lock must not deadlock against the snapshot sweep");
     } else {
-        let revival = spawn_revival_lock(vec![vm_hi, vm_lo]);
-        deadlock::wait_until_lock_blocked(backend.pool(), revival_pattern).await;
+        let adoption = spawn_adoption_lock(vec![vm_hi, vm_lo]);
+        deadlock::wait_until_lock_blocked(backend.pool(), adoption_pattern).await;
         let sweep = deadlock::spawn_snapshot_sweep(backend.pool(), vec![vm_lo, vm_hi]);
         deadlock::wait_until_lock_blocked(backend.pool(), deadlock::SNAPSHOT_SWEEP_PATTERN).await;
 
         staging.rollback().await.expect("release staged row");
 
-        revival
+        adoption
             .await
-            .expect("join revival")
-            .expect("the revival lock must not deadlock against the snapshot sweep");
+            .expect("join adoption")
+            .expect("the adoption lock must not deadlock against the snapshot sweep");
         sweep
             .await
             .expect("join sweep")
-            .expect("the snapshot sweep must not deadlock against the revival lock");
+            .expect("the snapshot sweep must not deadlock against the adoption lock");
     }
 }
 
 #[serial(postgres)]
 #[tokio::test]
-async fn concurrent_multi_vm_sweep_and_revival_lock_do_not_deadlock() {
+async fn concurrent_multi_vm_sweep_and_adoption_lock_do_not_deadlock() {
     // Leader mirrored both ways: sweep-first pins the trigger's ordered
-    // lock pass, revival-first pins the revival lock's.
-    multi_vm_sweep_and_revival_lock_across_a_staged_row(true).await;
-    multi_vm_sweep_and_revival_lock_across_a_staged_row(false).await;
+    // lock pass, adoption-first pins the adoption lock's.
+    multi_vm_sweep_and_adoption_lock_across_a_staged_row(true).await;
+    multi_vm_sweep_and_adoption_lock_across_a_staged_row(false).await;
 }

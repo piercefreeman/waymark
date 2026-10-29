@@ -3,9 +3,10 @@
 //! Implements the `waymark_action_effect_reconciler_backend` traits:
 //! requests are recorded born-locked at effect emission, relocked for
 //! delivery once their locks lapsed, kept alive by lock renewal, unlocked
-//! at graceful shutdown.  Rows of a deleted VM are swept by the
-//! snapshot-deletion cleanup trigger, so there is no purge operation
-//! here.
+//! by the renewal heartbeat when their calls never went through (or left
+//! to lapse when the statement that took their locks reported failure).
+//! Rows of a deleted VM are swept by the snapshot-deletion cleanup
+//! trigger, so there is no purge operation here.
 //! Removal happens in the schema itself: the trigger installed by
 //! migration `0017` deletes a request row the moment its completion is
 //! recorded.

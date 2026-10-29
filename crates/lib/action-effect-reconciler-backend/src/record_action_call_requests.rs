@@ -30,7 +30,7 @@ pub trait RecordActionCallRequests: HasVmId + HasLockOwnerId + HasTimestamp {
     /// [`RecordingSuccess::SomeAlreadyRecorded`] — the caller must NOT
     /// deliver those calls (an existing row means the VM is replaying a
     /// previously emitted effect, and delivery of the existing row was
-    /// already decided by the revival reconcile).
+    /// already decided when it was recorded or relocked).
     ///
     /// A record whose key exists with a **different payload** violates
     /// replay determinism (VM replay or codec nondeterminism) and must

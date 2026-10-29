@@ -9,22 +9,27 @@
 //!
 //! One lock is built per flush attempt, from a single caller-clock
 //! instant — the only honest place for it, since a batch takes one lock
-//! set.  Each waiter's local fence base (`taken_at`) is captured at the
-//! same point, just before the attempt's statement is sent, and returned
-//! in its [`RecordOutcome::Recorded`]: pre-send, so the local fence still
-//! trips before the stored lock lapses, and per-attempt, so its staleness
-//! is bounded by one attempt — a delayed flush (queue wait, retries)
-//! cannot deliver a lock whose fence is already dead.
+//! set.  Each recorded row is tracked here too, in the flush, under its
+//! [`PendingCallRequest`](crate::action_call_request_locks::PendingCallRequest),
+//! so every lock the statement reports taken is tracked; its fence
+//! deadline is based on the instant just before the attempt's statement
+//! is sent: pre-send, so the local fence still trips before the stored
+//! lock lapses, and per-attempt, so its staleness is bounded by one
+//! attempt — a delayed flush (queue wait, retries) cannot deliver a lock
+//! whose fence is already dead.
 //!
 //! Retryable (internal) backend failures are retried here, whole-batch,
-//! with backoff — safe because the failed statement is atomic, so nothing
-//! of the batch landed.  Payload divergence is not retried: it is a
-//! data-integrity violation fanned to the whole batch as a fatal
-//! [`RecordError::DivergentPayload`], failing the awaiting drive loops.
+//! with backoff.  A statement that committed but reported failure leaves
+//! its rows locked under a lock nobody tracks; the retry finds them
+//! already recorded, and the effect handler requests a
+//! [`recheck`](crate::adopting_action_settler::recheck) so the VM's
+//! adopter picks the rows up once their locks lapse.  Payload divergence
+//! is not retried: it is a data-integrity violation fanned to the whole
+//! batch as a fatal [`RecordError::DivergentPayload`], failing the
+//! awaiting drive loops.
 //! Rows of innocent same-batch VMs were still durably recorded (the
-//! backend inserts everything not named in the divergence error), so their
-//! calls are redelivered by the revival reconcile once the batch lock
-//! lapses.
+//! backend inserts everything the divergence error does not refer to),
+//! so their calls are redelivered by adoption once the batch lock lapses.
 
 use std::collections::HashSet;
 use std::hash::Hash;
@@ -41,6 +46,7 @@ use waymark_action_effect_reconciler_backend::{
 };
 use waymark_nonzero_duration::NonZeroDuration;
 
+use crate::action_call_request_locks::Tracker;
 use crate::issuance::fresh_lock;
 
 /// Initial delay between retries of a failed (retryable) batch recording.
@@ -51,15 +57,16 @@ const RETRY_MAX_BACKOFF: Duration = Duration::from_secs(1);
 
 /// The per-record outcome of a batched recording.  Non-fatal facts only —
 /// anything here means the record's durable fate is decided.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RecordOutcome {
-    /// Freshly inserted, born locked by this process — the caller must
-    /// deliver the call and track the lock for renewal.
+#[derive(Debug)]
+pub enum RecordOutcome<VmId>
+where
+    VmId: Eq + Hash,
+{
+    /// Freshly inserted, born locked by this process, the lock tracked —
+    /// the caller must deliver the call and confirm it.
     Recorded {
-        /// The lock's local fence base: the pre-send instant of the
-        /// flush attempt that took the lock, conservative with respect
-        /// to the database-authoritative expiry.
-        taken_at: Instant,
+        /// The call not yet requested; confirm it once it is.
+        pending_call_request: crate::action_call_request_locks::PendingCallRequest<VmId>,
     },
 
     /// The key already existed with an identical payload (a VM replaying a
@@ -84,11 +91,14 @@ pub enum RecordError {
 /// Handle for submitting emitted requests to the shared request batcher.
 pub type RequestRecorderHandle<VmId> = waymark_batcher::BatcherHandle<
     ActionCallRequestRecord<VmId>,
-    Result<RecordOutcome, RecordError>,
+    Result<RecordOutcome<VmId>, RecordError>,
 >;
 
 /// Create the shared request batcher: a recorder handle for the per-VM
 /// effect handlers, and the batcher future for the caller to spawn.
+///
+/// `tracker` is the tracker of action-call request locks the taken locks
+/// go into.
 ///
 /// The future resolves once `shutdown` fires (or every handle is dropped)
 /// and the last buffered batch has been flushed.
@@ -96,6 +106,7 @@ pub fn request_batcher<Backend>(
     backend: Arc<Backend>,
     lock_owner_id: Backend::LockOwnerId,
     lock_time_to_live: NonZeroDuration,
+    tracker: Arc<std::sync::Mutex<Tracker<Backend::VmId>>>,
     policy: waymark_batcher::Policy,
     shutdown: impl Future<Output = ()>,
 ) -> (
@@ -112,23 +123,35 @@ where
         move |batch: NEVec<ActionCallRequestRecord<Backend::VmId>>| {
             let backend = Arc::clone(&backend);
             let lock_owner_id = lock_owner_id.clone();
+            let tracker = Arc::clone(&tracker);
             async move {
                 let mut backoff = RETRY_INITIAL_BACKOFF;
                 loop {
-                    // This attempt's pre-send instant: the conservative
-                    // local fence base for the locks it takes.
                     let taken_at = Instant::now();
                     let now = Utc::now();
                     let lock = fresh_lock(now, &lock_owner_id, lock_time_to_live);
+                    let recorded = |record: &ActionCallRequestRecord<Backend::VmId>| {
+                        let key = ActionCallRequestKey {
+                            vm_id: record.vm_id.clone(),
+                            promise_state_id: record.promise_state_id,
+                        };
+                        RecordOutcome::Recorded {
+                            pending_call_request: Tracker::track_lock(
+                                &tracker,
+                                key,
+                                taken_at + lock_time_to_live.get(),
+                            ),
+                        }
+                    };
                     match backend
                         .record_action_call_requests(now, lock, batch.as_nonempty_slice())
                         .await
                     {
                         Ok(RecordingSuccess::AllRecorded) => {
-                            return NEVec::from_elem(
-                                Ok(RecordOutcome::Recorded { taken_at }),
-                                batch.len(),
-                            );
+                            return batch
+                                .nonempty_iter()
+                                .map(|record| Ok(recorded(record)))
+                                .collect();
                         }
                         Ok(RecordingSuccess::SomeAlreadyRecorded(keys)) => {
                             let already: HashSet<ActionCallRequestKey<Backend::VmId>> =
@@ -143,7 +166,7 @@ where
                                     if already.contains(&key) {
                                         Ok(RecordOutcome::AlreadyRecorded)
                                     } else {
-                                        Ok(RecordOutcome::Recorded { taken_at })
+                                        Ok(recorded(record))
                                     }
                                 })
                                 .collect();
@@ -160,10 +183,10 @@ where
                             }
                             ErrorKind::DivergentPayload => {
                                 tracing::error!(?error, "divergent request payload in a batch");
-                                return NEVec::from_elem(
-                                    Err(RecordError::DivergentPayload),
-                                    batch.len(),
-                                );
+                                return batch
+                                    .nonempty_iter()
+                                    .map(|_| Err(RecordError::DivergentPayload))
+                                    .collect();
                             }
                         },
                     }

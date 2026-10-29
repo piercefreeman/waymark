@@ -1,37 +1,36 @@
-//! Batched locking of VMs' pending action-call requests at revival
-//! reconcile.
+//! Batched locking of VMs' pending action-call requests.
 //!
-//! Every revived VM's [`ReconcilingFactory`](crate::ReconcilingFactory)
-//! submits its id into one shared
+//! Every pass of a VM's [`AdoptingActionSettler`](crate::AdoptingActionSettler)
+//! submits the vm id into one shared
 //! [`deduplicating_write_batcher`](waymark_batcher::deduplicating_write_batcher)
-//! keyed by the vm id and awaits its own [`VmLockOutcome`], so
-//! reconcile-before-produce still holds per VM while many single-VM lock
-//! statements coalesce into one multi-VM
+//! keyed by the vm id and awaits its own [`PerVmActionCallRequestLocks`], so many single-VM
+//! lock statements coalesce into one multi-VM
 //! [`lock_action_call_requests`](LockActionCallRequests::lock_action_call_requests)
 //! statement pair.  The trait's per-input-order contract aligns exactly
 //! with the batcher's positional fan-out, so outcomes zip straight back
 //! to their waiters.
 //!
-//! A duplicate vm id within one window is reachable: a
-//! [`produce`](waymark_state_manager_core::Factory::produce) future
-//! dropped mid-submit strands its item, and the state manager's retry
-//! submits the same vm again.  Submission order then guarantees the
-//! earlier occurrence's waiter is dead — the state manager's per-key
-//! single-flight admits no concurrent producers — so `LastSubmissionWins`
-//! folds it out and only the live submission reaches the statement.
+//! A duplicate vm id within one window is reachable: a pass dropped
+//! mid-submit strands its item, and the VM's next pass submits the same
+//! vm again.  Submission order then guarantees the earlier occurrence's
+//! waiter is dead — a VM's passes run one after another, from the one
+//! settler of the resident VM — so `LastSubmissionWins` folds it out and
+//! only the live submission reaches the statement.
 //!
-//! One lock is built per batch, at flush.  Each waiter's local fence
-//! base (`taken_at`) is captured at the same point, just before the
-//! statement is sent, and returned alongside its outcome: pre-send, so
-//! the local fence still trips before the stored lock lapses, and
-//! per-flush, so its staleness is bounded by one attempt — queue wait
-//! behind a slow flush cannot deliver locks whose fence is already dead.
+//! One lock is built per batch, at flush.  Each locked row is tracked
+//! here too, in the flush, under its
+//! [`PendingCallRequest`](crate::action_call_request_locks::PendingCallRequest),
+//! so every lock the statement reports taken is tracked; its fence
+//! deadline is based on the instant just before the statement is sent:
+//! pre-send, so the local fence still trips before the stored lock
+//! lapses, and per-flush, so its staleness is bounded by one attempt —
+//! queue wait behind a slow flush cannot deliver locks whose fence is
+//! already dead.
 //!
-//! There is deliberately **no retry** here: the unbatched path never
-//! retried either — a failed reconcile fails the spawn, the workload
-//! stays unpinned, and the next pinning cycle retries.  A backend error
-//! therefore fans [`LockError::Failed`] to every waiter in the batch;
-//! the affected spawns fail and re-pin.
+//! There is deliberately **no retry** here: a failed pass fails the VM's
+//! wait, the VM is evicted, and the next pinning cycle revives it.  A
+//! backend error therefore fans [`LockError::Failed`] to every waiter in
+//! the batch; the affected VMs are evicted and re-pinned.
 
 use std::hash::Hash;
 use std::sync::Arc;
@@ -39,17 +38,21 @@ use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
-use waymark_action_effect_reconciler_backend::LockActionCallRequests;
 use waymark_action_effect_reconciler_backend::lock_action_call_requests::VmLockOutcome;
+use waymark_action_effect_reconciler_backend::{
+    ActionCallRequestKey, ActionCallRequestRecord, LockActionCallRequests,
+};
 use waymark_nonzero_duration::NonZeroDuration;
 
+use crate::action_call_request_locks::Tracker;
 use crate::issuance::fresh_lock;
 
-/// Fatal per-VM error for a batched lock — the spawn fails and the
+/// Fatal per-VM error for a batched lock — the VM's wait fails and the
 /// workload is re-pinned later.
 #[derive(Debug, Clone, Copy, thiserror::Error)]
 pub enum LockError {
-    /// The batched lock statement failed; nothing of the batch was locked.
+    /// The batched lock statement reported failure.  A lock it took anyway
+    /// lapses by its time-to-live and is adopted then.
     #[error("locking pending action-call requests failed")]
     Failed,
 
@@ -58,26 +61,54 @@ pub enum LockError {
     Closed,
 }
 
-/// Handle for submitting VM ids to the shared lock batcher.
-///
-/// A success pairs the VM's [`VmLockOutcome`] with the local fence base
-/// for the taken locks — the pre-send instant of the flush statement.
-pub type VmLockerHandle<VmId> =
-    waymark_batcher::BatcherHandle<VmId, Result<(VmLockOutcome<VmId>, Instant), LockError>>;
+/// One request locked by a pass, its lock tracked, its call pending.
+#[derive(Debug)]
+pub struct LockedActionCallRequest<VmId>
+where
+    VmId: Eq + Hash,
+{
+    /// The stored request — deliver this call.
+    pub record: ActionCallRequestRecord<VmId>,
 
-/// The lock batcher's conflict resolver: the last submission wins.
-///
-/// A same-vm duplicate means the earlier submission was abandoned (its
-/// waiter is dead — see the module docs), so the newcomer takes the slot
-/// and the ousted submission settles to [`LockError::Failed`], delivered
-/// to a dropped receiver.
+    /// The call not yet requested; confirm it once it is.
+    pub pending_call_request: crate::action_call_request_locks::PendingCallRequest<VmId>,
+}
+
+/// The outcome of one VM's pass: the locked requests, their calls
+/// pending, and every other row of the VM.
+#[derive(Debug)]
+pub struct PerVmActionCallRequestLocks<VmId>
+where
+    VmId: Eq + Hash,
+{
+    /// The VM this outcome is for.
+    pub vm_id: VmId,
+
+    /// Rows now locked by this process — deliver these calls.
+    pub locked: Vec<LockedActionCallRequest<VmId>>,
+
+    /// Rows not locked by this call and not held by this process.
+    pub held_elsewhere: Vec<ActionCallRequestKey<VmId>>,
+
+    /// Rows this process held with a lock unexpired when the lock statement
+    /// ran.
+    pub held_by_this_owner: Vec<ActionCallRequestKey<VmId>>,
+}
+
+/// Handle for submitting a VM to the shared lock batcher.
+pub type VmLockerHandle<VmId> =
+    waymark_batcher::BatcherHandle<VmId, Result<PerVmActionCallRequestLocks<VmId>, LockError>>;
+
+/// Folds a duplicate vm id within one window onto the newer submission.
 struct LastSubmissionWins;
 
 impl<VmId>
     waymark_batcher::deduplicating_write::ConflictResolver<
         VmId,
-        Result<(VmLockOutcome<VmId>, Instant), LockError>,
+        Result<PerVmActionCallRequestLocks<VmId>, LockError>,
     > for LastSubmissionWins
+where
+    VmId: Eq + Hash,
 {
     type Placeholder = ();
 
@@ -86,7 +117,7 @@ impl<VmId>
         slot: waymark_batcher::deduplicating_write::ConflictedSlot<
             'a,
             VmId,
-            Result<(VmLockOutcome<VmId>, Instant), LockError>,
+            Result<PerVmActionCallRequestLocks<VmId>, LockError>,
             (),
         >,
         newcomer: VmId,
@@ -98,14 +129,17 @@ impl<VmId>
     fn settle_conflict(
         &self,
         _conflicted_out: (),
-        _winner_out: &Result<(VmLockOutcome<VmId>, Instant), LockError>,
-    ) -> Result<(VmLockOutcome<VmId>, Instant), LockError> {
+        _winner_out: &Result<PerVmActionCallRequestLocks<VmId>, LockError>,
+    ) -> Result<PerVmActionCallRequestLocks<VmId>, LockError> {
         Err(LockError::Failed)
     }
 }
 
-/// Create the shared lock batcher: a locker handle for the reconciling
-/// factory, and the batcher future for the caller to spawn.
+/// Create the shared lock batcher: a locker handle for the adopting
+/// settlers, and the batcher future for the caller to spawn.
+///
+/// `tracker` is the tracker of action-call request locks the taken locks
+/// go into.
 ///
 /// The future resolves once `shutdown` fires (or every handle is dropped)
 /// and the last buffered batch has been flushed.
@@ -113,6 +147,7 @@ pub fn lock_batcher<Backend>(
     backend: Arc<Backend>,
     lock_owner_id: Backend::LockOwnerId,
     lock_time_to_live: NonZeroDuration,
+    tracker: Arc<std::sync::Mutex<Tracker<Backend::VmId>>>,
     policy: waymark_batcher::Policy,
     shutdown: impl Future<Output = ()>,
 ) -> (VmLockerHandle<Backend::VmId>, impl Future<Output = ()>)
@@ -128,9 +163,8 @@ where
         move |batch: NEVec<Backend::VmId>| {
             let backend = Arc::clone(&backend);
             let lock_owner_id = lock_owner_id.clone();
+            let tracker = Arc::clone(&tracker);
             async move {
-                // The pre-send instant: the conservative local fence
-                // base for the locks this flush takes.
                 let taken_at = Instant::now();
                 let now = Utc::now();
                 let lock = fresh_lock(now, &lock_owner_id, lock_time_to_live);
@@ -138,15 +172,46 @@ where
                     .lock_action_call_requests(now, lock, batch.as_nonempty_slice())
                     .await
                 {
-                    // One outcome per input VM, in input order — exactly the
-                    // batcher's positional fan-out.
                     Ok(outcomes) => outcomes
                         .into_nonempty_iter()
-                        .map(|outcome| Ok((outcome, taken_at)))
+                        .map(|outcome| {
+                            let VmLockOutcome {
+                                vm_id,
+                                locked,
+                                held_elsewhere,
+                                held_by_this_owner,
+                            } = outcome;
+                            let locked = locked
+                                .into_iter()
+                                .map(|record| {
+                                    let key = ActionCallRequestKey {
+                                        vm_id: record.vm_id.clone(),
+                                        promise_state_id: record.promise_state_id,
+                                    };
+                                    LockedActionCallRequest {
+                                        record,
+                                        pending_call_request: Tracker::track_lock(
+                                            &tracker,
+                                            key,
+                                            taken_at + lock_time_to_live.get(),
+                                        ),
+                                    }
+                                })
+                                .collect();
+                            Ok(PerVmActionCallRequestLocks {
+                                vm_id,
+                                locked,
+                                held_elsewhere,
+                                held_by_this_owner,
+                            })
+                        })
                         .collect(),
                     Err(error) => {
                         tracing::warn!(?error, "locking a request batch failed");
-                        NEVec::from_elem(Err(LockError::Failed), batch.len())
+                        batch
+                            .nonempty_iter()
+                            .map(|_| Err(LockError::Failed))
+                            .collect()
                     }
                 }
             }
