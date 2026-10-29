@@ -18,21 +18,25 @@ pub trait RenewActionCallRequestLocks: HasVmId + HasLockOwnerId + HasTimestamp {
     /// remaining duration `expires_at - now` — a difference of two
     /// caller-clock values, so no cross-node clock agreement is needed.
     ///
-    /// Returns one [`RequestLockRenewal`] per input lock.  Locks that
-    /// could not be renewed tell the caller to prune its in-memory
-    /// tracking: [`RenewalStatus::Missing`] means the row is gone — its
-    /// completion was durably recorded (the store removed the row) or the
-    /// VM was purged; [`RenewalStatus::Relocked`] means the row holds
-    /// another lock of the same owner; [`RenewalStatus::HeldElsewhere`]
-    /// means the lock expired and another owner took it — the attempt may
-    /// now run duplicated there (accepted at-least-once semantics).
+    /// Returns one [`ActionCallRequestLockRenewal`] per input lock.  Locks
+    /// that could not be renewed tell the caller to prune its in-memory
+    /// tracking: [`ActionCallRequestLockRenewalStatus::Missing`] means the
+    /// row is gone — its completion was durably recorded (the store removed
+    /// the row) or the VM was purged;
+    /// [`ActionCallRequestLockRenewalStatus::Relocked`] means the row holds
+    /// another lock of the same owner;
+    /// [`ActionCallRequestLockRenewalStatus::HeldElsewhere`] means the lock
+    /// expired and another owner took it — the attempt may now run
+    /// duplicated there (accepted at-least-once semantics).
     ///
-    /// [`RenewalStatus::Relocked`] and [`RenewalStatus::HeldElsewhere`]
-    /// must be **verified against a current read**, never concluded from
-    /// state that may predate a concurrent removal: a completion recorded
-    /// while the renewal runs must classify as [`RenewalStatus::Missing`].
-    /// When the lock is confirmed held but the expiry extension is not,
-    /// the implementation reports [`RenewalStatus::Unconfirmed`] and the
+    /// [`ActionCallRequestLockRenewalStatus::Relocked`] and
+    /// [`ActionCallRequestLockRenewalStatus::HeldElsewhere`] must be
+    /// **verified against a current read**, never concluded from state
+    /// that may predate a concurrent removal: a completion recorded while
+    /// the renewal runs must classify as
+    /// [`ActionCallRequestLockRenewalStatus::Missing`].  When the lock is
+    /// confirmed held but the expiry extension is not, the implementation
+    /// reports [`ActionCallRequestLockRenewalStatus::Unconfirmed`] and the
     /// caller retries at its next heartbeat.
     fn renew_action_call_request_locks<'a>(
         &'a self,
@@ -40,22 +44,24 @@ pub trait RenewActionCallRequestLocks: HasVmId + HasLockOwnerId + HasTimestamp {
         owner: &'a Self::LockOwnerId,
         expires_at: Self::Timestamp,
         lock_ids: NESlice<'a, ActionCallRequestLockId<Self::VmId>>,
-    ) -> impl Future<Output = Result<NEVec<RequestLockRenewal<Self::VmId>>, Self::Error>> + Send + 'a;
+    ) -> impl Future<Output = Result<NEVec<ActionCallRequestLockRenewal<Self::VmId>>, Self::Error>>
+    + Send
+    + 'a;
 }
 
 /// The per-lock result of a renewal pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RequestLockRenewal<VmId> {
+pub struct ActionCallRequestLockRenewal<VmId> {
     /// The lock this renewal is for.
     pub lock_id: ActionCallRequestLockId<VmId>,
 
     /// What happened to the lock.
-    pub status: RenewalStatus,
+    pub status: ActionCallRequestLockRenewalStatus,
 }
 
 /// What happened to one lock during a renewal pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RenewalStatus {
+pub enum ActionCallRequestLockRenewalStatus {
     /// The row still held the lock; its expiry was extended.
     Renewed,
 

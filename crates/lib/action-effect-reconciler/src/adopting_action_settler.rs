@@ -13,11 +13,11 @@ use waymark_action_runtime_metadata::ActionCallCorrelation;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::action_call_request_locks::Tracker;
-use crate::action_call_request_payload::ActionCallRequestPayload;
-use crate::lock_batcher::{
-    LockError, LockedActionCallRequest, PerVmActionCallRequestLocks, VmLockerHandle,
+use crate::action_call_request::lock_batcher::{
+    LockedRequest, PerVmLockerHandle, PerVmLockingError, PerVmLocks,
 };
+use crate::action_call_request::locks::Tracker;
+use crate::action_call_request::payload;
 
 /// Error returned when polling an [`AdoptingActionSettler`] for settlements
 /// fails.
@@ -29,7 +29,7 @@ pub enum Error<SettleError, DecodeError, DeliverError> {
 
     /// Locking the VM's pending requests failed.
     #[error("locking pending action-call requests: {0}")]
-    Lock(#[source] LockError),
+    Lock(#[source] PerVmLockingError),
 
     /// A stored request payload could not be decoded.
     #[error("unable to decode a stored action-call request payload: {0}")]
@@ -77,10 +77,10 @@ enum Adoption {
 /// while the VM waits.  A pass that found every request of the VM
 /// tracked here is the last one: a tracked lock changes owner only
 /// through an action-request lock fence breach, which stops the process
-/// (see [`renewal::run`](crate::renewal::run)).  One thing reopens it:
-/// the VM's effect handler requesting a [`recheck`], which runs a pass at
-/// once, in the pending wait or the next one.  Dropping the settler drops
-/// the watch with it.
+/// (see [`lock_renewal::run`](crate::action_call_request::lock_renewal::run)).
+/// One thing reopens it: the VM's effect handler requesting a
+/// [`recheck`], which runs a pass at once, in the pending wait or the
+/// next one.  Dropping the settler drops the watch with it.
 ///
 /// A failed pass fails the wait, and with it the VM's drive; the VM is
 /// evicted and the next pinning cycle revives it.  The wait's future may
@@ -106,7 +106,7 @@ where
 {
     vm_id: VmId,
 
-    locker: VmLockerHandle<VmId>,
+    locker: PerVmLockerHandle<VmId>,
 
     codec: Codec,
 
@@ -137,7 +137,7 @@ where
     /// request of the VM is not tracked here.
     pub fn new(
         vm_id: VmId,
-        locker: VmLockerHandle<VmId>,
+        locker: PerVmLockerHandle<VmId>,
         codec: Codec,
         requester: ActionCallRequester,
         action_call_request_locks_tracker: Arc<std::sync::Mutex<Tracker<VmId>>>,
@@ -183,7 +183,7 @@ where
             recheck.clear_recheck_request();
         }
 
-        let PerVmActionCallRequestLocks {
+        let PerVmLocks {
             vm_id: _,
             locked,
             held_elsewhere,
@@ -191,15 +191,15 @@ where
         } = match self.locker.submit(self.vm_id.clone()).await {
             Ok(Ok(locks)) => locks,
             Ok(Err(error)) => return Err(Error::Lock(error)),
-            Err(waymark_batcher::Closed) => return Err(Error::Lock(LockError::Closed)),
+            Err(waymark_batcher::Closed) => return Err(Error::Lock(PerVmLockingError::Closed)),
         };
 
-        for LockedActionCallRequest {
+        for LockedRequest {
             record,
             pending_call_request,
         } in locked
         {
-            let payload: ActionCallRequestPayload<ActionCallRequester::Argument> = self
+            let payload: payload::Payload<ActionCallRequester::Argument> = self
                 .codec
                 .with_deserializer(&record.request, |deserializer| {
                     serde::Deserialize::deserialize(deserializer)

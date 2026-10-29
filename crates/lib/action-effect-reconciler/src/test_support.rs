@@ -7,13 +7,13 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use nonempty_collections::{NESlice, NEVec};
-use waymark_action_effect_reconciler_backend::lock_action_call_requests::VmLockOutcome;
+use waymark_action_effect_reconciler_backend::lock_action_call_requests::PerVmActionCallRequestLockingOutcome;
 use waymark_action_effect_reconciler_backend::record_action_call_requests::RecordingSuccess;
 use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::{
-    RenewalStatus, RequestLockRenewal,
+    ActionCallRequestLockRenewal, ActionCallRequestLockRenewalStatus,
 };
 use waymark_action_effect_reconciler_backend::{
-    ActionCallRequestKey, ActionCallRequestLockId, ActionCallRequestRecord, RequestLock,
+    ActionCallRequestKey, ActionCallRequestLock, ActionCallRequestLockId, ActionCallRequestRecord,
 };
 use waymark_action_runtime_core::ActionCallRequest;
 use waymark_action_runtime_metadata::ActionCallCorrelation;
@@ -21,7 +21,7 @@ use waymark_action_runtime_metadata::ActionCallCorrelation;
 pub(crate) type TestVmId = u64;
 pub(crate) type TestLockOwnerId = u32;
 pub(crate) type TestKey = ActionCallRequestKey<TestVmId>;
-pub(crate) type TestLock = RequestLock<TestLockOwnerId, DateTime<Utc>>;
+pub(crate) type TestLock = ActionCallRequestLock<TestLockOwnerId, DateTime<Utc>>;
 
 /// One stored request row.
 #[derive(Debug, Clone)]
@@ -54,7 +54,8 @@ pub(crate) struct MockBackend {
     pub unlock_calls: Mutex<u32>,
     /// Fail every renew call when set.
     pub fail_renewals: Mutex<bool>,
-    /// Report every present row as [`RenewalStatus::Unconfirmed`] when set.
+    /// Report every present row as
+    /// [`ActionCallRequestLockRenewalStatus::Unconfirmed`] when set.
     pub report_unconfirmed_renewals: Mutex<bool>,
     /// Hold the next renew call that does not fail for this long before it
     /// answers; taken by that call, so only one call is slow.
@@ -180,16 +181,16 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for MockBa
         now: DateTime<Utc>,
         lock: TestLock,
         vm_ids: NESlice<'a, TestVmId>,
-    ) -> Result<NEVec<VmLockOutcome<TestVmId>>, MockLockError> {
+    ) -> Result<NEVec<PerVmActionCallRequestLockingOutcome<TestVmId>>, MockLockError> {
         *self.lock_calls.lock().unwrap() += 1;
         if *self.fail_locks.lock().unwrap() {
             return Err(MockLockError);
         }
 
         let mut rows = self.rows.lock().unwrap();
-        let mut outcomes: Vec<VmLockOutcome<TestVmId>> = vm_ids
+        let mut outcomes: Vec<PerVmActionCallRequestLockingOutcome<TestVmId>> = vm_ids
             .iter()
-            .map(|vm_id| VmLockOutcome {
+            .map(|vm_id| PerVmActionCallRequestLockingOutcome {
                 vm_id: *vm_id,
                 locked: Vec::new(),
                 held_elsewhere: Vec::new(),
@@ -281,7 +282,7 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for M
         owner: &TestLockOwnerId,
         expires_at: DateTime<Utc>,
         lock_ids: NESlice<'_, ActionCallRequestLockId<TestVmId>>,
-    ) -> Result<NEVec<RequestLockRenewal<TestVmId>>, Self::Error> {
+    ) -> Result<NEVec<ActionCallRequestLockRenewal<TestVmId>>, Self::Error> {
         *self.renew_calls.lock().unwrap() += 1;
         if *self.fail_renewals.lock().unwrap() {
             return Err(MockRenewError);
@@ -299,19 +300,21 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for M
             .iter()
             .map(|lock_id| {
                 let status = match rows.get_mut(&lock_id.request) {
-                    None => RenewalStatus::Missing,
-                    Some(_) if report_unconfirmed => RenewalStatus::Unconfirmed,
+                    None => ActionCallRequestLockRenewalStatus::Missing,
+                    Some(_) if report_unconfirmed => {
+                        ActionCallRequestLockRenewalStatus::Unconfirmed
+                    }
                     Some(row) if row.locked_by == Some(*owner) => {
                         if row.lock_nonce == Some(lock_id.nonce) {
                             row.lock_expires_at = Some(expires_at);
-                            RenewalStatus::Renewed
+                            ActionCallRequestLockRenewalStatus::Renewed
                         } else {
-                            RenewalStatus::Relocked
+                            ActionCallRequestLockRenewalStatus::Relocked
                         }
                     }
-                    Some(_) => RenewalStatus::HeldElsewhere,
+                    Some(_) => ActionCallRequestLockRenewalStatus::HeldElsewhere,
                 };
-                RequestLockRenewal {
+                ActionCallRequestLockRenewal {
                     lock_id: *lock_id,
                     status,
                 }
@@ -380,7 +383,7 @@ pub(crate) const LOCK_OWNER: TestLockOwnerId = 7;
 
 /// Whether the tracker tracks a lock on the request, whichever lock.
 pub(crate) fn tracks_request(
-    tracker: &crate::action_call_request_locks::Tracker<TestVmId>,
+    tracker: &crate::action_call_request::locks::Tracker<TestVmId>,
     key: &TestKey,
 ) -> bool {
     tracker
@@ -399,17 +402,17 @@ pub(crate) fn lock_id(key: TestKey, nonce: u64) -> ActionCallRequestLockId<TestV
 
 /// A tracker of action-call request locks, shared the way the bringup
 /// shares it.
-pub(crate) fn shared_tracker() -> Arc<Mutex<crate::action_call_request_locks::Tracker<TestVmId>>> {
-    Arc::new(Mutex::new(crate::action_call_request_locks::Tracker::new()))
+pub(crate) fn shared_tracker() -> Arc<Mutex<crate::action_call_request::locks::Tracker<TestVmId>>> {
+    Arc::new(Mutex::new(crate::action_call_request::locks::Tracker::new()))
 }
 
 /// A locker over the mock backend, with its batcher spawned onto the test
 /// runtime.  Small delay window so single submissions flush promptly.
 pub(crate) fn spawn_locker(
     backend: &Arc<MockBackend>,
-    tracker: &Arc<Mutex<crate::action_call_request_locks::Tracker<TestVmId>>>,
-) -> crate::lock_batcher::VmLockerHandle<TestVmId> {
-    let (locker, batcher) = crate::lock_batcher::lock_batcher(
+    tracker: &Arc<Mutex<crate::action_call_request::locks::Tracker<TestVmId>>>,
+) -> crate::action_call_request::lock_batcher::PerVmLockerHandle<TestVmId> {
+    let (locker, batcher) = crate::action_call_request::lock_batcher::run(
         Arc::clone(backend),
         LOCK_OWNER,
         LOCK_TIME_TO_LIVE.try_into().unwrap(),
@@ -428,9 +431,9 @@ pub(crate) fn spawn_locker(
 /// test runtime.  Small delay window so single submissions flush promptly.
 pub(crate) fn spawn_recorder(
     backend: &Arc<MockBackend>,
-    tracker: &Arc<Mutex<crate::action_call_request_locks::Tracker<TestVmId>>>,
-) -> crate::request_batcher::RequestRecorderHandle<TestVmId> {
-    let (recorder, batcher) = crate::request_batcher::request_batcher(
+    tracker: &Arc<Mutex<crate::action_call_request::locks::Tracker<TestVmId>>>,
+) -> crate::action_call_request::batcher::RecorderHandle<TestVmId> {
+    let (recorder, batcher) = crate::action_call_request::batcher::run(
         Arc::clone(backend),
         LOCK_OWNER,
         LOCK_TIME_TO_LIVE.try_into().unwrap(),
@@ -447,7 +450,7 @@ pub(crate) fn spawn_recorder(
 
 /// An rmp-encoded request payload for the `greet` action.
 pub(crate) fn encode_payload(arguments: Vec<i64>) -> Vec<u8> {
-    let payload = crate::ActionCallRequestPayload {
+    let payload = crate::action_call_request::payload::Payload {
         action_ref: action_ref("greet"),
         arguments,
     };

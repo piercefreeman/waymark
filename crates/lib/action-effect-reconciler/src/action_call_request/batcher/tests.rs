@@ -9,8 +9,8 @@ use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::action_call_request_locks::Tracker;
-use crate::request_batcher::{RecordError, RecordOutcome, RequestRecorderHandle, request_batcher};
+use super::{RecorderHandle, RecordingError, RecordingOutcome};
+use crate::action_call_request::locks::Tracker;
 use crate::test_support::{LOCK_OWNER, LOCK_TIME_TO_LIVE, MockBackend, TestKey, shared_tracker};
 
 fn record(vm_id: u64, promise: usize, request: &[u8]) -> ActionCallRequestRecord<u64> {
@@ -28,8 +28,8 @@ fn spawn_size_gated_recorder(
     backend: &Arc<MockBackend>,
     tracker: &Arc<std::sync::Mutex<Tracker<u64>>>,
     max_batch: usize,
-) -> RequestRecorderHandle<u64> {
-    let (recorder, batcher) = request_batcher(
+) -> RecorderHandle<u64> {
+    let (recorder, batcher) = super::run(
         Arc::clone(backend),
         LOCK_OWNER,
         LOCK_TIME_TO_LIVE.try_into().unwrap(),
@@ -64,12 +64,12 @@ async fn coalesces_submissions_into_one_statement() {
     for submission in [a, b] {
         let outcome = submission.await.expect("join").expect("not closed");
         match outcome.expect("recorded") {
-            RecordOutcome::Recorded {
+            RecordingOutcome::Recorded {
                 pending_call_request,
             } => {
                 pending_call_request.confirm_requested();
             }
-            outcome @ RecordOutcome::AlreadyRecorded => {
+            outcome @ RecordingOutcome::AlreadyRecorded => {
                 panic!("expected a fresh record: {outcome:?}")
             }
         }
@@ -115,7 +115,7 @@ async fn replays_and_fresh_records_get_their_own_outcomes() {
         .await
         .expect("not closed")
         .expect("recorded");
-    let RecordOutcome::Recorded {
+    let RecordingOutcome::Recorded {
         pending_call_request,
     } = seeded
     else {
@@ -139,11 +139,11 @@ async fn replays_and_fresh_records_get_their_own_outcomes() {
     let fresh = fresh.await.expect("join").expect("not closed");
     assert!(matches!(
         replay.expect("replay outcome"),
-        RecordOutcome::AlreadyRecorded
+        RecordingOutcome::AlreadyRecorded
     ));
     assert!(matches!(
         fresh.expect("fresh outcome"),
-        RecordOutcome::Recorded { .. }
+        RecordingOutcome::Recorded { .. }
     ));
 }
 
@@ -173,7 +173,7 @@ async fn divergence_fails_the_whole_batch() {
 
     for submission in [divergent, innocent] {
         let outcome = submission.await.expect("join").expect("not closed");
-        assert!(matches!(outcome, Err(RecordError::DivergentPayload)));
+        assert!(matches!(outcome, Err(RecordingError::DivergentPayload)));
     }
 
     // ...but the innocent record was still durably recorded (the backend

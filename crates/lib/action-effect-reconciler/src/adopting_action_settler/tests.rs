@@ -9,7 +9,7 @@ use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use crate::AdoptingActionSettler;
-use crate::action_call_request_locks::Tracker;
+use crate::action_call_request::locks::Tracker;
 use crate::adopting_action_settler::{Adopter, Error, recheck};
 use crate::test_support::{
     CapturingRequester, FailingRequester, LOCK_OWNER, LOCK_TIME_TO_LIVE, MockBackend, MockRow,

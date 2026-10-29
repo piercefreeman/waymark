@@ -23,11 +23,11 @@ use nonempty_collections::{NESlice, NEVec, NonEmptyIterator as _};
 use sqlx::Row;
 use waymark_action_effect_reconciler_backend::record_action_call_requests;
 use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::{
-    RenewalStatus, RequestLockRenewal,
+    ActionCallRequestLockRenewal, ActionCallRequestLockRenewalStatus,
 };
 use waymark_action_effect_reconciler_backend::{
-    ActionCallRequestKey, ActionCallRequestLockId, ActionCallRequestRecord, RequestLock,
-    lock_action_call_requests::VmLockOutcome,
+    ActionCallRequestKey, ActionCallRequestLock, ActionCallRequestLockId, ActionCallRequestRecord,
+    lock_action_call_requests::PerVmActionCallRequestLockingOutcome,
 };
 use waymark_ids::InstanceId;
 use waymark_observability::obs;
@@ -119,7 +119,7 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
     async fn record_action_call_requests(
         &self,
         now: DateTime<Utc>,
-        lock: RequestLock<uuid::Uuid, DateTime<Utc>>,
+        lock: ActionCallRequestLock<uuid::Uuid, DateTime<Utc>>,
         records: NESlice<'_, ActionCallRequestRecord<InstanceId>>,
     ) -> Result<record_action_call_requests::RecordingSuccess<InstanceId>, Self::Error> {
         let mut vm_ids = Vec::with_capacity(records.len().get());
@@ -263,9 +263,9 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
     async fn lock_action_call_requests<'a>(
         &'a self,
         now: DateTime<Utc>,
-        lock: RequestLock<uuid::Uuid, DateTime<Utc>>,
+        lock: ActionCallRequestLock<uuid::Uuid, DateTime<Utc>>,
         vm_ids: NESlice<'a, InstanceId>,
-    ) -> Result<NEVec<VmLockOutcome<InstanceId>>, Self::Error> {
+    ) -> Result<NEVec<PerVmActionCallRequestLockingOutcome<InstanceId>>, Self::Error> {
         Self::count_query(&self.query_counts, "update:action_call_requests_lock");
         Self::count_batch_size(
             &self.batch_size_counts,
@@ -335,9 +335,9 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
 
         // Group the flat row sets into one outcome per input VM, in input
         // order; VMs with no rows keep their (empty, no-op) outcome.
-        let mut outcomes: NEVec<VmLockOutcome<InstanceId>> = vm_ids
+        let mut outcomes: NEVec<PerVmActionCallRequestLockingOutcome<InstanceId>> = vm_ids
             .nonempty_iter()
-            .map(|vm_id| VmLockOutcome {
+            .map(|vm_id| PerVmActionCallRequestLockingOutcome {
                 vm_id: *vm_id,
                 locked: Vec::new(),
                 held_elsewhere: Vec::new(),
@@ -411,7 +411,7 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
         owner: &uuid::Uuid,
         expires_at: DateTime<Utc>,
         lock_ids: NESlice<'_, ActionCallRequestLockId<InstanceId>>,
-    ) -> Result<NEVec<RequestLockRenewal<InstanceId>>, Self::Error> {
+    ) -> Result<NEVec<ActionCallRequestLockRenewal<InstanceId>>, Self::Error> {
         let columns = lock_id_columns(lock_ids.iter()).map_err(Self::Error::OutOfRange)?;
 
         Self::count_query(&self.query_counts, "update:action_call_requests_renew");
@@ -484,16 +484,16 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
         for row in &rows {
             let lock_id = lock_id_from_row(row).map_err(Self::Error::OutOfRange)?;
             if row.get::<bool, _>("renewed") {
-                renewals.push(RequestLockRenewal {
+                renewals.push(ActionCallRequestLockRenewal {
                     lock_id,
-                    status: RenewalStatus::Renewed,
+                    status: ActionCallRequestLockRenewalStatus::Renewed,
                 });
             } else if row.get::<bool, _>("present") {
                 unrenewed_but_present.push(lock_id);
             } else {
-                renewals.push(RequestLockRenewal {
+                renewals.push(ActionCallRequestLockRenewal {
                     lock_id,
-                    status: RenewalStatus::Missing,
+                    status: ActionCallRequestLockRenewalStatus::Missing,
                 });
             }
         }
@@ -536,7 +536,7 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
             for row in &verify_rows {
                 let lock_id = lock_id_from_row(row).map_err(Self::Error::OutOfRange)?;
                 let status = if !row.get::<bool, _>("present") {
-                    RenewalStatus::Missing
+                    ActionCallRequestLockRenewalStatus::Missing
                 } else {
                     let row_lock_nonce = row
                         .get::<Option<i64>, _>("row_lock_nonce")
@@ -544,18 +544,18 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
                     match row.get::<Option<uuid::Uuid>, _>("locked_by") {
                         Some(locked_by) if locked_by == *owner => {
                             if row_lock_nonce == Some(lock_id.nonce) {
-                                RenewalStatus::Unconfirmed
+                                ActionCallRequestLockRenewalStatus::Unconfirmed
                             } else {
-                                RenewalStatus::Relocked
+                                ActionCallRequestLockRenewalStatus::Relocked
                             }
                         }
                         // A row we no longer own — relocked by another
                         // owner, or unlocked and up for redelivery by
                         // anyone. Either way our authorization is gone.
-                        Some(_) | None => RenewalStatus::HeldElsewhere,
+                        Some(_) | None => ActionCallRequestLockRenewalStatus::HeldElsewhere,
                     }
                 };
-                renewals.push(RequestLockRenewal { lock_id, status });
+                renewals.push(ActionCallRequestLockRenewal { lock_id, status });
             }
         }
 

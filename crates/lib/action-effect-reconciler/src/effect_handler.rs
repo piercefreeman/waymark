@@ -12,9 +12,9 @@ use waymark_action_runtime_metadata::ActionCallCorrelation;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::action_call_request_locks::Tracker;
-use crate::action_call_request_payload::ActionCallRequestPayload;
-use crate::request_batcher::{RecordError, RecordOutcome, RequestRecorderHandle};
+use crate::action_call_request::batcher::{RecorderHandle, RecordingError, RecordingOutcome};
+use crate::action_call_request::locks::Tracker;
+use crate::action_call_request::payload;
 
 /// Error returned when handling an action-call effect fails.
 ///
@@ -30,7 +30,7 @@ pub enum Error<EncodeError, DeliverError> {
     /// Recording the request failed fatally — the key diverged or the
     /// batcher is gone.
     #[error("recording an action-call request: {0}")]
-    Record(#[source] RecordError),
+    Record(#[source] RecordingError),
 
     /// The local pool rejected the delivery.
     #[error("delivering an action call: {0}")]
@@ -55,7 +55,7 @@ where
     VmId: Eq + std::hash::Hash,
 {
     /// The shared recorder durably persisting emitted requests in batches.
-    pub recorder: RequestRecorderHandle<VmId>,
+    pub recorder: RecorderHandle<VmId>,
 
     /// The codec used to encode request payloads.
     pub codec: Codec,
@@ -99,7 +99,7 @@ where
         action_ref: ActionRef,
         arguments: Vec<Self::Argument>,
     ) -> Result<(), Self::Error> {
-        let payload = ActionCallRequestPayload {
+        let payload = payload::Payload {
             action_ref,
             arguments,
         };
@@ -120,14 +120,14 @@ where
         let outcome = match self.recorder.submit(record).await {
             Ok(Ok(outcome)) => outcome,
             Ok(Err(error)) => return Err(Error::Record(error)),
-            Err(waymark_batcher::Closed) => return Err(Error::Record(RecordError::Closed)),
+            Err(waymark_batcher::Closed) => return Err(Error::Record(RecordingError::Closed)),
         };
 
         let pending_call_request = match outcome {
-            RecordOutcome::Recorded {
+            RecordingOutcome::Recorded {
                 pending_call_request,
             } => pending_call_request,
-            RecordOutcome::AlreadyRecorded => {
+            RecordingOutcome::AlreadyRecorded => {
                 tracing::debug!(
                     ?promise_state_id,
                     "request already recorded; not delivering, the adopter rechecks"
@@ -137,7 +137,7 @@ where
             }
         };
 
-        let ActionCallRequestPayload {
+        let payload::Payload {
             action_ref,
             arguments,
         } = payload;

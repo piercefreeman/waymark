@@ -8,8 +8,8 @@ use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::action_call_request_locks::Tracker;
-use crate::lock_batcher::{LockError, VmLockerHandle, lock_batcher};
+use super::{PerVmLockerHandle, PerVmLockingError};
+use crate::action_call_request::locks::Tracker;
 use crate::test_support::{
     LOCK_OWNER, LOCK_TIME_TO_LIVE, MockBackend, MockRow, TestKey, shared_tracker, tracks_request,
 };
@@ -20,8 +20,8 @@ fn spawn_size_gated_locker(
     backend: &Arc<MockBackend>,
     tracker: &Arc<std::sync::Mutex<Tracker<u64>>>,
     max_batch: usize,
-) -> VmLockerHandle<u64> {
-    let (locker, batcher) = lock_batcher(
+) -> PerVmLockerHandle<u64> {
+    let (locker, batcher) = super::run(
         Arc::clone(backend),
         LOCK_OWNER,
         LOCK_TIME_TO_LIVE.try_into().unwrap(),
@@ -132,7 +132,7 @@ async fn a_duplicate_vm_submission_routes_to_the_live_waiter() {
 
     assert!(matches!(
         abandoned.expect("not closed"),
-        Err(LockError::Failed)
+        Err(PerVmLockingError::Failed)
     ));
     let live = live.expect("not closed").expect("locked");
     assert_eq!(live.vm_id, 1);
@@ -158,6 +158,6 @@ async fn a_failed_batch_fails_every_waiter_without_retry() {
 
     for submission in [a, b] {
         let outcome = submission.await.expect("join").expect("not closed");
-        assert!(matches!(outcome, Err(LockError::Failed)));
+        assert!(matches!(outcome, Err(PerVmLockingError::Failed)));
     }
 }

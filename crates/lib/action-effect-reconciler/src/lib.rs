@@ -15,32 +15,25 @@
 //! decorator adopting the requests whose locks lapsed).  There is no
 //! background issuance of any kind.  Attempt execution and lock
 //! ownership are process-scoped: evicting a VM neither cancels its
-//! in-flight attempts nor releases their locks — the [`renewal`]
-//! heartbeat keeps them alive until the outcome is recorded.  A held
-//! lock is the authorization to be executing its attempt (never a
-//! scheduling signal): every lock is minted with its
-//! [`action_call_request_locks::PendingCallRequest`] and tracked once its call is
+//! in-flight attempts nor releases their locks — the
+//! [`action_call_request::lock_renewal`] heartbeat keeps them alive until
+//! the outcome is recorded.  A held lock is the authorization to be
+//! executing its attempt (never a scheduling signal): every lock is
+//! tracked from the statement that took it, under its
+//! [`action_call_request::locks::PendingCallRequest`] until its call is
 //! requested, or unlocked when the request never went through; a lock
 //! that can no longer be renewed in time is a fence breach,
 //! force-terminating the local attempts with the process — see
-//! [`renewal::run`].
+//! [`action_call_request::lock_renewal::run`].
 
 #![warn(missing_docs)]
 
-pub mod action_call_request_locks;
-pub mod action_call_request_payload;
+pub mod action_call_request;
 pub mod adopting_action_settler;
 pub mod effect_handler;
-mod issuance;
-pub mod lock_batcher;
-pub mod renewal;
-pub mod request_batcher;
 
 #[cfg(test)]
 mod test_support;
 
-pub use self::action_call_request_payload::ActionCallRequestPayload;
 pub use self::adopting_action_settler::AdoptingActionSettler;
 pub use self::effect_handler::EffectHandler;
-pub use self::lock_batcher::{VmLockerHandle, lock_batcher};
-pub use self::request_batcher::{RequestRecorderHandle, request_batcher};

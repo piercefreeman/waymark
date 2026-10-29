@@ -4,11 +4,11 @@ use serial_test::serial;
 use waymark_action_completions_reconciler_backend::{CompletionRecord, RecordCompletions as _};
 use waymark_action_effect_reconciler_backend::record_action_call_requests;
 use waymark_action_effect_reconciler_backend::record_action_call_requests::Error as _;
-use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::RenewalStatus;
+use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::ActionCallRequestLockRenewalStatus;
 use waymark_action_effect_reconciler_backend::{
-    ActionCallRequestKey, ActionCallRequestLockId, ActionCallRequestRecord,
+    ActionCallRequestKey, ActionCallRequestLock, ActionCallRequestLockId, ActionCallRequestRecord,
     LockActionCallRequests as _, RecordActionCallRequests as _, RenewActionCallRequestLocks as _,
-    RequestLock, UnlockActionCallRequests as _,
+    UnlockActionCallRequests as _,
 };
 use waymark_ids::InstanceId;
 use waymark_vm_runtime_effect::EffectNumber;
@@ -40,23 +40,23 @@ fn key(vm_id: InstanceId, promise: usize) -> ActionCallRequestKey<InstanceId> {
     }
 }
 
-fn live_lock(owner: uuid::Uuid) -> RequestLock<uuid::Uuid, chrono::DateTime<Utc>> {
+fn live_lock(owner: uuid::Uuid) -> ActionCallRequestLock<uuid::Uuid, chrono::DateTime<Utc>> {
     live_lock_with_nonce(owner, 1)
 }
 
 fn live_lock_with_nonce(
     owner: uuid::Uuid,
     nonce: u64,
-) -> RequestLock<uuid::Uuid, chrono::DateTime<Utc>> {
-    RequestLock {
+) -> ActionCallRequestLock<uuid::Uuid, chrono::DateTime<Utc>> {
+    ActionCallRequestLock {
         owner,
         expires_at: Utc::now() + Duration::minutes(5),
         nonce,
     }
 }
 
-fn expired_lock(owner: uuid::Uuid) -> RequestLock<uuid::Uuid, chrono::DateTime<Utc>> {
-    RequestLock {
+fn expired_lock(owner: uuid::Uuid) -> ActionCallRequestLock<uuid::Uuid, chrono::DateTime<Utc>> {
+    ActionCallRequestLock {
         owner,
         expires_at: Utc::now() - Duration::minutes(5),
         nonce: 1,
@@ -121,7 +121,7 @@ async fn record_fresh_then_identical_replay() {
     assert!(
         statuses
             .iter()
-            .all(|renewal| renewal.status == RenewalStatus::Renewed)
+            .all(|renewal| renewal.status == ActionCallRequestLockRenewalStatus::Renewed)
     );
 }
 
@@ -284,15 +284,19 @@ async fn renew_reports_per_key_status() {
             .expect("status present")
             .status
     };
-    assert_eq!(status_of(1), RenewalStatus::Renewed);
-    assert_eq!(status_of(2), RenewalStatus::HeldElsewhere);
-    assert_eq!(status_of(3), RenewalStatus::Missing);
-    assert_eq!(status_of(4), RenewalStatus::Relocked);
+    assert_eq!(status_of(1), ActionCallRequestLockRenewalStatus::Renewed);
+    assert_eq!(
+        status_of(2),
+        ActionCallRequestLockRenewalStatus::HeldElsewhere
+    );
+    assert_eq!(status_of(3), ActionCallRequestLockRenewalStatus::Missing);
+    assert_eq!(status_of(4), ActionCallRequestLockRenewalStatus::Relocked);
 }
 
 /// A completion removing the request row while the renewal statement is
-/// already running must classify as [`RenewalStatus::Missing`]: the
-/// renewal statement's snapshot still shows the row, and concluding
+/// already running must classify as
+/// [`ActionCallRequestLockRenewalStatus::Missing`]: the renewal
+/// statement's snapshot still shows the row, and concluding
 /// "held elsewhere" from that stale read would breach the fence over a
 /// successfully completed call.
 #[serial(postgres)]
@@ -337,7 +341,10 @@ async fn renew_racing_a_row_removal_reports_missing() {
 
     let statuses = renew_task.await.expect("join renew").expect("renew");
     assert_eq!(statuses.len().get(), 1);
-    assert_eq!(statuses.first().status, RenewalStatus::Missing);
+    assert_eq!(
+        statuses.first().status,
+        ActionCallRequestLockRenewalStatus::Missing
+    );
 }
 
 #[serial(postgres)]
@@ -439,8 +446,8 @@ async fn recording_a_completion_removes_the_request() {
             .expect("status present")
             .status
     };
-    assert_eq!(status_of(1), RenewalStatus::Missing);
-    assert_eq!(status_of(2), RenewalStatus::Renewed);
+    assert_eq!(status_of(1), ActionCallRequestLockRenewalStatus::Missing);
+    assert_eq!(status_of(2), ActionCallRequestLockRenewalStatus::Renewed);
 
     // A redelivered (conflict-skipped) completion does not fire the
     // trigger again — nothing left to remove, and no error.
@@ -486,8 +493,14 @@ async fn snapshot_delete_sweeps_only_the_vms_requests() {
             .expect("status present")
             .status
     };
-    assert_eq!(status_of(vm_a, 1), RenewalStatus::Missing);
-    assert_eq!(status_of(vm_b, 1), RenewalStatus::Renewed);
+    assert_eq!(
+        status_of(vm_a, 1),
+        ActionCallRequestLockRenewalStatus::Missing
+    );
+    assert_eq!(
+        status_of(vm_b, 1),
+        ActionCallRequestLockRenewalStatus::Renewed
+    );
 }
 
 /// One choreographed collision of the completion trigger's DELETE and

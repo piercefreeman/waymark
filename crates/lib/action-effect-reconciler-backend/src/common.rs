@@ -65,7 +65,7 @@ pub struct ActionCallRequestKey<VmId> {
 /// local monotonic countdown and treat a lock they could not renew in
 /// time as lost.
 #[derive(Debug, Clone)]
-pub struct RequestLock<LockOwnerId, Timestamp> {
+pub struct ActionCallRequestLock<LockOwnerId, Timestamp> {
     /// The process holding the lock.
     pub owner: LockOwnerId,
 
@@ -90,6 +90,9 @@ pub struct ActionCallRequestLockId<VmId> {
     pub nonce: u64,
 }
 
-/// Shorthand for a [`RequestLock`] using the associated types of `T`.
-pub type RequestLockFor<T> =
-    RequestLock<<T as crate::HasLockOwnerId>::LockOwnerId, <T as crate::HasTimestamp>::Timestamp>;
+/// Shorthand for an [`ActionCallRequestLock`] using the associated types
+/// of `T`.
+pub type ActionCallRequestLockFor<T> = ActionCallRequestLock<
+    <T as crate::HasLockOwnerId>::LockOwnerId,
+    <T as crate::HasTimestamp>::Timestamp,
+>;

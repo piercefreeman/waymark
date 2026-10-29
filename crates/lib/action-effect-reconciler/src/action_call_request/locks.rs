@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use nonempty_collections::{NESlice, NEVec};
 use waymark_action_effect_reconciler_backend::ActionCallRequestLockId;
 use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::{
-    RenewalStatus, RequestLockRenewal,
+    ActionCallRequestLockRenewal, ActionCallRequestLockRenewalStatus,
 };
 
 /// The locks this process holds, each by its id: the tracked ones, which
@@ -119,22 +119,23 @@ where
     /// not states of the tracker.
     pub fn apply_renewal(
         &mut self,
-        renewal: RequestLockRenewal<VmId>,
+        renewal: ActionCallRequestLockRenewal<VmId>,
         now: Instant,
         time_to_live: Duration,
     ) {
-        let RequestLockRenewal { lock_id, status } = renewal;
+        let ActionCallRequestLockRenewal { lock_id, status } = renewal;
         match status {
-            RenewalStatus::Renewed => {
+            ActionCallRequestLockRenewalStatus::Renewed => {
                 if let Some(fence_deadline) = self.tracked.get_mut(&lock_id) {
                     *fence_deadline = now + time_to_live;
                 }
             }
-            RenewalStatus::Missing => {
+            ActionCallRequestLockRenewalStatus::Missing => {
                 self.tracked.remove(&lock_id);
             }
-            RenewalStatus::Relocked | RenewalStatus::HeldElsewhere | RenewalStatus::Unconfirmed => {
-            }
+            ActionCallRequestLockRenewalStatus::Relocked
+            | ActionCallRequestLockRenewalStatus::HeldElsewhere
+            | ActionCallRequestLockRenewalStatus::Unconfirmed => {}
         }
     }
 }

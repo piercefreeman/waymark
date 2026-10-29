@@ -3,8 +3,8 @@
 use nonempty_collections::{NESlice, NEVec};
 
 use super::common::{
-    ActionCallRequestKey, ActionCallRequestRecord, HasLockOwnerId, HasTimestamp, HasVmId,
-    RequestLockFor,
+    ActionCallRequestKey, ActionCallRequestLockFor, ActionCallRequestRecord, HasLockOwnerId,
+    HasTimestamp, HasVmId,
 };
 
 /// Backend capability for durably recording action-call requests.
@@ -42,7 +42,7 @@ pub trait RecordActionCallRequests: HasVmId + HasLockOwnerId + HasTimestamp {
     fn record_action_call_requests<'a>(
         &'a self,
         now: Self::Timestamp,
-        lock: RequestLockFor<Self>,
+        lock: ActionCallRequestLockFor<Self>,
         records: NESlice<'a, ActionCallRequestRecord<Self::VmId>>,
     ) -> impl Future<Output = Result<RecordingSuccess<Self::VmId>, Self::Error>> + Send + 'a;
 }

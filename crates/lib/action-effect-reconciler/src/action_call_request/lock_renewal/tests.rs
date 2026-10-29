@@ -5,8 +5,8 @@ use chrono::Utc;
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::action_call_request_locks::Tracker;
-use crate::renewal::{Error, Params, run};
+use super::{Error, Params, run};
+use crate::action_call_request::locks::Tracker;
 use crate::test_support::{
     LOCK_OWNER, MockBackend, MockRow, TestKey, lock_id, shared_tracker, tracks_request,
 };

@@ -8,14 +8,14 @@ use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use nonempty_collections::NEVec;
-use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::RenewalStatus;
+use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::ActionCallRequestLockRenewalStatus;
 use waymark_action_effect_reconciler_backend::{
     ActionCallRequestLockId, HasLockOwnerId, HasTimestamp, HasVmId, RenewActionCallRequestLocks,
     UnlockActionCallRequests,
 };
 use waymark_nonzero_duration::NonZeroDuration;
 
-use crate::action_call_request_locks::Tracker;
+use crate::action_call_request::locks::Tracker;
 
 /// Error returned when [`run`] stops with locks it can no longer vouch
 /// for.
@@ -93,15 +93,17 @@ where
 /// from the last heartbeat on a shutdown that was not forced.
 ///
 /// Tracked locks leave peacefully only via
-/// [`RenewalStatus::Missing`] — the row is gone because its completion
-/// was durably recorded (or the VM was purged).  [`RenewalStatus::HeldElsewhere`]
-/// is a breach ([`Error::HeldElsewhere`]): the backend reports it only
-/// from a verified current read, and under an intact fence another owner
-/// cannot take an unexpired lock while our attempt is still running.
-/// [`RenewalStatus::Relocked`] is a breach of the same kind
-/// ([`Error::Relocked`]): the row holds another lock of this process,
-/// which under an intact fence it cannot either — the lock would have
-/// had to lapse first.  [`RenewalStatus::Unconfirmed`] keeps the lock
+/// [`ActionCallRequestLockRenewalStatus::Missing`] — the row is gone
+/// because its completion was durably recorded (or the VM was purged).
+/// [`ActionCallRequestLockRenewalStatus::HeldElsewhere`] is a breach
+/// ([`Error::HeldElsewhere`]): the backend reports it only from a verified
+/// current read, and under an intact fence another owner cannot take an
+/// unexpired lock while our attempt is still running.
+/// [`ActionCallRequestLockRenewalStatus::Relocked`] is a breach of the
+/// same kind ([`Error::Relocked`]): the row holds another lock of this
+/// process, which under an intact fence it cannot either — the lock would
+/// have had to lapse first.
+/// [`ActionCallRequestLockRenewalStatus::Unconfirmed`] keeps the lock
 /// tracked with its existing fence deadline — the next heartbeat retries
 /// the extension.
 ///
@@ -287,23 +289,23 @@ where
         .expect("action-call request locks tracker poisoned");
     for renewal in renewals {
         match renewal.status {
-            RenewalStatus::Missing => {
+            ActionCallRequestLockRenewalStatus::Missing => {
                 // The completion was durably recorded (the store removed
                 // the row), or the VM was purged.
                 tracing::debug!(lock_id = ?renewal.lock_id, "request row gone; untracking");
             }
-            RenewalStatus::Relocked => {
+            ActionCallRequestLockRenewalStatus::Relocked => {
                 relocked.push(renewal.lock_id.clone());
             }
-            RenewalStatus::HeldElsewhere => {
+            ActionCallRequestLockRenewalStatus::HeldElsewhere => {
                 held_elsewhere.push(renewal.lock_id.clone());
             }
-            RenewalStatus::Unconfirmed => {
+            ActionCallRequestLockRenewalStatus::Unconfirmed => {
                 // Still ours, but this pass could not confirm the
                 // extension — the existing fence deadline stands.
                 tracing::debug!(lock_id = ?renewal.lock_id, "lock renewal unconfirmed");
             }
-            RenewalStatus::Renewed => {}
+            ActionCallRequestLockRenewalStatus::Renewed => {}
         }
         tracker.apply_renewal(renewal, now, time_to_live);
     }

@@ -6,10 +6,10 @@ use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use crate::EffectHandler;
-use crate::action_call_request_locks::Tracker;
+use crate::action_call_request::batcher::RecordingError;
+use crate::action_call_request::locks::Tracker;
 use crate::adopting_action_settler::recheck;
 use crate::effect_handler::Error;
-use crate::request_batcher::RecordError;
 use crate::test_support::{
     CapturingRequester, FailingRequester, LOCK_OWNER, MockBackend, TestKey, action_ref,
     shared_tracker, spawn_recorder, tracks_request,
@@ -153,7 +153,7 @@ async fn divergent_payload_is_fatal() {
         .expect_err("divergent payload must fail");
     assert!(matches!(
         error,
-        Error::Record(RecordError::DivergentPayload)
+        Error::Record(RecordingError::DivergentPayload)
     ));
 }
 

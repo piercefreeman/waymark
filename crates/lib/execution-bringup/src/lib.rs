@@ -375,22 +375,26 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
     // the locks still held can lapse. See the FIXME(#725) at the renewal's
     // shutdown arm.
     let action_call_request_locks_tracker = Arc::new(std::sync::Mutex::new(
-        waymark_action_effect_reconciler::action_call_request_locks::Tracker::new(),
+        waymark_action_effect_reconciler::action_call_request::locks::Tracker::new(),
     ));
-    let renewal_params = waymark_action_effect_reconciler::renewal::Params {
-        backend: Arc::clone(&backend),
-        lock_owner_id: node_id.clone(),
-        lock_time_to_live: action_effect_reconciler_lock_ttl,
-        heartbeat: action_effect_reconciler_lock_heartbeat,
-        action_call_request_locks_tracker: Arc::clone(&action_call_request_locks_tracker),
-    };
+    let renewal_params =
+        waymark_action_effect_reconciler::action_call_request::lock_renewal::Params {
+            backend: Arc::clone(&backend),
+            lock_owner_id: node_id.clone(),
+            lock_time_to_live: action_effect_reconciler_lock_ttl,
+            heartbeat: action_effect_reconciler_lock_heartbeat,
+            action_call_request_locks_tracker: Arc::clone(&action_call_request_locks_tracker),
+        };
     spawner.spawn(
         "action effect reconciler lock renewal",
-        waymark_action_effect_reconciler::renewal::run(renewal_params, worker_pool_stopped),
+        waymark_action_effect_reconciler::action_call_request::lock_renewal::run(
+            renewal_params,
+            worker_pool_stopped,
+        ),
     );
 
     let (request_recorder, action_effect_reconciler_request_batcher_loop) =
-        waymark_action_effect_reconciler::request_batcher(
+        waymark_action_effect_reconciler::action_call_request::batcher::run(
             Arc::clone(&backend),
             node_id.clone(),
             action_effect_reconciler_lock_ttl,
@@ -409,8 +413,8 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
     // Pending request rows whose locks lapsed are relocked and their calls
     // redelivered to the local pool: a resident VM owns the liveness of
     // its action-call requests, whoever issued them.
-    let (vm_locker, action_effect_reconciler_lock_batcher_loop) =
-        waymark_action_effect_reconciler::lock_batcher(
+    let (action_call_request_locker, action_effect_reconciler_lock_batcher_loop) =
+        waymark_action_effect_reconciler::action_call_request::lock_batcher::run(
             Arc::clone(&backend),
             node_id.clone(),
             action_effect_reconciler_lock_ttl,
@@ -449,7 +453,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
         let request_recorder = request_recorder.clone();
         let outcome_recorder = outcome_recorder.clone();
         let action_call_request_locks_tracker = Arc::clone(&action_call_request_locks_tracker);
-        let vm_locker = vm_locker.clone();
+        let action_call_request_locker = action_call_request_locker.clone();
         move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
             let action_call_requester = || {
                 let action_call_requester =
@@ -479,7 +483,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
                 inner: registrar.subscribe(*vm_id),
                 adopter: waymark_action_effect_reconciler::adopting_action_settler::Adopter::new(
                     *vm_id,
-                    vm_locker.clone(),
+                    action_call_request_locker.clone(),
                     Arc::clone(&codec),
                     action_call_requester(),
                     Arc::clone(&action_call_request_locks_tracker),

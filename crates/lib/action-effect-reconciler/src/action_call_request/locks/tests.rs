@@ -3,11 +3,11 @@ use std::time::{Duration, Instant};
 
 use waymark_action_effect_reconciler_backend::ActionCallRequestLockId;
 use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::{
-    RenewalStatus, RequestLockRenewal,
+    ActionCallRequestLockRenewal, ActionCallRequestLockRenewalStatus,
 };
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::action_call_request_locks::{PendingCallRequest, Tracker};
+use super::{PendingCallRequest, Tracker};
 use crate::test_support::TestKey;
 
 const TIME_TO_LIVE: Duration = Duration::from_secs(60);
@@ -164,9 +164,9 @@ fn the_fence_is_the_given_deadline_until_renewed() {
     // A confirmed renewal pushes the deadline out from its own instant.
     let renewed_at = now + Duration::from_secs(30);
     tracker.apply_renewal(
-        RequestLockRenewal {
+        ActionCallRequestLockRenewal {
             lock_id: lock_id(1, 1),
-            status: RenewalStatus::Renewed,
+            status: ActionCallRequestLockRenewalStatus::Renewed,
         },
         renewed_at,
         TIME_TO_LIVE,
@@ -187,9 +187,9 @@ fn a_renewal_never_adds_a_lock() {
 
     let mut tracker = shared.lock().unwrap();
     tracker.apply_renewal(
-        RequestLockRenewal {
+        ActionCallRequestLockRenewal {
             lock_id: lock_id(1, 1),
-            status: RenewalStatus::Renewed,
+            status: ActionCallRequestLockRenewalStatus::Renewed,
         },
         now,
         TIME_TO_LIVE,
@@ -208,14 +208,30 @@ fn renewal_statuses_prune_or_keep() {
     }
 
     let mut tracker = shared.lock().unwrap();
-    let renewal = |promise, status| RequestLockRenewal {
+    let renewal = |promise, status| ActionCallRequestLockRenewal {
         lock_id: lock_id(promise, 1),
         status,
     };
-    tracker.apply_renewal(renewal(1, RenewalStatus::Missing), now, TIME_TO_LIVE);
-    tracker.apply_renewal(renewal(2, RenewalStatus::Unconfirmed), now, TIME_TO_LIVE);
-    tracker.apply_renewal(renewal(3, RenewalStatus::HeldElsewhere), now, TIME_TO_LIVE);
-    tracker.apply_renewal(renewal(4, RenewalStatus::Relocked), now, TIME_TO_LIVE);
+    tracker.apply_renewal(
+        renewal(1, ActionCallRequestLockRenewalStatus::Missing),
+        now,
+        TIME_TO_LIVE,
+    );
+    tracker.apply_renewal(
+        renewal(2, ActionCallRequestLockRenewalStatus::Unconfirmed),
+        now,
+        TIME_TO_LIVE,
+    );
+    tracker.apply_renewal(
+        renewal(3, ActionCallRequestLockRenewalStatus::HeldElsewhere),
+        now,
+        TIME_TO_LIVE,
+    );
+    tracker.apply_renewal(
+        renewal(4, ActionCallRequestLockRenewalStatus::Relocked),
+        now,
+        TIME_TO_LIVE,
+    );
 
     assert!(!tracker.is_tracking(&lock_id(1, 1)));
     assert!(tracker.is_tracking(&lock_id(2, 1)));
