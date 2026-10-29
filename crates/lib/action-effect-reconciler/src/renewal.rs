@@ -10,13 +10,12 @@ use chrono::{DateTime, Utc};
 use nonempty_collections::NEVec;
 use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::RenewalStatus;
 use waymark_action_effect_reconciler_backend::{
-    ActionCallRequestKey, HasLockOwnerId, HasTimestamp, HasVmId, RenewActionCallRequestLocks,
+    ActionCallRequestLockId, HasLockOwnerId, HasTimestamp, HasVmId, RenewActionCallRequestLocks,
     UnlockActionCallRequests,
 };
 use waymark_nonzero_duration::NonZeroDuration;
 
 use crate::action_call_request_locks::Tracker;
-use crate::issuance::fresh_lock;
 
 /// Error returned when [`run`] stops with locks it can no longer vouch
 /// for.
@@ -37,18 +36,24 @@ pub enum Error<VmId> {
     /// These locks passed their local fence deadline without a confirmed
     /// renewal — the attempts can no longer be authorized.
     #[error("lock fence breached — locks expired without renewal: {0:?}")]
-    FenceBreached(NEVec<ActionCallRequestKey<VmId>>),
+    FenceBreached(NEVec<ActionCallRequestLockId<VmId>>),
 
     /// These locks are held by another owner while our attempts still
     /// run — authorization is definitively lost.
     #[error("locks taken by another owner: {0:?}")]
-    HeldElsewhere(NEVec<ActionCallRequestKey<VmId>>),
+    HeldElsewhere(NEVec<ActionCallRequestLockId<VmId>>),
+
+    /// The rows of these locks hold other locks of this process while the
+    /// attempts these authorized still run — the authorization is gone,
+    /// and the fence should have said so first.
+    #[error("locks replaced by other locks of this process: {0:?}")]
+    Relocked(NEVec<ActionCallRequestLockId<VmId>>),
 
     /// The shutdown future resolved while these locks were still tracked,
     /// not confirmed gone; they lapse by their time-to-live and are
     /// redelivered, unless their row is already gone.
     #[error("stopped with locks not confirmed gone, left to lapse by their time-to-live: {0:?}")]
-    Abandoned(NEVec<ActionCallRequestKey<VmId>>),
+    Abandoned(NEVec<ActionCallRequestLockId<VmId>>),
 }
 
 /// Parameters for [`run`].
@@ -93,8 +98,12 @@ where
 /// is a breach ([`Error::HeldElsewhere`]): the backend reports it only
 /// from a verified current read, and under an intact fence another owner
 /// cannot take an unexpired lock while our attempt is still running.
-/// [`RenewalStatus::Unconfirmed`] keeps the lock tracked with its
-/// existing fence deadline — the next heartbeat retries the extension.
+/// [`RenewalStatus::Relocked`] is a breach of the same kind
+/// ([`Error::Relocked`]): the row holds another lock of this process,
+/// which under an intact fence it cannot either — the lock would have
+/// had to lapse first.  [`RenewalStatus::Unconfirmed`] keeps the lock
+/// tracked with its existing fence deadline — the next heartbeat retries
+/// the extension.
 ///
 /// Each heartbeat first unlocks the requests that never went through:
 /// their locks authorize no attempt, and unlocked, their rows are up for
@@ -163,12 +172,12 @@ where
             // the locks still tracked after it; when that renewal call
             // fails, every tracked lock is listed.
             () = &mut shutdown => {
-                if tracker.lock().expect("action-call request locks tracker poisoned").tracked_keys().is_empty() {
+                if tracker.lock().expect("action-call request locks tracker poisoned").tracked_lock_ids().is_empty() {
                     tracing::info!("shutdown with no locks held; stopping");
                     return Ok(());
                 }
                 heartbeat_once(&*backend, &lock_owner_id, lock_time_to_live, &tracker).await?;
-                let still_tracked = tracker.lock().expect("action-call request locks tracker poisoned").tracked_keys();
+                let still_tracked = tracker.lock().expect("action-call request locks tracker poisoned").tracked_lock_ids();
                 return match NEVec::try_from_vec(still_tracked) {
                     None => {
                         tracing::info!("shutdown with every lock accounted for; stopping");
@@ -210,7 +219,7 @@ where
         .pending_unlocks();
     if let Some(pending_unlocks) = pending_unlocks {
         let unlocked = backend
-            .unlock_action_call_requests(lock_owner_id, pending_unlocks.keys())
+            .unlock_action_call_requests(lock_owner_id, pending_unlocks.lock_ids())
             .await;
         match unlocked {
             Ok(()) => {
@@ -231,20 +240,20 @@ where
     // deadlines.
     let now = Instant::now();
 
-    let keys = {
+    let lock_ids = {
         let tracker = tracker
             .lock()
             .expect("action-call request locks tracker poisoned");
 
         // Fence check first: a deadline passing without a confirmed
         // renewal means the attempt can no longer be authorized.
-        if let Some(keys) = NEVec::try_from_vec(tracker.keys_past_fence(now)) {
-            return Err(Error::FenceBreached(keys));
+        if let Some(lock_ids) = NEVec::try_from_vec(tracker.lock_ids_past_fence(now)) {
+            return Err(Error::FenceBreached(lock_ids));
         }
 
-        tracker.tracked_keys()
+        tracker.tracked_lock_ids()
     };
-    let Some(keys) = NEVec::try_from_vec(keys) else {
+    let Some(lock_ids) = NEVec::try_from_vec(lock_ids) else {
         return Ok(());
     };
 
@@ -252,9 +261,16 @@ where
     // baseline, so the store reconstructs the intended time-to-live
     // exactly.  (Distinct from `now` above: the monotonic fence clock.)
     let wall_now = Utc::now();
-    let lock = fresh_lock(wall_now, lock_owner_id, lock_time_to_live);
+    let expires_at = wall_now
+        + chrono::Duration::from_std(time_to_live)
+            .expect("the lock time-to-live fits the chrono duration range");
     let renewals = match backend
-        .renew_action_call_request_locks(wall_now, lock, keys.as_nonempty_slice())
+        .renew_action_call_request_locks(
+            wall_now,
+            lock_owner_id,
+            expires_at,
+            lock_ids.as_nonempty_slice(),
+        )
         .await
     {
         Ok(renewals) => renewals,
@@ -265,6 +281,7 @@ where
     };
 
     let mut held_elsewhere = Vec::new();
+    let mut relocked = Vec::new();
     let mut tracker = tracker
         .lock()
         .expect("action-call request locks tracker poisoned");
@@ -273,22 +290,28 @@ where
             RenewalStatus::Missing => {
                 // The completion was durably recorded (the store removed
                 // the row), or the VM was purged.
-                tracing::debug!(key = ?renewal.key, "request row gone; untracking");
+                tracing::debug!(lock_id = ?renewal.lock_id, "request row gone; untracking");
+            }
+            RenewalStatus::Relocked => {
+                relocked.push(renewal.lock_id.clone());
             }
             RenewalStatus::HeldElsewhere => {
-                held_elsewhere.push(renewal.key.clone());
+                held_elsewhere.push(renewal.lock_id.clone());
             }
             RenewalStatus::Unconfirmed => {
                 // Still ours, but this pass could not confirm the
                 // extension — the existing fence deadline stands.
-                tracing::debug!(key = ?renewal.key, "lock renewal unconfirmed");
+                tracing::debug!(lock_id = ?renewal.lock_id, "lock renewal unconfirmed");
             }
             RenewalStatus::Renewed => {}
         }
         tracker.apply_renewal(renewal, now, time_to_live);
     }
-    if let Some(keys) = NEVec::try_from_vec(held_elsewhere) {
-        return Err(Error::HeldElsewhere(keys));
+    if let Some(lock_ids) = NEVec::try_from_vec(relocked) {
+        return Err(Error::Relocked(lock_ids));
+    }
+    if let Some(lock_ids) = NEVec::try_from_vec(held_elsewhere) {
+        return Err(Error::HeldElsewhere(lock_ids));
     }
 
     Ok(())

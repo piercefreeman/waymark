@@ -5,7 +5,8 @@ use chrono::{DateTime, Utc};
 use waymark_action_effect_reconciler_backend::RequestLock;
 use waymark_nonzero_duration::NonZeroDuration;
 
-/// A fresh lock for this process, expiring one time-to-live from `now`.
+/// A fresh lock for this process under `nonce`, expiring one time-to-live
+/// from `now`.
 ///
 /// `now` is the caller-clock instant the expiry is computed against; pass
 /// the same instant to the backend call taking the lock, so the store can
@@ -14,11 +15,13 @@ pub(crate) fn fresh_lock<LockOwnerId: Clone>(
     now: DateTime<Utc>,
     lock_owner_id: &LockOwnerId,
     lock_time_to_live: NonZeroDuration,
+    nonce: u64,
 ) -> RequestLock<LockOwnerId, DateTime<Utc>> {
     let time_to_live = chrono::Duration::from_std(lock_time_to_live.get())
         .expect("the lock time-to-live fits the chrono duration range");
     RequestLock {
         owner: lock_owner_id.clone(),
         expires_at: now + time_to_live,
+        nonce,
     }
 }

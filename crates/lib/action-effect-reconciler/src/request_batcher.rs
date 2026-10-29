@@ -42,7 +42,8 @@ use waymark_action_effect_reconciler_backend::record_action_call_requests::{
     Error as _, ErrorKind, RecordingSuccess,
 };
 use waymark_action_effect_reconciler_backend::{
-    ActionCallRequestKey, ActionCallRequestRecord, RecordActionCallRequests,
+    ActionCallRequestKey, ActionCallRequestLockId, ActionCallRequestRecord,
+    RecordActionCallRequests,
 };
 use waymark_nonzero_duration::NonZeroDuration;
 
@@ -129,16 +130,22 @@ where
                 loop {
                     let taken_at = Instant::now();
                     let now = Utc::now();
-                    let lock = fresh_lock(now, &lock_owner_id, lock_time_to_live);
+                    // One nonce per attempt: the batch takes one lock set,
+                    // and a later lock on any of these rows draws its own.
+                    let lock_nonce = rand::random::<u64>();
+                    let lock = fresh_lock(now, &lock_owner_id, lock_time_to_live, lock_nonce);
                     let recorded = |record: &ActionCallRequestRecord<Backend::VmId>| {
-                        let key = ActionCallRequestKey {
-                            vm_id: record.vm_id.clone(),
-                            promise_state_id: record.promise_state_id,
+                        let lock_id = ActionCallRequestLockId {
+                            request: ActionCallRequestKey {
+                                vm_id: record.vm_id.clone(),
+                                promise_state_id: record.promise_state_id,
+                            },
+                            nonce: lock_nonce,
                         };
                         RecordOutcome::Recorded {
                             pending_call_request: Tracker::track_lock(
                                 &tracker,
-                                key,
+                                lock_id,
                                 taken_at + lock_time_to_live.get(),
                             ),
                         }

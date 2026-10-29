@@ -13,7 +13,7 @@ use crate::action_call_request_locks::Tracker;
 use crate::adopting_action_settler::{Adopter, Error, recheck};
 use crate::test_support::{
     CapturingRequester, FailingRequester, LOCK_OWNER, LOCK_TIME_TO_LIVE, MockBackend, MockRow,
-    TestKey, action_ref, seed_row, shared_tracker, spawn_locker,
+    TestKey, action_ref, lock_id, seed_row, shared_tracker, spawn_locker, tracks_request,
 };
 
 const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -220,8 +220,8 @@ async fn first_wait_adopts_lapsed_rows() {
         assert_eq!(rows[&key(12)].locked_by, Some(LOCK_OWNER));
     }
     let tracker = h.tracker.lock().unwrap();
-    assert!(tracker.is_tracking(&key(11)));
-    assert!(tracker.is_tracking(&key(12)));
+    assert!(tracks_request(&tracker, &key(11)));
+    assert!(tracks_request(&tracker, &key(12)));
     assert!(tracker.pending_unlocks().is_none());
 }
 
@@ -241,7 +241,7 @@ async fn rows_held_by_a_live_owner_are_left_alone() {
     poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
 
     assert!(requester.requests.lock().unwrap().is_empty());
-    assert!(!h.tracker.lock().unwrap().is_tracking(&key(11)));
+    assert!(!tracks_request(&h.tracker.lock().unwrap(), &key(11)));
     assert_eq!(h.backend.rows.lock().unwrap()[&key(11)].locked_by, Some(99));
 }
 
@@ -324,7 +324,7 @@ async fn adopts_a_row_whose_lock_lapses_during_the_wait() {
         h.backend.rows.lock().unwrap()[&key(11)].locked_by,
         Some(LOCK_OWNER)
     );
-    assert!(h.tracker.lock().unwrap().is_tracking(&key(11)));
+    assert!(tracks_request(&h.tracker.lock().unwrap(), &key(11)));
 
     // The adopted attempt's completion settles the wait.
     h.settlements_tx.send(settlement(11)).unwrap();
@@ -379,7 +379,7 @@ async fn a_recheck_reopens_a_covered_vm_and_adopts_the_untracked_row() {
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].metadata.promise_state_id, PromiseStateId(12));
     }
-    assert!(h.tracker.lock().unwrap().is_tracking(&key(12)));
+    assert!(tracks_request(&h.tracker.lock().unwrap(), &key(12)));
 
     h.settlements_tx.send(settlement(12)).unwrap();
     let settlements = wait.await.expect("the wait settles");
@@ -488,7 +488,7 @@ async fn a_tracked_row_held_here_is_covered() {
     );
     Tracker::track_lock(
         &h.tracker,
-        key(11),
+        lock_id(key(11), 1),
         tokio::time::Instant::now().into_std() + LOCK_TIME_TO_LIVE,
     )
     .confirm_requested();
@@ -535,7 +535,7 @@ async fn an_untracked_row_held_here_is_adopted_once_unlocked() {
     tokio::time::sleep(HEARTBEAT).await;
     assert!(poll_once_is_pending(&mut wait).await);
     assert_eq!(requester.requests.lock().unwrap().len(), 1);
-    assert!(h.tracker.lock().unwrap().is_tracking(&key(11)));
+    assert!(tracks_request(&h.tracker.lock().unwrap(), &key(11)));
 }
 
 /// A wait dropped between the lock and the request: the pending call request
@@ -577,12 +577,16 @@ async fn a_wait_dropped_mid_pass_leaves_the_lock_up_for_unlocking() {
     );
     {
         let tracker = h.tracker.lock().unwrap();
-        assert!(!tracker.is_tracking(&key(11)));
+        assert!(!tracks_request(&tracker, &key(11)));
         let pending = tracker
             .pending_unlocks()
             .expect("the lock is up for unlocking");
         assert_eq!(
-            pending.keys().iter().copied().collect::<Vec<_>>(),
+            pending
+                .lock_ids()
+                .iter()
+                .map(|lock_id| lock_id.request)
+                .collect::<Vec<_>>(),
             vec![key(11)]
         );
     }
@@ -597,7 +601,7 @@ async fn a_wait_dropped_mid_pass_leaves_the_lock_up_for_unlocking() {
     }
     poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
     assert_eq!(requester.requests.lock().unwrap().len(), 1);
-    assert!(h.tracker.lock().unwrap().is_tracking(&key(11)));
+    assert!(tracks_request(&h.tracker.lock().unwrap(), &key(11)));
 }
 
 #[tokio::test(start_paused = true)]
@@ -664,6 +668,7 @@ async fn corrupt_stored_payload_fails_the_wait_and_unlocks() {
             request: b"not a valid payload".to_vec(),
             locked_by: None,
             lock_expires_at: None,
+            lock_nonce: None,
         },
     );
     h.settlements_tx.send(settlement(11)).unwrap();
@@ -682,7 +687,7 @@ async fn corrupt_stored_payload_fails_the_wait_and_unlocks() {
     // The lock taken for the call that never went through is up for
     // unlocking.
     let tracker = h.tracker.lock().unwrap();
-    assert!(!tracker.is_tracking(&key(11)));
+    assert!(!tracks_request(&tracker, &key(11)));
     assert!(tracker.pending_unlocks().is_some());
 }
 
@@ -711,12 +716,16 @@ async fn redelivery_failure_fails_the_wait_and_unlocks() {
     assert!(h.polls.lock().unwrap().is_empty());
 
     let tracker = h.tracker.lock().unwrap();
-    assert!(!tracker.is_tracking(&key(11)));
+    assert!(!tracks_request(&tracker, &key(11)));
     let pending = tracker
         .pending_unlocks()
         .expect("the lock is up for unlocking");
     assert_eq!(
-        pending.keys().iter().copied().collect::<Vec<_>>(),
+        pending
+            .lock_ids()
+            .iter()
+            .map(|lock_id| lock_id.request)
+            .collect::<Vec<_>>(),
         vec![key(11)]
     );
 }

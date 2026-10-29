@@ -6,9 +6,9 @@ use waymark_action_effect_reconciler_backend::record_action_call_requests;
 use waymark_action_effect_reconciler_backend::record_action_call_requests::Error as _;
 use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::RenewalStatus;
 use waymark_action_effect_reconciler_backend::{
-    ActionCallRequestKey, ActionCallRequestRecord, LockActionCallRequests as _,
-    RecordActionCallRequests as _, RenewActionCallRequestLocks as _, RequestLock,
-    UnlockActionCallRequests as _,
+    ActionCallRequestKey, ActionCallRequestLockId, ActionCallRequestRecord,
+    LockActionCallRequests as _, RecordActionCallRequests as _, RenewActionCallRequestLocks as _,
+    RequestLock, UnlockActionCallRequests as _,
 };
 use waymark_ids::InstanceId;
 use waymark_vm_runtime_effect::EffectNumber;
@@ -41,9 +41,17 @@ fn key(vm_id: InstanceId, promise: usize) -> ActionCallRequestKey<InstanceId> {
 }
 
 fn live_lock(owner: uuid::Uuid) -> RequestLock<uuid::Uuid, chrono::DateTime<Utc>> {
+    live_lock_with_nonce(owner, 1)
+}
+
+fn live_lock_with_nonce(
+    owner: uuid::Uuid,
+    nonce: u64,
+) -> RequestLock<uuid::Uuid, chrono::DateTime<Utc>> {
     RequestLock {
         owner,
         expires_at: Utc::now() + Duration::minutes(5),
+        nonce,
     }
 }
 
@@ -51,6 +59,18 @@ fn expired_lock(owner: uuid::Uuid) -> RequestLock<uuid::Uuid, chrono::DateTime<U
     RequestLock {
         owner,
         expires_at: Utc::now() - Duration::minutes(5),
+        nonce: 1,
+    }
+}
+
+fn lock_id(
+    vm_id: InstanceId,
+    promise: usize,
+    lock_nonce: u64,
+) -> ActionCallRequestLockId<InstanceId> {
+    ActionCallRequestLockId {
+        request: key(vm_id, promise),
+        nonce: lock_nonce,
     }
 }
 
@@ -92,8 +112,9 @@ async fn record_fresh_then_identical_replay() {
     let statuses = backend
         .renew_action_call_request_locks(
             Utc::now(),
-            live_lock(owner),
-            nev![key(vm, 1), key(vm, 2)].as_nonempty_slice(),
+            &owner,
+            Utc::now() + Duration::minutes(5),
+            nev![lock_id(vm, 1, 1), lock_id(vm, 2, 1)].as_nonempty_slice(),
         )
         .await
         .expect("renew");
@@ -203,7 +224,7 @@ async fn lock_vm_takes_expired_and_reports_foreign() {
     assert_eq!(outcomes[0].locked.len(), 1);
     assert_eq!(outcomes[0].locked[0], record(vm, 1, 10, b"expired-call"));
     assert_eq!(outcomes[0].held_elsewhere, vec![key(vm, 2)]);
-    assert_eq!(outcomes[0].held_by_this_owner, vec![key(vm, 3)]);
+    assert_eq!(outcomes[0].held_by_this_owner, vec![lock_id(vm, 3, 1)]);
 
     assert_eq!(outcomes[1].vm_id, other_vm);
     assert!(outcomes[1].locked.is_empty());
@@ -229,12 +250,29 @@ async fn renew_reports_per_key_status() {
         .record_action_call_requests(Utc::now(), live_lock(other), theirs.as_nonempty_slice())
         .await
         .expect("record theirs");
+    // And one the owner locked again since, under another nonce.
+    let relocked = nev![record(vm, 4, 12, b"relocked")];
+    backend
+        .record_action_call_requests(
+            Utc::now(),
+            live_lock_with_nonce(owner, 2),
+            relocked.as_nonempty_slice(),
+        )
+        .await
+        .expect("record relocked");
 
     let statuses = backend
         .renew_action_call_request_locks(
             Utc::now(),
-            live_lock(owner),
-            nev![key(vm, 1), key(vm, 2), key(vm, 3)].as_nonempty_slice(),
+            &owner,
+            Utc::now() + Duration::minutes(5),
+            nev![
+                lock_id(vm, 1, 1),
+                lock_id(vm, 2, 1),
+                lock_id(vm, 3, 1),
+                lock_id(vm, 4, 1)
+            ]
+            .as_nonempty_slice(),
         )
         .await
         .expect("renew");
@@ -242,13 +280,14 @@ async fn renew_reports_per_key_status() {
     let status_of = |promise: usize| {
         statuses
             .iter()
-            .find(|renewal| renewal.key == key(vm, promise))
+            .find(|renewal| renewal.lock_id.request == key(vm, promise))
             .expect("status present")
             .status
     };
     assert_eq!(status_of(1), RenewalStatus::Renewed);
     assert_eq!(status_of(2), RenewalStatus::HeldElsewhere);
     assert_eq!(status_of(3), RenewalStatus::Missing);
+    assert_eq!(status_of(4), RenewalStatus::Relocked);
 }
 
 /// A completion removing the request row while the renewal statement is
@@ -285,8 +324,9 @@ async fn renew_racing_a_row_removal_reports_missing() {
         renew_backend
             .renew_action_call_request_locks(
                 Utc::now(),
-                live_lock(owner),
-                nev![key(vm, 1)].as_nonempty_slice(),
+                &owner,
+                Utc::now() + Duration::minutes(5),
+                nev![lock_id(vm, 1, 1)].as_nonempty_slice(),
             )
             .await
     });
@@ -318,13 +358,28 @@ async fn unlock_releases_own_locks_only() {
         .record_action_call_requests(Utc::now(), live_lock(other), theirs.as_nonempty_slice())
         .await
         .expect("record theirs");
-
+    // And one the owner locked again since: a fresh nonce on the row.
+    let relocked = nev![record(vm, 3, 12, b"relocked")];
     backend
-        .unlock_action_call_requests(&owner, nev![key(vm, 1), key(vm, 2)].as_nonempty_slice())
+        .record_action_call_requests(
+            Utc::now(),
+            live_lock_with_nonce(owner, 2),
+            relocked.as_nonempty_slice(),
+        )
+        .await
+        .expect("record relocked");
+
+    // The unlock was issued for nonce 1 on all three rows.
+    backend
+        .unlock_action_call_requests(
+            &owner,
+            nev![lock_id(vm, 1, 1), lock_id(vm, 2, 1), lock_id(vm, 3, 1)].as_nonempty_slice(),
+        )
         .await
         .expect("unlock");
 
-    // The unlocked row is immediately deliverable; the foreign one is not.
+    // The unlocked row is immediately deliverable; the foreign one and
+    // the relocked one are not.
     let reviver = uuid::Uuid::new_v4();
     let outcomes = backend
         .lock_action_call_requests(
@@ -336,7 +391,9 @@ async fn unlock_releases_own_locks_only() {
         .expect("lock vm requests");
     assert_eq!(outcomes[0].locked.len(), 1);
     assert_eq!(outcomes[0].locked[0], record(vm, 1, 10, b"mine"));
-    assert_eq!(outcomes[0].held_elsewhere, vec![key(vm, 2)]);
+    let mut held_elsewhere = outcomes[0].held_elsewhere.clone();
+    held_elsewhere.sort_by_key(|key| key.promise_state_id);
+    assert_eq!(held_elsewhere, vec![key(vm, 2), key(vm, 3)]);
     assert!(outcomes[0].held_by_this_owner.is_empty());
 }
 
@@ -369,15 +426,16 @@ async fn recording_a_completion_removes_the_request() {
     let statuses = backend
         .renew_action_call_request_locks(
             Utc::now(),
-            live_lock(owner),
-            nev![key(vm, 1), key(vm, 2)].as_nonempty_slice(),
+            &owner,
+            Utc::now() + Duration::minutes(5),
+            nev![lock_id(vm, 1, 1), lock_id(vm, 2, 1)].as_nonempty_slice(),
         )
         .await
         .expect("renew");
     let status_of = |promise: usize| {
         statuses
             .iter()
-            .find(|renewal| renewal.key == key(vm, promise))
+            .find(|renewal| renewal.lock_id.request == key(vm, promise))
             .expect("status present")
             .status
     };
@@ -415,15 +473,16 @@ async fn snapshot_delete_sweeps_only_the_vms_requests() {
     let statuses = backend
         .renew_action_call_request_locks(
             Utc::now(),
-            live_lock(owner),
-            nev![key(vm_a, 1), key(vm_b, 1)].as_nonempty_slice(),
+            &owner,
+            Utc::now() + Duration::minutes(5),
+            nev![lock_id(vm_a, 1, 1), lock_id(vm_b, 1, 1)].as_nonempty_slice(),
         )
         .await
         .expect("renew");
     let status_of = |vm: InstanceId, promise: usize| {
         statuses
             .iter()
-            .find(|renewal| renewal.key == key(vm, promise))
+            .find(|renewal| renewal.lock_id.request == key(vm, promise))
             .expect("status present")
             .status
     };
@@ -509,14 +568,22 @@ async fn complete_and_renew_across_a_staged_row(completion_order: [usize; 2]) {
     let renewal_task = tokio::spawn(async move {
         let keys: NEVec<_> = renewal_order
             .into_nonempty_iter()
-            .map(|promise| key(vm, promise))
+            .map(|promise| lock_id(vm, promise, 1))
             .collect();
         renewal_backend
-            .renew_action_call_request_locks(Utc::now(), live_lock(owner), keys.as_nonempty_slice())
+            .renew_action_call_request_locks(
+                Utc::now(),
+                &owner,
+                Utc::now() + Duration::minutes(5),
+                keys.as_nonempty_slice(),
+            )
             .await
     });
-    deadlock::wait_until_lock_blocked(backend.pool(), "%WITH input(vm_id, promise_state_id)%")
-        .await;
+    deadlock::wait_until_lock_blocked(
+        backend.pool(),
+        "%WITH input(vm_id, promise_state_id, lock_nonce)%",
+    )
+    .await;
 
     staging.rollback().await.expect("release staged row");
 
@@ -714,10 +781,15 @@ async fn renew_and_sweep_across_a_staged_row(renewal_order: [usize; 2]) {
     let renewal_task = tokio::spawn(async move {
         let keys: NEVec<_> = renewal_order
             .into_nonempty_iter()
-            .map(|promise| key(vm, promise))
+            .map(|promise| lock_id(vm, promise, 1))
             .collect();
         renewal_backend
-            .renew_action_call_request_locks(Utc::now(), live_lock(owner), keys.as_nonempty_slice())
+            .renew_action_call_request_locks(
+                Utc::now(),
+                &owner,
+                Utc::now() + Duration::minutes(5),
+                keys.as_nonempty_slice(),
+            )
             .await
     });
     deadlock::contend_op_with_snapshot_sweep(
@@ -725,7 +797,7 @@ async fn renew_and_sweep_across_a_staged_row(renewal_order: [usize; 2]) {
         staging,
         "renewal",
         renewal_task,
-        "%WITH input(vm_id, promise_state_id)%",
+        "%WITH input(vm_id, promise_state_id, lock_nonce)%",
         vm,
     )
     .await;

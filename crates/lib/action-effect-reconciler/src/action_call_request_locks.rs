@@ -8,14 +8,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use nonempty_collections::{NESlice, NEVec};
-use waymark_action_effect_reconciler_backend::ActionCallRequestKey;
+use waymark_action_effect_reconciler_backend::ActionCallRequestLockId;
 use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::{
     RenewalStatus, RequestLockRenewal,
 };
 
-/// The locks this process holds: the tracked ones, which the renewal
-/// keeps alive, and the ones to unlock, whose requests never went
-/// through.
+/// The locks this process holds, each by its id: the tracked ones, which
+/// the renewal keeps alive, and the ones to unlock, whose requests never
+/// went through.
 ///
 /// A lock is tracked from the moment the lock statement took it
 /// ([`track_lock`](Tracker::track_lock)), under a [`PendingCallRequest`]
@@ -26,12 +26,11 @@ use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::{
 /// owner.
 #[derive(Debug)]
 pub struct Tracker<VmId> {
-    /// Key → fence deadline on the local monotonic clock.
-    tracked: HashMap<ActionCallRequestKey<VmId>, Instant>,
+    /// Lock → fence deadline on the local monotonic clock.
+    tracked: HashMap<ActionCallRequestLockId<VmId>, Instant>,
 
-    /// The requests that never went through, whose locks are to be
-    /// unlocked.
-    unlock_pending: Vec<ActionCallRequestKey<VmId>>,
+    /// The locks of the requests that never went through, to unlock.
+    unlock_pending: Vec<ActionCallRequestLockId<VmId>>,
 }
 
 impl<VmId> Default for Tracker<VmId> {
@@ -54,7 +53,7 @@ impl<VmId> Tracker<VmId>
 where
     VmId: Clone + Eq + std::hash::Hash,
 {
-    /// Track the lock just taken on `key`: it is renewed from here on.
+    /// Track the lock just taken: it is renewed from here on.
     ///
     /// `fence_deadline` is the instant, on the local monotonic clock, past
     /// which the lock can no longer be vouched for: the instant the
@@ -64,82 +63,78 @@ where
     /// unlocked.
     pub fn track_lock(
         this: &Arc<std::sync::Mutex<Self>>,
-        key: ActionCallRequestKey<VmId>,
+        lock_id: ActionCallRequestLockId<VmId>,
         fence_deadline: Instant,
     ) -> PendingCallRequest<VmId> {
-        {
-            let mut tracker = this
-                .lock()
-                .expect("action-call request locks tracker poisoned");
-            // A lock taken again on a key whose earlier lock is still up
-            // for unlocking: that unlock is moot, the row has a fresh lock.
-            tracker.unlock_pending.retain(|pending| *pending != key);
-            tracker.tracked.insert(key.clone(), fence_deadline);
-        }
+        this.lock()
+            .expect("action-call request locks tracker poisoned")
+            .tracked
+            .insert(lock_id.clone(), fence_deadline);
 
         PendingCallRequest {
-            key: Some(key),
+            lock_id: Some(lock_id),
             tracker: Arc::clone(this),
         }
     }
 
-    /// Whether the lock of `key` is tracked: taken by this process and
-    /// kept renewed.
-    pub fn is_tracking(&self, key: &ActionCallRequestKey<VmId>) -> bool {
-        self.tracked.contains_key(key)
+    /// Whether the lock is tracked: taken by this process and kept
+    /// renewed.
+    pub fn is_tracking(&self, lock_id: &ActionCallRequestLockId<VmId>) -> bool {
+        self.tracked.contains_key(lock_id)
     }
 
-    /// The tracked keys, to renew.
-    pub fn tracked_keys(&self) -> Vec<ActionCallRequestKey<VmId>> {
+    /// The tracked locks, to renew.
+    pub fn tracked_lock_ids(&self) -> Vec<ActionCallRequestLockId<VmId>> {
         self.tracked.keys().cloned().collect()
     }
 
-    /// The fence deadline of the lock of `key`, while tracked.
-    pub fn fence_deadline(&self, key: &ActionCallRequestKey<VmId>) -> Option<Instant> {
-        self.tracked.get(key).copied()
+    /// The fence deadline of the lock, while tracked.
+    pub fn fence_deadline(&self, lock_id: &ActionCallRequestLockId<VmId>) -> Option<Instant> {
+        self.tracked.get(lock_id).copied()
     }
 
-    /// The tracked keys whose fence deadline has passed at `now`.
-    pub fn keys_past_fence(&self, now: Instant) -> Vec<ActionCallRequestKey<VmId>> {
+    /// The tracked locks whose fence deadline has passed at `now`.
+    pub fn lock_ids_past_fence(&self, now: Instant) -> Vec<ActionCallRequestLockId<VmId>> {
         self.tracked
             .iter()
             .filter(|(_, fence_deadline)| **fence_deadline <= now)
-            .map(|(key, _)| key.clone())
+            .map(|(lock_id, _)| lock_id.clone())
             .collect()
     }
 
-    /// The requests that never went through, as the first phase of their
-    /// unlock; `None` when there are none.
+    /// The locks of the requests that never went through, as the first
+    /// phase of their unlock; `None` when there are none.
     pub fn pending_unlocks(&self) -> Option<PendingUnlocks<VmId>> {
-        let keys = NEVec::try_from_vec(self.unlock_pending.clone())?;
+        let lock_ids = NEVec::try_from_vec(self.unlock_pending.clone())?;
 
-        Some(PendingUnlocks { keys })
+        Some(PendingUnlocks { lock_ids })
     }
 
     /// Apply one renewal status to a tracked lock.
     ///
     /// `now` is the renewal's pre-send instant, the base of the renewed
     /// fence deadline.  A renewal never adds a lock: one dropped while
-    /// the renewal call was in flight stays gone.  A lock held elsewhere
-    /// is left as it is: that is the renewal loop's error, not a state of
-    /// the tracker.
+    /// the renewal call was in flight stays gone.  A lock relocked or held
+    /// elsewhere is left as it is: those are the renewal loop's errors,
+    /// not states of the tracker.
     pub fn apply_renewal(
         &mut self,
         renewal: RequestLockRenewal<VmId>,
         now: Instant,
         time_to_live: Duration,
     ) {
-        let RequestLockRenewal { key, status } = renewal;
+        let RequestLockRenewal { lock_id, status } = renewal;
         match status {
             RenewalStatus::Renewed => {
-                if let Some(fence_deadline) = self.tracked.get_mut(&key) {
+                if let Some(fence_deadline) = self.tracked.get_mut(&lock_id) {
                     *fence_deadline = now + time_to_live;
                 }
             }
             RenewalStatus::Missing => {
-                self.tracked.remove(&key);
+                self.tracked.remove(&lock_id);
             }
-            RenewalStatus::HeldElsewhere | RenewalStatus::Unconfirmed => {}
+            RenewalStatus::Relocked | RenewalStatus::HeldElsewhere | RenewalStatus::Unconfirmed => {
+            }
         }
     }
 }
@@ -148,11 +143,11 @@ impl<VmId> Tracker<VmId>
 where
     VmId: Eq + std::hash::Hash,
 {
-    /// The request of `key` never went through: its lock leaves the
+    /// The request of the lock never went through: the lock leaves the
     /// tracked set and is to be unlocked.
-    fn request_never_went_through(&mut self, key: ActionCallRequestKey<VmId>) {
-        self.tracked.remove(&key);
-        self.unlock_pending.push(key);
+    fn request_never_went_through(&mut self, lock_id: ActionCallRequestLockId<VmId>) {
+        self.tracked.remove(&lock_id);
+        self.unlock_pending.push(lock_id);
     }
 }
 
@@ -167,12 +162,12 @@ where
 #[must_use = "dropping it reports the request as never gone through; call confirm_requested once the call is requested"]
 pub struct PendingCallRequest<VmId>
 where
-    // On the type: `Drop` untracks the key, and a `Drop` impl can carry
+    // On the type: `Drop` untracks the lock, and a `Drop` impl can carry
     // no bounds the type does not.
     VmId: Eq + std::hash::Hash,
 {
     /// Taken by `confirm_requested`; still here when dropped unconfirmed.
-    key: Option<ActionCallRequestKey<VmId>>,
+    lock_id: Option<ActionCallRequestLockId<VmId>>,
 
     tracker: Arc<std::sync::Mutex<Tracker<VmId>>>,
 }
@@ -184,7 +179,7 @@ where
     /// The call was requested: the lock stays tracked.
     pub fn confirm_requested(self) {
         let mut this = self;
-        this.key = None;
+        this.lock_id = None;
     }
 }
 
@@ -196,7 +191,7 @@ where
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter
             .debug_struct("PendingCallRequest")
-            .field("key", &self.key)
+            .field("lock_id", &self.lock_id)
             .finish_non_exhaustive()
     }
 }
@@ -206,7 +201,7 @@ where
     VmId: Eq + std::hash::Hash,
 {
     fn drop(&mut self) {
-        let Some(key) = self.key.take() else {
+        let Some(lock_id) = self.lock_id.take() else {
             return;
         };
 
@@ -215,34 +210,34 @@ where
         let Ok(mut tracker) = self.tracker.lock() else {
             return;
         };
-        tracker.request_never_went_through(key);
+        tracker.request_never_went_through(lock_id);
     }
 }
 
-/// The two-phase unlock of the requests that never went through: the
-/// keys to hand to the backend, then
+/// The two-phase unlock of the locks whose requests never went through:
+/// the locks to hand to the backend, then
 /// [`confirm_unlocked`](PendingUnlocks::confirm_unlocked) once it did.
 /// Dropped instead, the tracker is unchanged and the next heartbeat
-/// finds the same keys pending.
+/// finds the same locks pending.
 #[derive(Debug)]
 pub struct PendingUnlocks<VmId> {
-    keys: NEVec<ActionCallRequestKey<VmId>>,
+    lock_ids: NEVec<ActionCallRequestLockId<VmId>>,
 }
 
 impl<VmId> PendingUnlocks<VmId>
 where
     VmId: Clone + Eq + std::hash::Hash,
 {
-    /// The keys to unlock.
-    pub fn keys(&self) -> NESlice<'_, ActionCallRequestKey<VmId>> {
-        self.keys.as_nonempty_slice()
+    /// The locks to unlock.
+    pub fn lock_ids(&self) -> NESlice<'_, ActionCallRequestLockId<VmId>> {
+        self.lock_ids.as_nonempty_slice()
     }
 
-    /// The backend unlocked the keys: they leave the unlock list.  Keys
+    /// The backend unlocked the locks: they leave the unlock list.  Locks
     /// added to the list since stay.
     pub fn confirm_unlocked(self, tracker: &mut Tracker<VmId>) {
         tracker
             .unlock_pending
-            .retain(|pending| !self.keys.contains(pending));
+            .retain(|pending| !self.lock_ids.contains(pending));
     }
 }

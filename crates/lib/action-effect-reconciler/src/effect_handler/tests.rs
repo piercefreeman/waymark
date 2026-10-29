@@ -12,7 +12,7 @@ use crate::effect_handler::Error;
 use crate::request_batcher::RecordError;
 use crate::test_support::{
     CapturingRequester, FailingRequester, LOCK_OWNER, MockBackend, TestKey, action_ref,
-    shared_tracker, spawn_recorder,
+    shared_tracker, spawn_recorder, tracks_request,
 };
 
 type TestEffectHandler<Requester> = EffectHandler<u64, RmpCodec, Requester>;
@@ -90,7 +90,7 @@ async fn records_born_locked_then_delivers() {
 
     // The requested call's lock is tracked for renewal.
     let tracker = h.tracker.lock().unwrap();
-    assert!(tracker.is_tracking(&key(11)));
+    assert!(tracks_request(&tracker, &key(11)));
     assert!(tracker.pending_unlocks().is_none());
 }
 
@@ -116,7 +116,14 @@ async fn replayed_effect_is_not_delivered_again() {
 
     assert_eq!(h.requester.requests.lock().unwrap().len(), 1);
     let tracker = h.tracker.lock().unwrap();
-    assert_eq!(tracker.tracked_keys(), vec![key(11)]);
+    assert_eq!(
+        tracker
+            .tracked_lock_ids()
+            .iter()
+            .map(|lock_id| lock_id.request)
+            .collect::<Vec<_>>(),
+        vec![key(11)]
+    );
     assert!(tracker.pending_unlocks().is_none());
 }
 
@@ -167,7 +174,7 @@ async fn retries_retryable_record_failures() {
 
     assert_eq!(h.requester.requests.lock().unwrap().len(), 1);
     let tracker = h.tracker.lock().unwrap();
-    assert!(tracker.is_tracking(&key(11)));
+    assert!(tracks_request(&tracker, &key(11)));
     assert!(tracker.pending_unlocks().is_none());
 }
 
@@ -197,7 +204,7 @@ async fn a_recording_that_committed_but_failed_is_left_to_the_recheck() {
     drop(rows);
 
     let tracker = h.tracker.lock().unwrap();
-    assert!(!tracker.is_tracking(&key(11)));
+    assert!(!tracks_request(&tracker, &key(11)));
     assert!(tracker.pending_unlocks().is_none());
 }
 
@@ -237,12 +244,16 @@ async fn delivery_failure_leaves_the_row_recorded_and_up_for_unlocking() {
     // request never went through.
     assert!(backend.rows.lock().unwrap().contains_key(&key(11)));
     let tracker = tracker.lock().unwrap();
-    assert!(!tracker.is_tracking(&key(11)));
+    assert!(!tracks_request(&tracker, &key(11)));
     let pending = tracker
         .pending_unlocks()
         .expect("the lock is up for unlocking");
     assert_eq!(
-        pending.keys().iter().copied().collect::<Vec<_>>(),
+        pending
+            .lock_ids()
+            .iter()
+            .map(|lock_id| lock_id.request)
+            .collect::<Vec<_>>(),
         vec![key(11)]
     );
 }

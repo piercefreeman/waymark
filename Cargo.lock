@@ -3846,6 +3846,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "nonempty-collections",
+ "rand 0.9.3",
  "serde",
  "thiserror",
  "tokio",

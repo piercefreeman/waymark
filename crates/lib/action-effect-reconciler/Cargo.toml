@@ -18,6 +18,7 @@ waymark-vm-runtime-promise-core = { workspace = true }
 
 chrono = { workspace = true, default-features = false, features = ["clock"] }
 nonempty-collections = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync", "time"] }

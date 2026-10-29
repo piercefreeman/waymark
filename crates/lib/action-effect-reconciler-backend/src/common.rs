@@ -56,7 +56,10 @@ pub struct ActionCallRequestKey<VmId> {
     pub promise_state_id: PromiseStateId,
 }
 
-/// A lock to apply to request rows: who holds it and until when.
+/// A lock to take on request rows: who holds it, until when, and which
+/// of the owner's locks it is.  Only the lock-taking statements build
+/// one; renewal and unlock address the locks taken by their
+/// [`ActionCallRequestLockId`].
 ///
 /// The expiry is authoritative in the database; holders self-limit on a
 /// local monotonic countdown and treat a lock they could not renew in
@@ -68,6 +71,23 @@ pub struct RequestLock<LockOwnerId, Timestamp> {
 
     /// When this lock stops being valid unless renewed.
     pub expires_at: Timestamp,
+
+    /// The owner's nonce for this lock: used once per lock-taking
+    /// statement, so a later lock the same owner takes on the same row is
+    /// told apart from this one.  Kept across renewals.
+    pub nonce: u64,
+}
+
+/// The identity of one lock an owner took: which request, and which of
+/// the owner's locks on it.  Every operation on a held lock — renewal,
+/// unlock — addresses this, never the row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ActionCallRequestLockId<VmId> {
+    /// The locked request.
+    pub request: ActionCallRequestKey<VmId>,
+
+    /// The owner's nonce for the lock.
+    pub nonce: u64,
 }
 
 /// Shorthand for a [`RequestLock`] using the associated types of `T`.

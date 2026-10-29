@@ -74,22 +74,17 @@ async fn coalesces_submissions_into_one_statement() {
             }
         }
     }
-    // One pre-send instant per flush attempt: same-batch locks share
-    // their fence deadline.
+    // One pre-send instant and one nonce per flush attempt: same-batch
+    // locks share their fence deadline and their nonce.
     {
         let tracker = tracker.lock().unwrap();
-        let fence_deadlines: Vec<_> = [(1, 10), (2, 20)]
-            .into_iter()
-            .map(|(vm_id, promise)| {
-                tracker
-                    .fence_deadline(&TestKey {
-                        vm_id,
-                        promise_state_id: PromiseStateId(promise),
-                    })
-                    .expect("tracked")
-            })
-            .collect();
-        assert_eq!(fence_deadlines[0], fence_deadlines[1]);
+        let lock_ids = tracker.tracked_lock_ids();
+        assert_eq!(lock_ids.len(), 2);
+        assert_eq!(
+            tracker.fence_deadline(&lock_ids[0]),
+            tracker.fence_deadline(&lock_ids[1])
+        );
+        assert_eq!(lock_ids[0].nonce, lock_ids[1].nonce);
     }
 
     let rows = backend.rows.lock().unwrap();

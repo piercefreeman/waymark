@@ -11,7 +11,7 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 use crate::action_call_request_locks::Tracker;
 use crate::lock_batcher::{LockError, VmLockerHandle, lock_batcher};
 use crate::test_support::{
-    LOCK_OWNER, LOCK_TIME_TO_LIVE, MockBackend, MockRow, TestKey, shared_tracker,
+    LOCK_OWNER, LOCK_TIME_TO_LIVE, MockBackend, MockRow, TestKey, shared_tracker, tracks_request,
 };
 
 /// A locker whose batcher only ever flushes on the size trigger, so a test
@@ -47,6 +47,7 @@ fn seed_unlocked_row(backend: &MockBackend, vm_id: u64, promise: usize) {
             request: b"call".to_vec(),
             locked_by: None,
             lock_expires_at: None,
+            lock_nonce: None,
         },
     );
 }
@@ -91,18 +92,25 @@ async fn each_vm_gets_its_own_outcome_from_one_batch() {
     // The locked row's lock is tracked, its call pending; dropped
     // unconfirmed, the lock leaves the tracked set and is up for
     // unlocking.
-    assert!(tracker.lock().unwrap().is_tracking(&TestKey {
-        vm_id: 1,
-        promise_state_id: PromiseStateId(10),
-    }));
+    assert!(tracks_request(
+        &tracker.lock().unwrap(),
+        &TestKey {
+            vm_id: 1,
+            promise_state_id: PromiseStateId(10),
+        }
+    ));
     drop(seeded);
     let tracker = tracker.lock().unwrap();
-    assert!(tracker.tracked_keys().is_empty());
+    assert!(tracker.tracked_lock_ids().is_empty());
     let pending = tracker
         .pending_unlocks()
         .expect("the dropped pending call request's lock");
     assert_eq!(
-        pending.keys().iter().copied().collect::<Vec<_>>(),
+        pending
+            .lock_ids()
+            .iter()
+            .map(|lock_id| lock_id.request)
+            .collect::<Vec<_>>(),
         vec![TestKey {
             vm_id: 1,
             promise_state_id: PromiseStateId(10),

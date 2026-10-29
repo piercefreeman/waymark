@@ -40,7 +40,7 @@ use chrono::{DateTime, Utc};
 use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
 use waymark_action_effect_reconciler_backend::lock_action_call_requests::VmLockOutcome;
 use waymark_action_effect_reconciler_backend::{
-    ActionCallRequestKey, ActionCallRequestRecord, LockActionCallRequests,
+    ActionCallRequestKey, ActionCallRequestLockId, ActionCallRequestRecord, LockActionCallRequests,
 };
 use waymark_nonzero_duration::NonZeroDuration;
 
@@ -91,8 +91,8 @@ where
     pub held_elsewhere: Vec<ActionCallRequestKey<VmId>>,
 
     /// Rows this process held with a lock unexpired when the lock statement
-    /// ran.
-    pub held_by_this_owner: Vec<ActionCallRequestKey<VmId>>,
+    /// ran, each with the lock it holds.
+    pub held_by_this_owner: Vec<ActionCallRequestLockId<VmId>>,
 }
 
 /// Handle for submitting a VM to the shared lock batcher.
@@ -167,7 +167,10 @@ where
             async move {
                 let taken_at = Instant::now();
                 let now = Utc::now();
-                let lock = fresh_lock(now, &lock_owner_id, lock_time_to_live);
+                // One nonce per statement: the batch takes one lock set,
+                // and a later lock on any of these rows draws its own.
+                let lock_nonce = rand::random::<u64>();
+                let lock = fresh_lock(now, &lock_owner_id, lock_time_to_live, lock_nonce);
                 match backend
                     .lock_action_call_requests(now, lock, batch.as_nonempty_slice())
                     .await
@@ -184,15 +187,18 @@ where
                             let locked = locked
                                 .into_iter()
                                 .map(|record| {
-                                    let key = ActionCallRequestKey {
-                                        vm_id: record.vm_id.clone(),
-                                        promise_state_id: record.promise_state_id,
+                                    let lock_id = ActionCallRequestLockId {
+                                        request: ActionCallRequestKey {
+                                            vm_id: record.vm_id.clone(),
+                                            promise_state_id: record.promise_state_id,
+                                        },
+                                        nonce: lock_nonce,
                                     };
                                     LockedActionCallRequest {
                                         record,
                                         pending_call_request: Tracker::track_lock(
                                             &tracker,
-                                            key,
+                                            lock_id,
                                             taken_at + lock_time_to_live.get(),
                                         ),
                                     }

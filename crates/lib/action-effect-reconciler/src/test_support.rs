@@ -13,7 +13,7 @@ use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::{
     RenewalStatus, RequestLockRenewal,
 };
 use waymark_action_effect_reconciler_backend::{
-    ActionCallRequestKey, ActionCallRequestRecord, RequestLock,
+    ActionCallRequestKey, ActionCallRequestLockId, ActionCallRequestRecord, RequestLock,
 };
 use waymark_action_runtime_core::ActionCallRequest;
 use waymark_action_runtime_metadata::ActionCallCorrelation;
@@ -30,6 +30,7 @@ pub(crate) struct MockRow {
     pub request: Vec<u8>,
     pub locked_by: Option<TestLockOwnerId>,
     pub lock_expires_at: Option<DateTime<Utc>>,
+    pub lock_nonce: Option<u64>,
 }
 
 /// An in-memory durable-requests backend.
@@ -132,6 +133,7 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Mock
                             request: record.request.clone(),
                             locked_by: Some(lock.owner),
                             lock_expires_at: Some(lock.expires_at),
+                            lock_nonce: Some(lock.nonce),
                         },
                     );
                 }
@@ -207,6 +209,7 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for MockBa
                 if eligible {
                     row.locked_by = Some(lock.owner);
                     row.lock_expires_at = Some(lock.expires_at);
+                    row.lock_nonce = Some(lock.nonce);
                     outcome.locked.push(ActionCallRequestRecord {
                         vm_id: key.vm_id,
                         promise_state_id: key.promise_state_id,
@@ -214,7 +217,12 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for MockBa
                         request: row.request.clone(),
                     });
                 } else if row.locked_by == Some(lock.owner) {
-                    outcome.held_by_this_owner.push(*key);
+                    outcome.held_by_this_owner.push(ActionCallRequestLockId {
+                        request: *key,
+                        nonce: row
+                            .lock_nonce
+                            .expect("a locked row carries its lock's nonce"),
+                    });
                 } else {
                     outcome.held_elsewhere.push(*key);
                 }
@@ -235,7 +243,7 @@ impl waymark_action_effect_reconciler_backend::UnlockActionCallRequests for Mock
     async fn unlock_action_call_requests<'a>(
         &'a self,
         owner: &'a TestLockOwnerId,
-        keys: NESlice<'a, TestKey>,
+        lock_ids: NESlice<'a, ActionCallRequestLockId<TestVmId>>,
     ) -> Result<(), MockUnlockError> {
         *self.unlock_calls.lock().unwrap() += 1;
         if *self.fail_unlocks.lock().unwrap() {
@@ -243,13 +251,14 @@ impl waymark_action_effect_reconciler_backend::UnlockActionCallRequests for Mock
         }
 
         let mut rows = self.rows.lock().unwrap();
-        for key in keys.iter() {
-            let Some(row) = rows.get_mut(key) else {
+        for lock_id in lock_ids.iter() {
+            let Some(row) = rows.get_mut(&lock_id.request) else {
                 continue;
             };
-            if row.locked_by == Some(*owner) {
+            if row.locked_by == Some(*owner) && row.lock_nonce == Some(lock_id.nonce) {
                 row.locked_by = None;
                 row.lock_expires_at = None;
+                row.lock_nonce = None;
             }
         }
 
@@ -269,8 +278,9 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for M
         // The mock stores `lock.expires_at` verbatim rather than translating
         // it onto a store clock, so the baseline instant goes unused.
         _now: DateTime<Utc>,
-        lock: TestLock,
-        keys: NESlice<'_, TestKey>,
+        owner: &TestLockOwnerId,
+        expires_at: DateTime<Utc>,
+        lock_ids: NESlice<'_, ActionCallRequestLockId<TestVmId>>,
     ) -> Result<NEVec<RequestLockRenewal<TestVmId>>, Self::Error> {
         *self.renew_calls.lock().unwrap() += 1;
         if *self.fail_renewals.lock().unwrap() {
@@ -285,19 +295,26 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for M
 
         let report_unconfirmed = *self.report_unconfirmed_renewals.lock().unwrap();
         let mut rows = self.rows.lock().unwrap();
-        let renewals = keys
+        let renewals = lock_ids
             .iter()
-            .map(|key| {
-                let status = match rows.get_mut(key) {
+            .map(|lock_id| {
+                let status = match rows.get_mut(&lock_id.request) {
                     None => RenewalStatus::Missing,
                     Some(_) if report_unconfirmed => RenewalStatus::Unconfirmed,
-                    Some(row) if row.locked_by == Some(lock.owner) => {
-                        row.lock_expires_at = Some(lock.expires_at);
-                        RenewalStatus::Renewed
+                    Some(row) if row.locked_by == Some(*owner) => {
+                        if row.lock_nonce == Some(lock_id.nonce) {
+                            row.lock_expires_at = Some(expires_at);
+                            RenewalStatus::Renewed
+                        } else {
+                            RenewalStatus::Relocked
+                        }
                     }
                     Some(_) => RenewalStatus::HeldElsewhere,
                 };
-                RequestLockRenewal { key: *key, status }
+                RequestLockRenewal {
+                    lock_id: *lock_id,
+                    status,
+                }
             })
             .collect();
 
@@ -360,6 +377,25 @@ pub(crate) const LOCK_TIME_TO_LIVE: Duration = Duration::from_secs(60);
 
 /// The lock owner the test batchers take locks as.
 pub(crate) const LOCK_OWNER: TestLockOwnerId = 7;
+
+/// Whether the tracker tracks a lock on the request, whichever lock.
+pub(crate) fn tracks_request(
+    tracker: &crate::action_call_request_locks::Tracker<TestVmId>,
+    key: &TestKey,
+) -> bool {
+    tracker
+        .tracked_lock_ids()
+        .iter()
+        .any(|lock_id| lock_id.request == *key)
+}
+
+/// The id of a lock on the request of `key`, under `nonce`.
+pub(crate) fn lock_id(key: TestKey, nonce: u64) -> ActionCallRequestLockId<TestVmId> {
+    ActionCallRequestLockId {
+        request: key,
+        nonce,
+    }
+}
 
 /// A tracker of action-call request locks, shared the way the bringup
 /// shares it.
@@ -445,6 +481,7 @@ pub(crate) fn seed_row(
             request: encode_payload(arguments),
             locked_by,
             lock_expires_at: locked_by.map(|_| Utc::now() + expires_in),
+            lock_nonce: locked_by.map(|_| 1),
         },
     );
 }

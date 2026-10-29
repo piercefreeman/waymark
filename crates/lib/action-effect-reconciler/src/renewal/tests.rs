@@ -7,7 +7,9 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use crate::action_call_request_locks::Tracker;
 use crate::renewal::{Error, Params, run};
-use crate::test_support::{LOCK_OWNER, MockBackend, MockRow, TestKey, shared_tracker};
+use crate::test_support::{
+    LOCK_OWNER, MockBackend, MockRow, TestKey, lock_id, shared_tracker, tracks_request,
+};
 
 const HEARTBEAT: Duration = Duration::from_millis(5);
 
@@ -18,22 +20,34 @@ fn key(promise: usize) -> TestKey {
     }
 }
 
-/// Track the lock of `key`, taken now with the given time-to-live, its
-/// call requested.
+/// Track the lock of `key`, taken now with the given time-to-live under
+/// nonce 1 (the seeded rows' nonce), its call requested.
 fn track(tracker: &Arc<std::sync::Mutex<Tracker<u64>>>, key: TestKey, time_to_live: Duration) {
-    Tracker::track_lock(tracker, key, Instant::now() + time_to_live).confirm_requested();
+    Tracker::track_lock(tracker, lock_id(key, 1), Instant::now() + time_to_live)
+        .confirm_requested();
 }
 
-/// Track the lock of `key`, taken now, its call never going through.
-fn track_never_requested(tracker: &Arc<std::sync::Mutex<Tracker<u64>>>, key: TestKey) {
+/// Track the lock of `key`, taken now under `nonce`, its call never going
+/// through.
+fn track_never_requested(tracker: &Arc<std::sync::Mutex<Tracker<u64>>>, key: TestKey, nonce: u64) {
     drop(Tracker::track_lock(
         tracker,
-        key,
+        lock_id(key, nonce),
         Instant::now() + Duration::from_secs(60),
     ));
 }
 
+/// Seed a row locked by `locked_by` under nonce 1, about to expire.
 fn seed_locked_row(backend: &MockBackend, key: TestKey, locked_by: u32) {
+    seed_locked_row_with_nonce(backend, key, locked_by, 1);
+}
+
+fn seed_locked_row_with_nonce(
+    backend: &MockBackend,
+    key: TestKey,
+    locked_by: u32,
+    lock_nonce: u64,
+) {
     backend.rows.lock().unwrap().insert(
         key,
         MockRow {
@@ -42,6 +56,7 @@ fn seed_locked_row(backend: &MockBackend, key: TestKey, locked_by: u32) {
             locked_by: Some(locked_by),
             // About to expire: renewal must push this out.
             lock_expires_at: Some(Utc::now()),
+            lock_nonce: Some(lock_nonce),
         },
     );
 }
@@ -109,7 +124,10 @@ async fn renews_and_prunes_missing() {
         let renewed_expiry = rows[&key(1)].lock_expires_at.expect("locked");
         assert!(renewed_expiry > Utc::now() + chrono::Duration::seconds(30));
     }
-    assert_eq!(tracker.lock().unwrap().tracked_keys(), vec![key(1)]);
+    assert_eq!(
+        tracker.lock().unwrap().tracked_lock_ids(),
+        vec![lock_id(key(1), 1)]
+    );
 
     // Simulate the schema trigger: the completion gets recorded, the row
     // vanishes.  The shutdown's last heartbeat then finds every lock gone.
@@ -130,7 +148,7 @@ async fn unlocks_the_requests_that_never_went_through() {
     let backend = Arc::new(MockBackend::default());
     let tracker = shared_tracker();
     seed_locked_row(&backend, key(1), LOCK_OWNER);
-    track_never_requested(&tracker, key(1));
+    track_never_requested(&tracker, key(1), 1);
 
     let (shutdown_tx, shutdown) = shutdown();
     let renewal = tokio::spawn(run(
@@ -150,7 +168,7 @@ async fn unlocks_the_requests_that_never_went_through() {
     {
         let tracker = tracker.lock().unwrap();
         assert!(tracker.pending_unlocks().is_none());
-        assert!(!tracker.is_tracking(&key(1)));
+        assert!(!tracks_request(&tracker, &key(1)));
     }
     assert_eq!(*backend.renew_calls.lock().unwrap(), 0);
 
@@ -162,6 +180,51 @@ async fn unlocks_the_requests_that_never_went_through() {
         .expect("nothing tracked is a peaceful stop");
 }
 
+/// An unlock issued for an earlier lock leaves a fresh lock the same owner
+/// took on the row alone: the nonces differ.
+#[tokio::test]
+async fn an_unlock_for_an_earlier_lock_leaves_a_fresh_lock_alone() {
+    let backend = Arc::new(MockBackend::default());
+    let tracker = shared_tracker();
+    // The row carries the fresh lock (nonce 2); the request under nonce 1
+    // never went through.
+    seed_locked_row_with_nonce(&backend, key(1), LOCK_OWNER, 2);
+    track_never_requested(&tracker, key(1), 1);
+    Tracker::track_lock(
+        &tracker,
+        lock_id(key(1), 2),
+        Instant::now() + Duration::from_secs(60),
+    )
+    .confirm_requested();
+
+    let (shutdown_tx, shutdown) = shutdown();
+    let renewal = tokio::spawn(run(
+        params(&backend, Duration::from_secs(60), &tracker),
+        shutdown,
+    ));
+
+    while *backend.unlock_calls.lock().unwrap() == 0 {
+        tokio::time::sleep(HEARTBEAT).await;
+    }
+    tokio::time::sleep(HEARTBEAT).await;
+
+    // The unlock went through (nothing pending) without touching the row.
+    assert!(tracker.lock().unwrap().pending_unlocks().is_none());
+    assert_eq!(
+        backend.rows.lock().unwrap()[&key(1)].locked_by,
+        Some(LOCK_OWNER)
+    );
+    assert!(tracks_request(&tracker.lock().unwrap(), &key(1)));
+
+    backend.rows.lock().unwrap().remove(&key(1));
+    shutdown_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), renewal)
+        .await
+        .expect("renewal loop stops on the shutdown future")
+        .expect("renewal loop task")
+        .expect("every lock was accounted for by the last heartbeat");
+}
+
 /// A failed unlock call leaves the keys pending; the next heartbeat
 /// retries.
 #[tokio::test]
@@ -170,7 +233,7 @@ async fn unlock_failures_are_retried_at_the_next_heartbeat() {
     let tracker = shared_tracker();
     seed_locked_row(&backend, key(1), LOCK_OWNER);
     *backend.fail_unlocks.lock().unwrap() = true;
-    track_never_requested(&tracker, key(1));
+    track_never_requested(&tracker, key(1), 1);
 
     let (shutdown_tx, shutdown) = shutdown();
     let renewal = tokio::spawn(run(
@@ -226,7 +289,12 @@ async fn unrenewable_locks_breach_the_fence() {
     let Err(Error::FenceBreached(keys)) = outcome else {
         panic!("expected a fence breach, got {outcome:?}");
     };
-    assert_eq!(keys.into_iter().collect::<Vec<_>>(), vec![key(1)]);
+    assert_eq!(
+        keys.into_iter()
+            .map(|lock_id| lock_id.request)
+            .collect::<Vec<_>>(),
+        vec![key(1)]
+    );
 }
 
 #[tokio::test]
@@ -249,7 +317,41 @@ async fn locks_taken_by_another_owner_breach_the_fence() {
     let Err(Error::HeldElsewhere(keys)) = outcome else {
         panic!("expected a held-elsewhere breach, got {outcome:?}");
     };
-    assert_eq!(keys.into_iter().collect::<Vec<_>>(), vec![key(1)]);
+    assert_eq!(
+        keys.into_iter()
+            .map(|lock_id| lock_id.request)
+            .collect::<Vec<_>>(),
+        vec![key(1)]
+    );
+}
+
+/// A row holding another lock of this process than the one tracked is a
+/// breach of its own kind: the tracked lock's attempt runs unauthorized,
+/// and the fence should have stopped it first.
+#[tokio::test]
+async fn a_relocked_row_breaches_the_fence() {
+    let backend = Arc::new(MockBackend::default());
+    let tracker = shared_tracker();
+    seed_locked_row_with_nonce(&backend, key(1), LOCK_OWNER, 2);
+    track(&tracker, key(1), Duration::from_secs(60));
+
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(5),
+        run(
+            params(&backend, Duration::from_secs(60), &tracker),
+            std::future::pending(),
+        ),
+    )
+    .await
+    .expect("the first renewal pass must report the relock");
+
+    let Err(Error::Relocked(lock_ids)) = outcome else {
+        panic!("expected a relocked breach, got {outcome:?}");
+    };
+    assert_eq!(
+        lock_ids.into_iter().collect::<Vec<_>>(),
+        vec![lock_id(key(1), 1)]
+    );
 }
 
 /// Unconfirmed renewals keep the lock tracked with its existing fence
@@ -273,7 +375,7 @@ async fn unconfirmed_renewals_are_retried_within_the_fence() {
     while *backend.renew_calls.lock().unwrap() < 3 {
         tokio::time::sleep(HEARTBEAT).await;
     }
-    assert!(tracker.lock().unwrap().is_tracking(&key(1)));
+    assert!(tracks_request(&tracker.lock().unwrap(), &key(1)));
 
     // Recovery: a confirmed renewal pushes the expiry out.
     *backend.report_unconfirmed_renewals.lock().unwrap() = false;
@@ -457,7 +559,12 @@ async fn shutdown_with_locks_still_held_abandons_them() {
     let Err(Error::Abandoned(keys)) = outcome else {
         panic!("expected the held lock abandoned, got {outcome:?}");
     };
-    assert_eq!(keys.into_iter().collect::<Vec<_>>(), vec![key(1)]);
+    assert_eq!(
+        keys.into_iter()
+            .map(|lock_id| lock_id.request)
+            .collect::<Vec<_>>(),
+        vec![key(1)]
+    );
 }
 
 /// The last heartbeat's renewal call failing names every tracked lock as
@@ -493,7 +600,12 @@ async fn shutdown_with_the_last_renewal_failing_abandons_every_tracked_lock() {
     let Err(Error::Abandoned(keys)) = outcome else {
         panic!("expected the lock abandoned, got {outcome:?}");
     };
-    assert_eq!(keys.into_iter().collect::<Vec<_>>(), vec![key(1)]);
+    assert_eq!(
+        keys.into_iter()
+            .map(|lock_id| lock_id.request)
+            .collect::<Vec<_>>(),
+        vec![key(1)]
+    );
     assert!(
         *backend.renew_calls.lock().unwrap() > calls_before_shutdown,
         "the last heartbeat was attempted"
@@ -535,7 +647,12 @@ async fn shutdown_reports_a_lock_the_last_heartbeat_finds_taken_elsewhere() {
     let Err(Error::HeldElsewhere(keys)) = outcome else {
         panic!("expected a held-elsewhere breach, got {outcome:?}");
     };
-    assert_eq!(keys.into_iter().collect::<Vec<_>>(), vec![key(1)]);
+    assert_eq!(
+        keys.into_iter()
+            .map(|lock_id| lock_id.request)
+            .collect::<Vec<_>>(),
+        vec![key(1)]
+    );
     assert_eq!(
         *backend.renew_calls.lock().unwrap(),
         2,

@@ -228,7 +228,7 @@ where
                 .expect("action-call request locks tracker poisoned");
             held_by_this_owner
                 .iter()
-                .filter(|key| !tracker.is_tracking(key))
+                .filter(|lock_id| !tracker.is_tracking(lock_id))
                 .count()
         };
         self.adoption = if held_elsewhere.is_empty() && untracked_here == 0 {

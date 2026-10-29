@@ -4,8 +4,8 @@
 use nonempty_collections::{NESlice, NEVec};
 
 use super::common::{
-    ActionCallRequestKey, ActionCallRequestRecord, HasLockOwnerId, HasTimestamp, HasVmId,
-    RequestLockFor,
+    ActionCallRequestKey, ActionCallRequestLockId, ActionCallRequestRecord, HasLockOwnerId,
+    HasTimestamp, HasVmId, RequestLockFor,
 };
 
 /// Backend capability for locking VMs' pending requests for delivery, in a
@@ -53,6 +53,6 @@ pub struct VmLockOutcome<VmId> {
     pub held_elsewhere: Vec<ActionCallRequestKey<VmId>>,
 
     /// Rows the caller held with a lock unexpired when the lock statement
-    /// ran — left alone.
-    pub held_by_this_owner: Vec<ActionCallRequestKey<VmId>>,
+    /// ran — left alone; each with the lock it holds.
+    pub held_by_this_owner: Vec<ActionCallRequestLockId<VmId>>,
 }
