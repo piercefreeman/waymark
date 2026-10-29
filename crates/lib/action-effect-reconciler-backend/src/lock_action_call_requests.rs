@@ -1,4 +1,5 @@
-//! Per-VM request locking trait — the database half of revival reconcile.
+//! Per-VM request locking trait — relocks a VM's lapsed requests for
+//! delivery.
 
 use nonempty_collections::{NESlice, NEVec};
 
@@ -21,9 +22,10 @@ pub trait LockActionCallRequests: HasVmId + HasLockOwnerId + HasTimestamp {
     /// `lock.expires_at` was computed against: the taken lock's expiry
     /// is stored as the store's now plus `expires_at - now` — a
     /// difference of two caller-clock values, so no cross-node clock
-    /// agreement is needed.  Rows locked by another owner and unexpired
-    /// are left untouched and reported via
-    /// [`VmLockOutcome::held_elsewhere`] — an attempt is presumed running
+    /// agreement is needed.  Every other row of the VM is left untouched
+    /// and reported: one the caller itself held, unexpired when the lock
+    /// statement ran, via [`VmLockOutcome::held_by_this_owner`], any other
+    /// via [`VmLockOutcome::held_elsewhere`] — an attempt is presumed running
     /// in that owner's pool.
     ///
     /// The caller must deliver exactly the returned
@@ -46,6 +48,11 @@ pub struct VmLockOutcome<VmId> {
     /// Rows now locked by the caller — deliver these calls.
     pub locked: Vec<ActionCallRequestRecord<VmId>>,
 
-    /// Rows held by another owner with an unexpired lock — left alone.
+    /// Rows not locked by this call and not held by the caller — left
+    /// alone.
     pub held_elsewhere: Vec<ActionCallRequestKey<VmId>>,
+
+    /// Rows the caller held with a lock unexpired when the lock statement
+    /// ran — left alone.
+    pub held_by_this_owner: Vec<ActionCallRequestKey<VmId>>,
 }

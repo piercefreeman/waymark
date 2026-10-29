@@ -1,8 +1,8 @@
 //! Postgres backend for durably-stored action-call requests.
 //!
 //! Implements the `waymark_action_effect_reconciler_backend` traits:
-//! requests are recorded born-locked at effect emission, locked for
-//! delivery at VM revival reconcile, kept alive by lock renewal, unlocked
+//! requests are recorded born-locked at effect emission, relocked for
+//! delivery once their locks lapsed, kept alive by lock renewal, unlocked
 //! at graceful shutdown.  Rows of a deleted VM are swept by the
 //! snapshot-deletion cleanup trigger, so there is no purge operation
 //! here.
@@ -279,11 +279,16 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
             &self.query_counts,
             "select:action_call_requests_held_elsewhere",
         );
+        // Every row of the VMs, with whether this owner holds it; the rows
+        // this call just locked are subtracted below.  A row unlocked
+        // since the lock statement reads as held elsewhere, the bucket
+        // that keeps the caller watching.
         let held_rows = sqlx::query(
             r#"
-            SELECT vm_id, promise_state_id
+            SELECT vm_id, promise_state_id,
+                   locked_by IS NOT DISTINCT FROM $2 AS held_by_this_owner
             FROM action_call_requests
-            WHERE vm_id = ANY($1) AND locked_by IS DISTINCT FROM $2
+            WHERE vm_id = ANY($1)
             "#,
         )
         .bind(vm_ids.as_ref())
@@ -303,6 +308,7 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
                 vm_id: *vm_id,
                 locked: Vec::new(),
                 held_elsewhere: Vec::new(),
+                held_by_this_owner: Vec::new(),
             })
             .collect();
         let index_of: std::collections::HashMap<InstanceId, usize> = vm_ids
@@ -311,8 +317,14 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
             .map(|(index, vm_id)| (*vm_id, index))
             .collect();
 
+        let mut locked_keys: std::collections::HashSet<ActionCallRequestKey<InstanceId>> =
+            std::collections::HashSet::new();
         for row in &locked_rows {
             let record = record_from_row(row).map_err(Self::Error::OutOfRange)?;
+            locked_keys.insert(ActionCallRequestKey {
+                vm_id: record.vm_id,
+                promise_state_id: record.promise_state_id,
+            });
             let index = *index_of
                 .get(&record.vm_id)
                 .expect("every returned row belongs to an input vm");
@@ -322,16 +334,25 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
         for row in &held_rows {
             let vm_id: InstanceId = row.get("vm_id");
             let promise_state_id: i64 = row.get("promise_state_id");
+            let held_by_this_owner: bool = row.get("held_by_this_owner");
             let key = ActionCallRequestKey {
                 vm_id,
                 promise_state_id: PromiseStateId(
                     usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
                 ),
             };
+            if locked_keys.contains(&key) {
+                continue;
+            }
+
             let index = *index_of
                 .get(&vm_id)
                 .expect("every returned row belongs to an input vm");
-            outcomes[index].held_elsewhere.push(key);
+            if held_by_this_owner {
+                outcomes[index].held_by_this_owner.push(key);
+            } else {
+                outcomes[index].held_elsewhere.push(key);
+            }
         }
 
         Ok(outcomes)

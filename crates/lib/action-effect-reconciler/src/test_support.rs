@@ -174,6 +174,7 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for MockBa
                 vm_id: *vm_id,
                 locked: Vec::new(),
                 held_elsewhere: Vec::new(),
+                held_by_this_owner: Vec::new(),
             })
             .collect();
         for outcome in &mut outcomes {
@@ -195,6 +196,8 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for MockBa
                         effect_number: row.effect_number,
                         request: row.request.clone(),
                     });
+                } else if row.locked_by == Some(lock.owner) {
+                    outcome.held_by_this_owner.push(*key);
                 } else {
                     outcome.held_elsewhere.push(*key);
                 }

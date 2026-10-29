@@ -178,6 +178,12 @@ async fn lock_vm_takes_expired_and_reports_foreign() {
         .record_action_call_requests(Utc::now(), live_lock(live_owner), live.as_nonempty_slice())
         .await
         .expect("record live-locked");
+    // And one the reviver itself already holds live.
+    let own = nev![record(vm, 3, 12, b"own-call")];
+    backend
+        .record_action_call_requests(Utc::now(), live_lock(reviver), own.as_nonempty_slice())
+        .await
+        .expect("record own-locked");
 
     // One batch spanning the seeded VM and an empty one: per-input-aligned
     // outcomes, with the empty VM keeping its (no-op) entry.
@@ -197,10 +203,12 @@ async fn lock_vm_takes_expired_and_reports_foreign() {
     assert_eq!(outcomes[0].locked.len(), 1);
     assert_eq!(outcomes[0].locked[0], record(vm, 1, 10, b"expired-call"));
     assert_eq!(outcomes[0].held_elsewhere, vec![key(vm, 2)]);
+    assert_eq!(outcomes[0].held_by_this_owner, vec![key(vm, 3)]);
 
     assert_eq!(outcomes[1].vm_id, other_vm);
     assert!(outcomes[1].locked.is_empty());
     assert!(outcomes[1].held_elsewhere.is_empty());
+    assert!(outcomes[1].held_by_this_owner.is_empty());
 }
 
 #[serial(postgres)]
@@ -329,6 +337,7 @@ async fn unlock_releases_own_locks_only() {
     assert_eq!(outcomes[0].locked.len(), 1);
     assert_eq!(outcomes[0].locked[0], record(vm, 1, 10, b"mine"));
     assert_eq!(outcomes[0].held_elsewhere, vec![key(vm, 2)]);
+    assert!(outcomes[0].held_by_this_owner.is_empty());
 }
 
 #[serial(postgres)]
