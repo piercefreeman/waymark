@@ -3846,6 +3846,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "nonempty-collections",
+ "rand 0.9.3",
  "serde",
  "thiserror",
  "tokio",
@@ -3857,9 +3858,9 @@ dependencies = [
  "waymark-batcher",
  "waymark-extcall-reconciler-core",
  "waymark-nonzero-duration",
- "waymark-state-manager-core",
  "waymark-vm-codec-core",
  "waymark-vm-codec-rmp",
+ "waymark-vm-driver-core",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
 ]

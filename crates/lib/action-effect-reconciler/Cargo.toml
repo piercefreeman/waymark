@@ -12,13 +12,13 @@ waymark-action-runtime-metadata = { workspace = true }
 waymark-batcher = { workspace = true }
 waymark-extcall-reconciler-core = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
-waymark-state-manager-core = { workspace = true }
 waymark-vm-codec-core = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
 chrono = { workspace = true, default-features = false, features = ["clock"] }
 nonempty-collections = { workspace = true }
+rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync", "time"] }
@@ -26,6 +26,7 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 waymark-vm-codec-rmp = { workspace = true }
+waymark-vm-driver-core = { workspace = true }
 
 tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util", "time"] }
 

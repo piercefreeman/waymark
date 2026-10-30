@@ -1,10 +1,11 @@
-//! Per-VM request locking trait — the database half of revival reconcile.
+//! Per-VM request locking trait — relocks a VM's lapsed requests for
+//! delivery.
 
 use nonempty_collections::{NESlice, NEVec};
 
 use super::common::{
-    ActionCallRequestKey, ActionCallRequestRecord, HasLockOwnerId, HasTimestamp, HasVmId,
-    RequestLockFor,
+    ActionCallRequestKey, ActionCallRequestLockFor, ActionCallRequestLockId,
+    ActionCallRequestRecord, HasLockOwnerId, HasTimestamp, HasVmId,
 };
 
 /// Backend capability for locking VMs' pending requests for delivery, in a
@@ -21,31 +22,42 @@ pub trait LockActionCallRequests: HasVmId + HasLockOwnerId + HasTimestamp {
     /// `lock.expires_at` was computed against: the taken lock's expiry
     /// is stored as the store's now plus `expires_at - now` — a
     /// difference of two caller-clock values, so no cross-node clock
-    /// agreement is needed.  Rows locked by another owner and unexpired
-    /// are left untouched and reported via
-    /// [`VmLockOutcome::held_elsewhere`] — an attempt is presumed running
-    /// in that owner's pool.
+    /// agreement is needed.  Every other row of the VM is left untouched
+    /// and reported: one the caller itself held, unexpired when the lock
+    /// statement ran, via
+    /// [`PerVmActionCallRequestLockingOutcome::held_by_this_owner`], any
+    /// other via [`PerVmActionCallRequestLockingOutcome::held_elsewhere`]
+    /// — an attempt is presumed running in that owner's pool.
     ///
     /// The caller must deliver exactly the returned
-    /// [`VmLockOutcome::locked`] rows to its local worker pool.  A VM with
-    /// no request rows yields an empty outcome — a no-op.
+    /// [`PerVmActionCallRequestLockingOutcome::locked`] rows to its local
+    /// worker pool.  A VM with no request rows yields an empty outcome — a
+    /// no-op.
     fn lock_action_call_requests<'a>(
         &'a self,
         now: Self::Timestamp,
-        lock: RequestLockFor<Self>,
+        lock: ActionCallRequestLockFor<Self>,
         vm_ids: NESlice<'a, Self::VmId>,
-    ) -> impl Future<Output = Result<NEVec<VmLockOutcome<Self::VmId>>, Self::Error>> + Send + 'a;
+    ) -> impl Future<
+        Output = Result<NEVec<PerVmActionCallRequestLockingOutcome<Self::VmId>>, Self::Error>,
+    > + Send
+    + 'a;
 }
 
 /// The outcome of locking one VM's pending requests.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VmLockOutcome<VmId> {
+pub struct PerVmActionCallRequestLockingOutcome<VmId> {
     /// The VM this outcome is for.
     pub vm_id: VmId,
 
     /// Rows now locked by the caller — deliver these calls.
     pub locked: Vec<ActionCallRequestRecord<VmId>>,
 
-    /// Rows held by another owner with an unexpired lock — left alone.
+    /// Rows not locked by this call and not held by the caller — left
+    /// alone.
     pub held_elsewhere: Vec<ActionCallRequestKey<VmId>>,
+
+    /// Rows the caller held with a lock unexpired when the lock statement
+    /// ran — left alone; each with the lock it holds.
+    pub held_by_this_owner: Vec<ActionCallRequestLockId<VmId>>,
 }

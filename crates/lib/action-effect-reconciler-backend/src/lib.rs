@@ -2,10 +2,11 @@
 //!
 //! Defines the contract that a database backend must fulfill to support
 //! durable handling of action-call effects: a request row is recorded
-//! (born locked) when the VM emits the effect, locked/relocked for
-//! delivery at VM revival reconcile, kept alive by lock renewal while the
-//! attempt runs in the owner's local worker pool, and unlocked at graceful
-//! shutdown if its call was never delivered.
+//! (born locked) when the VM emits the effect, relocked for delivery by
+//! the process hosting the VM once its lock lapsed, kept alive by lock
+//! renewal while the attempt runs in the owner's local worker pool, and
+//! unlocked by the renewal heartbeat if its call never went through — or
+//! left to lapse if the statement that took its lock reported failure.
 //!
 //! # The removal invariant
 //!

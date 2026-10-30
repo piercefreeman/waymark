@@ -27,7 +27,10 @@ pub struct Config<NodeId> {
     /// renewed.
     pub action_effect_reconciler_lock_ttl: NonZeroDuration,
 
-    /// How often to renew the held action-call request locks.
+    /// How often to renew the held action-call request locks; also how
+    /// often a waiting VM checks for action-call requests not tracked
+    /// here, and how soon the lock of a request that never went through
+    /// is unlocked.
     pub action_effect_reconciler_lock_heartbeat: NonZeroDuration,
 
     /// How many VMs can be pinned concurrently.
@@ -71,12 +74,12 @@ pub struct Config<NodeId> {
     /// upsert is flushed.
     pub workflow_completion_batch_delay: NonZeroDuration,
 
-    /// Maximum number of revival-reconcile lock statements coalesced into
-    /// one batched statement pair.
+    /// Maximum number of action-call request lock statements coalesced
+    /// into one batched statement pair.
     pub action_effect_reconciler_lock_batch_max: NonZeroUsize,
 
-    /// Longest a revival reconcile waits to be batched before its lock
-    /// statement is flushed.
+    /// Longest an action-call request lock statement waits to be batched
+    /// before it is flushed.
     pub action_effect_reconciler_lock_batch_delay: NonZeroDuration,
 
     /// How long the durable-sleeps demand poller waits between polls
@@ -108,8 +111,8 @@ pub struct ObservabilityEvents {
 
 /// Start the execution subsystem.
 ///
-/// Assembles the VM runtime state (spawning factory, effectors, and the
-/// durable action-call request reconcile), and spawns every run loop: the
+/// Assembles the VM runtime state (spawning factory and effectors), and
+/// spawns every run loop: the
 /// workload-pinning manager, the execution driver, the state sweepers, the
 /// durable action-call completions pipeline, the durable sleeps pipeline,
 /// and the action-call request lock renewal heartbeat.
@@ -209,6 +212,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
     Backend: waymark_action_effect_reconciler_backend::RecordActionCallRequests,
     Backend: waymark_action_effect_reconciler_backend::LockActionCallRequests,
     Backend: waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks,
+    Backend: waymark_action_effect_reconciler_backend::UnlockActionCallRequests,
     Backend: waymark_action_effect_reconciler_backend::HasVmId<VmId = waymark_ids::InstanceId>,
     Backend:
         waymark_action_effect_reconciler_backend::HasLockOwnerId<LockOwnerId = Backend::NodeId>,
@@ -370,24 +374,31 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
     // or the stop is forced, no attempt that holds a lock is waited for, so
     // the locks still held can lapse. See the FIXME(#725) at the renewal's
     // shutdown arm.
-    let (held_locks_tx, held_locks_rx) = tokio::sync::mpsc::unbounded_channel();
-    let renewal_params = waymark_action_effect_reconciler::renewal::Params {
-        backend: Arc::clone(&backend),
-        lock_owner_id: node_id.clone(),
-        lock_time_to_live: action_effect_reconciler_lock_ttl,
-        heartbeat: action_effect_reconciler_lock_heartbeat,
-        held_locks_rx,
-    };
+    let action_call_request_locks_tracker = Arc::new(std::sync::Mutex::new(
+        waymark_action_effect_reconciler::action_call_request::locks::Tracker::new(),
+    ));
+    let renewal_params =
+        waymark_action_effect_reconciler::action_call_request::lock_renewal::Params {
+            backend: Arc::clone(&backend),
+            lock_owner_id: node_id.clone(),
+            lock_time_to_live: action_effect_reconciler_lock_ttl,
+            heartbeat: action_effect_reconciler_lock_heartbeat,
+            action_call_request_locks_tracker: Arc::clone(&action_call_request_locks_tracker),
+        };
     spawner.spawn(
         "action effect reconciler lock renewal",
-        waymark_action_effect_reconciler::renewal::run(renewal_params, worker_pool_stopped),
+        waymark_action_effect_reconciler::action_call_request::lock_renewal::run(
+            renewal_params,
+            worker_pool_stopped,
+        ),
     );
 
     let (request_recorder, action_effect_reconciler_request_batcher_loop) =
-        waymark_action_effect_reconciler::request_batcher(
+        waymark_action_effect_reconciler::action_call_request::batcher::run(
             Arc::clone(&backend),
             node_id.clone(),
             action_effect_reconciler_lock_ttl,
+            Arc::clone(&action_call_request_locks_tracker),
             waymark_batcher::Policy {
                 max_batch: action_effect_reconciler_request_batch_max,
                 max_delay: action_effect_reconciler_request_batch_delay,
@@ -397,6 +408,26 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
     spawner.spawn(
         "action effect reconciler request batcher",
         action_effect_reconciler_request_batcher_loop,
+    );
+
+    // Pending request rows whose locks lapsed are relocked and their calls
+    // redelivered to the local pool: a resident VM owns the liveness of
+    // its action-call requests, whoever issued them.
+    let (action_call_request_locker, action_effect_reconciler_lock_batcher_loop) =
+        waymark_action_effect_reconciler::action_call_request::lock_batcher::run(
+            Arc::clone(&backend),
+            node_id.clone(),
+            action_effect_reconciler_lock_ttl,
+            Arc::clone(&action_call_request_locks_tracker),
+            waymark_batcher::Policy {
+                max_batch: action_effect_reconciler_lock_batch_max,
+                max_delay: action_effect_reconciler_lock_batch_delay,
+            },
+            force_shutdown_token.child_token().cancelled_owned(),
+        );
+    spawner.spawn(
+        "action effect reconciler lock batcher",
+        action_effect_reconciler_lock_batcher_loop,
     );
 
     let (outcome_recorder, workflow_completion_batcher_loop) =
@@ -421,29 +452,45 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
         let sleep_registrar = sleep_registrar.clone();
         let request_recorder = request_recorder.clone();
         let outcome_recorder = outcome_recorder.clone();
-        let held_locks_tx = held_locks_tx.clone();
+        let action_call_request_locks_tracker = Arc::clone(&action_call_request_locks_tracker);
+        let action_call_request_locker = action_call_request_locker.clone();
         move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
-            let action_call_requester =
-                waymark_action_runtime_worker_pool::WorkerPoolActionRequester::<
-                    _,
-                    _,
-                    waymark_vm_value_python::ReadyValue,
-                    waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
-                >::new(worker_pool_requests.clone());
-            let action_call_requester =
+            let action_call_requester = || {
+                let action_call_requester =
+                    waymark_action_runtime_worker_pool::WorkerPoolActionRequester::<
+                        _,
+                        _,
+                        waymark_vm_value_python::ReadyValue,
+                        waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
+                    >::new(worker_pool_requests.clone());
                 waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester {
                     vm_id: *vm_id,
                     action_call_requester,
-                };
+                }
+            };
 
+            let (action_call_request_recheck_tx, action_call_request_recheck_rx) =
+                waymark_action_effect_reconciler::adopting_action_settler::recheck::new();
             let action_handler = waymark_action_effect_reconciler::EffectHandler {
                 recorder: request_recorder.clone(),
                 codec: Arc::clone(&codec),
-                held_locks_tx: held_locks_tx.clone(),
+                action_call_request_locks_tracker: Arc::clone(&action_call_request_locks_tracker),
                 vm_id: *vm_id,
-                requester: action_call_requester,
+                requester: action_call_requester(),
+                recheck: action_call_request_recheck_tx,
             };
-            let action_settler = registrar.subscribe(*vm_id);
+            let action_settler = waymark_action_effect_reconciler::AdoptingActionSettler {
+                inner: registrar.subscribe(*vm_id),
+                adopter: waymark_action_effect_reconciler::adopting_action_settler::Adopter::new(
+                    *vm_id,
+                    action_call_request_locker.clone(),
+                    Arc::clone(&codec),
+                    action_call_requester(),
+                    Arc::clone(&action_call_request_locks_tracker),
+                    action_call_request_recheck_rx,
+                    action_effect_reconciler_lock_heartbeat,
+                ),
+            };
 
             let sleep_handler = waymark_sleep_reconciler::EffectHandler {
                 backend: Arc::clone(&backend),
@@ -526,45 +573,6 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
         hooks_provider,
         snapshot_batcher,
     );
-
-    // Reconcile-before-produce: at VM revival, pending request rows whose
-    // locks lapsed are relocked and their calls redelivered to the local
-    // pool, before the VM exists.
-    let (vm_locker, action_effect_reconciler_lock_batcher_loop) =
-        waymark_action_effect_reconciler::lock_batcher(
-            Arc::clone(&backend),
-            node_id.clone(),
-            action_effect_reconciler_lock_ttl,
-            waymark_batcher::Policy {
-                max_batch: action_effect_reconciler_lock_batch_max,
-                max_delay: action_effect_reconciler_lock_batch_delay,
-            },
-            force_shutdown_token.child_token().cancelled_owned(),
-        );
-    spawner.spawn(
-        "action effect reconciler lock batcher",
-        action_effect_reconciler_lock_batcher_loop,
-    );
-
-    let vm_runtimes_factory = waymark_action_effect_reconciler::ReconcilingFactory {
-        inner: vm_runtimes_factory,
-        locker: vm_locker,
-        codec: Arc::clone(&codec),
-        held_locks_tx: held_locks_tx.clone(),
-        requester_provider: move |vm_id: &waymark_ids::InstanceId| {
-            let action_call_requester =
-                waymark_action_runtime_worker_pool::WorkerPoolActionRequester::<
-                    _,
-                    _,
-                    waymark_vm_value_python::ReadyValue,
-                    waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
-                >::new(worker_pool_requests.clone());
-            waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester {
-                vm_id: *vm_id,
-                action_call_requester,
-            }
-        },
-    };
 
     let (vm_runtimes_state, vm_runtimes_sweeper) =
         waymark_state_manager::State::new(vm_retention, vm_runtimes_factory);

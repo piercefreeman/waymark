@@ -1,11 +1,12 @@
 //! Postgres backend for durably-stored action-call requests.
 //!
 //! Implements the `waymark_action_effect_reconciler_backend` traits:
-//! requests are recorded born-locked at effect emission, locked for
-//! delivery at VM revival reconcile, kept alive by lock renewal, unlocked
-//! at graceful shutdown.  Rows of a deleted VM are swept by the
-//! snapshot-deletion cleanup trigger, so there is no purge operation
-//! here.
+//! requests are recorded born-locked at effect emission, relocked for
+//! delivery once their locks lapsed, kept alive by lock renewal, unlocked
+//! by the renewal heartbeat when their calls never went through (or left
+//! to lapse when the statement that took their locks reported failure).
+//! Rows of a deleted VM are swept by the snapshot-deletion cleanup
+//! trigger, so there is no purge operation here.
 //! Removal happens in the schema itself: the trigger installed by
 //! migration `0017` deletes a request row the moment its completion is
 //! recorded.
@@ -22,11 +23,11 @@ use nonempty_collections::{NESlice, NEVec, NonEmptyIterator as _};
 use sqlx::Row;
 use waymark_action_effect_reconciler_backend::record_action_call_requests;
 use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::{
-    RenewalStatus, RequestLockRenewal,
+    ActionCallRequestLockRenewal, ActionCallRequestLockRenewalStatus,
 };
 use waymark_action_effect_reconciler_backend::{
-    ActionCallRequestKey, ActionCallRequestRecord, RequestLock,
-    lock_action_call_requests::VmLockOutcome,
+    ActionCallRequestKey, ActionCallRequestLock, ActionCallRequestLockId, ActionCallRequestRecord,
+    lock_action_call_requests::PerVmActionCallRequestLockingOutcome,
 };
 use waymark_ids::InstanceId;
 use waymark_observability::obs;
@@ -48,24 +49,52 @@ impl waymark_action_effect_reconciler_backend::HasTimestamp for PostgresBackend 
     type Timestamp = DateTime<Utc>;
 }
 
-/// Bind-ready column arrays for a batch of request keys.
-struct KeyColumns {
+/// Bind-ready column arrays for a batch of lock ids.
+struct LockIdColumns {
     vm_ids: Vec<InstanceId>,
     promise_state_ids: Vec<i64>,
+    lock_nonces: Vec<i64>,
 }
 
-fn key_columns<'a>(
-    keys: impl Iterator<Item = &'a ActionCallRequestKey<InstanceId>>,
-) -> Result<KeyColumns, std::num::TryFromIntError> {
+fn lock_id_columns<'a>(
+    lock_ids: impl Iterator<Item = &'a ActionCallRequestLockId<InstanceId>>,
+) -> Result<LockIdColumns, std::num::TryFromIntError> {
     let mut vm_ids = Vec::new();
     let mut promise_state_ids = Vec::new();
-    for key in keys {
-        vm_ids.push(key.vm_id);
-        promise_state_ids.push(i64::try_from(key.promise_state_id.0)?);
+    let mut lock_nonces = Vec::new();
+    for lock_id in lock_ids {
+        vm_ids.push(lock_id.request.vm_id);
+        promise_state_ids.push(i64::try_from(lock_id.request.promise_state_id.0)?);
+        lock_nonces.push(nonce_column(lock_id.nonce));
     }
-    Ok(KeyColumns {
+    Ok(LockIdColumns {
         vm_ids,
         promise_state_ids,
+        lock_nonces,
+    })
+}
+
+/// The nonce as stored: the same bits in the signed column type.  A nonce
+/// is never ordered or counted, only compared, so the bit pattern is all
+/// that has to survive the round trip.
+fn nonce_column(nonce: u64) -> i64 {
+    i64::from_ne_bytes(nonce.to_ne_bytes())
+}
+
+fn nonce_from_column(column: i64) -> u64 {
+    u64::from_ne_bytes(column.to_ne_bytes())
+}
+
+fn lock_id_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<ActionCallRequestLockId<InstanceId>, std::num::TryFromIntError> {
+    let promise_state_id: i64 = row.get("promise_state_id");
+    Ok(ActionCallRequestLockId {
+        request: ActionCallRequestKey {
+            vm_id: row.get("vm_id"),
+            promise_state_id: PromiseStateId(usize::try_from(promise_state_id)?),
+        },
+        nonce: nonce_from_column(row.get("lock_nonce")),
     })
 }
 
@@ -90,7 +119,7 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
     async fn record_action_call_requests(
         &self,
         now: DateTime<Utc>,
-        lock: RequestLock<uuid::Uuid, DateTime<Utc>>,
+        lock: ActionCallRequestLock<uuid::Uuid, DateTime<Utc>>,
         records: NESlice<'_, ActionCallRequestRecord<InstanceId>>,
     ) -> Result<record_action_call_requests::RecordingSuccess<InstanceId>, Self::Error> {
         let mut vm_ids = Vec::with_capacity(records.len().get());
@@ -116,8 +145,8 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
             r#"
             INSERT INTO action_call_requests
                 (vm_id, promise_state_id, effect_number, request,
-                 locked_by, lock_expires_at)
-            SELECT t.*, $5, NOW() + ($6 * interval '1 microsecond')
+                 locked_by, lock_expires_at, lock_nonce)
+            SELECT t.*, $5, NOW() + ($6 * interval '1 microsecond'), $7
             FROM UNNEST($1::uuid[], $2::bigint[], $3::bigint[], $4::bytea[])
                 AS t(vm_id, promise_state_id, effect_number, request)
             -- Canonical lock order: replayed keys contend on existing
@@ -135,6 +164,7 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
         .bind(&requests)
         .bind(lock.owner)
         .bind(crate::remaining_micros(now, lock.expires_at))
+        .bind(nonce_column(lock.nonce))
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!(
             "insert:action_call_requests"
@@ -233,9 +263,9 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
     async fn lock_action_call_requests<'a>(
         &'a self,
         now: DateTime<Utc>,
-        lock: RequestLock<uuid::Uuid, DateTime<Utc>>,
+        lock: ActionCallRequestLock<uuid::Uuid, DateTime<Utc>>,
         vm_ids: NESlice<'a, InstanceId>,
-    ) -> Result<NEVec<VmLockOutcome<InstanceId>>, Self::Error> {
+    ) -> Result<NEVec<PerVmActionCallRequestLockingOutcome<InstanceId>>, Self::Error> {
         Self::count_query(&self.query_counts, "update:action_call_requests_lock");
         Self::count_batch_size(
             &self.batch_size_counts,
@@ -259,7 +289,9 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
                 FOR UPDATE
             )
             UPDATE action_call_requests r
-            SET locked_by = $2, lock_expires_at = NOW() + ($3 * interval '1 microsecond')
+            SET locked_by = $2,
+                lock_expires_at = NOW() + ($3 * interval '1 microsecond'),
+                lock_nonce = $4
             FROM locked l
             WHERE r.vm_id = l.vm_id AND r.promise_state_id = l.promise_state_id
             RETURNING r.vm_id, r.promise_state_id, r.effect_number, r.request
@@ -268,6 +300,7 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
         .bind(vm_ids.as_ref())
         .bind(lock.owner)
         .bind(crate::remaining_micros(now, lock.expires_at))
+        .bind(nonce_column(lock.nonce))
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!(
             "update:action_call_requests_lock"
@@ -279,11 +312,16 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
             &self.query_counts,
             "select:action_call_requests_held_elsewhere",
         );
+        // Every row of the VMs, with whether this owner holds it and under
+        // which lock; the rows this call just locked are subtracted below.
+        // A row unlocked since the lock statement reads as held elsewhere,
+        // the bucket that keeps the caller watching.
         let held_rows = sqlx::query(
             r#"
-            SELECT vm_id, promise_state_id
+            SELECT vm_id, promise_state_id, lock_nonce,
+                   locked_by IS NOT DISTINCT FROM $2 AS held_by_this_owner
             FROM action_call_requests
-            WHERE vm_id = ANY($1) AND locked_by IS DISTINCT FROM $2
+            WHERE vm_id = ANY($1)
             "#,
         )
         .bind(vm_ids.as_ref())
@@ -297,12 +335,13 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
 
         // Group the flat row sets into one outcome per input VM, in input
         // order; VMs with no rows keep their (empty, no-op) outcome.
-        let mut outcomes: NEVec<VmLockOutcome<InstanceId>> = vm_ids
+        let mut outcomes: NEVec<PerVmActionCallRequestLockingOutcome<InstanceId>> = vm_ids
             .nonempty_iter()
-            .map(|vm_id| VmLockOutcome {
+            .map(|vm_id| PerVmActionCallRequestLockingOutcome {
                 vm_id: *vm_id,
                 locked: Vec::new(),
                 held_elsewhere: Vec::new(),
+                held_by_this_owner: Vec::new(),
             })
             .collect();
         let index_of: std::collections::HashMap<InstanceId, usize> = vm_ids
@@ -311,8 +350,14 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
             .map(|(index, vm_id)| (*vm_id, index))
             .collect();
 
+        let mut locked_keys: std::collections::HashSet<ActionCallRequestKey<InstanceId>> =
+            std::collections::HashSet::new();
         for row in &locked_rows {
             let record = record_from_row(row).map_err(Self::Error::OutOfRange)?;
+            locked_keys.insert(ActionCallRequestKey {
+                vm_id: record.vm_id,
+                promise_state_id: record.promise_state_id,
+            });
             let index = *index_of
                 .get(&record.vm_id)
                 .expect("every returned row belongs to an input vm");
@@ -322,16 +367,33 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
         for row in &held_rows {
             let vm_id: InstanceId = row.get("vm_id");
             let promise_state_id: i64 = row.get("promise_state_id");
+            let held_by_this_owner: bool = row.get("held_by_this_owner");
             let key = ActionCallRequestKey {
                 vm_id,
                 promise_state_id: PromiseStateId(
                     usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
                 ),
             };
+            if locked_keys.contains(&key) {
+                continue;
+            }
+
             let index = *index_of
                 .get(&vm_id)
                 .expect("every returned row belongs to an input vm");
-            outcomes[index].held_elsewhere.push(key);
+            if held_by_this_owner {
+                let lock_nonce: i64 = row
+                    .get::<Option<i64>, _>("lock_nonce")
+                    .expect("a locked row carries its lock's nonce (paired by CHECK)");
+                outcomes[index]
+                    .held_by_this_owner
+                    .push(ActionCallRequestLockId {
+                        request: key,
+                        nonce: nonce_from_column(lock_nonce),
+                    });
+            } else {
+                outcomes[index].held_elsewhere.push(key);
+            }
         }
 
         Ok(outcomes)
@@ -346,10 +408,11 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
     async fn renew_action_call_request_locks(
         &self,
         now: DateTime<Utc>,
-        lock: RequestLock<uuid::Uuid, DateTime<Utc>>,
-        keys: NESlice<'_, ActionCallRequestKey<InstanceId>>,
-    ) -> Result<NEVec<RequestLockRenewal<InstanceId>>, Self::Error> {
-        let columns = key_columns(keys.iter()).map_err(Self::Error::OutOfRange)?;
+        owner: &uuid::Uuid,
+        expires_at: DateTime<Utc>,
+        lock_ids: NESlice<'_, ActionCallRequestLockId<InstanceId>>,
+    ) -> Result<NEVec<ActionCallRequestLockRenewal<InstanceId>>, Self::Error> {
+        let columns = lock_id_columns(lock_ids.iter()).map_err(Self::Error::OutOfRange)?;
 
         Self::count_query(&self.query_counts, "update:action_call_requests_renew");
         Self::count_batch_size(
@@ -357,22 +420,22 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
             "update:action_call_requests_renew",
             columns.vm_ids.len(),
         );
-        // One statement: extend the expiry where the lock is still ours,
-        // and report every input key's state as of this statement.  The
-        // per-key row set (matched via the left join) tells the caller
-        // which keys are gone entirely (their completion was recorded, or
-        // the VM was purged) and which are held by another owner.
+        // One statement: extend the expiry where the row still holds the
+        // very lock, and report every input lock's state as of this
+        // statement.  The per-lock row set (matched via the left join)
+        // tells the caller which rows are gone entirely (their completion
+        // was recorded, or the VM was purged) and which hold another lock.
         let rows = sqlx::query(
             r#"
-            WITH input(vm_id, promise_state_id) AS (
-                SELECT * FROM UNNEST($1::uuid[], $2::bigint[])
+            WITH input(vm_id, promise_state_id, lock_nonce) AS (
+                SELECT * FROM UNNEST($1::uuid[], $2::bigint[], $3::bigint[])
             ),
             -- Canonical lock order: take every target row lock in
             -- primary key order before mutating, so multi-row writers
             -- can never deadlock with each other on overlapping sets.
-            -- The ownership predicate lives here — a locked row is ours
-            -- as long as we hold its lock, so the update needs no
-            -- re-check.  FOR UPDATE is stronger than the FOR NO KEY
+            -- The lock predicate lives here — a row is renewed only
+            -- while it holds the very lock being renewed, so the update
+            -- needs no re-check.  FOR UPDATE is stronger than the FOR NO KEY
             -- UPDATE a plain UPDATE takes implicitly; nothing references
             -- these tables by foreign key (0020 rejects them), so
             -- nothing can newly block — revisit the strength if an FK
@@ -382,19 +445,19 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
                 FROM action_call_requests r
                 JOIN input i
                     ON r.vm_id = i.vm_id AND r.promise_state_id = i.promise_state_id
-                WHERE r.locked_by = $3
+                WHERE r.locked_by = $4 AND r.lock_nonce = i.lock_nonce
                 ORDER BY r.vm_id, r.promise_state_id
                 FOR UPDATE OF r
             ),
             renewed AS (
                 UPDATE action_call_requests r
-                SET lock_expires_at = NOW() + ($4 * interval '1 microsecond')
+                SET lock_expires_at = NOW() + ($5 * interval '1 microsecond')
                 FROM locked l
                 WHERE r.vm_id = l.vm_id
                     AND r.promise_state_id = l.promise_state_id
                 RETURNING r.vm_id, r.promise_state_id
             )
-            SELECT i.vm_id, i.promise_state_id,
+            SELECT i.vm_id, i.promise_state_id, i.lock_nonce,
                    (n.vm_id IS NOT NULL) AS renewed,
                    (e.vm_id IS NOT NULL) AS present
             FROM input i
@@ -406,8 +469,9 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
         )
         .bind(&columns.vm_ids)
         .bind(&columns.promise_state_ids)
-        .bind(lock.owner)
-        .bind(crate::remaining_micros(now, lock.expires_at))
+        .bind(&columns.lock_nonces)
+        .bind(owner)
+        .bind(crate::remaining_micros(now, expires_at))
         .fetch_all(&self.pool)
         .timed(crate::query_timing_histogram!(
             "update:action_call_requests_renew"
@@ -418,24 +482,18 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
         let mut renewals = Vec::with_capacity(rows.len());
         let mut unrenewed_but_present = Vec::new();
         for row in &rows {
-            let promise_state_id: i64 = row.get("promise_state_id");
-            let key = ActionCallRequestKey {
-                vm_id: row.get("vm_id"),
-                promise_state_id: PromiseStateId(
-                    usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
-                ),
-            };
+            let lock_id = lock_id_from_row(row).map_err(Self::Error::OutOfRange)?;
             if row.get::<bool, _>("renewed") {
-                renewals.push(RequestLockRenewal {
-                    key,
-                    status: RenewalStatus::Renewed,
+                renewals.push(ActionCallRequestLockRenewal {
+                    lock_id,
+                    status: ActionCallRequestLockRenewalStatus::Renewed,
                 });
             } else if row.get::<bool, _>("present") {
-                unrenewed_but_present.push(key);
+                unrenewed_but_present.push(lock_id);
             } else {
-                renewals.push(RequestLockRenewal {
-                    key,
-                    status: RenewalStatus::Missing,
+                renewals.push(ActionCallRequestLockRenewal {
+                    lock_id,
+                    status: ActionCallRequestLockRenewalStatus::Missing,
                 });
             }
         }
@@ -443,27 +501,31 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
         // `present` above comes from the renewal statement's snapshot,
         // which may predate a concurrent completion's row removal — the
         // update then skips the deleted row while the snapshot still shows
-        // it, which must NOT read as another owner taking the lock.
-        // Classify these keys from a fresh read instead: gone means the
-        // completion won (`Missing`), still ours means the extension went
-        // unconfirmed this pass (`Unconfirmed`), and only a different
-        // owner on the current row is a real `HeldElsewhere`.
+        // it, which must NOT read as the lock being gone.  Classify these
+        // locks from a fresh read instead: gone means the completion won
+        // (`Missing`), the very lock still on the row means the extension
+        // went unconfirmed this pass (`Unconfirmed`), another lock of ours
+        // on the row is `Relocked`, and only a different owner on the
+        // current row is a real `HeldElsewhere`.
         if let Some(unverified) = NESlice::try_from_slice(&unrenewed_but_present) {
-            let columns = key_columns(unverified.iter()).map_err(Self::Error::OutOfRange)?;
+            let columns = lock_id_columns(unverified.iter()).map_err(Self::Error::OutOfRange)?;
 
             Self::count_query(&self.query_counts, "select:action_call_requests_verify");
             let verify_rows = sqlx::query(
                 r#"
-                SELECT i.vm_id, i.promise_state_id,
+                SELECT i.vm_id, i.promise_state_id, i.lock_nonce,
                        (r.vm_id IS NOT NULL) AS present,
-                       r.locked_by
-                FROM UNNEST($1::uuid[], $2::bigint[]) AS i(vm_id, promise_state_id)
+                       r.locked_by,
+                       r.lock_nonce AS row_lock_nonce
+                FROM UNNEST($1::uuid[], $2::bigint[], $3::bigint[])
+                    AS i(vm_id, promise_state_id, lock_nonce)
                 LEFT JOIN action_call_requests r
                     ON r.vm_id = i.vm_id AND r.promise_state_id = i.promise_state_id
                 "#,
             )
             .bind(&columns.vm_ids)
             .bind(&columns.promise_state_ids)
+            .bind(&columns.lock_nonces)
             .fetch_all(&self.pool)
             .timed(crate::query_timing_histogram!(
                 "select:action_call_requests_verify"
@@ -472,25 +534,28 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
             .map_err(Self::Error::Sqlx)?;
 
             for row in &verify_rows {
-                let promise_state_id: i64 = row.get("promise_state_id");
-                let key = ActionCallRequestKey {
-                    vm_id: row.get("vm_id"),
-                    promise_state_id: PromiseStateId(
-                        usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
-                    ),
-                };
+                let lock_id = lock_id_from_row(row).map_err(Self::Error::OutOfRange)?;
                 let status = if !row.get::<bool, _>("present") {
-                    RenewalStatus::Missing
+                    ActionCallRequestLockRenewalStatus::Missing
                 } else {
+                    let row_lock_nonce = row
+                        .get::<Option<i64>, _>("row_lock_nonce")
+                        .map(nonce_from_column);
                     match row.get::<Option<uuid::Uuid>, _>("locked_by") {
-                        Some(locked_by) if locked_by == lock.owner => RenewalStatus::Unconfirmed,
+                        Some(locked_by) if locked_by == *owner => {
+                            if row_lock_nonce == Some(lock_id.nonce) {
+                                ActionCallRequestLockRenewalStatus::Unconfirmed
+                            } else {
+                                ActionCallRequestLockRenewalStatus::Relocked
+                            }
+                        }
                         // A row we no longer own — relocked by another
                         // owner, or unlocked and up for redelivery by
                         // anyone. Either way our authorization is gone.
-                        Some(_) | None => RenewalStatus::HeldElsewhere,
+                        Some(_) | None => ActionCallRequestLockRenewalStatus::HeldElsewhere,
                     }
                 };
-                renewals.push(RequestLockRenewal { key, status });
+                renewals.push(ActionCallRequestLockRenewal { lock_id, status });
             }
         }
 
@@ -507,9 +572,9 @@ impl waymark_action_effect_reconciler_backend::UnlockActionCallRequests for Post
     async fn unlock_action_call_requests(
         &self,
         owner: &uuid::Uuid,
-        keys: NESlice<'_, ActionCallRequestKey<InstanceId>>,
+        lock_ids: NESlice<'_, ActionCallRequestLockId<InstanceId>>,
     ) -> Result<(), Self::Error> {
-        let columns = key_columns(keys.iter()).map_err(Self::Error::OutOfRange)?;
+        let columns = lock_id_columns(lock_ids.iter()).map_err(Self::Error::OutOfRange)?;
 
         Self::count_query(&self.query_counts, "update:action_call_requests_unlock");
         Self::count_batch_size(
@@ -519,18 +584,21 @@ impl waymark_action_effect_reconciler_backend::UnlockActionCallRequests for Post
         );
         sqlx::query(
             r#"
-            -- Canonical lock order: see the renewal statement.
+            -- Canonical lock order: see the renewal statement.  The nonce
+            -- pins the unlock to the lock it was issued for: a lock the
+            -- owner took on the row since carries another one.
             WITH locked AS MATERIALIZED (
                 SELECT r.vm_id, r.promise_state_id
                 FROM action_call_requests r
-                JOIN UNNEST($1::uuid[], $2::bigint[]) AS d(vm_id, promise_state_id)
+                JOIN UNNEST($1::uuid[], $2::bigint[], $3::bigint[])
+                    AS d(vm_id, promise_state_id, lock_nonce)
                     ON r.vm_id = d.vm_id AND r.promise_state_id = d.promise_state_id
-                WHERE r.locked_by = $3
+                WHERE r.locked_by = $4 AND r.lock_nonce = d.lock_nonce
                 ORDER BY r.vm_id, r.promise_state_id
                 FOR UPDATE OF r
             )
             UPDATE action_call_requests r
-            SET locked_by = NULL, lock_expires_at = NULL
+            SET locked_by = NULL, lock_expires_at = NULL, lock_nonce = NULL
             FROM locked l
             WHERE r.vm_id = l.vm_id
                 AND r.promise_state_id = l.promise_state_id
@@ -538,6 +606,7 @@ impl waymark_action_effect_reconciler_backend::UnlockActionCallRequests for Post
         )
         .bind(&columns.vm_ids)
         .bind(&columns.promise_state_ids)
+        .bind(&columns.lock_nonces)
         .bind(owner)
         .execute(&self.pool)
         .timed(crate::query_timing_histogram!(

@@ -4,10 +4,10 @@ use serial_test::serial;
 use waymark_action_completions_reconciler_backend::{CompletionRecord, RecordCompletions as _};
 use waymark_action_effect_reconciler_backend::record_action_call_requests;
 use waymark_action_effect_reconciler_backend::record_action_call_requests::Error as _;
-use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::RenewalStatus;
+use waymark_action_effect_reconciler_backend::renew_action_call_request_locks::ActionCallRequestLockRenewalStatus;
 use waymark_action_effect_reconciler_backend::{
-    ActionCallRequestKey, ActionCallRequestRecord, LockActionCallRequests as _,
-    RecordActionCallRequests as _, RenewActionCallRequestLocks as _, RequestLock,
+    ActionCallRequestKey, ActionCallRequestLock, ActionCallRequestLockId, ActionCallRequestRecord,
+    LockActionCallRequests as _, RecordActionCallRequests as _, RenewActionCallRequestLocks as _,
     UnlockActionCallRequests as _,
 };
 use waymark_ids::InstanceId;
@@ -40,17 +40,37 @@ fn key(vm_id: InstanceId, promise: usize) -> ActionCallRequestKey<InstanceId> {
     }
 }
 
-fn live_lock(owner: uuid::Uuid) -> RequestLock<uuid::Uuid, chrono::DateTime<Utc>> {
-    RequestLock {
+fn live_lock(owner: uuid::Uuid) -> ActionCallRequestLock<uuid::Uuid, chrono::DateTime<Utc>> {
+    live_lock_with_nonce(owner, 1)
+}
+
+fn live_lock_with_nonce(
+    owner: uuid::Uuid,
+    nonce: u64,
+) -> ActionCallRequestLock<uuid::Uuid, chrono::DateTime<Utc>> {
+    ActionCallRequestLock {
         owner,
         expires_at: Utc::now() + Duration::minutes(5),
+        nonce,
     }
 }
 
-fn expired_lock(owner: uuid::Uuid) -> RequestLock<uuid::Uuid, chrono::DateTime<Utc>> {
-    RequestLock {
+fn expired_lock(owner: uuid::Uuid) -> ActionCallRequestLock<uuid::Uuid, chrono::DateTime<Utc>> {
+    ActionCallRequestLock {
         owner,
         expires_at: Utc::now() - Duration::minutes(5),
+        nonce: 1,
+    }
+}
+
+fn lock_id(
+    vm_id: InstanceId,
+    promise: usize,
+    lock_nonce: u64,
+) -> ActionCallRequestLockId<InstanceId> {
+    ActionCallRequestLockId {
+        request: key(vm_id, promise),
+        nonce: lock_nonce,
     }
 }
 
@@ -92,15 +112,16 @@ async fn record_fresh_then_identical_replay() {
     let statuses = backend
         .renew_action_call_request_locks(
             Utc::now(),
-            live_lock(owner),
-            nev![key(vm, 1), key(vm, 2)].as_nonempty_slice(),
+            &owner,
+            Utc::now() + Duration::minutes(5),
+            nev![lock_id(vm, 1, 1), lock_id(vm, 2, 1)].as_nonempty_slice(),
         )
         .await
         .expect("renew");
     assert!(
         statuses
             .iter()
-            .all(|renewal| renewal.status == RenewalStatus::Renewed)
+            .all(|renewal| renewal.status == ActionCallRequestLockRenewalStatus::Renewed)
     );
 }
 
@@ -178,6 +199,12 @@ async fn lock_vm_takes_expired_and_reports_foreign() {
         .record_action_call_requests(Utc::now(), live_lock(live_owner), live.as_nonempty_slice())
         .await
         .expect("record live-locked");
+    // And one the reviver itself already holds live.
+    let own = nev![record(vm, 3, 12, b"own-call")];
+    backend
+        .record_action_call_requests(Utc::now(), live_lock(reviver), own.as_nonempty_slice())
+        .await
+        .expect("record own-locked");
 
     // One batch spanning the seeded VM and an empty one: per-input-aligned
     // outcomes, with the empty VM keeping its (no-op) entry.
@@ -197,10 +224,12 @@ async fn lock_vm_takes_expired_and_reports_foreign() {
     assert_eq!(outcomes[0].locked.len(), 1);
     assert_eq!(outcomes[0].locked[0], record(vm, 1, 10, b"expired-call"));
     assert_eq!(outcomes[0].held_elsewhere, vec![key(vm, 2)]);
+    assert_eq!(outcomes[0].held_by_this_owner, vec![lock_id(vm, 3, 1)]);
 
     assert_eq!(outcomes[1].vm_id, other_vm);
     assert!(outcomes[1].locked.is_empty());
     assert!(outcomes[1].held_elsewhere.is_empty());
+    assert!(outcomes[1].held_by_this_owner.is_empty());
 }
 
 #[serial(postgres)]
@@ -221,12 +250,29 @@ async fn renew_reports_per_key_status() {
         .record_action_call_requests(Utc::now(), live_lock(other), theirs.as_nonempty_slice())
         .await
         .expect("record theirs");
+    // And one the owner locked again since, under another nonce.
+    let relocked = nev![record(vm, 4, 12, b"relocked")];
+    backend
+        .record_action_call_requests(
+            Utc::now(),
+            live_lock_with_nonce(owner, 2),
+            relocked.as_nonempty_slice(),
+        )
+        .await
+        .expect("record relocked");
 
     let statuses = backend
         .renew_action_call_request_locks(
             Utc::now(),
-            live_lock(owner),
-            nev![key(vm, 1), key(vm, 2), key(vm, 3)].as_nonempty_slice(),
+            &owner,
+            Utc::now() + Duration::minutes(5),
+            nev![
+                lock_id(vm, 1, 1),
+                lock_id(vm, 2, 1),
+                lock_id(vm, 3, 1),
+                lock_id(vm, 4, 1)
+            ]
+            .as_nonempty_slice(),
         )
         .await
         .expect("renew");
@@ -234,18 +280,23 @@ async fn renew_reports_per_key_status() {
     let status_of = |promise: usize| {
         statuses
             .iter()
-            .find(|renewal| renewal.key == key(vm, promise))
+            .find(|renewal| renewal.lock_id.request == key(vm, promise))
             .expect("status present")
             .status
     };
-    assert_eq!(status_of(1), RenewalStatus::Renewed);
-    assert_eq!(status_of(2), RenewalStatus::HeldElsewhere);
-    assert_eq!(status_of(3), RenewalStatus::Missing);
+    assert_eq!(status_of(1), ActionCallRequestLockRenewalStatus::Renewed);
+    assert_eq!(
+        status_of(2),
+        ActionCallRequestLockRenewalStatus::HeldElsewhere
+    );
+    assert_eq!(status_of(3), ActionCallRequestLockRenewalStatus::Missing);
+    assert_eq!(status_of(4), ActionCallRequestLockRenewalStatus::Relocked);
 }
 
 /// A completion removing the request row while the renewal statement is
-/// already running must classify as [`RenewalStatus::Missing`]: the
-/// renewal statement's snapshot still shows the row, and concluding
+/// already running must classify as
+/// [`ActionCallRequestLockRenewalStatus::Missing`]: the renewal
+/// statement's snapshot still shows the row, and concluding
 /// "held elsewhere" from that stale read would breach the fence over a
 /// successfully completed call.
 #[serial(postgres)]
@@ -277,8 +328,9 @@ async fn renew_racing_a_row_removal_reports_missing() {
         renew_backend
             .renew_action_call_request_locks(
                 Utc::now(),
-                live_lock(owner),
-                nev![key(vm, 1)].as_nonempty_slice(),
+                &owner,
+                Utc::now() + Duration::minutes(5),
+                nev![lock_id(vm, 1, 1)].as_nonempty_slice(),
             )
             .await
     });
@@ -289,7 +341,10 @@ async fn renew_racing_a_row_removal_reports_missing() {
 
     let statuses = renew_task.await.expect("join renew").expect("renew");
     assert_eq!(statuses.len().get(), 1);
-    assert_eq!(statuses.first().status, RenewalStatus::Missing);
+    assert_eq!(
+        statuses.first().status,
+        ActionCallRequestLockRenewalStatus::Missing
+    );
 }
 
 #[serial(postgres)]
@@ -310,13 +365,28 @@ async fn unlock_releases_own_locks_only() {
         .record_action_call_requests(Utc::now(), live_lock(other), theirs.as_nonempty_slice())
         .await
         .expect("record theirs");
-
+    // And one the owner locked again since: a fresh nonce on the row.
+    let relocked = nev![record(vm, 3, 12, b"relocked")];
     backend
-        .unlock_action_call_requests(&owner, nev![key(vm, 1), key(vm, 2)].as_nonempty_slice())
+        .record_action_call_requests(
+            Utc::now(),
+            live_lock_with_nonce(owner, 2),
+            relocked.as_nonempty_slice(),
+        )
+        .await
+        .expect("record relocked");
+
+    // The unlock was issued for nonce 1 on all three rows.
+    backend
+        .unlock_action_call_requests(
+            &owner,
+            nev![lock_id(vm, 1, 1), lock_id(vm, 2, 1), lock_id(vm, 3, 1)].as_nonempty_slice(),
+        )
         .await
         .expect("unlock");
 
-    // The unlocked row is immediately deliverable; the foreign one is not.
+    // The unlocked row is immediately deliverable; the foreign one and
+    // the relocked one are not.
     let reviver = uuid::Uuid::new_v4();
     let outcomes = backend
         .lock_action_call_requests(
@@ -328,7 +398,10 @@ async fn unlock_releases_own_locks_only() {
         .expect("lock vm requests");
     assert_eq!(outcomes[0].locked.len(), 1);
     assert_eq!(outcomes[0].locked[0], record(vm, 1, 10, b"mine"));
-    assert_eq!(outcomes[0].held_elsewhere, vec![key(vm, 2)]);
+    let mut held_elsewhere = outcomes[0].held_elsewhere.clone();
+    held_elsewhere.sort_by_key(|key| key.promise_state_id);
+    assert_eq!(held_elsewhere, vec![key(vm, 2), key(vm, 3)]);
+    assert!(outcomes[0].held_by_this_owner.is_empty());
 }
 
 #[serial(postgres)]
@@ -360,20 +433,21 @@ async fn recording_a_completion_removes_the_request() {
     let statuses = backend
         .renew_action_call_request_locks(
             Utc::now(),
-            live_lock(owner),
-            nev![key(vm, 1), key(vm, 2)].as_nonempty_slice(),
+            &owner,
+            Utc::now() + Duration::minutes(5),
+            nev![lock_id(vm, 1, 1), lock_id(vm, 2, 1)].as_nonempty_slice(),
         )
         .await
         .expect("renew");
     let status_of = |promise: usize| {
         statuses
             .iter()
-            .find(|renewal| renewal.key == key(vm, promise))
+            .find(|renewal| renewal.lock_id.request == key(vm, promise))
             .expect("status present")
             .status
     };
-    assert_eq!(status_of(1), RenewalStatus::Missing);
-    assert_eq!(status_of(2), RenewalStatus::Renewed);
+    assert_eq!(status_of(1), ActionCallRequestLockRenewalStatus::Missing);
+    assert_eq!(status_of(2), ActionCallRequestLockRenewalStatus::Renewed);
 
     // A redelivered (conflict-skipped) completion does not fire the
     // trigger again — nothing left to remove, and no error.
@@ -406,20 +480,27 @@ async fn snapshot_delete_sweeps_only_the_vms_requests() {
     let statuses = backend
         .renew_action_call_request_locks(
             Utc::now(),
-            live_lock(owner),
-            nev![key(vm_a, 1), key(vm_b, 1)].as_nonempty_slice(),
+            &owner,
+            Utc::now() + Duration::minutes(5),
+            nev![lock_id(vm_a, 1, 1), lock_id(vm_b, 1, 1)].as_nonempty_slice(),
         )
         .await
         .expect("renew");
     let status_of = |vm: InstanceId, promise: usize| {
         statuses
             .iter()
-            .find(|renewal| renewal.key == key(vm, promise))
+            .find(|renewal| renewal.lock_id.request == key(vm, promise))
             .expect("status present")
             .status
     };
-    assert_eq!(status_of(vm_a, 1), RenewalStatus::Missing);
-    assert_eq!(status_of(vm_b, 1), RenewalStatus::Renewed);
+    assert_eq!(
+        status_of(vm_a, 1),
+        ActionCallRequestLockRenewalStatus::Missing
+    );
+    assert_eq!(
+        status_of(vm_b, 1),
+        ActionCallRequestLockRenewalStatus::Renewed
+    );
 }
 
 /// One choreographed collision of the completion trigger's DELETE and
@@ -500,14 +581,22 @@ async fn complete_and_renew_across_a_staged_row(completion_order: [usize; 2]) {
     let renewal_task = tokio::spawn(async move {
         let keys: NEVec<_> = renewal_order
             .into_nonempty_iter()
-            .map(|promise| key(vm, promise))
+            .map(|promise| lock_id(vm, promise, 1))
             .collect();
         renewal_backend
-            .renew_action_call_request_locks(Utc::now(), live_lock(owner), keys.as_nonempty_slice())
+            .renew_action_call_request_locks(
+                Utc::now(),
+                &owner,
+                Utc::now() + Duration::minutes(5),
+                keys.as_nonempty_slice(),
+            )
             .await
     });
-    deadlock::wait_until_lock_blocked(backend.pool(), "%WITH input(vm_id, promise_state_id)%")
-        .await;
+    deadlock::wait_until_lock_blocked(
+        backend.pool(),
+        "%WITH input(vm_id, promise_state_id, lock_nonce)%",
+    )
+    .await;
 
     staging.rollback().await.expect("release staged row");
 
@@ -705,10 +794,15 @@ async fn renew_and_sweep_across_a_staged_row(renewal_order: [usize; 2]) {
     let renewal_task = tokio::spawn(async move {
         let keys: NEVec<_> = renewal_order
             .into_nonempty_iter()
-            .map(|promise| key(vm, promise))
+            .map(|promise| lock_id(vm, promise, 1))
             .collect();
         renewal_backend
-            .renew_action_call_request_locks(Utc::now(), live_lock(owner), keys.as_nonempty_slice())
+            .renew_action_call_request_locks(
+                Utc::now(),
+                &owner,
+                Utc::now() + Duration::minutes(5),
+                keys.as_nonempty_slice(),
+            )
             .await
     });
     deadlock::contend_op_with_snapshot_sweep(
@@ -716,7 +810,7 @@ async fn renew_and_sweep_across_a_staged_row(renewal_order: [usize; 2]) {
         staging,
         "renewal",
         renewal_task,
-        "%WITH input(vm_id, promise_state_id)%",
+        "%WITH input(vm_id, promise_state_id, lock_nonce)%",
         vm,
     )
     .await;
@@ -740,7 +834,7 @@ async fn concurrent_renewal_and_snapshot_sweep_do_not_deadlock() {
 /// hands the trigger's requests pass rows spanning two VMs in heap
 /// (registration) order — arranged DESCENDING by vm_id below, so a
 /// trigger without the ordered lock pass provably inverts primary-key
-/// order — contended against the canonically-ordered revival lock.  No
+/// order — contended against the canonically-ordered adoption lock.  No
 /// production multi-row snapshot delete exists yet, but 0020's design
 /// anticipates them; this pins the trigger body for that day.
 ///
@@ -748,8 +842,8 @@ async fn concurrent_renewal_and_snapshot_sweep_do_not_deadlock() {
 /// contended row is staged so it blocks holding nothing, and the
 /// follower locks the other row and queues behind it — a discipline
 /// missing from the trigger fails the sweep-first run, one missing from
-/// the revival lock fails the other.
-async fn multi_vm_sweep_and_revival_lock_across_a_staged_row(sweep_first: bool) {
+/// the adoption lock fails the other.
+async fn multi_vm_sweep_and_adoption_lock_across_a_staged_row(sweep_first: bool) {
     let backend = setup_backend().await;
 
     // The snapshots table is tiny and fresh, so the sweep's scan order
@@ -762,7 +856,7 @@ async fn multi_vm_sweep_and_revival_lock_across_a_staged_row(sweep_first: bool) 
     register_test_vm_with_id(&backend, vm_hi).await;
     register_test_vm_with_id(&backend, vm_lo).await;
 
-    // One expired-locked request row per VM, so the revival lock is
+    // One expired-locked request row per VM, so the adoption lock is
     // eligible to take both.
     let dead_owner = uuid::Uuid::new_v4();
     let records = nev![record(vm_lo, 1, 10, b"lo"), record(vm_hi, 1, 11, b"hi")];
@@ -799,7 +893,7 @@ async fn multi_vm_sweep_and_revival_lock_across_a_staged_row(sweep_first: bool) 
     );
 
     // The staged row is the leader's first contact: vm_hi's request row
-    // (heap-first for the sweep, input-first for the revival lock).
+    // (heap-first for the sweep, input-first for the adoption lock).
     let staging = deadlock::hold_row_for_update(
         backend.pool(),
         deadlock::SweptTable::ActionCallRequests,
@@ -808,7 +902,7 @@ async fn multi_vm_sweep_and_revival_lock_across_a_staged_row(sweep_first: bool) 
     )
     .await;
 
-    let spawn_revival_lock = |vm_ids: Vec<InstanceId>| {
+    let spawn_adoption_lock = |vm_ids: Vec<InstanceId>| {
         let backend = backend.clone();
         tokio::spawn(async move {
             let vm_ids = NEVec::try_from_vec(vm_ids).unwrap();
@@ -821,48 +915,48 @@ async fn multi_vm_sweep_and_revival_lock_across_a_staged_row(sweep_first: bool) 
                 .await
         })
     };
-    let revival_pattern = "%locked_by IS NULL OR%";
+    let adoption_pattern = "%locked_by IS NULL OR%";
 
     if sweep_first {
         let sweep = deadlock::spawn_snapshot_sweep(backend.pool(), vec![vm_hi, vm_lo]);
         deadlock::wait_until_lock_blocked(backend.pool(), deadlock::SNAPSHOT_SWEEP_PATTERN).await;
-        let revival = spawn_revival_lock(vec![vm_lo, vm_hi]);
-        deadlock::wait_until_lock_blocked(backend.pool(), revival_pattern).await;
+        let adoption = spawn_adoption_lock(vec![vm_lo, vm_hi]);
+        deadlock::wait_until_lock_blocked(backend.pool(), adoption_pattern).await;
 
         staging.rollback().await.expect("release staged row");
 
         sweep
             .await
             .expect("join sweep")
-            .expect("the snapshot sweep must not deadlock against the revival lock");
-        revival
+            .expect("the snapshot sweep must not deadlock against the adoption lock");
+        adoption
             .await
-            .expect("join revival")
-            .expect("the revival lock must not deadlock against the snapshot sweep");
+            .expect("join adoption")
+            .expect("the adoption lock must not deadlock against the snapshot sweep");
     } else {
-        let revival = spawn_revival_lock(vec![vm_hi, vm_lo]);
-        deadlock::wait_until_lock_blocked(backend.pool(), revival_pattern).await;
+        let adoption = spawn_adoption_lock(vec![vm_hi, vm_lo]);
+        deadlock::wait_until_lock_blocked(backend.pool(), adoption_pattern).await;
         let sweep = deadlock::spawn_snapshot_sweep(backend.pool(), vec![vm_lo, vm_hi]);
         deadlock::wait_until_lock_blocked(backend.pool(), deadlock::SNAPSHOT_SWEEP_PATTERN).await;
 
         staging.rollback().await.expect("release staged row");
 
-        revival
+        adoption
             .await
-            .expect("join revival")
-            .expect("the revival lock must not deadlock against the snapshot sweep");
+            .expect("join adoption")
+            .expect("the adoption lock must not deadlock against the snapshot sweep");
         sweep
             .await
             .expect("join sweep")
-            .expect("the snapshot sweep must not deadlock against the revival lock");
+            .expect("the snapshot sweep must not deadlock against the adoption lock");
     }
 }
 
 #[serial(postgres)]
 #[tokio::test]
-async fn concurrent_multi_vm_sweep_and_revival_lock_do_not_deadlock() {
+async fn concurrent_multi_vm_sweep_and_adoption_lock_do_not_deadlock() {
     // Leader mirrored both ways: sweep-first pins the trigger's ordered
-    // lock pass, revival-first pins the revival lock's.
-    multi_vm_sweep_and_revival_lock_across_a_staged_row(true).await;
-    multi_vm_sweep_and_revival_lock_across_a_staged_row(false).await;
+    // lock pass, adoption-first pins the adoption lock's.
+    multi_vm_sweep_and_adoption_lock_across_a_staged_row(true).await;
+    multi_vm_sweep_and_adoption_lock_across_a_staged_row(false).await;
 }

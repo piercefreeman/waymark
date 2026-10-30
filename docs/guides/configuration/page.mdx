@@ -86,7 +86,7 @@ reason.
 | `WAYMARK_PINNING_FENCING_MARGIN_MS` | How much earlier than the lease TTL a node stops an instance whose lease it could not re-confirm, so the instance has stopped before another node can take it. | `1000` |
 | `WAYMARK_WORKLOAD_POLL_INTERVAL_NS` | Minimum interval between polls for unclaimed workflow instances, in nanoseconds. Polling spins by design; this only floors how tight it gets. | `1000000` (1 ms) |
 | `WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_TTL_MS` | How long a node's lock on an action call request lasts before it must be renewed. | `15000` |
-| `WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_HEARTBEAT_MS` | How often the node renews the action call request locks it holds. | `5000` |
+| `WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_HEARTBEAT_MS` | How often the node renews the action call request locks it holds, and how often a workflow's node checks for action calls another node left behind. | `5000` |
 | `WAYMARK_SLEEP_POLL_INTERVAL_MS` | How often the node polls for durable sleeps that are due, while any are pending. | `250` |
 | `WAYMARK_SCHEDULER_POLL_INTERVAL_MS` | How often the node polls for due schedules. | `1000` |
 | `WAYMARK_SCHEDULER_BATCH_MAX` | Max due schedules started per poll. | `64` |
