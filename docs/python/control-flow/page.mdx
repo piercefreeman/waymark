@@ -293,9 +293,8 @@ rejected. The rejected patterns:
   object but `self` - `Model.model_validate(...)` included (the one
   exception is `list.append`). Do that work inside an action - that's
   what actions are for.
-- **`isinstance(value, SomeError)`.** The SDK accepts it with any exception
-  class, but the runtime has no lowering for it yet and rejects the
-  workflow when it is first run or scheduled
+- **`isinstance(value, SomeError)`.** The compiler rejects runtime type
+  checks until the VM supports them
   ([#790](https://github.com/piercefreeman/waymark/issues/790)). Catch
   the class with an `except` clause instead.
 - **Constructing classes other than simple pydantic models and
