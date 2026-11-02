@@ -31,17 +31,6 @@ class SourceValidator(ast.NodeVisitor):
         else:
             super().visit(node)
 
-    def visit_DictComp(self, node: ast.DictComp) -> None:
-        reject(node, "Dict comprehensions require unsupported subscript writes")
-
-    def visit_Dict(self, node: ast.Dict) -> None:
-        for key in node.keys:
-            if key is None:
-                return reject(node, "Dictionary unpacking (**mapping) is unsupported")
-            if self.context.analysis.kind(key) != "str":
-                reject(key, "Dictionary keys must be known strings")
-        self.generic_visit(node)
-
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if self.context.analysis.kind(node.value) == "exception":
             reject(node, "Caught exception inspection is unsupported")
