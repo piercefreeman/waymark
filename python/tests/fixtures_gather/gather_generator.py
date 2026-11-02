@@ -13,11 +13,11 @@ async def process_item(item: str, multiplier: int) -> str:
 
 @workflow
 class GatherGeneratorWorkflow(Workflow):
-    """Gather using the naked generator-expression spelling."""
+    """Gather using the starred generator-expression spelling."""
 
-    async def run(self, items: list, multiplier: int) -> tuple[str | BaseException, ...]:
+    async def run(self, items: list, multiplier: int) -> list[str]:
         results = await asyncio.gather(
-            (process_item(item=item, multiplier=multiplier) for item in items),
-            return_exceptions=True,
+            *(process_item(item=item, multiplier=multiplier) for item in items),
+            return_exceptions=False,
         )
         return results

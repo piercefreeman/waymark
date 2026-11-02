@@ -55,7 +55,7 @@ class ParallelMathWorkflow(Workflow):
         factorial_value, fibonacci_value = await asyncio.gather(
             compute_factorial(number),
             compute_fibonacci(number),
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return await summarize(
             n=number,
@@ -65,8 +65,9 @@ class ParallelMathWorkflow(Workflow):
 ```
 
 The `@workflow` body is the durable thing. The three `@action` calls are
-the distributed work. The `return_exceptions=True` on `gather` isn't
-optional - the compiler requires it.
+the distributed work. `gather` propagates failures; `return_exceptions=False`
+is optional. Collecting exceptions with `return_exceptions=True` is unsupported
+and rejected when the workflow is compiled.
 
 Running one looks like calling any other async function:
 

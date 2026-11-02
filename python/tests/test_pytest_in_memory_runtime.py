@@ -80,6 +80,19 @@ class ExplicitNoneArgumentWorkflow(Workflow):
         return await describe_value(value=None)
 
 
+@workflow
+class GatherWorkflow(Workflow):
+    async def run(self) -> list[str]:
+        first, second = await asyncio.gather(instant("first"), instant("second"))
+        return [first, second]
+
+
+@workflow
+class GatherFailureWorkflow(Workflow):
+    async def run(self) -> None:
+        await asyncio.gather(instant("ready"), always_fails(), return_exceptions=False)
+
+
 def test_pytest_runtime_raises_for_unhandled_action_failure() -> None:
     with pytest.raises(WorkflowFailedError) as exc_info:
         asyncio.run(UnhandledFailureWorkflow().run())
@@ -136,3 +149,14 @@ def test_pytest_runtime_passes_an_explicit_none_to_the_action() -> None:
     result = asyncio.run(ExplicitNoneArgumentWorkflow().run())
 
     assert result == "None"
+
+
+def test_pytest_runtime_gather_preserves_result_order() -> None:
+    assert asyncio.run(GatherWorkflow().run()) == ["first", "second"]
+
+
+def test_pytest_runtime_gather_propagates_action_failures() -> None:
+    with pytest.raises(WorkflowFailedError) as raised:
+        asyncio.run(GatherFailureWorkflow().run())
+    assert isinstance(raised.value, WorkflowFailedError)
+    assert raised.value.exception_value.type_id == "ValueError"

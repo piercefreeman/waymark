@@ -18,6 +18,6 @@ class GatherListCompTupleUnpackWorkflow(Workflow):
     async def run(self, pairs: list[tuple[str, int]]) -> list[str | BaseException]:
         results = await asyncio.gather(
             *[process_pair(name=name, score=score) for name, score in pairs],
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return results

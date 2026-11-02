@@ -24,6 +24,6 @@ class GatherSimpleWorkflow(Workflow):
         a, b = await asyncio.gather(
             action_a(),
             action_b(),
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return a, b

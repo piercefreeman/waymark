@@ -43,7 +43,7 @@ class GatherTupleUnpackWorkflow(Workflow):
         factorial_value, fib_value = await asyncio.gather(
             compute_factorial(n=5),
             compute_fibonacci(n=10),
-            return_exceptions=True,
+            return_exceptions=False,
         )
         # Use the unpacked values
         summary = await summarize_math(

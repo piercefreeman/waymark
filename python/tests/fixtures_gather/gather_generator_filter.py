@@ -15,9 +15,9 @@ async def process_user(user: object) -> str:
 class GatherGeneratorFilterWorkflow(Workflow):
     """Gather using generator-expression sugar with an `if` filter."""
 
-    async def run(self, users: list) -> tuple[str | BaseException, ...]:
+    async def run(self, users: list) -> list[str]:
         results = await asyncio.gather(
-            (process_user(user=user) for user in users if user.active),
-            return_exceptions=True,
+            *(process_user(user=user) for user in users if user.active),
+            return_exceptions=False,
         )
         return results

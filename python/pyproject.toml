@@ -56,6 +56,7 @@ fragments = [{ path = "../README.md" }]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/waymark"]
+exclude = ["src/waymark/__tests__"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src"]
@@ -64,13 +65,13 @@ include = ["src"]
 "../README.md" = "README.md"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "src/waymark/__tests__"]
 addopts = "--cov=waymark --cov-report=term-missing --cov-report=xml:coverage.xml --cov-report=html:htmlcov"
 
 [tool.coverage.run]
 source = ["src/waymark"]
 branch = true
-omit = ["*/tests/*", "*/__pycache__/*"]
+omit = ["*/tests/*", "*/__tests__/*", "*/__pycache__/*"]
 
 [tool.coverage.report]
 exclude_lines = [

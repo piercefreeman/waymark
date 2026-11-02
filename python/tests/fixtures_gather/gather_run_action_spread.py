@@ -26,7 +26,7 @@ class GatherRunActionSpreadWorkflow(Workflow):
     Pattern: await asyncio.gather(*[
         self.run_action(action(x), retry=..., timeout=...)
         for x in items
-    ], return_exceptions=True)
+    ], return_exceptions=False)
     """
 
     async def run(self, items: list) -> str:
@@ -40,6 +40,6 @@ class GatherRunActionSpreadWorkflow(Workflow):
                 )
                 for item in items
             ],
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return await combine_results(results=results)

@@ -73,7 +73,7 @@ class WelcomeEmailWorkflow(Workflow):
                 send_email(to=user.email, subject="Welcome")
                 for user in active_users
             ],
-            return_exceptions=True,
+            return_exceptions=False,
         )
 
         return results
@@ -140,7 +140,7 @@ Workflows are plain async Python. A few of the things they can do:
         profile, history = await asyncio.gather(
             fetch_profile(user_id),
             fetch_purchase_history(user_id),
-            return_exceptions=True,
+            return_exceptions=False,
         )
 
         # wait a day before following up

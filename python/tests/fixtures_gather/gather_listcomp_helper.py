@@ -15,7 +15,7 @@ async def increment(value: int) -> int:
 class GatherListCompHelperWorkflow(Workflow):
     """Gather fan-out over an async helper method defined on the workflow.
 
-    Pattern: await asyncio.gather(*[self.helper(x) for x in items], return_exceptions=True)
+    Pattern: await asyncio.gather(*[self.helper(x) for x in items], return_exceptions=False)
     Each helper call awaits an action internally, so the fan-out still
     produces durable action dispatches per item.
     """
@@ -26,6 +26,6 @@ class GatherListCompHelperWorkflow(Workflow):
     async def run(self, items: list) -> list[int | BaseException]:
         results = await asyncio.gather(
             *[self.helper(item) for item in items],
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return results

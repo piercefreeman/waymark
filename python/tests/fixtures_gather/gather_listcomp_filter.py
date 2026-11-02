@@ -18,6 +18,6 @@ class GatherListCompFilterWorkflow(Workflow):
     async def run(self, users: list) -> list[str | BaseException]:
         results = await asyncio.gather(
             *[process_user(user=user) for user in users if user.active],
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return results

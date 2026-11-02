@@ -16,6 +16,6 @@ class GatherListCompWorkflow(Workflow):
     async def run(self, items: list[int]) -> list[int | BaseException]:
         results = await asyncio.gather(
             *[echo(item=item) for item in items],
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return results

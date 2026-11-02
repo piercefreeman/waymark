@@ -29,42 +29,11 @@ from datetime import timedelta
 from enum import EnumMeta
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Set, Union
 
+from waymark.compiler_errors import UnsupportedPatternError
+from waymark.gather import GatherHandler
+from waymark.language_calls import LanguageCallRegistry, LoweredCall
 from waymark.proto import ast_pb2 as ir
 from waymark.registry import registry
-
-
-class UnsupportedPatternError(Exception):
-    """Raised when the IR builder encounters an unsupported Python pattern.
-
-    This error includes a recommendation for how to rewrite the code to use
-    supported patterns.
-    """
-
-    def __init__(
-        self,
-        message: str,
-        recommendation: str,
-        line: Optional[int] = None,
-        col: Optional[int] = None,
-        filename: Optional[str] = None,
-    ):
-        self.message = message
-        self.recommendation = recommendation
-        self.line = line
-        self.col = col
-        self.filename = filename
-
-        location_parts: List[str] = []
-        if filename:
-            location_parts.append(filename)
-        if line:
-            location_parts.append(f"line {line}")
-        if col is not None:
-            location_parts.append(f"col {col}")
-        location = f" ({', '.join(location_parts)})" if location_parts else ""
-        full_message = f"{message}{location}\n\nRecommendation: {recommendation}"
-        super().__init__(full_message)
-
 
 GLOBAL_FUNCTIONS = {
     "enumerate": ir.GlobalFunction.GLOBAL_FUNCTION_ENUMERATE,
@@ -235,25 +204,6 @@ RECOMMENDATIONS = {
     "match": (
         "Match statements are not supported in workflow code.\nUse if/elif/else chains instead."
     ),
-    "gather_return_exceptions": (
-        "asyncio.gather() must be called with return_exceptions=True so results and errors "
-        "are represented consistently in Waymark's IR.\n\n"
-        "Update your call:\n\n"
-        "    results = await asyncio.gather(task_a(), task_b(), return_exceptions=True)"
-    ),
-    "gather_variable_spread": (
-        "Spreading a variable in asyncio.gather() is not supported because it requires "
-        "data flow analysis to determine the contents.\n"
-        "Use a list comprehension directly in gather:\n\n"
-        "    # Instead of:\n"
-        "    tasks = []\n"
-        "    for i in range(count):\n"
-        "        tasks.append(process(value=i))\n"
-        "    results = await asyncio.gather(*tasks, return_exceptions=True)\n\n"
-        "    # Use:\n"
-        "    results = await asyncio.gather(*[process(value=i) for i in range(count)], "
-        "return_exceptions=True)"
-    ),
     "for_loop_append_pattern": (
         "Building a task list in a for loop then spreading in asyncio.gather() is not "
         "supported.\n"
@@ -262,10 +212,10 @@ RECOMMENDATIONS = {
         "    tasks = []\n"
         "    for i in range(count):\n"
         "        tasks.append(process(value=i))\n"
-        "    results = await asyncio.gather(*tasks, return_exceptions=True)\n\n"
+        "    results = await asyncio.gather(*tasks, return_exceptions=False)\n\n"
         "    # Use:\n"
         "    results = await asyncio.gather(*[process(value=i) for i in range(count)], "
-        "return_exceptions=True)"
+        "return_exceptions=False)"
     ),
     "global_statement": (
         "Global statements are not supported in workflow code.\n"
@@ -454,7 +404,19 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
         filename = inspect.getsourcefile(fn)
         if filename is None:
             filename = inspect.getfile(fn)
-        return ast.parse(function_source, filename=filename or "<unknown>"), filename, start_line
+        tree = ast.parse(function_source, filename=filename or "<unknown>")
+        parsed_lines = function_source.splitlines(keepends=True)
+        # Parsing removes method indentation; diagnostics still point into the original file.
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.stmt, ast.expr, ast.arg, ast.keyword, ast.ExceptHandler)):
+                node.col_offset += len(source_lines[node.lineno - 1]) - len(
+                    parsed_lines[node.lineno - 1]
+                )
+                if node.end_lineno is not None and node.end_col_offset is not None:
+                    node.end_col_offset += len(source_lines[node.end_lineno - 1]) - len(
+                        parsed_lines[node.end_lineno - 1]
+                    )
+        return tree, filename, start_line
 
     def _with_source_location(
         err: UnsupportedPatternError,
@@ -495,8 +457,9 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
             ctx_data.imported_names,
             ctx_data.module_functions,
             ctx_data.model_defs,
-            fn_module.__dict__,
+            {**fn_module.__dict__, **inspect.getclosurevars(fn).nonlocals},
             instance_attrs,
+            function_locals=fn.__code__.co_varnames + fn.__code__.co_cellvars,
         )
         try:
             builder.visit(fn_tree)
@@ -983,6 +946,7 @@ class IRBuilder(ast.NodeVisitor):
         model_defs: Optional[Dict[str, ModelDefinition]] = None,
         module_globals: Optional[Mapping[str, Any]] = None,
         instance_attrs: Optional[InstanceAttrs] = None,
+        function_locals: tuple[str, ...] = (),
     ):
         self._action_defs = action_defs
         self._ctx = ctx
@@ -990,12 +954,21 @@ class IRBuilder(ast.NodeVisitor):
         self._module_functions = module_functions or set()
         self._model_defs = model_defs or {}
         self._module_globals = module_globals or {}
+        self._language_call_namespace = {
+            name: value
+            for name, value in self._module_globals.items()
+            if name not in function_locals
+        }
         self._instance_attrs = instance_attrs.literals if instance_attrs else {}
         self._ambiguous_instance_attrs = instance_attrs.ambiguous if instance_attrs else set()
+        self._gather_handler = GatherHandler(
+            self._convert_gather_arg_to_call, self._lower_gather_comprehension
+        )
+        self._language_calls = LanguageCallRegistry([self._gather_handler])
         self.function_def: Optional[ir.FunctionDef] = None
         self._statements: List[ir.Statement] = []
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> Any:
+    def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> Any:
         """Visit a function definition (the workflow's run method)."""
         inputs = self._collect_function_inputs(node)
 
@@ -1017,21 +990,7 @@ class IRBuilder(ast.NodeVisitor):
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> Any:
         """Visit an async function definition (the workflow's run method)."""
-        # Handle async the same way as sync for IR building
-        inputs = self._collect_function_inputs(node)
-
-        self.function_def = ir.FunctionDef(
-            name=node.name,
-            io=ir.IoDecl(inputs=inputs, outputs=[]),
-            span=_make_span(node),
-        )
-
-        self._statements = []
-        for stmt in node.body:
-            ir_stmts = self._visit_statement(stmt)
-            self._statements.extend(ir_stmts)
-
-        self.function_def.body.CopyFrom(ir.Block(statements=self._statements))
+        self.visit_FunctionDef(node)
 
     def _visit_statement(self, node: ast.stmt) -> List[ir.Statement]:
         """Convert a Python statement to IR Statement(s).
@@ -1041,10 +1000,10 @@ class IRBuilder(ast.NodeVisitor):
 
         Raises UnsupportedPatternError for unsupported statement types.
         """
+        language_call = self._visit_language_call(node)
+        if language_call is not None:
+            return language_call
         if isinstance(node, ast.Assign):
-            gather_expanded = self._expand_complex_gather_spread_statement(node)
-            if gather_expanded is not None:
-                return gather_expanded
             dict_expanded = self._expand_dict_comprehension_assignment(node)
             if dict_expanded is not None:
                 return dict_expanded
@@ -1057,9 +1016,6 @@ class IRBuilder(ast.NodeVisitor):
             result = self._visit_ann_assign(node)
             return [result] if result else []
         elif isinstance(node, ast.Expr):
-            gather_expanded = self._expand_complex_gather_spread_statement(node)
-            if gather_expanded is not None:
-                return gather_expanded
             result = self._visit_expr_stmt(node)
             return [result] if result else []
         elif isinstance(node, ast.For):
@@ -1298,36 +1254,50 @@ class IRBuilder(ast.NodeVisitor):
 
         return statements
 
-    def _expand_complex_gather_spread_statement(
-        self, node: ast.stmt
-    ) -> Optional[List[ir.Statement]]:
-        """Expand complex gather spread patterns into setup statements + SpreadExpr.
-
-        This keeps the final parallel fan-out in the existing SpreadExpr runtime
-        path, while lowering filters and destructuring into regular IR first.
-        """
-        gather_call: Optional[ast.Call] = None
-        targets: List[str] = []
-
-        if isinstance(node, ast.Assign):
-            if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
-                gather_call = node.value.value
+    def _visit_language_call(self, node: ast.stmt) -> list[ir.Statement] | None:
+        """Dispatch registered awaited calls; handlers own recognition and lowering."""
+        match node:
+            case ast.Assign(value=ast.Await(value=ast.Call() as call)):
                 targets = self._get_assign_targets(node.targets)
-        elif isinstance(node, ast.Expr):
-            if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
-                gather_call = node.value.value
+            case ast.AnnAssign(value=ast.Await(value=ast.Call() as call)):
+                targets = self._get_assign_targets([node.target])
+            case ast.Expr(value=ast.Await(value=ast.Call() as call)):
+                targets = []
+            case ast.Return(value=ast.Await(value=ast.Call() as call)):
+                targets = []
+            case _:
+                return None
 
-        if gather_call is None or not self._is_asyncio_gather_call(gather_call):
+        handler = self._language_calls.resolve(call.func, self._language_call_namespace)
+        if handler is None:
             return None
+        if isinstance(node, ast.Return):
+            targets = [self._ctx.next_implicit_fn_name(prefix="return_tmp")]
+        lowered = handler.compile(call)
+        lowered.value.span.CopyFrom(_make_span(call))
+        statement = ir.Statement(span=_make_span(node))
+        if isinstance(node, ast.Expr) and lowered.value.HasField("parallel_expr"):
+            statement.parallel_block.calls.extend(lowered.value.parallel_expr.calls)
+        else:
+            statement.assignment.CopyFrom(ir.Assignment(targets=targets, value=lowered.value))
+        statements = [*lowered.statements, statement]
+        if isinstance(node, ast.Return):
+            statements.append(
+                ir.Statement(
+                    return_stmt=ir.ReturnStmt(value=ir.Expr(variable=ir.Variable(name=targets[0]))),
+                    span=_make_span(node),
+                )
+            )
+        return statements
 
-        comprehension = self._extract_gather_spread_comprehension(gather_call)
-        if comprehension is None:
-            return None
-
+    def _lower_gather_comprehension(
+        self, comprehension: ast.ListComp | ast.GeneratorExp
+    ) -> LoweredCall:
+        """Lower filters and destructuring before emitting a comprehension spread."""
         if not self._needs_complex_gather_spread_lowering(comprehension):
-            return None
-
-        self._validate_asyncio_gather_return_exceptions(gather_call)
+            return LoweredCall(
+                value=ir.Expr(spread_expr=self._convert_comprehension_to_spread_expr(comprehension))
+            )
 
         generator = comprehension.generators[0]
         prologue: List[ir.Statement] = []
@@ -1362,33 +1332,7 @@ class IRBuilder(ast.NodeVisitor):
 
         spread_expr = self._build_spread_expr_from_parts(collection_node, loop_var, element_node)
 
-        spread_stmt = ir.Statement(span=_make_span(node))
-        spread_stmt.assignment.CopyFrom(
-            ir.Assignment(
-                targets=targets,
-                value=ir.Expr(spread_expr=spread_expr, span=_make_span(node)),
-            )
-        )
-
-        return [*prologue, spread_stmt]
-
-    def _extract_gather_spread_comprehension(
-        self, gather_call: ast.Call
-    ) -> Optional[Union[ast.ListComp, ast.GeneratorExp]]:
-        """Extract a gather comprehension that should lower through spread IR."""
-        if len(gather_call.args) != 1:
-            return None
-
-        arg = gather_call.args[0]
-        if isinstance(arg, ast.Starred):
-            if isinstance(arg.value, (ast.ListComp, ast.GeneratorExp)):
-                return arg.value
-            return None
-
-        if isinstance(arg, (ast.ListComp, ast.GeneratorExp)):
-            return arg
-
-        return None
+        return LoweredCall(value=ir.Expr(spread_expr=spread_expr), statements=prologue)
 
     def _needs_complex_gather_spread_lowering(
         self, comprehension: Union[ast.ListComp, ast.GeneratorExp]
@@ -1695,21 +1639,6 @@ class IRBuilder(ast.NodeVisitor):
         # This must come AFTER the model constructor check since models are allowed
         self._check_constructor_in_assignment(node.value)
 
-        # Check for asyncio.gather() - convert to parallel or spread expression
-        if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
-            gather_call = node.value.value
-            if self._is_asyncio_gather_call(gather_call):
-                gather_result = self._convert_asyncio_gather(gather_call)
-                if gather_result is not None:
-                    if isinstance(gather_result, ir.ParallelExpr):
-                        value = ir.Expr(parallel_expr=gather_result, span=_make_span(node))
-                    else:
-                        # SpreadExpr
-                        value = ir.Expr(spread_expr=gather_result, span=_make_span(node))
-                    assign = ir.Assignment(targets=targets, value=value)
-                    stmt.assignment.CopyFrom(assign)
-                    return stmt
-
         # Disallow assigning the result of asyncio.sleep()
         if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
             awaited = node.value.value
@@ -1743,26 +1672,6 @@ class IRBuilder(ast.NodeVisitor):
     def _visit_expr_stmt(self, node: ast.Expr) -> Optional[ir.Statement]:
         """Convert expression statement to IR (side effect only, no assignment)."""
         stmt = ir.Statement(span=_make_span(node))
-
-        # Check for asyncio.gather() - convert to parallel block statement (side effect)
-        if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
-            gather_call = node.value.value
-            if self._is_asyncio_gather_call(gather_call):
-                gather_result = self._convert_asyncio_gather(gather_call)
-                if gather_result is not None:
-                    if isinstance(gather_result, ir.ParallelExpr):
-                        # Side effect only - use ParallelBlock statement
-                        parallel = ir.ParallelBlock()
-                        parallel.calls.extend(gather_result.calls)
-                        stmt.parallel_block.CopyFrom(parallel)
-                        return stmt
-                    else:
-                        # SpreadExpr as side effect - wrap in assignment with no targets
-                        # This handles: await asyncio.gather(*[action(x) for x in items])
-                        value = ir.Expr(spread_expr=gather_result, span=_make_span(node))
-                        assign = ir.Assignment(targets=[], value=value)
-                        stmt.assignment.CopyFrom(assign)
-                        return stmt
 
         # Check for asyncio.sleep() - convert to SleepStmt
         if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
@@ -2985,7 +2894,7 @@ class IRBuilder(ast.NodeVisitor):
             return
         if self._is_asyncio_sleep_call(awaited):
             return
-        if self._is_asyncio_gather_call(awaited):
+        if self._language_calls.resolve(awaited.func, self._language_call_namespace) is not None:
             return
 
         # Get the function name
@@ -3377,121 +3286,9 @@ class IRBuilder(ast.NodeVisitor):
 
         return sleep_stmt
 
-    def _is_asyncio_gather_call(self, node: ast.Call) -> bool:
-        """Check if this is an asyncio.gather(...) call.
-
-        Supports both patterns:
-        - import asyncio; asyncio.gather(a(), b())
-        - from asyncio import gather; gather(a(), b())
-        - from asyncio import gather as g; g(a(), b())
-        """
-        if isinstance(node.func, ast.Attribute):
-            # asyncio.gather(...) pattern
-            if node.func.attr == "gather" and isinstance(node.func.value, ast.Name):
-                return node.func.value.id == "asyncio"
-        elif isinstance(node.func, ast.Name):
-            # gather(...) pattern - check if it's imported from asyncio
-            func_name = node.func.id
-            if func_name in self._imported_names:
-                imported = self._imported_names[func_name]
-                return imported.module == "asyncio" and imported.original_name == "gather"
-        return False
-
-    def _convert_asyncio_gather(
-        self, node: ast.Call
-    ) -> Optional[Union[ir.ParallelExpr, ir.SpreadExpr]]:
-        """Convert asyncio.gather(...) to ParallelExpr or SpreadExpr IR.
-
-        Handles two patterns:
-        1. Static gather: asyncio.gather(a(), b(), c()) -> ParallelExpr
-        2. Spread gather: asyncio.gather(*[action(x) for x in items]) -> SpreadExpr
-
-        Args:
-            node: The asyncio.gather() Call node
-
-        Returns:
-            A ParallelExpr, SpreadExpr, or None if conversion fails.
-        """
-        self._validate_asyncio_gather_return_exceptions(node)
-
-        comprehension = self._extract_gather_spread_comprehension(node)
-        if comprehension is not None:
-            return self._convert_comprehension_to_spread_expr(comprehension)
-
-        # Check for starred expressions - spread pattern
-        if len(node.args) == 1 and isinstance(node.args[0], ast.Starred):
-            starred = node.args[0]
-            # Spreading a variable or other expression is not supported
-            line = node.lineno if hasattr(node, "lineno") else None
-            col = node.col_offset if hasattr(node, "col_offset") else None
-            if isinstance(starred.value, ast.Name):
-                var_name = starred.value.id
-                raise UnsupportedPatternError(
-                    f"Spreading variable '{var_name}' in asyncio.gather() is not supported",
-                    RECOMMENDATIONS["gather_variable_spread"],
-                    line=line,
-                    col=col,
-                )
-            else:
-                raise UnsupportedPatternError(
-                    "Spreading non-comprehension expressions in asyncio.gather() is not supported",
-                    RECOMMENDATIONS["gather_variable_spread"],
-                    line=line,
-                    col=col,
-                )
-
-        # Standard case: gather(a(), b(), c()) -> ParallelExpr
-        parallel = ir.ParallelExpr()
-
-        # Each argument to gather() should be an action call
-        for arg in node.args:
-            call = self._convert_gather_arg_to_call(arg)
-            if call:
-                parallel.calls.append(call)
-
-        # Only return if we have calls
-        if not parallel.calls:
-            return None
-
-        return parallel
-
-    def _validate_asyncio_gather_return_exceptions(self, node: ast.Call) -> None:
-        """Require return_exceptions=True on asyncio.gather() calls."""
-        return_exceptions_value: Optional[ast.expr] = None
-        for kw in node.keywords:
-            if kw.arg is None:
-                line = node.lineno if hasattr(node, "lineno") else None
-                col = node.col_offset if hasattr(node, "col_offset") else None
-                raise UnsupportedPatternError(
-                    "asyncio.gather() must be called with return_exceptions=True",
-                    RECOMMENDATIONS["gather_return_exceptions"],
-                    line=line,
-                    col=col,
-                )
-            if kw.arg == "return_exceptions":
-                return_exceptions_value = kw.value
-                break
-
-        if not (
-            isinstance(return_exceptions_value, ast.Constant)
-            and return_exceptions_value.value is True
-        ):
-            line = node.lineno if hasattr(node, "lineno") else None
-            col = node.col_offset if hasattr(node, "col_offset") else None
-            raise UnsupportedPatternError(
-                "asyncio.gather() must be called with return_exceptions=True",
-                RECOMMENDATIONS["gather_return_exceptions"],
-                line=line,
-                col=col,
-            )
-
-    def _convert_listcomp_to_spread_expr(self, listcomp: ast.ListComp) -> Optional[ir.SpreadExpr]:
-        """Convert a list comprehension to SpreadExpr IR."""
-        return self._convert_comprehension_to_spread_expr(listcomp)
-
     def _convert_comprehension_to_spread_expr(
         self, comprehension: Union[ast.ListComp, ast.GeneratorExp]
-    ) -> Optional[ir.SpreadExpr]:
+    ) -> ir.SpreadExpr:
         """Convert a gather comprehension to SpreadExpr IR.
 
         Handles patterns like:
@@ -3507,7 +3304,7 @@ class IRBuilder(ast.NodeVisitor):
             comprehension: The comprehension AST node
 
         Returns:
-            A SpreadExpr, or None if conversion fails.
+            A SpreadExpr; unsupported forms raise a compilation error.
         """
         # Only support simple list comprehensions with one generator
         if len(comprehension.generators) != 1:
@@ -3562,7 +3359,7 @@ class IRBuilder(ast.NodeVisitor):
                 col=col,
             )
 
-        call = self._extract_spread_call(element_node)
+        call = self._convert_gather_arg_to_call(element_node)
 
         spread = ir.SpreadExpr()
         spread.collection.CopyFrom(collection_expr)
@@ -3570,100 +3367,37 @@ class IRBuilder(ast.NodeVisitor):
         spread.call.CopyFrom(call)
         return spread
 
-    def _extract_spread_call(self, element_node: ast.expr) -> ir.Call:
-        """Extract the action or function call payload from a spread element AST node."""
-        if not isinstance(element_node, ast.Call):
-            line = element_node.lineno if hasattr(element_node, "lineno") else None
-            col = element_node.col_offset if hasattr(element_node, "col_offset") else None
-            raise UnsupportedPatternError(
-                "Spread pattern requires a call in the list comprehension",
-                "Use: [action(x=item) for item in items] or [self.helper(item) for item in items]",
-                line=line,
-                col=col,
-            )
-
-        action_call: Optional[ir.ActionCall] = None
-        is_run_action = self._is_run_action_call(element_node)
-        if is_run_action:
-            if element_node.args:
-                inner_call = element_node.args[0]
-                if isinstance(inner_call, ast.Call):
-                    action_call = self._extract_action_call_from_call(inner_call)
-                    if action_call:
-                        self._extract_policies_from_run_action(element_node, action_call)
-        else:
-            action_call = self._extract_action_call_from_call(element_node)
-
-        if action_call is not None:
-            call = ir.Call()
-            call.action.CopyFrom(action_call)
-            return call
-
-        if not is_run_action:
-            func_call = self._convert_to_function_call(element_node)
-            if func_call is not None:
-                call = ir.Call()
-                call.function.CopyFrom(func_call)
-                return call
-
-        line = element_node.lineno if hasattr(element_node, "lineno") else None
-        col = element_node.col_offset if hasattr(element_node, "col_offset") else None
-        raise UnsupportedPatternError(
-            "Spread pattern element must be an @action call or a workflow function call",
-            "Ensure the function is decorated with @action or defined on the workflow, "
-            "or use self.run_action(action(...), ...)",
-            line=line,
-            col=col,
-        )
-
-    def _convert_gather_arg_to_call(self, node: ast.expr) -> Optional[ir.Call]:
-        """Convert a gather argument to an IR Call.
-
-        Handles both action calls and regular function calls.
-        Also handles self.run_action() wrapper pattern with retry/timeout policies.
-        """
+    def _convert_gather_arg_to_call(self, node: ast.expr) -> ir.Call:
+        """Only registered actions and compiled workflow helpers are gather operands."""
         if not isinstance(node, ast.Call):
-            return None
+            raise self._gather_handler.error(node, "each awaitable must be a direct call")
 
-        # Check for self.run_action(...) wrapper pattern
         if self._is_run_action_call(node):
-            if not node.args:
-                raise UnsupportedPatternError(
-                    "self.run_action() requires an action call as its first argument",
-                    "Use: self.run_action(action_name(...), retry=..., timeout=...)",
-                    line=getattr(node, "lineno", None),
-                    col=getattr(node, "col_offset", None),
-                )
-            inner_call = node.args[0]
-            if not isinstance(inner_call, ast.Call):
-                raise UnsupportedPatternError(
-                    "self.run_action() first argument must be an action call",
-                    "Use: self.run_action(action_name(...), retry=..., timeout=...)",
-                    line=getattr(node, "lineno", None),
-                    col=getattr(node, "col_offset", None),
-                )
-            action_call = self._extract_action_call_from_call(inner_call)
-            if action_call:
+            if not node.args or not isinstance(node.args[0], ast.Call):
+                raise self._gather_handler.error(node, "run_action() requires an action call")
+            action_call = self._extract_action_call_from_call(node.args[0])
+            if action_call is not None:
                 self._extract_policies_from_run_action(node, action_call)
-                call = ir.Call()
-                call.action.CopyFrom(action_call)
-                return call
+                return ir.Call(action=action_call)
+        else:
+            action_call = self._extract_action_call_from_call(node)
+            if action_call is not None:
+                return ir.Call(action=action_call)
 
-        # Try to extract as an action call first
-        action_call = self._extract_action_call_from_call(node)
-        if action_call:
-            call = ir.Call()
-            call.action.CopyFrom(action_call)
-            return call
+            if (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "self"
+                and node.func.attr in self._ctx.function_signatures
+            ):
+                function_call = self._convert_to_function_call(node)
+                if function_call is not None:
+                    return ir.Call(function=function_call)
 
-        # Fall back to regular function call
-        func_call = self._convert_to_function_call(node)
-        if func_call:
-            call = ir.Call()
-            call.function.CopyFrom(func_call)
-            return call
-
-        return None
+        raise self._gather_handler.error(
+            node,
+            f"unsupported awaitable {ast.unparse(node.func)!r}; use an action or workflow helper",
+        )
 
     def _convert_to_function_call(self, node: ast.Call) -> Optional[ir.FunctionCall]:
         """Convert an AST Call to IR FunctionCall."""
@@ -3769,6 +3503,17 @@ class IRBuilder(ast.NodeVisitor):
 
     def _expr_to_ir_with_model_coercion(self, node: ast.expr) -> Optional[ir.Expr]:
         """Convert an AST expression to IR, converting model constructors to dicts."""
+        for expression in ast.walk(node):
+            if isinstance(expression, ast.Call):
+                handler = self._language_calls.resolve(
+                    expression.func, self._language_call_namespace
+                )
+                if handler is not None:
+                    handler.parse_arguments(expression)
+                    raise handler.error(
+                        expression,
+                        "await this call in its own assignment, return, or expression statement",
+                    )
         # First, try to resolve self.attr.subattr chains at build time
         resolved = self._resolve_instance_attribute_chain(node)
         if resolved is not None:
