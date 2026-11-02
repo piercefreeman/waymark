@@ -31,16 +31,6 @@ class SourceValidator(ast.NodeVisitor):
         else:
             super().visit(node)
 
-    def visit_Attribute(self, node: ast.Attribute) -> None:
-        if self.context.analysis.kind(node.value) == "exception":
-            reject(node, "Caught exception inspection is unsupported")
-        self.generic_visit(node)
-
-    def visit_Subscript(self, node: ast.Subscript) -> None:
-        if self.context.analysis.kind(node.value) == "exception":
-            reject(node, "Caught exception inspection is unsupported")
-        self.generic_visit(node)
-
     def visit_Await(self, node: ast.Await) -> None:
         if isinstance(node.value, ast.Call):
             handler = self.context.resolve(node.value.func)

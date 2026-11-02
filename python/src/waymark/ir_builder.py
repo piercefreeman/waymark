@@ -22,7 +22,6 @@ import builtins
 import inspect
 import textwrap
 from dataclasses import dataclass, field
-from enum import EnumMeta
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, NoReturn, Optional, Set
 
 from waymark.call_binding import bind_call
@@ -261,6 +260,9 @@ class InstanceAttrs:
     ambiguous: Set[str]
     """Attributes assigned more than once, or under a branch or loop: unreadable."""
 
+    namespace: Mapping[str, Any] = field(default_factory=dict)
+    """Globals and closure bindings where the initializer expressions were defined."""
+
 
 def _extract_instance_attrs(workflow_cls: type["Workflow"]) -> InstanceAttrs:
     """Read the `self.attr = value` assignments of the workflow's `__init__`.
@@ -307,7 +309,15 @@ def _extract_instance_attrs(workflow_cls: type["Workflow"]) -> InstanceAttrs:
                 literals.pop(nested_assignment[0], None)
                 ambiguous.add(nested_assignment[0])
 
-    return InstanceAttrs(literals, ambiguous)
+    return InstanceAttrs(
+        literals,
+        ambiguous,
+        {
+            **vars(builtins),
+            **init_method.__globals__,
+            **inspect.getclosurevars(init_method).nonlocals,
+        },
+    )
 
 
 def _self_attribute_assignment(node: ast.AST) -> Optional[tuple[str, ast.expr]]:
@@ -366,6 +376,7 @@ class IRBuilder(ast.NodeVisitor):
                 self._compiler_context, SYNTAX_HANDLERS
             ).visit(node),
             instance_attrs=self._instance_attrs,
+            instance_namespace=instance_attrs.namespace if instance_attrs else self._module_globals,
             ambiguous_instance_attrs=self._ambiguous_instance_attrs,
         )
         self.function_def: Optional[ir.FunctionDef] = None
@@ -1297,172 +1308,12 @@ class IRBuilder(ast.NodeVisitor):
                 return ir.Expr(function_call=function)
         return None
 
-    def _resolve_enum_attribute(self, node: ast.Attribute) -> Optional[ir.Expr]:
-        instance = self._resolve_instance_attribute_chain(node)
-        if instance is not None:
-            return instance
-        value = _resolve_enum_attribute_value(node, self._module_globals)
-        if value is None:
-            return None
-        literal = constant_to_literal(value)
-        if literal is None:
-            line = getattr(node, "lineno", None)
-            col = getattr(node, "col_offset", None)
-            raise UnsupportedPatternError(
-                "Enum value must be a primitive literal",
-                RECOMMENDATIONS["unsupported_literal"],
-                line=line,
-                col=col,
-            )
-        expr = ir.Expr(span=make_span(node))
-        expr.literal.CopyFrom(literal)
-        return expr
-
     def _compile_expression(self, node: ast.expr) -> Optional[ir.Expr]:
         """Dispatch syntax lowering and recurse through shared compiler operations."""
         lowered = SYNTAX_HANDLERS.lower_expression(node, self._compiler_context)
         if lowered is not None:
             return lowered
-        if isinstance(node, ast.Attribute):
-            resolved = self._resolve_enum_attribute(node)
-            if resolved is not None:
-                return resolved
         return _expr_to_ir(node, self._compiler_context)
-
-    def _resolve_instance_attribute_chain(self, node: ast.expr) -> Optional[ir.Expr]:
-        """Resolve self.attr.subattr chains at build time.
-
-        For expressions like self.config.max_retries where self.config is
-        defined in __init__, evaluate the chain at build time and return
-        the value as an IR literal.
-        """
-        chain = self._extract_self_attribute_chain(node)
-        if chain is None:
-            return None
-
-        # chain[0] is the top-level attribute (e.g., "config")
-        # chain[1:] are nested attributes (e.g., ["max_retries"])
-        top_attr = chain[0]
-        if top_attr not in self._instance_attrs or top_attr in self._ambiguous_instance_attrs:
-            raise UnsupportedPatternError(
-                "Instance attribute is not assigned a unique literal in __init__",
-                "Pass runtime values through run() arguments.",
-                line=node.lineno,
-                col=node.col_offset,
-            )
-
-        # Get the AST expression for the top-level attribute
-        attr_ast = self._instance_attrs[top_attr]
-
-        # Try to resolve nested attributes
-        resolved_ast = self._resolve_nested_attributes(attr_ast, chain[1:])
-        if resolved_ast is None:
-            raise UnsupportedPatternError(
-                "Instance attribute cannot be resolved at compile time",
-                "Pass runtime values through run() arguments.",
-                line=node.lineno,
-                col=node.col_offset,
-            )
-
-        # Convert the resolved AST to IR
-        return self._compile_expression(resolved_ast)
-
-    def _extract_self_attribute_chain(self, node: ast.expr) -> Optional[List[str]]:
-        """Extract attribute chain from self.a.b.c pattern.
-
-        Returns ["a", "b", "c"] for self.a.b.c, or None if not a self chain.
-        """
-        chain: List[str] = []
-        current = node
-
-        while isinstance(current, ast.Attribute):
-            chain.append(current.attr)
-            current = current.value
-
-        # Check if the base is "self"
-        if isinstance(current, ast.Name) and current.id == "self":
-            chain.reverse()
-            return chain
-
-        return None
-
-    def _resolve_nested_attributes(
-        self, ast_node: ast.expr, attrs: List[str]
-    ) -> Optional[ast.expr]:
-        """Resolve nested attributes on an AST expression.
-
-        For a Call like ClassName(a=1, b=2), resolving ["a"] returns the
-        AST node for 1.
-        """
-        if not attrs:
-            return ast_node
-
-        attr_name = attrs[0]
-        remaining = attrs[1:]
-
-        # Handle Call expressions (constructor calls)
-        if isinstance(ast_node, ast.Call):
-            handler = self._language_calls.resolve(ast_node.func, self._language_call_namespace)
-            if handler is None or handler.requires_await:
-                return None
-            handler.compile(ast_node, self._compiler_context)
-            # Look for keyword argument with matching name
-            for kw in ast_node.keywords:
-                if kw.arg == attr_name:
-                    return self._resolve_nested_attributes(kw.value, remaining)
-            return None
-
-        # Handle Dict expressions
-        if isinstance(ast_node, ast.Dict):
-            for key, value in zip(ast_node.keys, ast_node.values, strict=True):
-                if isinstance(key, ast.Constant) and key.value == attr_name:
-                    return self._resolve_nested_attributes(value, remaining)
-            return None
-
-        return None
-
-
-def _attribute_chain(node: ast.Attribute) -> Optional[List[str]]:
-    parts: List[str] = []
-    current: ast.AST = node
-    while isinstance(current, ast.Attribute):
-        parts.append(current.attr)
-        current = current.value
-    if isinstance(current, ast.Name):
-        parts.append(current.id)
-        return list(reversed(parts))
-    return None
-
-
-def _resolve_enum_attribute_value(
-    node: ast.Attribute,
-    module_globals: Mapping[str, Any],
-) -> Optional[Any]:
-    chain = _attribute_chain(node)
-    if not chain or len(chain) < 2:
-        return None
-
-    current = module_globals.get(chain[0])
-    if current is None:
-        return None
-
-    for part in chain[1:-1]:
-        try:
-            current_dict = current.__dict__
-        except AttributeError:
-            return None
-        current = current_dict.get(part)
-        if current is None:
-            return None
-
-    member_name = chain[-1]
-    if isinstance(current, EnumMeta):
-        member = current.__members__.get(member_name)
-        if member is None:
-            return None
-        return member.value
-
-    return None
 
 
 def _expr_to_ir(
@@ -1537,19 +1388,6 @@ def _expr_to_ir(
         if all(e for e in elements):
             list_expr = ir.ListExpr(elements=[e for e in elements if e])
             result.list.CopyFrom(list_expr)
-            return result
-
-    if isinstance(expr, ast.Subscript):
-        obj = context.expression(expr.value)
-        index = context.expression(expr.slice) if isinstance(expr.slice, ast.AST) else None
-        if obj and index:
-            result.index.CopyFrom(ir.IndexAccess(object=obj, index=index))
-            return result
-
-    if isinstance(expr, ast.Attribute):
-        obj = context.expression(expr.value)
-        if obj:
-            result.dot.CopyFrom(ir.DotAccess(object=obj, attribute=expr.attr))
             return result
 
     if isinstance(expr, ast.Await) and isinstance(expr.value, ast.Call):

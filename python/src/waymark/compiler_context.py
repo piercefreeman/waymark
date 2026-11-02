@@ -29,6 +29,7 @@ class CompilerContext:
     validate_syntax: Callable[[ast.AST], None]
     analysis: SourceAnalysis = field(default_factory=SourceAnalysis)
     instance_attrs: Mapping[str, ast.expr] = field(default_factory=dict)
+    instance_namespace: Mapping[str, Any] = field(default_factory=dict)
     ambiguous_instance_attrs: set[str] = field(default_factory=set)
 
     def block(self, nodes: Iterable[ast.stmt], location: ast.AST) -> ir.Block:
