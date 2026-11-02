@@ -4,7 +4,6 @@ import ast
 
 from waymark.compiler.ast import make_span
 from waymark.compiler.context import CompilerContext
-from waymark.compiler.errors import UnsupportedPatternError
 from waymark.language_syntax import StatementHandler
 from waymark.proto import ast_pb2 as ir
 
@@ -28,30 +27,19 @@ class ConditionalHandler(StatementHandler[ast.If]):
         """
 
         def normalize_condition(test: ast.expr) -> tuple[list[ir.Statement], ir.Expr]:
-            action_call = context.action(test)
-            if action_call is None:
-                return ([], context.expression(test))
-
-            if not isinstance(test, ast.Await):
-                line = test.lineno
-                col = test.col_offset
-                raise UnsupportedPatternError(
-                    "Action calls inside boolean expressions are not supported in if conditions",
-                    "Assign the awaited action result to a variable, then use the variable in the if condition.",
-                    line=line,
-                    col=col,
+            lowered = context.lower_value(test)
+            statements = list(lowered.statements)
+            condition = lowered.value
+            if isinstance(test, ast.Await):
+                temporary = context.next_name("if_cond")
+                statements.append(
+                    ir.Statement(
+                        assignment=ir.Assignment(targets=[temporary], value=condition),
+                        span=make_span(test),
+                    )
                 )
-
-            cond_var = context.next_name("if_cond")
-            assign_stmt = ir.Statement(span=make_span(test))
-            assign_stmt.assignment.CopyFrom(
-                ir.Assignment(
-                    targets=[cond_var],
-                    value=ir.Expr(action_call=action_call, span=make_span(test)),
-                )
-            )
-            cond_expr = ir.Expr(variable=ir.Variable(name=cond_var), span=make_span(test))
-            return ([assign_stmt], cond_expr)
+                condition = ir.Expr(variable=ir.Variable(name=temporary), span=make_span(test))
+            return statements, condition
 
         def visit_body(nodes: list[ast.stmt]) -> list[ir.Statement]:
             stmts: list[ir.Statement] = []

@@ -9,26 +9,16 @@ import ast
 import inspect
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field
 from typing import Any, ClassVar, Generic, Literal, TypeVar, get_args, get_origin, get_type_hints
 
 from pydantic import ConfigDict, TypeAdapter, ValidationError
 
 from waymark.compiler.ast import resolve_reference
-from waymark.compiler.context import CompilerContext
+from waymark.compiler.context import CompilerContext, LoweredCall
 from waymark.compiler.errors import UnsupportedPatternError
 from waymark.compiler.types import ValueKind
-from waymark.proto import ast_pb2 as ir
 
 Arguments = TypeVar("Arguments")
-
-
-@dataclass
-class LoweredCall:
-    """An expression and any statements that must execute before evaluating it."""
-
-    value: ir.Expr
-    statements: list[ir.Statement] = field(default_factory=list)
 
 
 class LanguageCallRegistry:

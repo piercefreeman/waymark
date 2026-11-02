@@ -10,10 +10,10 @@ from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
 from waymark.call_binding import bind_call
-from waymark.compiler.context import CompilerContext
+from waymark.compiler.context import CompilerContext, LoweredCall
 from waymark.compiler.literals import literal_expression
 from waymark.compiler.types import has_open_type_parameters
-from waymark.language_calls import LanguageCallHandler, LoweredCall
+from waymark.language_calls import LanguageCallHandler
 from waymark.proto import ast_pb2 as ir
 
 

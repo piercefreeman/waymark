@@ -3,8 +3,8 @@
 import ast
 from dataclasses import dataclass
 
-from waymark.compiler.context import CompilerContext
-from waymark.language_calls import LanguageCallHandler, LoweredCall
+from waymark.compiler.context import CompilerContext, LoweredCall
+from waymark.language_calls import LanguageCallHandler
 
 
 @dataclass(frozen=True)

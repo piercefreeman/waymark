@@ -1,16 +1,29 @@
-"""Shared compiler operations available to language-call handlers."""
+"""Shared compilation operations and per-function facts available to handlers."""
 
 import ast
-from collections.abc import Callable, Collection, Iterable, Mapping
+import inspect
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+
+from waymark.call_binding import bind_call
+from waymark.compiler.analysis import SourceAnalysis
+from waymark.compiler.ast import make_span
+from waymark.compiler.errors import UnsupportedPatternError
+from waymark.compiler.literals import literal_expression
+from waymark.compiler.recommendations import RECOMMENDATIONS
+from waymark.proto import ast_pb2 as ir
 
 if TYPE_CHECKING:
     from waymark.language_calls import LanguageCallHandler
 
-from waymark.compiler.analysis import SourceAnalysis
-from waymark.compiler.ast import make_span
-from waymark.proto import ast_pb2 as ir
+
+@dataclass
+class LoweredCall:
+    """An expression and any statements that must execute before evaluating it."""
+
+    value: ir.Expr
+    statements: list[ir.Statement] = field(default_factory=list)
 
 
 @dataclass
@@ -19,13 +32,10 @@ class CompilerContext:
 
     expression: Callable[[ast.expr], ir.Expr]
     statement: Callable[[ast.stmt], list[ir.Statement]]
-    action: Callable[[ast.expr], ir.ActionCall | None]
-    function: Callable[[ast.Call], ir.FunctionCall | None]
     next_name: Callable[[str], str]
-    function_names: Collection[str]
+    function_signatures: Mapping[str, inspect.Signature]
     resolve: Callable[[ast.expr], "LanguageCallHandler[Any] | None"]
     namespace: Mapping[str, Any]
-    synchronous_call: Callable[[ast.Call], ir.Expr | None]
     validate_syntax: Callable[[ast.AST], None]
     analysis: SourceAnalysis = field(default_factory=SourceAnalysis)
     instance_attrs: Mapping[str, ast.expr] = field(default_factory=dict)
@@ -39,32 +49,78 @@ class CompilerContext:
             span=make_span(location),
         )
 
-    def call(self, node: ast.Call) -> ir.Call | None:
-        """Lower a registered action or workflow helper, including run_action policies."""
+    def lower_value(self, node: ast.expr) -> LoweredCall:
+        """Keep setup attached to its value until the owning statement places both."""
+        if isinstance(node, ast.Await):
+            if not isinstance(node.value, ast.Call):
+                raise UnsupportedPatternError(
+                    "Await requires a direct action or workflow-helper call",
+                    RECOMMENDATIONS["sync_function_call"],
+                    line=node.lineno,
+                    col=node.col_offset,
+                )
+            return self.compile_call(node.value, awaited=True)
+        if isinstance(node, ast.Call):
+            return self.compile_call(node, awaited=False)
+        return LoweredCall(self.expression(node))
+
+    def compile_call(self, node: ast.Call, *, awaited: bool) -> LoweredCall:
+        """Resolve without emitting, then lower the selected call exactly once."""
         handler = self.resolve(node.func)
         if handler is not None:
-            if not handler.requires_await:
-                raise handler.error(node, "expected an awaitable")
+            if handler.requires_await != awaited:
+                message = (
+                    "await this call in its own assignment, return, or expression statement"
+                    if handler.requires_await
+                    else "this call cannot be awaited"
+                )
+                raise handler.error(node, message)
             lowered = handler.compile(node, self)
-            if not lowered.statements:
-                if lowered.value.HasField("action_call"):
-                    return ir.Call(action=lowered.value.action_call)
-                if lowered.value.HasField("function_call"):
-                    return ir.Call(function=lowered.value.function_call)
-            return None
-
-        awaited = ast.copy_location(ast.Await(value=node), node)
-        action = self.action(awaited)
-        if action is not None:
-            return ir.Call(action=action)
-
+            lowered.value.span.CopyFrom(make_span(node))
+            return lowered
+        function = node.func
         if (
-            isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "self"
-            and node.func.attr in self.function_names
+            isinstance(function, ast.Attribute)
+            and isinstance(function.value, ast.Name)
+            and function.value.id == "self"
+            and function.attr in self.function_signatures
         ):
-            function = self.function(node)
-            if function is not None:
-                return ir.Call(function=function)
-        return None
+            signature = self.function_signatures[function.attr]
+            bound = bind_call(node, signature, self.namespace)
+            call = ir.FunctionCall(name=function.attr)
+            for argument in node.args:
+                call.args.append(self.expression(argument))
+            for keyword in node.keywords:
+                assert keyword.arg is not None
+                call.kwargs.append(ir.Kwarg(name=keyword.arg, value=self.expression(keyword.value)))
+            for parameter in signature.parameters.values():
+                if (
+                    parameter.name not in bound.arguments
+                    and parameter.default is not inspect.Parameter.empty
+                ):
+                    value = self.expression(literal_expression(parameter.default, node))
+                    call.kwargs.append(ir.Kwarg(name=parameter.name, value=value))
+            return LoweredCall(ir.Expr(function_call=call, span=make_span(node)))
+        message = (
+            f"unsupported awaitable '{ast.unparse(function)}'; use an action or workflow helper"
+            if awaited
+            else f"Calling '{ast.unparse(function)}()' is not supported in workflow code"
+        )
+        raise UnsupportedPatternError(
+            message, RECOMMENDATIONS["sync_function_call"], line=node.lineno, col=node.col_offset
+        )
+
+    def call(self, node: ast.Call) -> ir.Call:
+        """Compile one direct awaitable for an IR operation that accepts only calls."""
+        lowered = self.compile_call(node, awaited=True)
+        if not lowered.statements:
+            if lowered.value.HasField("action_call"):
+                return ir.Call(action=lowered.value.action_call)
+            if lowered.value.HasField("function_call"):
+                return ir.Call(function=lowered.value.function_call)
+        raise UnsupportedPatternError(
+            f"unsupported awaitable '{ast.unparse(node.func)}'; use an action or workflow helper",
+            RECOMMENDATIONS["sync_function_call"],
+            line=node.lineno,
+            col=node.col_offset,
+        )

@@ -67,19 +67,21 @@ class AssignmentHandler(StatementHandler[ast.Assign | ast.AnnAssign | ast.AugAss
         expanded = self._expand_comprehension(node, context)
         if expanded is not None:
             return expanded
-        return [self._lower_assignment(node, context)]
+        return self._lower_assignment(node, context)
 
-    def _lower_assignment(self, node: ast.Assign, context: CompilerContext) -> ir.Statement:
+    def _lower_assignment(self, node: ast.Assign, context: CompilerContext) -> list[ir.Statement]:
         targets = assignment_targets(node.targets)
-        action = context.action(node.value)
-        value = (
-            ir.Expr(action_call=action, span=make_span(node))
-            if action is not None
-            else context.expression(node.value)
+        lowered = context.lower_value(node.value)
+        if (
+            isinstance(node.targets[0], (ast.Tuple, ast.List))
+            and lowered.value.HasField("parallel_expr")
+            and len(targets) != len(lowered.value.parallel_expr.calls)
+        ):
+            reject(node, "Unpacking target count does not match result count")
+        statement = ir.Statement(
+            assignment=ir.Assignment(targets=targets, value=lowered.value), span=make_span(node)
         )
-        return ir.Statement(
-            assignment=ir.Assignment(targets=targets, value=value), span=make_span(node)
-        )
+        return [*lowered.statements, statement]
 
     def _validate_augmented(self, node: ast.AugAssign, context: CompilerContext) -> None:
         """Check this construct against the shared source facts."""
@@ -265,8 +267,7 @@ class AssignmentHandler(StatementHandler[ast.Assign | ast.AnnAssign | ast.AugAss
         ast.fix_missing_locations(loop_ast)
 
         statements = context.statement(iterable_assignment)
-        init_stmt = self._lower_assignment(init_assign_ast, context)
-        statements.append(init_stmt)
+        statements.extend(self._lower_assignment(init_assign_ast, context))
         statements.extend(context.statement(loop_ast))
         final_assignment = ast.fix_missing_locations(
             ast.copy_location(
