@@ -22,7 +22,6 @@ import builtins
 import copy
 import inspect
 import textwrap
-import types
 from dataclasses import dataclass, field
 from enum import EnumMeta
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, NoReturn, Optional, Set
@@ -451,8 +450,6 @@ class IRBuilder(ast.NodeVisitor):
             return self._visit_while(node)
         elif isinstance(node, ast.If):
             return self._visit_if(node)
-        elif isinstance(node, ast.Try):
-            return self._visit_try(node)
         elif isinstance(node, ast.Return):
             return self._visit_return(node)
         elif isinstance(node, ast.AugAssign):
@@ -1269,134 +1266,6 @@ class IRBuilder(ast.NodeVisitor):
                                 vars_found.append(var)
 
         return vars_found
-
-    def _except_handler_type_name(self, node: ast.expr) -> str:
-        """The class name an `except` clause lists, as the VM matches it.
-
-        The clause's expression is resolved in the workflow module's scope,
-        the builtins included, the way Python resolves it when an exception
-        reaches the clause: a bare name as is, a dotted spelling such as
-        `except httpx.ConnectError:` walked from its root module or class. It
-        must resolve to an exception class, whose own name is what the VM
-        matches by, so an alias names the same class. A value, a class that is
-        not an exception, a tuple alias, an undefined name, a chain rooted in
-        `self` or in a call, and any other expression are rejected rather than
-        compiled into a name that never matches.
-        """
-        if isinstance(node, ast.Name):
-            spelled = node.id
-            resolved = self._module_scope_name(node.id)
-        elif isinstance(node, ast.Attribute):
-            root = node.value
-            attrs = [node.attr]
-            while isinstance(root, ast.Attribute):
-                attrs.append(root.attr)
-                root = root.value
-            attrs.reverse()
-            if not (
-                isinstance(root, ast.Name)
-                and isinstance(self._module_scope_name(root.id), (types.ModuleType, type))
-            ):
-                raise UnsupportedPatternError(
-                    "An except clause's dotted name must be rooted in a module or a class",
-                    RECOMMENDATIONS["except_type"],
-                    line=node.lineno,
-                    col=node.col_offset,
-                )
-            spelled = ".".join([root.id, *attrs])
-            resolved = self._module_scope_name(root.id)
-            for attr in attrs:
-                resolved = self._static_attribute(resolved, attr)
-        else:
-            raise UnsupportedPatternError(
-                "An except clause must list exception classes by name",
-                RECOMMENDATIONS["except_type"],
-                line=node.lineno,
-                col=node.col_offset,
-            )
-        if isinstance(resolved, type) and issubclass(resolved, BaseException):
-            return resolved.__name__
-        raise UnsupportedPatternError(
-            f"An except clause names {spelled}, which is not an exception class in scope",
-            RECOMMENDATIONS["except_type"],
-            line=node.lineno,
-            col=node.col_offset,
-        )
-
-    def _module_scope_name(self, name: str) -> Any:
-        """What a bare name refers to in the workflow module: its globals, then the builtins."""
-        if name in self._module_globals:
-            return self._module_globals[name]
-        return vars(builtins).get(name)
-
-    @staticmethod
-    def _static_attribute(owner: Any, name: str) -> Any:
-        """`owner.name` read from the namespaces alone: a module's, or a class's and its bases'.
-
-        Anything else, a value included, has no attribute the compiler would
-        read, so the result is None and the caller rejects the spelling. A
-        module's lazy export (through a module-level ``__getattr__``) is not
-        in its namespace and is rejected the same way, on purpose: resolving
-        a name never runs module code.
-        """
-        if isinstance(owner, types.ModuleType):
-            return vars(owner).get(name)
-        if isinstance(owner, type):
-            for klass in owner.__mro__:
-                if name in vars(klass):
-                    return vars(klass)[name]
-        return None
-
-    def _visit_try(self, node: ast.Try) -> List[ir.Statement]:
-        """Convert try/except to IR with full block bodies."""
-        # Build try body statements (recursively transforms nested structures)
-        try_body: List[ir.Statement] = []
-        for body_node in node.body:
-            stmts = self._visit_statement(body_node)
-            try_body.extend(stmts)
-
-        # Build exception handlers (with wrapping if needed)
-        handlers: List[ir.ExceptHandler] = []
-        for handler in node.handlers:
-            exception_types: List[str] = []
-            if handler.type:
-                if isinstance(handler.type, ast.Tuple):
-                    if not handler.type.elts:
-                        raise UnsupportedPatternError(
-                            "An except clause with an empty tuple catches nothing",
-                            RECOMMENDATIONS["except_empty_tuple"],
-                            line=getattr(handler, "lineno", None),
-                            col=getattr(handler, "col_offset", None),
-                        )
-                    for elt in handler.type.elts:
-                        exception_types.append(self._except_handler_type_name(elt))
-                else:
-                    exception_types.append(self._except_handler_type_name(handler.type))
-
-            # Build handler body (recursively transforms nested structures)
-            handler_body: List[ir.Statement] = []
-            for handler_node in handler.body:
-                stmts = self._visit_statement(handler_node)
-                handler_body.extend(stmts)
-
-            except_handler = ir.ExceptHandler(
-                exception_types=exception_types,
-                block_body=ir.Block(statements=handler_body, span=make_span(handler)),
-                span=make_span(handler),
-            )
-            if handler.name:
-                except_handler.exception_var = handler.name
-            handlers.append(except_handler)
-
-        # Build the try/except statement
-        try_stmt = ir.Statement(span=make_span(node))
-        try_except = ir.TryExcept(
-            handlers=handlers,
-            try_block=ir.Block(statements=try_body, span=make_span(node)),
-        )
-        try_stmt.try_except.CopyFrom(try_except)
-
-        return [try_stmt]
 
     def _count_calls(self, stmts: List[ir.Statement]) -> int:
         """Count action calls and function calls in statements.
