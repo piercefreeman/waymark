@@ -365,6 +365,8 @@ rejected. The rejected patterns:
   that public signature. Compiler-handled calls use the same validation for
   aliases and module re-exports.
 
+- **List mutation through aliases.** `append()` and list `+=` are supported only for a fresh local list whose ownership the compiler can establish. Mutating a parameter or aliased list is rejected; return a new list and reassign it instead.
+
 Everything in this list fails at your desk, the first time the workflow
 is run or scheduled. Nothing here surfaces as a production surprise.
 
@@ -396,10 +398,6 @@ Until then, avoid them.
 - `and` / `or` evaluate both sides, so an action on the right runs even
   when the left side already decided
   ([#590](https://github.com/piercefreeman/waymark/issues/590)).
-- `list.append` on a list that another name also refers to - such as a
-  list passed into a helper method - doesn't reach that other name
-  ([#770](https://github.com/piercefreeman/waymark/issues/770)). Return
-  the extended list and reassign it instead.
 
 
 **Compiles, then fails at runtime where Python works:**

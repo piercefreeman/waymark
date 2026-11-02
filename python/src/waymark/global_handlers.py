@@ -1,6 +1,7 @@
 """Register the language-call handlers available during workflow compilation."""
 
 from waymark.handlers.action import action_handler
+from waymark.handlers.append import AppendHandler
 from waymark.handlers.enumerate import EnumerateHandler
 from waymark.handlers.gather import GatherHandler
 from waymark.handlers.isinstance import IsinstanceHandler
@@ -14,6 +15,7 @@ from waymark.language_calls import LanguageCallRegistry
 GLOBAL_HANDLERS = LanguageCallRegistry(
     [
         GatherHandler(),
+        AppendHandler(),
         RunActionHandler(),
         SleepHandler(),
         LengthHandler(),
