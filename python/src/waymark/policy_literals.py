@@ -4,15 +4,17 @@ import ast
 import inspect
 import math
 from datetime import timedelta
-from typing import Optional
+from typing import Literal, Optional
 
 from waymark.call_binding import bind_call
 from waymark.compiler.ast import resolve_reference
 from waymark.compiler.context import CompilerContext
 from waymark.compiler.errors import UnsupportedPatternError
-from waymark.compiler.recommendations import RECOMMENDATIONS
+from waymark.compiler.recommendations import RECOMMENDATIONS, RecommendationKey
 from waymark.proto import ast_pb2 as ir
 from waymark.workflow import RetryPolicy
+
+PolicyKeyword = Literal["retry", "timeout"]
 
 DEFAULT_RETRY_POLICY_MAX_RETRIES = 100
 DEFAULT_RETRY_POLICY_EXCEPTION_TYPE = "Exception"
@@ -67,7 +69,7 @@ class PolicyCompiler:
             action_call.policies.append(policy_bracket)
 
     def _policy_error(
-        self, message: str, recommendation: str, node: ast.expr
+        self, message: str, recommendation: RecommendationKey, node: ast.expr
     ) -> UnsupportedPatternError:
         """An error for a policy the compiler cannot read, located at `node`."""
         return UnsupportedPatternError(
@@ -77,7 +79,7 @@ class PolicyCompiler:
             col=node.col_offset,
         )
 
-    def _policy_literal(self, node: ast.expr, keyword: str) -> ast.expr:
+    def _policy_literal(self, node: ast.expr, keyword: PolicyKeyword) -> ast.expr:
         """The literal a policy keyword carries.
 
         A `self.<attribute>` resolves to the literal assigned to it once, at

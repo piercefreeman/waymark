@@ -1,7 +1,44 @@
 """Rewrite guidance for unsupported workflow syntax."""
 
+from typing import Literal
+
+RecommendationKey = Literal[
+    "constructor_return",
+    "constructor_assignment",
+    "non_action_call",
+    "sync_function_call",
+    "policy_literal",
+    "run_action_keywords",
+    "duration_range",
+    "except_type",
+    "except_empty_tuple",
+    "retry_exception_types",
+    "fstring",
+    "delete",
+    "with_statement",
+    "raise_statement",
+    "assert_statement",
+    "lambda",
+    "list_comprehension",
+    "dict_comprehension",
+    "set_comprehension",
+    "generator",
+    "walrus",
+    "match",
+    "for_loop_append_pattern",
+    "global_statement",
+    "nonlocal_statement",
+    "import_statement",
+    "class_def",
+    "function_def",
+    "yield_statement",
+    "unsupported_statement",
+    "unsupported_expression",
+    "unsupported_literal",
+]
+
 # Recommendations for common unsupported patterns
-RECOMMENDATIONS = {
+RECOMMENDATIONS: dict[RecommendationKey, str] = {
     "constructor_return": (
         "Returning a class constructor (like MyModel(...)) directly is not supported.\n"
         "The workflow IR cannot serialize arbitrary object instantiation.\n\n"
