@@ -79,3 +79,9 @@ def test_cyclic_list_updates_are_rejected(mutation: str) -> None:
     """Regression: copy-based lowering cannot preserve a list containing itself."""
     with pytest.raises(UnsupportedPatternError):
         compile_source(f"values = []\n{mutation}\nreturn values")
+
+
+def test_ownership_rejection_comes_from_the_append_handler() -> None:
+    """Known lists resolve to append even when its ownership policy rejects them."""
+    with pytest.raises(UnsupportedPatternError, match="list.append.*fresh, unaliased"):
+        compile_source("values = []\nalias = values\nvalues.append(1)")
