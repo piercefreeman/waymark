@@ -1,14 +1,5 @@
 """Rewrite guidance for unsupported workflow syntax."""
 
-from waymark.compiler_context import GLOBAL_FUNCTIONS
-
-# The builtins a workflow body may call, as the help text lists them;
-# `isexception` is what `isinstance` lowers to, not a name users write.
-_CALLABLE_BUILTINS = sorted(name for name in GLOBAL_FUNCTIONS if name != "isexception")
-_CALLABLE_BUILTINS_TEXT = (
-    ", ".join(f"{name}()" for name in _CALLABLE_BUILTINS[:-1]) + f" and {_CALLABLE_BUILTINS[-1]}()"
-)
-
 # Recommendations for common unsupported patterns
 RECOMMENDATIONS = {
     "constructor_return": (
@@ -39,16 +30,10 @@ RECOMMENDATIONS = {
         "    async def my_function(x: int) -> int:\n"
         "        return x * 2"
     ),
-    "sleep_assignment": (
-        "Assigning the result of asyncio.sleep() is not supported.\n"
-        "sleep() always returns None and should be used as a standalone statement.\n\n"
-        "Use:\n\n"
-        "    await asyncio.sleep(1)\n"
-    ),
     "sync_function_call": (
         "Workflow code can only call actions (with await), the workflow's own methods, "
         "awaited asyncio.sleep() and asyncio.gather(), pydantic models and dataclasses as "
-        f"constructors, and the builtins {_CALLABLE_BUILTINS_TEXT} - len() anywhere, "
+        "constructors, and the builtins len(), range() and enumerate() - len() on collections, "
         "range() and enumerate() as a for loop's iterable, and range() assigned to a name "
         "or returned.\n"
         "Move other calls into an @action:\n\n"

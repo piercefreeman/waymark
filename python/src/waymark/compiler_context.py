@@ -11,7 +11,6 @@ if TYPE_CHECKING:
 from waymark.proto import ast_pb2 as ir
 
 GLOBAL_FUNCTIONS = {
-    "enumerate": ir.GlobalFunction.GLOBAL_FUNCTION_ENUMERATE,
     "isexception": ir.GlobalFunction.GLOBAL_FUNCTION_ISEXCEPTION,
 }
 ALLOWED_SYNC_FUNCTIONS = set(GLOBAL_FUNCTIONS)

@@ -361,6 +361,8 @@ rejected. The rejected patterns:
 
 - **Unsupported `range` forms.** Use one to three integer bounds directly in a loop, assignment, or return. A literal zero step is rejected.
 
+- **Nonzero `enumerate` starts.** Only `enumerate(items, start=0)` directly in a loop is supported; other starts and expression positions are rejected.
+
 Everything in this list fails at your desk, the first time the workflow
 is run or scheduled. Nothing here surfaces as a production surprise.
 
