@@ -218,24 +218,24 @@ class LoopExceptionWorkflow(Workflow):
 
 ## Durable sleep {{ id: 'durable-sleep' }}
 
-`await asyncio.sleep(30)` accepts a finite literal delay. It's a durable
+`await asyncio.sleep(seconds)` accepts literal delays, variables, and expressions. It's a durable
 sleep - its wake-up time is recorded in Postgres, so the sleep survives
 node restarts: if the node running the workflow dies, another node picks
 the instance up and it still wakes at the original time. While it sleeps,
 the instance stays loaded on its node and counts toward that node's
 `WAYMARK_MAX_CONCURRENT_INSTANCES`. Sleeps are woken by the node's sleep
 poller, so one can wake up to one poll interval late -
-`WAYMARK_SLEEP_POLL_INTERVAL_MS`, 250 ms by default. Fractional seconds work. Dynamic delays are rejected until the VM can
-validate them with Python-compatible exceptions.
+`WAYMARK_SLEEP_POLL_INTERVAL_MS`, 250 ms by default. Fractional seconds work.
+The compiler validates literal delays; dynamic delays are evaluated and validated by the VM at runtime.
 
 ```python
 @workflow
 class DurableSleepWorkflow(Workflow):
-    async def run(self) -> SleepResult:
+    async def run(self, seconds: float) -> SleepResult:
         started = await get_timestamp()
-        await asyncio.sleep(30)  # survives worker restarts
+        await asyncio.sleep(seconds)  # survives worker restarts
         resumed = await get_timestamp()
-        return await format_sleep_result(started, resumed, 30)
+        return await format_sleep_result(started, resumed, seconds)
 ```
 
 This is also fine inside loops - useful for polling or for slow drip
@@ -243,11 +243,11 @@ behaviors:
 
 ```python
 for i in range(iterations):
-    await asyncio.sleep(5)
+    await asyncio.sleep(sleep_seconds)
     await perform_loop_action(iteration=i + 1)
 ```
 
-`asyncio.sleep` also accepts `result=`. Nonpositive delays return the result without a VM wait; positive delays must fit the runtime duration range.
+`asyncio.sleep` also accepts `result=`. Both arguments are evaluated in source order before the wait. Nonpositive literal delays return the result without a VM wait; positive literal delays must fit the runtime duration range. Dynamic delays currently must be positive: zero, negative, or invalid values end the run with a VM error rather than Python-compatible behavior ([#602](https://github.com/piercefreeman/waymark/issues/602)).
 
 ## Early return {{ id: 'early-return' }}
 
@@ -421,8 +421,9 @@ Until then, avoid them.
 - Reading anything from a caught exception (`except ValueError as e:`
   then `e.args`); passing `e` to an action works
   ([#594](https://github.com/piercefreeman/waymark/issues/594)).
-- `asyncio.sleep(0)`, or a negative or non-numeric duration, ends the run
-  with an error ([#602](https://github.com/piercefreeman/waymark/issues/602)).
+- A dynamic `asyncio.sleep` duration that evaluates to zero, a negative number,
+  or an invalid value ends the run with a VM error; nonpositive literal delays
+  are handled by the compiler ([#602](https://github.com/piercefreeman/waymark/issues/602)).
 
 **Values change between the workflow and its actions:**
 
