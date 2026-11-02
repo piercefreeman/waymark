@@ -23,60 +23,21 @@ import copy
 import inspect
 import textwrap
 import types
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import EnumMeta
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Set
 
-from waymark.compiler_context import (
-    ALLOWED_SYNC_FUNCTIONS,
-    GLOBAL_FUNCTIONS,
-    CompilerContext,
-)
+from waymark.call_binding import bind_call
+from waymark.compiler_context import CompilerContext
 from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler_literals import literal_expression
 from waymark.compiler_recommendations import RECOMMENDATIONS
 from waymark.compiler_validation import SourceValidator
 from waymark.global_handlers import GLOBAL_HANDLERS
 from waymark.proto import ast_pb2 as ir
-from waymark.registry import registry
-
-_CURRENT_ACTION_NAMES: set[str] = set()
-
 
 if TYPE_CHECKING:
     from .workflow import Workflow
-
-
-@dataclass
-class ActionDefinition:
-    """Definition of an action function."""
-
-    action_name: str
-    module_name: Optional[str]
-    signature: inspect.Signature
-
-
-@dataclass
-class FunctionParameter:
-    """A function parameter with optional default value."""
-
-    name: str
-    has_default: bool
-    default_value: Any = None  # The actual Python value if has_default is True
-
-
-@dataclass
-class FunctionSignatureInfo:
-    """Signature info for a workflow function, used to fill in default arguments."""
-
-    parameters: List[FunctionParameter]
-
-
-@dataclass
-class ModuleContext:
-    """Cached IRBuilder context derived from a module."""
-
-    action_defs: Dict[str, ActionDefinition]
-    module_functions: Set[str]
 
 
 @dataclass
@@ -86,15 +47,9 @@ class TransformContext:
     # Counter for generating unique function names
     implicit_fn_counter: int = 0
     # Implicit functions generated during transformation
-    implicit_functions: List[ir.FunctionDef] = None  # type: ignore
+    implicit_functions: List[ir.FunctionDef] = field(default_factory=list)
     # Function signatures for workflow methods (used to fill in default arguments)
-    function_signatures: Dict[str, FunctionSignatureInfo] = None  # type: ignore
-
-    def __post_init__(self) -> None:
-        if self.implicit_functions is None:
-            self.implicit_functions = []
-        if self.function_signatures is None:
-            self.function_signatures = {}
+    function_signatures: Dict[str, inspect.Signature] = field(default_factory=dict)
 
     def next_implicit_fn_name(self, prefix: str = "implicit") -> str:
         """Generate a unique implicit function name."""
@@ -120,17 +75,6 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     module = inspect.getmodule(original_run)
     if module is None:
         raise ValueError(f"unable to locate module for workflow {workflow_cls!r}")
-
-    module_contexts: Dict[str, ModuleContext] = {}
-
-    def get_module_context(target_module: Any) -> ModuleContext:
-        module_name = target_module.__name__
-        if module_name not in module_contexts:
-            module_contexts[module_name] = ModuleContext(
-                action_defs=_discover_action_names(target_module),
-                module_functions=_discover_module_functions(target_module),
-            )
-        return module_contexts[module_name]
 
     # Build the IR with transformation context
     ctx = TransformContext()
@@ -186,17 +130,12 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
         start_line: int,
         override_name: Optional[str] = None,
     ) -> None:
-        global _CURRENT_ACTION_NAMES
         fn_module = inspect.getmodule(fn)
         if fn_module is None:
             raise ValueError(f"unable to locate module for function {fn!r}")
 
-        ctx_data = get_module_context(fn_module)
-        _CURRENT_ACTION_NAMES = set(ctx_data.action_defs.keys())
         builder = IRBuilder(
-            ctx_data.action_defs,
             ctx,
-            ctx_data.module_functions,
             {**fn_module.__dict__, **inspect.getclosurevars(fn).nonlocals},
             instance_attrs,
             function_locals=fn.__code__.co_varnames + fn.__code__.co_cellvars,
@@ -229,17 +168,19 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
         pending_index += 1
         if method_name in visited or method_name == "run":
             continue
+        if (
+            GLOBAL_HANDLERS.resolve(
+                ast.Attribute(value=ast.Name(id="self"), attr=method_name), {"self": workflow_cls}
+            )
+            is not None
+        ):
+            continue
         visited.add(method_name)
 
         method = _find_workflow_method(workflow_cls, method_name)
         if method is None:
             continue
 
-        reference = ast.Attribute(
-            value=ast.Name(id="self", ctx=ast.Load()), attr=method_name, ctx=ast.Load()
-        )
-        if GLOBAL_HANDLERS.resolve(reference, {"self": workflow_cls}) is not None:
-            continue
         method_tree, method_filename, method_start_line = parse_function(method)
         methods_to_process.append((method, method_tree, method_filename, method_start_line, None))
         pending.extend(_collect_self_method_calls(method_tree))
@@ -249,20 +190,9 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     for fn, _fn_tree, _filename, _start_line, override_name in methods_to_process:
         fn_name = override_name if override_name else fn.__name__
         sig = inspect.signature(fn)
-        params: List[FunctionParameter] = []
-        for param_name, param in sig.parameters.items():
-            if param_name == "self":
-                continue
-            has_default = param.default is not inspect.Parameter.empty
-            default_value = param.default if has_default else None
-            params.append(
-                FunctionParameter(
-                    name=param_name,
-                    has_default=has_default,
-                    default_value=default_value,
-                )
-            )
-        ctx.function_signatures[fn_name] = FunctionSignatureInfo(parameters=params)
+        ctx.function_signatures[fn_name] = sig.replace(
+            parameters=[parameter for name, parameter in sig.parameters.items() if name != "self"]
+        )
 
     # Now process all functions with signatures already available
     for fn, fn_tree, filename, start_line, override_name in methods_to_process:
@@ -275,9 +205,6 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     # Add all function definitions (run + reachable helper methods)
     for fn_def in function_defs.values():
         program.functions.append(fn_def)
-
-    global _CURRENT_ACTION_NAMES
-    _CURRENT_ACTION_NAMES = set()
 
     return program
 
@@ -397,78 +324,18 @@ def _self_attribute_assignment(node: ast.AST) -> Optional[tuple[str, ast.expr]]:
     return None
 
 
-def _discover_action_names(module: Any) -> Dict[str, ActionDefinition]:
-    """Discover all @action decorated functions in a module."""
-    names: Dict[str, ActionDefinition] = {}
-    for attr_name in dir(module):
-        attr = getattr(module, attr_name)
-        action_name = getattr(attr, "__waymark_action_name__", None)
-        action_module = getattr(attr, "__waymark_action_module__", None)
-        if callable(attr) and action_name:
-            signature = inspect.signature(attr)
-            names[attr_name] = ActionDefinition(
-                action_name=action_name,
-                module_name=action_module or module.__name__,
-                signature=signature,
-            )
-    for entry in registry.entries():
-        if entry.module != module.__name__:
-            continue
-        func_name = entry.func.__name__
-        if func_name in names:
-            continue
-        signature = inspect.signature(entry.func)
-        names[func_name] = ActionDefinition(
-            action_name=entry.name,
-            module_name=entry.module,
-            signature=signature,
-        )
-    return names
-
-
-def _discover_module_functions(module: Any) -> Set[str]:
-    """Discover all async function names defined in a module.
-
-    This is used to detect when users await functions in the same module
-    that are NOT decorated with @action.
-    """
-    function_names: Set[str] = set()
-    for attr_name in dir(module):
-        try:
-            attr = getattr(module, attr_name)
-        except AttributeError:
-            continue
-
-        # Only include functions defined in THIS module (not imported)
-        if not callable(attr):
-            continue
-        if not inspect.iscoroutinefunction(attr):
-            continue
-
-        # Check if the function is defined in this module
-        func_module = getattr(attr, "__module__", None)
-        if func_module == module.__name__:
-            function_names.add(attr_name)
-
-    return function_names
-
-
 class IRBuilder(ast.NodeVisitor):
     """Builds IR from Python AST with deep transformations."""
 
     def __init__(
         self,
-        action_defs: Dict[str, ActionDefinition],
         ctx: TransformContext,
-        module_functions: Optional[Set[str]] = None,
         module_globals: Optional[Mapping[str, Any]] = None,
         instance_attrs: Optional[InstanceAttrs] = None,
         function_locals: tuple[str, ...] = (),
         receiver_type: type | None = None,
     ):
-        self._action_defs = action_defs
         self._ctx = ctx
-        self._module_functions = module_functions or set()
         self._module_globals = module_globals or {}
         self._language_call_namespace = {
             name: value
@@ -481,7 +348,7 @@ class IRBuilder(ast.NodeVisitor):
         self._ambiguous_instance_attrs = instance_attrs.ambiguous if instance_attrs else set()
         self._language_calls = GLOBAL_HANDLERS
         self._compiler_context = CompilerContext(
-            expression=self._expr_to_ir_with_model_coercion,
+            expression=self._compile_expression,
             statement=self._visit_statement,
             action=self._extract_action_call,
             function=self._convert_to_function_call,
@@ -981,7 +848,7 @@ class IRBuilder(ast.NodeVisitor):
             return stmt
 
         # Regular assignment (variables, literals, expressions)
-        value_expr = self._expr_to_ir_with_model_coercion(node.value)
+        value_expr = self._compile_expression(node.value)
         if value_expr:
             assign = ir.Assignment(targets=targets, value=value_expr)
             stmt.assignment.CopyFrom(assign)
@@ -1013,7 +880,7 @@ class IRBuilder(ast.NodeVisitor):
                 append_value = call.args[0]
                 # Create: list = list + [value]
                 list_var = ir.Expr(variable=ir.Variable(name=list_name), span=_make_span(node))
-                value_expr = self._expr_to_ir_with_model_coercion(append_value)
+                value_expr = self._compile_expression(append_value)
                 if value_expr:
                     # Create [value] as a list literal
                     list_literal = ir.Expr(
@@ -1031,7 +898,7 @@ class IRBuilder(ast.NodeVisitor):
                     return stmt
 
         # Regular expression
-        expr = self._expr_to_ir_with_model_coercion(node.value)
+        expr = self._compile_expression(node.value)
         if expr:
             stmt.expr_stmt.CopyFrom(ir.ExprStmt(expr=expr))
             return stmt
@@ -1054,7 +921,7 @@ class IRBuilder(ast.NodeVisitor):
                     loop_vars.append(elt.id)
 
         # Get iterable
-        iterable = self._expr_to_ir_with_model_coercion(node.iter)
+        iterable = self._compile_expression(node.iter)
         if not iterable:
             return []
 
@@ -1079,7 +946,7 @@ class IRBuilder(ast.NodeVisitor):
         The loop body is emitted as a full block so it can contain multiple
         statements/calls and early `return`.
         """
-        condition = self._expr_to_ir_with_model_coercion(node.test)
+        condition = self._compile_expression(node.test)
         if not condition:
             return []
 
@@ -1246,7 +1113,7 @@ class IRBuilder(ast.NodeVisitor):
         def normalize_condition(test: ast.expr) -> tuple[List[ir.Statement], Optional[ir.Expr]]:
             action_call = self._extract_action_call(test)
             if action_call is None:
-                return ([], self._expr_to_ir_with_model_coercion(test))
+                return ([], self._compile_expression(test))
 
             if not isinstance(test, ast.Await):
                 line = getattr(test, "lineno", None)
@@ -1851,7 +1718,7 @@ class IRBuilder(ast.NodeVisitor):
                 return [assign_stmt, return_stmt]
 
             # Normalize return of function calls into assignment + return
-            expr = self._expr_to_ir_with_model_coercion(node.value)
+            expr = self._compile_expression(node.value)
             if expr and expr.HasField("function_call"):
                 tmp_var = self._ctx.next_implicit_fn_name(prefix="return_tmp")
 
@@ -1897,8 +1764,8 @@ class IRBuilder(ast.NodeVisitor):
         if isinstance(node.target, ast.Name):
             targets.append(node.target.id)
 
-        left = self._expr_to_ir_with_model_coercion(node.target)
-        right = self._expr_to_ir_with_model_coercion(node.value)
+        left = self._compile_expression(node.target)
+        right = self._compile_expression(node.value)
         if right and right.HasField("function_call"):
             tmp_var = self._ctx.next_implicit_fn_name(prefix="aug_tmp")
 
@@ -1937,6 +1804,13 @@ class IRBuilder(ast.NodeVisitor):
 
     def _collect_function_inputs(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> List[str]:
         """Collect workflow inputs from function parameters, including kw-only args."""
+        if node.args.vararg is not None or node.args.kwarg is not None:
+            raise UnsupportedPatternError(
+                "Variadic workflow/helper parameters are unsupported",
+                "Declare each workflow argument explicitly.",
+                line=node.lineno,
+                col=node.col_offset,
+            )
         args: List[str] = []
         seen: set[str] = set()
 
@@ -1964,80 +1838,15 @@ class IRBuilder(ast.NodeVisitor):
 
         return args
 
-    def _check_non_action_await(self, node: ast.Await) -> None:
-        """Check if an await is for a non-action function.
-
-        Note: We can only reliably detect non-action awaits for functions defined
-        in the same module. Actions imported from other modules will pass through
-        and may fail at runtime if they're not actually actions.
-
-        For now, we only check against common builtins and known non-action patterns.
-        A runtime check will catch functions that aren't registered actions.
-        """
-        awaited = node.value
-        if not isinstance(awaited, ast.Call):
-            return
-
-        # Skip special cases that are handled elsewhere
-        if self._language_calls.resolve(awaited.func, self._language_call_namespace) is not None:
-            return
-
-        # Get the function name
-        func_name = None
-        if isinstance(awaited.func, ast.Name):
-            func_name = awaited.func.id
-        elif isinstance(awaited.func, ast.Attribute):
-            func_name = awaited.func.attr
-
-        if not func_name:
-            return
-
-        # Only raise error for functions defined in THIS module that we know
-        # are NOT actions (i.e., async functions without @action decorator)
-        # We can't reliably detect imported non-actions without full type info.
-        #
-        # The check works by looking at _module_functions which contains
-        # functions defined in the same module as the workflow.
-        if func_name in getattr(self, "_module_functions", set()):
-            if func_name not in self._action_defs:
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
-                raise UnsupportedPatternError(
-                    f"Awaiting non-action function '{func_name}()' is not supported",
-                    RECOMMENDATIONS["non_action_call"],
-                    line=line,
-                    col=col,
-                )
-
     def _extract_action_call(self, node: ast.expr) -> Optional[ir.ActionCall]:
-        """Extract an action call from an expression if present.
-
-        Also validates that awaited calls are actually @action decorated functions.
-        Raises UnsupportedPatternError if awaiting a non-action function.
-        """
-        if not isinstance(node, ast.Await):
-            return None
-
-        awaited = node.value
-        # Handle self.run_action(...) wrapper
-        if isinstance(awaited, ast.Call):
-            handler = self._language_calls.resolve(awaited.func, self._language_call_namespace)
+        if isinstance(node, ast.Await) and isinstance(node.value, ast.Call):
+            handler = self._language_calls.resolve(node.value.func, self._language_call_namespace)
             if handler is not None:
                 if not handler.requires_await:
-                    raise handler.error(awaited, "this call cannot be awaited")
-                lowered = handler.compile(awaited, self._compiler_context)
-                if not lowered.statements and lowered.value.HasField("action_call"):
+                    raise handler.error(node.value, "this call cannot be awaited")
+                lowered = handler.compile(node.value, self._compiler_context)
+                if lowered.value.HasField("action_call") and not lowered.statements:
                     return lowered.value.action_call
-                return None
-            # Try to extract as action call
-            action_call = self._extract_action_call_from_call(awaited)
-            if action_call:
-                return action_call
-
-            # If we get here, it's an await of a non-action function
-            self._check_non_action_await(node)
-            return None
-
         return None
 
     def _convert_to_function_call(self, node: ast.Call) -> Optional[ir.FunctionCall]:
@@ -2046,26 +1855,28 @@ class IRBuilder(ast.NodeVisitor):
         if not func_name:
             return None
 
+        information = self._ctx.function_signatures.get(func_name)
+        if information is None:
+            return None
+        bound = bind_call(node, information, self._language_call_namespace)
         fn_call = ir.FunctionCall(name=func_name)
-        global_function = _global_function_for_call(func_name, node)
-        if global_function is not None:
-            fn_call.global_function = global_function
-
-        # Add positional args
-        for arg in node.args:
-            expr = self._expr_to_ir_with_model_coercion(arg)
-            if expr:
-                fn_call.args.append(expr)
-
-        # Add keyword args
-        for kw in node.keywords:
-            if kw.arg:
-                expr = self._expr_to_ir_with_model_coercion(kw.value)
-                if expr:
-                    fn_call.kwargs.append(ir.Kwarg(name=kw.arg, value=expr))
-
-        # Fill in missing kwargs with default values from function signature
-        self._fill_default_kwargs_for_expr(fn_call)
+        for argument in node.args:
+            value = self._compile_expression(argument)
+            assert value is not None
+            fn_call.args.append(value)
+        for keyword in node.keywords:
+            assert keyword.arg is not None
+            value = self._compile_expression(keyword.value)
+            assert value is not None
+            fn_call.kwargs.append(ir.Kwarg(name=keyword.arg, value=value))
+        for parameter in information.parameters.values():
+            if (
+                parameter.name not in bound.arguments
+                and parameter.default is not inspect.Parameter.empty
+            ):
+                value = self._compile_expression(literal_expression(parameter.default, node))
+                assert value is not None
+                fn_call.kwargs.append(ir.Kwarg(name=parameter.name, value=value))
 
         return fn_call
 
@@ -2091,15 +1902,19 @@ class IRBuilder(ast.NodeVisitor):
     def _convert_registered_call(self, node: ast.Call) -> Optional[ir.Expr]:
         handler = self._language_calls.resolve(node.func, self._language_call_namespace)
         if handler is not None:
+            handler.parse_arguments(node)
             if handler.requires_await:
-                handler.parse_arguments(node)
                 raise handler.error(
                     node, "await this call in its own assignment, return, or expression statement"
                 )
             lowered = handler.compile(node, self._compiler_context)
             if lowered.statements:
-                raise handler.error(node, "use this call in its own statement")
+                raise handler.error(node, "use this call in its own expression statement")
             return lowered.value
+        if _is_self_method_call(node):
+            function = self._convert_to_function_call(node)
+            if function is not None:
+                return ir.Expr(function_call=function)
         return None
 
     def _resolve_enum_attribute(self, node: ast.Attribute) -> Optional[ir.Expr]:
@@ -2120,19 +1935,8 @@ class IRBuilder(ast.NodeVisitor):
         expr.literal.CopyFrom(literal)
         return expr
 
-    def _expr_to_ir_with_model_coercion(self, node: ast.expr) -> Optional[ir.Expr]:
-        """Convert an AST expression to IR, converting model constructors to dicts."""
-        for expression in ast.walk(node):
-            if isinstance(expression, ast.Call):
-                handler = self._language_calls.resolve(
-                    expression.func, self._language_call_namespace
-                )
-                if handler is not None and handler.requires_await:
-                    handler.parse_arguments(expression)
-                    raise handler.error(
-                        expression,
-                        "await this call in its own assignment, return, or expression statement",
-                    )
+    def _compile_expression(self, node: ast.expr) -> Optional[ir.Expr]:
+        """Convert an expression using the registered calls and workflow symbols."""
         # First, try to resolve self.attr.subattr chains at build time
         resolved = self._resolve_instance_attribute_chain(node)
         if resolved is not None:
@@ -2140,12 +1944,9 @@ class IRBuilder(ast.NodeVisitor):
 
         result = _expr_to_ir(
             node,
-            model_converter=self._convert_registered_call,
+            call_converter=self._convert_registered_call,
             enum_resolver=self._resolve_enum_attribute,
         )
-        # Post-process to fill in default kwargs for function calls (recursively)
-        if result is not None:
-            self._fill_default_kwargs_recursive(result)
         return result
 
     def _resolve_instance_attribute_chain(self, node: ast.expr) -> Optional[ir.Expr]:
@@ -2176,7 +1977,7 @@ class IRBuilder(ast.NodeVisitor):
         # Convert the resolved AST to IR
         return _expr_to_ir(
             resolved_ast,
-            model_converter=self._convert_registered_call,
+            call_converter=self._convert_registered_call,
             enum_resolver=self._resolve_enum_attribute,
         )
 
@@ -2228,129 +2029,6 @@ class IRBuilder(ast.NodeVisitor):
                     return self._resolve_nested_attributes(value, remaining)
             return None
 
-        return None
-
-    def _fill_default_kwargs_recursive(self, expr: ir.Expr) -> None:
-        """Recursively fill in default kwargs for all function calls in an expression."""
-        if expr.HasField("function_call"):
-            self._fill_default_kwargs_for_expr(expr.function_call)
-            # Recurse into function call args and kwargs
-            for arg in expr.function_call.args:
-                self._fill_default_kwargs_recursive(arg)
-            for kwarg in expr.function_call.kwargs:
-                if kwarg.value:
-                    self._fill_default_kwargs_recursive(kwarg.value)
-        elif expr.HasField("binary_op"):
-            if expr.binary_op.left:
-                self._fill_default_kwargs_recursive(expr.binary_op.left)
-            if expr.binary_op.right:
-                self._fill_default_kwargs_recursive(expr.binary_op.right)
-        elif expr.HasField("unary_op"):
-            if expr.unary_op.operand:
-                self._fill_default_kwargs_recursive(expr.unary_op.operand)
-        elif expr.HasField("list"):
-            for elem in expr.list.elements:
-                self._fill_default_kwargs_recursive(elem)
-        elif expr.HasField("dict"):
-            for entry in expr.dict.entries:
-                if entry.key:
-                    self._fill_default_kwargs_recursive(entry.key)
-                if entry.value:
-                    self._fill_default_kwargs_recursive(entry.value)
-        elif expr.HasField("index"):
-            if expr.index.object:
-                self._fill_default_kwargs_recursive(expr.index.object)
-            if expr.index.index:
-                self._fill_default_kwargs_recursive(expr.index.index)
-        elif expr.HasField("dot"):
-            if expr.dot.object:
-                self._fill_default_kwargs_recursive(expr.dot.object)
-
-    def _fill_default_kwargs_for_expr(self, fn_call: ir.FunctionCall) -> None:
-        """Fill in missing kwargs with default values from the function signature."""
-        sig_info = self._ctx.function_signatures.get(fn_call.name)
-        if sig_info is None:
-            return
-
-        # Track which parameters are already provided
-        provided_by_position: Set[str] = set()
-        provided_by_kwarg: Set[str] = set()
-
-        # Positional args map to parameters in order
-        for idx, _arg in enumerate(fn_call.args):
-            if idx < len(sig_info.parameters):
-                provided_by_position.add(sig_info.parameters[idx].name)
-
-        # Kwargs are named
-        for kwarg in fn_call.kwargs:
-            provided_by_kwarg.add(kwarg.name)
-
-        # Add defaults for missing parameters
-        for param in sig_info.parameters:
-            if param.name in provided_by_position or param.name in provided_by_kwarg:
-                continue
-            if not param.has_default:
-                continue
-
-            # Convert the default value to an IR expression
-            literal = _constant_to_literal(param.default_value)
-            if literal is not None:
-                expr = ir.Expr()
-                expr.literal.CopyFrom(literal)
-                fn_call.kwargs.append(ir.Kwarg(name=param.name, value=expr))
-
-    def _extract_action_call_from_call(self, node: ast.Call) -> Optional[ir.ActionCall]:
-        """Extract action call info from a Call node.
-
-        Converts positional arguments to keyword arguments using the action's
-        signature introspection. This ensures all arguments are named in the IR.
-
-        Pydantic models and dataclass constructors passed as arguments are
-        automatically converted to dict expressions.
-        """
-        action_name = self._get_action_name(node.func)
-        if not action_name:
-            return None
-
-        if action_name not in self._action_defs:
-            return None
-
-        action_def = self._action_defs[action_name]
-        action_call = ir.ActionCall(action_name=action_def.action_name)
-
-        # Set the module name so the worker knows where to find the action
-        if action_def.module_name:
-            action_call.module_name = action_def.module_name
-
-        # Get parameter names from signature for positional arg conversion
-        param_names = list(action_def.signature.parameters.keys())
-
-        # Convert positional args to kwargs using signature introspection
-        # Model constructors are converted to dict expressions
-        for i, arg in enumerate(node.args):
-            if i < len(param_names):
-                expr = self._expr_to_ir_with_model_coercion(arg)
-                if expr:
-                    kwarg = ir.Kwarg(name=param_names[i], value=expr)
-                    action_call.kwargs.append(kwarg)
-
-        # Add explicit kwargs
-        # Model constructors are converted to dict expressions
-        for kw in node.keywords:
-            if kw.arg:
-                expr = self._expr_to_ir_with_model_coercion(kw.value)
-                if expr:
-                    kwarg = ir.Kwarg(name=kw.arg, value=expr)
-                    action_call.kwargs.append(kwarg)
-
-        return action_call
-
-    def _get_action_name(self, func: ast.expr) -> Optional[str]:
-        """Get the action name from a function expression."""
-        if isinstance(func, ast.Name):
-            return func.id
-        elif isinstance(func, ast.Attribute):
-            return func.attr
         return None
 
     def _get_assign_target(self, targets: List[ast.expr]) -> Optional[str]:
@@ -2431,7 +2109,7 @@ def _resolve_enum_attribute_value(
 
 def _expr_to_ir(
     expr: ast.AST,
-    model_converter: Optional[Callable[[ast.Call], Optional[ir.Expr]]] = None,
+    call_converter: Optional[Callable[[ast.Call], Optional[ir.Expr]]] = None,
     enum_resolver: Optional[Callable[[ast.Attribute], Optional[ir.Expr]]] = None,
     exception_class_resolver: Optional[Callable[[str], bool]] = None,
 ) -> Optional[ir.Expr]:
@@ -2439,7 +2117,7 @@ def _expr_to_ir(
 
     Args:
         expr: The AST expression to convert.
-        model_converter: Optional callback to convert model constructors.
+        call_converter: Optional callback to convert model constructors.
         enum_resolver: Optional callback to resolve enum attributes.
         exception_class_resolver: Optional callback that takes a class name and
             returns True if it's an exception class. Used to transform
@@ -2447,8 +2125,8 @@ def _expr_to_ir(
     """
     result = ir.Expr(span=_make_span(expr))
 
-    if isinstance(expr, ast.Call) and model_converter:
-        converted = model_converter(expr)
+    if isinstance(expr, ast.Call) and call_converter:
+        converted = call_converter(expr)
         if converted:
             return converted
 
@@ -2465,13 +2143,13 @@ def _expr_to_ir(
     if isinstance(expr, ast.BinOp):
         left = _expr_to_ir(
             expr.left,
-            model_converter=model_converter,
+            call_converter=call_converter,
             enum_resolver=enum_resolver,
             exception_class_resolver=exception_class_resolver,
         )
         right = _expr_to_ir(
             expr.right,
-            model_converter=model_converter,
+            call_converter=call_converter,
             enum_resolver=enum_resolver,
             exception_class_resolver=exception_class_resolver,
         )
@@ -2483,7 +2161,7 @@ def _expr_to_ir(
     if isinstance(expr, ast.UnaryOp):
         operand = _expr_to_ir(
             expr.operand,
-            model_converter=model_converter,
+            call_converter=call_converter,
             enum_resolver=enum_resolver,
             exception_class_resolver=exception_class_resolver,
         )
@@ -2495,7 +2173,7 @@ def _expr_to_ir(
     if isinstance(expr, ast.Compare):
         left = _expr_to_ir(
             expr.left,
-            model_converter=model_converter,
+            call_converter=call_converter,
             enum_resolver=enum_resolver,
             exception_class_resolver=exception_class_resolver,
         )
@@ -2506,7 +2184,7 @@ def _expr_to_ir(
             op = _cmp_op_to_ir(expr.ops[0])
             right = _expr_to_ir(
                 expr.comparators[0],
-                model_converter=model_converter,
+                call_converter=call_converter,
                 enum_resolver=enum_resolver,
             )
             if op and right:
@@ -2517,7 +2195,7 @@ def _expr_to_ir(
         values = [
             _expr_to_ir(
                 v,
-                model_converter=model_converter,
+                call_converter=call_converter,
                 enum_resolver=enum_resolver,
                 exception_class_resolver=exception_class_resolver,
             )
@@ -2551,7 +2229,7 @@ def _expr_to_ir(
                     flush_buffered_elements()
                     starred_value = _expr_to_ir(
                         element.value,
-                        model_converter=model_converter,
+                        call_converter=call_converter,
                         enum_resolver=enum_resolver,
                         exception_class_resolver=exception_class_resolver,
                     )
@@ -2562,7 +2240,7 @@ def _expr_to_ir(
 
                 value = _expr_to_ir(
                     element,
-                    model_converter=model_converter,
+                    call_converter=call_converter,
                     enum_resolver=enum_resolver,
                     exception_class_resolver=exception_class_resolver,
                 )
@@ -2589,7 +2267,7 @@ def _expr_to_ir(
         elements = [
             _expr_to_ir(
                 e,
-                model_converter=model_converter,
+                call_converter=call_converter,
                 enum_resolver=enum_resolver,
                 exception_class_resolver=exception_class_resolver,
             )
@@ -2606,12 +2284,12 @@ def _expr_to_ir(
             if k:
                 key_expr = _expr_to_ir(
                     k,
-                    model_converter=model_converter,
+                    call_converter=call_converter,
                     enum_resolver=enum_resolver,
                 )
                 value_expr = _expr_to_ir(
                     v,
-                    model_converter=model_converter,
+                    call_converter=call_converter,
                     enum_resolver=enum_resolver,
                 )
                 if key_expr and value_expr:
@@ -2622,14 +2300,14 @@ def _expr_to_ir(
     if isinstance(expr, ast.Subscript):
         obj = _expr_to_ir(
             expr.value,
-            model_converter=model_converter,
+            call_converter=call_converter,
             enum_resolver=enum_resolver,
             exception_class_resolver=exception_class_resolver,
         )
         index = (
             _expr_to_ir(
                 expr.slice,
-                model_converter=model_converter,
+                call_converter=call_converter,
                 enum_resolver=enum_resolver,
             )
             if isinstance(expr.slice, ast.AST)
@@ -2646,7 +2324,7 @@ def _expr_to_ir(
                 return resolved
         obj = _expr_to_ir(
             expr.value,
-            model_converter=model_converter,
+            call_converter=call_converter,
             enum_resolver=enum_resolver,
             exception_class_resolver=exception_class_resolver,
         )
@@ -2655,12 +2333,16 @@ def _expr_to_ir(
             return result
 
     if isinstance(expr, ast.Await) and isinstance(expr.value, ast.Call):
+        if call_converter is not None and _is_self_method_call(expr.value):
+            converted = call_converter(expr.value)
+            if converted is not None:
+                return converted
         func_name = _get_func_name(expr.value.func)
         if func_name:
             args = [
                 _expr_to_ir(
                     a,
-                    model_converter=model_converter,
+                    call_converter=call_converter,
                     enum_resolver=enum_resolver,
                 )
                 for a in expr.value.args
@@ -2670,7 +2352,7 @@ def _expr_to_ir(
                 if kw.arg:
                     kw_expr = _expr_to_ir(
                         kw.value,
-                        model_converter=model_converter,
+                        call_converter=call_converter,
                         enum_resolver=enum_resolver,
                     )
                     if kw_expr:
@@ -2680,9 +2362,6 @@ def _expr_to_ir(
                 args=[a for a in args if a],
                 kwargs=kwargs,
             )
-            global_function = _global_function_for_call(func_name, expr.value)
-            if global_function is not None:
-                func_call.global_function = global_function
             result.function_call.CopyFrom(func_call)
             return result
 
@@ -2699,7 +2378,7 @@ def _expr_to_ir(
                     line=line,
                     col=col,
                 )
-            if func_name not in ALLOWED_SYNC_FUNCTIONS:
+            if not _is_self_method_call(expr):
                 line = expr.lineno if hasattr(expr, "lineno") else None
                 col = expr.col_offset if hasattr(expr, "col_offset") else None
                 raise UnsupportedPatternError(
@@ -2713,7 +2392,7 @@ def _expr_to_ir(
             args = [
                 _expr_to_ir(
                     a,
-                    model_converter=model_converter,
+                    call_converter=call_converter,
                     enum_resolver=enum_resolver,
                 )
                 for a in expr.args
@@ -2723,7 +2402,7 @@ def _expr_to_ir(
                 if kw.arg:
                     kw_expr = _expr_to_ir(
                         kw.value,
-                        model_converter=model_converter,
+                        call_converter=call_converter,
                         enum_resolver=enum_resolver,
                     )
                     if kw_expr:
@@ -2733,9 +2412,6 @@ def _expr_to_ir(
                 args=[a for a in args if a],
                 kwargs=kwargs,
             )
-            global_function = _global_function_for_call(func_name, expr)
-            if global_function is not None:
-                func_call.global_function = global_function
             result.function_call.CopyFrom(func_call)
             return result
 
@@ -2744,7 +2420,7 @@ def _expr_to_ir(
         elements = [
             _expr_to_ir(
                 e,
-                model_converter=model_converter,
+                call_converter=call_converter,
                 enum_resolver=enum_resolver,
                 exception_class_resolver=exception_class_resolver,
             )
@@ -2950,12 +2626,3 @@ def _is_self_method_call(node: ast.Call) -> bool:
         and isinstance(func.value, ast.Name)
         and func.value.id == "self"
     )
-
-
-def _global_function_for_call(
-    func_name: str, node: ast.Call
-) -> Optional[ir.GlobalFunction.ValueType]:
-    """Return the GlobalFunction enum value for supported globals."""
-    if _is_self_method_call(node):
-        return None
-    return GLOBAL_FUNCTIONS.get(func_name)

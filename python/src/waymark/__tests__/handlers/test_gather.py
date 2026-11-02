@@ -9,10 +9,11 @@ import pytest
 
 from waymark import Workflow, action, workflow
 from waymark.compiler_errors import UnsupportedPatternError
-from waymark.ir_builder import ActionDefinition, IRBuilder, TransformContext
+from waymark.ir_builder import IRBuilder, TransformContext
 from waymark.proto import ast_pb2 as ir
 
 
+@action
 async def task(value: int = 1) -> int:
     """Supply a signature for the synthetic action definition without registration."""
     return value
@@ -21,9 +22,8 @@ async def task(value: int = 1) -> int:
 def compile_gather_statement(statement: str) -> ir.FunctionDef:
     """Compile one statement with a known action and three bindings of the gather target."""
     builder = IRBuilder(
-        {"task": ActionDefinition("task", __name__, inspect.signature(task))},
         TransformContext(),
-        module_globals={"asyncio": asyncio, "aio": asyncio, "g": asyncio.gather},
+        module_globals={"asyncio": asyncio, "aio": asyncio, "g": asyncio.gather, "task": task},
         receiver_type=Workflow,
     )
     builder.visit(ast.parse(f"async def run(items, options):\n    {statement}\n"))
@@ -177,9 +177,8 @@ def test_default_lambda_does_not_hide_parameter_shadowing() -> None:
         async def run(self, asyncio: Any, items: object = lambda: 1) -> None:
             await asyncio.gather()
 
-    program = ShadowedGatherWorkflow.workflow_ir()
-    main = next(function for function in program.functions if function.name == "main")
-    assert main.body.statements[0].expr_stmt.expr.HasField("function_call")
+    with pytest.raises(UnsupportedPatternError, match="Awaiting non-action"):
+        ShadowedGatherWorkflow.workflow_ir()
 
 
 @workflow
@@ -201,3 +200,9 @@ def test_gather_error_preserves_original_source_location() -> None:
     assert "return_exceptions=True" in failing_line
     assert raised.value.col is not None
     assert failing_line[raised.value.col - 1 :].startswith("True")
+
+
+@pytest.mark.parametrize("target", ["first, second, third", "(first,)"])
+def test_gather_rejects_known_unpacking_arity_mismatches(target: str) -> None:
+    with pytest.raises(UnsupportedPatternError, match="target count"):
+        compile_gather_statement(f"{target} = await asyncio.gather(task(), task())")

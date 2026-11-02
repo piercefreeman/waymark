@@ -2,10 +2,21 @@
 
 import ast
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, NoReturn
 
+from waymark.compiler_errors import UnsupportedPatternError
 from waymark.compiler_types import VALUE_KINDS, ValueKind
 from waymark.language_calls import LanguageCallRegistry
+
+
+def reject(node: ast.expr | ast.stmt | ast.ExceptHandler, message: str) -> NoReturn:
+    """Report an unsupported source construct at its original location."""
+    raise UnsupportedPatternError(
+        message,
+        "Move this operation into an action, or rewrite it using supported explicit statements.",
+        line=node.lineno,
+        col=node.col_offset,
+    )
 
 
 class SourceValidator(ast.NodeVisitor):
@@ -52,6 +63,34 @@ class SourceValidator(ast.NodeVisitor):
         for statement in node.body:
             self.visit(statement)
         return {}
+
+    def visit_Await(self, node: ast.Await) -> None:
+        if isinstance(node.value, ast.Call):
+            handler = self.registry.resolve(node.value.func, self.namespace)
+            if handler is not None:
+                handler.parse_arguments(node.value)
+                if not handler.requires_await:
+                    raise handler.error(node.value, "this call cannot be awaited")
+        if not isinstance(node.value, ast.Call):
+            return reject(node, "Await requires a direct action or workflow-helper call")
+        call = node.value
+        function = call.func
+        name = (
+            function.id
+            if isinstance(function, ast.Name)
+            else function.attr
+            if isinstance(function, ast.Attribute)
+            else "unknown"
+        )
+        helper = (
+            isinstance(function, ast.Attribute)
+            and isinstance(function.value, ast.Name)
+            and function.value.id == "self"
+            and name in self.function_names
+        )
+        if self.registry.resolve(function, self.namespace) is None and not helper:
+            reject(node, f"Awaiting non-action function '{name}()' is not supported")
+        self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
         handler = self.registry.resolve(node.func, self.namespace)
