@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from waymark.language_calls import LanguageCallHandler
 
-from waymark.compiler_analysis import SourceAnalysis
-from waymark.compiler_ast import make_span
+from waymark.compiler.analysis import SourceAnalysis
+from waymark.compiler.ast import make_span
 from waymark.proto import ast_pb2 as ir
 
 

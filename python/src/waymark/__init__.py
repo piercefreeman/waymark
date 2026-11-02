@@ -1,6 +1,6 @@
 """Public API for user-defined waymark actions."""
 
-from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler.errors import UnsupportedPatternError
 from waymark.ir_builder import build_workflow_ir
 
 from . import bridge  # noqa: F401

@@ -2,12 +2,12 @@
 
 import ast
 
-from waymark.compiler_ast import make_span
-from waymark.compiler_context import CompilerContext
-from waymark.compiler_diagnostics import reject
-from waymark.compiler_errors import UnsupportedPatternError
-from waymark.compiler_literals import constant_to_literal, validate_literal
-from waymark.compiler_recommendations import RECOMMENDATIONS
+from waymark.compiler.ast import make_span
+from waymark.compiler.context import CompilerContext
+from waymark.compiler.diagnostics import reject
+from waymark.compiler.errors import UnsupportedPatternError
+from waymark.compiler.literals import constant_to_literal, validate_literal
+from waymark.compiler.recommendations import RECOMMENDATIONS
 from waymark.language_syntax import ExpressionHandler
 from waymark.proto import ast_pb2 as ir
 

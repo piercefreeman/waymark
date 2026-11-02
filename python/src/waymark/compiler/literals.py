@@ -4,7 +4,7 @@ import ast
 import math
 from typing import Any
 
-from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler.errors import UnsupportedPatternError
 from waymark.proto import ast_pb2 as ir
 
 

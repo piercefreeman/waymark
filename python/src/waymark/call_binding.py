@@ -5,8 +5,8 @@ import inspect
 from collections.abc import Mapping
 from typing import Any
 
-from waymark.compiler_errors import UnsupportedPatternError
-from waymark.compiler_types import has_open_type_parameters
+from waymark.compiler.errors import UnsupportedPatternError
+from waymark.compiler.types import has_open_type_parameters
 
 
 def bind_call(

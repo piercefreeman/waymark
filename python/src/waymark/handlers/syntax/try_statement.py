@@ -3,11 +3,11 @@
 import ast
 from types import ModuleType
 
-from waymark.compiler_ast import make_span, resolve_reference
-from waymark.compiler_context import CompilerContext
-from waymark.compiler_diagnostics import reject
-from waymark.compiler_errors import UnsupportedPatternError
-from waymark.compiler_recommendations import RECOMMENDATIONS
+from waymark.compiler.ast import make_span, resolve_reference
+from waymark.compiler.context import CompilerContext
+from waymark.compiler.diagnostics import reject
+from waymark.compiler.errors import UnsupportedPatternError
+from waymark.compiler.recommendations import RECOMMENDATIONS
 from waymark.language_syntax import StatementHandler
 from waymark.proto import ast_pb2 as ir
 

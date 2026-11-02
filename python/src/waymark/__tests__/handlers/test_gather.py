@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from waymark import Workflow, action, workflow
-from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler.errors import UnsupportedPatternError
 from waymark.ir_builder import IRBuilder, TransformContext
 from waymark.proto import ast_pb2 as ir
 

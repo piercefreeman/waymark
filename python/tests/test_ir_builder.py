@@ -1360,7 +1360,7 @@ class TestWorkflowHelperMethods:
         import pytest
 
         from tests.fixtures_workflow.workflow_default_args import WorkflowWithTrulyNestedCalls
-        from waymark.compiler_errors import UnsupportedPatternError
+        from waymark.compiler.errors import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError, match="Nested await"):
             WorkflowWithTrulyNestedCalls.workflow_ir()
@@ -1561,7 +1561,7 @@ class TestUnsupportedPatternDetection:
         from tests.fixtures_comprehension.dict_comprehension_assignment import (
             DictComprehensionAssignmentWorkflow,
         )
-        from waymark.compiler_errors import UnsupportedPatternError
+        from waymark.compiler.errors import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError, match="Dict comprehensions"):
             DictComprehensionAssignmentWorkflow.workflow_ir()
@@ -1573,7 +1573,7 @@ class TestUnsupportedPatternDetection:
         from tests.fixtures_comprehension.dict_comprehension_tuple import (
             DictComprehensionTupleWorkflow,
         )
-        from waymark.compiler_errors import UnsupportedPatternError
+        from waymark.compiler.errors import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError, match="Dict comprehensions"):
             DictComprehensionTupleWorkflow.workflow_ir()
@@ -1955,7 +1955,7 @@ class TestAugmentedAssignment:
 
         import pytest
 
-        from waymark.compiler_errors import UnsupportedPatternError
+        from waymark.compiler.errors import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError, match="aliased value"):
             PlusEqualsListMergeWorkflow.workflow_ir()
@@ -2197,7 +2197,7 @@ class TestExpressionTypes:
 
         import pytest
 
-        from waymark.compiler_errors import UnsupportedPatternError
+        from waymark.compiler.errors import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError, match="Short-circuit"):
             BooleanWorkflow.workflow_ir()
@@ -3888,7 +3888,7 @@ class TestUnsupportedPatternValidation:
 
     def test_sync_function_call_recommendation_lists_every_accepted_call(self) -> None:
         """Test: the help text names every call kind the VM runs, builtins included."""
-        from waymark.compiler_recommendations import RECOMMENDATIONS
+        from waymark.compiler.recommendations import RECOMMENDATIONS
 
         text = RECOMMENDATIONS["sync_function_call"]
         for name in ("len", "range", "enumerate"):

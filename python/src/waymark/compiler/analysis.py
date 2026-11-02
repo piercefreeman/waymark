@@ -3,7 +3,7 @@
 import ast
 from dataclasses import dataclass, field
 
-from waymark.compiler_types import VALUE_KINDS, ValueKind
+from waymark.compiler.types import VALUE_KINDS, ValueKind
 
 
 @dataclass

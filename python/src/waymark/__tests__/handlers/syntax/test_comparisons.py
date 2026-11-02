@@ -6,7 +6,7 @@ import pytest
 
 from waymark import Workflow, workflow
 from waymark.__tests__.compiler_test_helpers import compile_source
-from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler.errors import UnsupportedPatternError
 
 
 @workflow

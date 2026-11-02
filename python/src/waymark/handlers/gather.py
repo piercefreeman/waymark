@@ -6,9 +6,9 @@ import copy
 from dataclasses import dataclass, field
 from typing import Literal
 
-from waymark.compiler_ast import rewrite_load_names
-from waymark.compiler_context import CompilerContext
-from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler.ast import rewrite_load_names
+from waymark.compiler.context import CompilerContext
+from waymark.compiler.errors import UnsupportedPatternError
 from waymark.language_calls import LanguageCallHandler, LoweredCall
 from waymark.proto import ast_pb2 as ir
 

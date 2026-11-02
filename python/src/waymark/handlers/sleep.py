@@ -5,7 +5,7 @@ import asyncio
 import math
 from dataclasses import dataclass
 
-from waymark.compiler_context import CompilerContext
+from waymark.compiler.context import CompilerContext
 from waymark.language_calls import LanguageCallHandler, LoweredCall
 from waymark.policy_literals import PolicyCompiler
 from waymark.proto import ast_pb2 as ir

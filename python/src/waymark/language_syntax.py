@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from typing import Any, Generic, TypeVar, cast
 
-from waymark.compiler_context import CompilerContext
+from waymark.compiler.context import CompilerContext
 from waymark.proto import ast_pb2 as ir
 
 Node = TypeVar("Node", bound=ast.AST)
