@@ -15,14 +15,11 @@ The IR builder proactively detects unsupported Python patterns and raises
 UnsupportedPatternError with clear recommendations for how to rewrite the code.
 """
 
-from __future__ import annotations
-
 import ast
 import builtins
 import inspect
-import textwrap
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, NoReturn, Optional, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, NoReturn, Optional
 
 from waymark.call_binding import bind_call
 from waymark.compiler.analysis import SourceAnalysis
@@ -31,6 +28,7 @@ from waymark.compiler.context import CompilerContext
 from waymark.compiler.errors import UnsupportedPatternError
 from waymark.compiler.literals import literal_expression
 from waymark.compiler.recommendations import RECOMMENDATIONS
+from waymark.compiler.source import InstanceAttrs, extract_instance_attrs, load_workflow_source
 from waymark.compiler.targets import assignment_targets
 from waymark.compiler.types import has_open_type_parameters
 from waymark.compiler.validation import SourceValidator
@@ -58,277 +56,29 @@ class TransformContext:
 
 
 def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
-    """Build an IR Program from a workflow class.
-
-    Args:
-        workflow_cls: The workflow class to convert.
-
-    Returns:
-        An IR Program proto message.
-    """
-    original_run = getattr(workflow_cls, "__workflow_run_impl__", None)
-    if original_run is None:
-        original_run = workflow_cls.__dict__.get("run")
-    if original_run is None:
-        raise ValueError(f"workflow {workflow_cls!r} missing run implementation")
-
-    module = inspect.getmodule(original_run)
-    if module is None:
-        raise ValueError(f"unable to locate module for workflow {workflow_cls!r}")
-
-    # Build the IR with transformation context
-    ctx = TransformContext()
+    """Load source, compile each reachable function, and assemble the workflow program."""
+    functions = load_workflow_source(workflow_cls)
+    context = TransformContext(
+        function_signatures={function.name: function.signature for function in functions}
+    )
+    instance_attrs = extract_instance_attrs(workflow_cls)
     program = ir.Program()
-    function_defs: Dict[str, ir.FunctionDef] = {}
-
-    # Extract instance attributes from __init__ for policy resolution
-    instance_attrs = _extract_instance_attrs(workflow_cls)
-
-    def parse_function(fn: Any) -> tuple[ast.AST, Optional[str], int]:
-        source_lines, start_line = inspect.getsourcelines(fn)
-        function_source = textwrap.dedent("".join(source_lines))
-        filename = inspect.getsourcefile(fn)
-        if filename is None:
-            filename = inspect.getfile(fn)
-        tree = ast.parse(function_source, filename=filename or "<unknown>")
-        parsed_lines = function_source.splitlines(keepends=True)
-        # Parsing removes method indentation; diagnostics still point into the original file.
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.stmt, ast.expr, ast.arg, ast.keyword, ast.ExceptHandler)):
-                node.col_offset += len(source_lines[node.lineno - 1]) - len(
-                    parsed_lines[node.lineno - 1]
-                )
-                if node.end_lineno is not None and node.end_col_offset is not None:
-                    node.end_col_offset += len(source_lines[node.end_lineno - 1]) - len(
-                        parsed_lines[node.end_lineno - 1]
-                    )
-        return tree, filename, start_line
-
-    def _with_source_location(
-        err: UnsupportedPatternError,
-        filename: Optional[str],
-        start_line: int,
-    ) -> UnsupportedPatternError:
-        line = err.line
-        col = err.col
-        if line is not None:
-            line = start_line + line - 1
-        if col is not None:
-            col = col + 1
-        return UnsupportedPatternError(
-            err.message,
-            err.recommendation,
-            line=line,
-            col=col,
-            filename=filename,
-        )
-
-    def add_function_def(
-        fn: Any,
-        fn_tree: ast.AST,
-        filename: Optional[str],
-        start_line: int,
-        override_name: Optional[str] = None,
-    ) -> None:
-        fn_module = inspect.getmodule(fn)
-        if fn_module is None:
-            raise ValueError(f"unable to locate module for function {fn!r}")
-
+    for function in functions:
         builder = IRBuilder(
-            ctx,
-            {**fn_module.__dict__, **inspect.getclosurevars(fn).nonlocals},
+            context,
+            function.namespace,
             instance_attrs,
-            function_locals=fn.__code__.co_varnames + fn.__code__.co_cellvars,
+            function_locals=function.local_names,
             receiver_type=workflow_cls,
         )
         try:
-            builder.visit(fn_tree)
-        except UnsupportedPatternError as err:
-            raise _with_source_location(err, filename, start_line) from err
-        if builder.function_def:
-            if override_name:
-                builder.function_def.name = override_name
-            function_defs[builder.function_def.name] = builder.function_def
-
-    # Discover all reachable helper methods first so we can pre-collect their signatures.
-    # This is needed because when we process a function that calls another function,
-    # we need to know the callee's signature to fill in default arguments.
-    run_tree, run_filename, run_start_line = parse_function(original_run)
-
-    # Collect all reachable methods and their trees
-    methods_to_process: List[tuple[Any, ast.AST, Optional[str], int, Optional[str]]] = [
-        (original_run, run_tree, run_filename, run_start_line, "main")
-    ]
-    pending = _collect_self_method_calls(run_tree)
-    pending_index = 0
-    visited: Set[str] = set()
-
-    while pending_index < len(pending):
-        method_name = pending[pending_index]
-        pending_index += 1
-        if method_name in visited or method_name == "run":
-            continue
-        if (
-            GLOBAL_HANDLERS.resolve(
-                ast.Attribute(value=ast.Name(id="self"), attr=method_name), {"self": workflow_cls}
-            )
-            is not None
-        ):
-            continue
-        visited.add(method_name)
-
-        method = _find_workflow_method(workflow_cls, method_name)
-        if method is None:
-            continue
-
-        method_tree, method_filename, method_start_line = parse_function(method)
-        methods_to_process.append((method, method_tree, method_filename, method_start_line, None))
-        pending.extend(_collect_self_method_calls(method_tree))
-
-    # Pre-collect signatures for all methods before processing IR.
-    # This ensures that when we encounter a function call, we can fill in default args.
-    for fn, _fn_tree, _filename, _start_line, override_name in methods_to_process:
-        fn_name = override_name if override_name else fn.__name__
-        sig = inspect.signature(fn)
-        ctx.function_signatures[fn_name] = sig.replace(
-            parameters=[parameter for name, parameter in sig.parameters.items() if name != "self"]
-        )
-
-    # Now process all functions with signatures already available
-    for fn, fn_tree, filename, start_line, override_name in methods_to_process:
-        add_function_def(fn, fn_tree, filename, start_line, override_name)
-
-    # Add all function definitions (run + reachable helper methods)
-    for fn_def in function_defs.values():
-        program.functions.append(fn_def)
-
+            builder.visit(function.node)
+        except UnsupportedPatternError as error:
+            raise function.locate_error(error) from error
+        assert builder.function_def is not None
+        builder.function_def.name = function.name
+        program.functions.append(builder.function_def)
     return program
-
-
-def _collect_self_method_calls(tree: ast.AST) -> List[str]:
-    """Collect self.method(...) call names from a parsed function AST in source order."""
-
-    class SelfMethodCallCollector(ast.NodeVisitor):
-        def __init__(self) -> None:
-            self.calls: List[str] = []
-            self._seen: Set[str] = set()
-
-        def visit_Call(self, node: ast.Call) -> None:
-            func = node.func
-            if (
-                isinstance(func, ast.Attribute)
-                and isinstance(func.value, ast.Name)
-                and func.value.id == "self"
-                and func.attr not in self._seen
-            ):
-                self._seen.add(func.attr)
-                self.calls.append(func.attr)
-
-            self.generic_visit(node)
-
-    collector = SelfMethodCallCollector()
-    collector.visit(tree)
-    return collector.calls
-
-
-def _find_workflow_method(workflow_cls: type["Workflow"], name: str) -> Optional[Any]:
-    """Find a workflow method by name across the class MRO."""
-    for base in workflow_cls.__mro__:
-        if name not in base.__dict__:
-            continue
-        value = base.__dict__[name]
-        if isinstance(value, staticmethod) or isinstance(value, classmethod):
-            return value.__func__
-        if inspect.isfunction(value):
-            return value
-    return None
-
-
-@dataclass(frozen=True)
-class InstanceAttrs:
-    """What `__init__` assigns to `self`, as far as the compiler can read it."""
-
-    literals: Dict[str, ast.expr]
-    """Attributes assigned exactly once, at the top level of `__init__`, with the value."""
-
-    ambiguous: Set[str]
-    """Attributes assigned more than once, or under a branch or loop: unreadable."""
-
-    namespace: Mapping[str, Any] = field(default_factory=dict)
-    """Globals and closure bindings where the initializer expressions were defined."""
-
-
-def _extract_instance_attrs(workflow_cls: type["Workflow"]) -> InstanceAttrs:
-    """Read the `self.attr = value` assignments of the workflow's `__init__`.
-
-    Only an attribute assigned exactly once, at the top level of the method,
-    has a value the compiler can read, such as:
-        self.retry_policy = RetryPolicy(attempts=3)
-        self.timeout = 30
-
-    One assigned twice, or inside an `if`, a loop or a `try`, is recorded as
-    ambiguous: the source order would otherwise decide which value wins, so
-    a policy that names it is rejected instead.
-    """
-    init_method = _find_workflow_method(workflow_cls, "__init__")
-    if init_method is None:
-        return InstanceAttrs({}, set())
-
-    try:
-        source_lines, _ = inspect.getsourcelines(init_method)
-        source = textwrap.dedent("".join(source_lines))
-        tree = ast.parse(source)
-    except (OSError, TypeError, SyntaxError):
-        return InstanceAttrs({}, set())
-
-    function_def = tree.body[0]
-    if not isinstance(function_def, ast.FunctionDef):
-        return InstanceAttrs({}, set())
-
-    literals: Dict[str, ast.expr] = {}
-    ambiguous: Set[str] = set()
-    for statement in function_def.body:
-        top_level = _self_attribute_assignment(statement)
-        if top_level is not None:
-            name, value = top_level
-            if name in literals or name in ambiguous:
-                literals.pop(name, None)
-                ambiguous.add(name)
-            else:
-                literals[name] = value
-            continue
-        for nested in ast.walk(statement):
-            nested_assignment = _self_attribute_assignment(nested)
-            if nested_assignment is not None:
-                literals.pop(nested_assignment[0], None)
-                ambiguous.add(nested_assignment[0])
-
-    return InstanceAttrs(
-        literals,
-        ambiguous,
-        {
-            **vars(builtins),
-            **init_method.__globals__,
-            **inspect.getclosurevars(init_method).nonlocals,
-        },
-    )
-
-
-def _self_attribute_assignment(node: ast.AST) -> Optional[tuple[str, ast.expr]]:
-    """The name and value of a `self.name = value` assignment, annotated or not; else None."""
-    if isinstance(node, ast.Assign) and len(node.targets) == 1:
-        target, value = node.targets[0], node.value
-    elif isinstance(node, ast.AnnAssign) and node.value is not None:
-        target, value = node.target, node.value
-    else:
-        return None
-    if (
-        isinstance(target, ast.Attribute)
-        and isinstance(target.value, ast.Name)
-        and target.value.id == "self"
-    ):
-        return target.attr, value
-    return None
 
 
 class IRBuilder(ast.NodeVisitor):
@@ -374,7 +124,6 @@ class IRBuilder(ast.NodeVisitor):
             ambiguous_instance_attrs=self._ambiguous_instance_attrs,
         )
         self.function_def: Optional[ir.FunctionDef] = None
-        self._statements: List[ir.Statement] = []
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> Any:
         """Visit a function definition (the workflow's run method)."""
@@ -410,13 +159,13 @@ class IRBuilder(ast.NodeVisitor):
         )
 
         # Visit the body - _visit_statement now returns a list
-        self._statements = []
+        statements: list[ir.Statement] = []
         for stmt in node.body:
             ir_stmts = self._visit_statement(stmt)
-            self._statements.extend(ir_stmts)
+            statements.extend(ir_stmts)
 
         # Set the body
-        self.function_def.body.CopyFrom(ir.Block(statements=self._statements))
+        self.function_def.body.CopyFrom(ir.Block(statements=statements))
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> Any:
         """Visit an async function definition (the workflow's run method)."""
@@ -463,8 +212,8 @@ class IRBuilder(ast.NodeVisitor):
         unsupported (with a specific error message) or unhandled (with a
         generic catch-all error). This ensures we never silently drop code.
         """
-        line = getattr(node, "lineno", None)
-        col = getattr(node, "col_offset", None)
+        line = node.lineno
+        col = node.col_offset
 
         if isinstance(node, (ast.With, ast.AsyncWith)):
             raise UnsupportedPatternError(
@@ -645,8 +394,8 @@ class IRBuilder(ast.NodeVisitor):
                 return ([], self._compile_expression(test))
 
             if not isinstance(test, ast.Await):
-                line = getattr(test, "lineno", None)
-                col = getattr(test, "col_offset", None)
+                line = test.lineno
+                col = test.col_offset
                 raise UnsupportedPatternError(
                     "Action calls inside boolean expressions are not supported in if conditions",
                     "Assign the awaited action result to a variable, then use the variable in the if condition.",
@@ -1049,10 +798,10 @@ def _expr_to_ir(
     return None
 
 
-def _check_unsupported_expression(expr: ast.AST) -> None:
+def _check_unsupported_expression(expr: ast.expr) -> None:
     """Check for unsupported expression types and raise descriptive errors."""
-    line = getattr(expr, "lineno", None)
-    col = getattr(expr, "col_offset", None)
+    line = expr.lineno
+    col = expr.col_offset
 
     if isinstance(expr, ast.JoinedStr):
         raise UnsupportedPatternError(
