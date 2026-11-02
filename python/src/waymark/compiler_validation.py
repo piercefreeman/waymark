@@ -31,27 +31,6 @@ class SourceValidator(ast.NodeVisitor):
         else:
             super().visit(node)
 
-    def visit_Compare(self, node: ast.Compare) -> None:
-        if len(node.ops) != 1:
-            reject(node, "Chained comparisons are unsupported")
-        if self.context.analysis.kind(node.left) in {
-            "list",
-            "tuple",
-            "dict",
-        } or self.context.analysis.kind(node.comparators[0]) in {
-            "list",
-            "tuple",
-            "dict",
-        }:
-            reject(node, "Collection comparisons are unsupported")
-        left, right = (
-            self.context.analysis.kind(node.left),
-            self.context.analysis.kind(node.comparators[0]),
-        )
-        if left in {"int", "float", "bool"} and right in {"int", "float", "bool"} and left != right:
-            reject(node, "Mixed numeric comparisons require VM support")
-        self.generic_visit(node)
-
     def visit_Assign(self, node: ast.Assign) -> None:
         if len(node.targets) != 1:
             reject(node, "Chained assignments are unsupported")

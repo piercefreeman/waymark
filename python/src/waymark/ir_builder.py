@@ -1746,18 +1746,6 @@ def _expr_to_ir(
             result.literal.CopyFrom(literal)
             return result
 
-    if isinstance(expr, ast.Compare):
-        left = context.expression(expr.left)
-        if not left:
-            return None
-        # For simplicity, handle single comparison
-        if expr.ops and expr.comparators:
-            op = _cmp_op_to_ir(expr.ops[0])
-            right = context.expression(expr.comparators[0])
-            if op and right:
-                result.binary_op.CopyFrom(ir.BinaryOp(left=left, op=op, right=right))
-                return result
-
     if isinstance(expr, ast.List):
         if any(isinstance(element, ast.Starred) for element in expr.elts):
             segments: list[ir.Expr] = []
@@ -1933,25 +1921,6 @@ def _check_unsupported_expression(expr: ast.AST) -> None:
             line=line,
             col=col,
         )
-
-
-def _cmp_op_to_ir(op: ast.cmpop) -> Optional[ir.BinaryOperator]:
-    """Convert Python comparison operator to IR BinaryOperator."""
-    mapping = {
-        ast.Eq: ir.BinaryOperator.BINARY_OP_EQ,
-        ast.NotEq: ir.BinaryOperator.BINARY_OP_NE,
-        ast.Lt: ir.BinaryOperator.BINARY_OP_LT,
-        ast.LtE: ir.BinaryOperator.BINARY_OP_LE,
-        ast.Gt: ir.BinaryOperator.BINARY_OP_GT,
-        ast.GtE: ir.BinaryOperator.BINARY_OP_GE,
-        ast.In: ir.BinaryOperator.BINARY_OP_IN,
-        ast.NotIn: ir.BinaryOperator.BINARY_OP_NOT_IN,
-        # Identity comparisons are treated as equality in waymark since we deal
-        # with serialized values where object identity doesn't apply
-        ast.Is: ir.BinaryOperator.BINARY_OP_EQ,
-        ast.IsNot: ir.BinaryOperator.BINARY_OP_NE,
-    }
-    return mapping.get(type(op))
 
 
 def _get_func_name(func: ast.expr) -> Optional[str]:
