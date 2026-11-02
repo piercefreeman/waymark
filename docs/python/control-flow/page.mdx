@@ -218,24 +218,24 @@ class LoopExceptionWorkflow(Workflow):
 
 ## Durable sleep {{ id: 'durable-sleep' }}
 
-`await asyncio.sleep(seconds)` is recognized specially. It's a durable
+`await asyncio.sleep(30)` accepts a finite literal delay. It's a durable
 sleep - its wake-up time is recorded in Postgres, so the sleep survives
 node restarts: if the node running the workflow dies, another node picks
 the instance up and it still wakes at the original time. While it sleeps,
 the instance stays loaded on its node and counts toward that node's
 `WAYMARK_MAX_CONCURRENT_INSTANCES`. Sleeps are woken by the node's sleep
 poller, so one can wake up to one poll interval late -
-`WAYMARK_SLEEP_POLL_INTERVAL_MS`, 250 ms by default. Fractional seconds
-work.
+`WAYMARK_SLEEP_POLL_INTERVAL_MS`, 250 ms by default. Fractional seconds work. Dynamic delays are rejected until the VM can
+validate them with Python-compatible exceptions.
 
 ```python
 @workflow
 class DurableSleepWorkflow(Workflow):
-    async def run(self, seconds: int) -> SleepResult:
+    async def run(self) -> SleepResult:
         started = await get_timestamp()
-        await asyncio.sleep(seconds)  # survives worker restarts
+        await asyncio.sleep(30)  # survives worker restarts
         resumed = await get_timestamp()
-        return await format_sleep_result(started, resumed, seconds)
+        return await format_sleep_result(started, resumed, 30)
 ```
 
 This is also fine inside loops - useful for polling or for slow drip
@@ -243,7 +243,7 @@ behaviors:
 
 ```python
 for i in range(iterations):
-    await asyncio.sleep(sleep_seconds)
+    await asyncio.sleep(5)
     await perform_loop_action(iteration=i + 1)
 ```
 
@@ -291,18 +291,14 @@ rejected. The rejected patterns:
   object but `self` - `Model.model_validate(...)` included (the one
   exception is `list.append`). Do that work inside an action - that's
   what actions are for.
-- **`isinstance(value, SomeError)`.** The SDK accepts it with any exception
-  class, but the runtime has no lowering for it yet and rejects the
-  workflow when it is first run or scheduled
+- **`isinstance(value, SomeError)`.** The compiler rejects runtime type
+  checks until the VM supports them
   ([#790](https://github.com/piercefreeman/waymark/issues/790)). Catch
   the class with an `except` clause instead.
-- **Constructing classes other than simple pydantic models and
-  dataclasses.** A pydantic model with no validators and no `__init__` of
-  its own, or a dataclass with no `__post_init__`, defined in or imported
-  by name into the workflow's module, can be constructed anywhere, and
-  inside the workflow it becomes a plain dict. Build any other class
-  inside an action: some of them are rejected, and some compile with
-  their own construction logic left out.
+- **Constructing classes with behavior.** Data-only pydantic models and
+  dataclasses become dictionaries. Factories, inherited hooks, custom
+  initializers, validators and computed fields are rejected. Construct
+  those objects inside an action.
 - **`raise`.** Raise inside an action; the workflow handles it with
   `try/except`.
 - **`with`, `lambda`, `match`, `yield`, walrus (`:=`), `assert`, `del`,
@@ -311,9 +307,9 @@ rejected. The rejected patterns:
 - **Most references to module-level globals.** Enum members and exception
   classes resolve fine; arbitrary globals don't. Pass values in through
   workflow inputs or fetch them inside an action.
-- **Comprehensions outside two positions.** List and dict comprehensions
+- **Comprehensions outside two positions.** List comprehensions
   compile when assigned directly to a variable or spread into `gather`;
-  set comprehensions don't compile at all, and generator expressions
+  dict and set comprehensions do not compile, and generator expressions
   only as starred arguments inside `gather`.
 - **`gather` nested inside a larger expression.** Await it in a statement
   of its own, on the right-hand side of an assignment, or directly in a
@@ -355,84 +351,81 @@ rejected. The rejected patterns:
   argument list is unsupported. An empty collection inside a supported
   comprehension spread still works.
 
-Everything in this list fails at your desk, the first time the workflow
-is run or scheduled. Nothing here surfaces as a production surprise.
+- **Clauses and expressions the IR cannot preserve.** `try/finally`,
+  `try/else`, `for/else`, `while/else`, chained comparisons, and `and` / `or`
+  are rejected. Use explicit nested conditions. Await an action into its own
+  variable before using the result in a larger expression.
+- **Writes that require shared mutation.** Attribute and subscript assignments,
+  dict comprehensions, and chained assignments are rejected. `append()` and
+  list `+=` are supported only for a fresh local list whose ownership the
+  compiler can establish. Mutating a parameter or aliased list is rejected;
+  return a new list and reassign it instead.
+- **Invalid call arguments.** Action and helper calls bind their complete
+  signatures, rejecting missing, duplicate, unknown, or extra arguments and
+  `*args` / `**kwargs`. Dependency-injected action parameters are excluded from
+  that public signature. Compiler-handled calls use the same validation for
+  aliases and module re-exports.
+- **Unsupported built-in forms.** `enumerate(items, start=0)` is supported only
+  directly in a loop. Nonzero starts and runtime type checks with `isinstance`
+  are rejected. `range` accepts one to three integer bounds in a loop,
+  assignment, or return; a literal zero step is rejected.
+- **Invalid durations and literals.** `asyncio.sleep` requires a finite numeric
+  literal delay and supports `result=`. Nonpositive delays return that result
+  without a VM wait. Positive delays must fit the runtime duration range.
+  Non-finite float literals and integers outside signed 64-bit range are
+  rejected, as are dictionary spreads and keys not known to be strings.
+- **Construction logic and open generics.** Model/dataclass factories, custom
+  initialization and validation hooks, computed fields, aliases, and unsupported
+  defaults are rejected. Primitive and literal list/dict/tuple defaults are
+  preserved. Workflow and action annotations must specialize open type parameters.
+- **Instance state.** Reads of a unique literal assigned in `__init__` can be
+  compiled, including inside larger expressions. Unknown or ambiguous instance
+  attributes and all instance writes are rejected. Pass runtime state through
+  `run()` arguments.
+
+These checks cover the compiler-side failures tracked in
+[#579](https://github.com/piercefreeman/waymark/issues/579),
+[#580](https://github.com/piercefreeman/waymark/issues/580),
+[#581](https://github.com/piercefreeman/waymark/issues/581),
+[#582](https://github.com/piercefreeman/waymark/issues/582),
+[#583](https://github.com/piercefreeman/waymark/issues/583),
+[#584](https://github.com/piercefreeman/waymark/issues/584),
+[#585](https://github.com/piercefreeman/waymark/issues/585),
+[#586](https://github.com/piercefreeman/waymark/issues/586),
+[#587](https://github.com/piercefreeman/waymark/issues/587),
+[#590](https://github.com/piercefreeman/waymark/issues/590),
+[#602](https://github.com/piercefreeman/waymark/issues/602),
+[#770](https://github.com/piercefreeman/waymark/issues/770), and
+[#829](https://github.com/piercefreeman/waymark/issues/829).
 
 ## Known issues {{ id: 'known-issues' }}
 
-Waymark's guarantee is that a workflow that compiles runs as written. The
-patterns below currently break it: they compile, then behave differently
-from Python. Each is being closed - first by rejecting the pattern at
-compile time, then by supporting it properly - and they're tracked
-together in [#772](https://github.com/piercefreeman/waymark/issues/772).
-Until then, avoid them.
+The compiler also rejects statically identifiable VM mismatches: mixed numeric
+operations and integer true division
+([#589](https://github.com/piercefreeman/waymark/issues/589)), dictionary iteration
+([#591](https://github.com/piercefreeman/waymark/issues/591)), sequence repetition,
+collection comparisons, and dynamic string lengths
+([#592](https://github.com/piercefreeman/waymark/issues/592)), and inspection of a
+caught exception ([#594](https://github.com/piercefreeman/waymark/issues/594)).
+Literal string lengths use Python's character count. Passing a caught exception
+to an action remains supported.
 
-**Compiles, then silently does something else:**
+These checks use local source facts, not a complete runtime type system. Values
+returned by actions or reached through dynamic containers can still expose the
+underlying VM bugs. A compilation success does not yet establish full Python
+semantics for those values. Follow
+[#772](https://github.com/piercefreeman/waymark/issues/772) for the remaining work.
 
-- `try/finally` and `try/else` bodies are dropped
-  ([#580](https://github.com/piercefreeman/waymark/issues/580)).
-- `for/else` and `while/else` bodies are dropped
-  ([#581](https://github.com/piercefreeman/waymark/issues/581)).
-- A chained comparison like `0 < x < 10` checks only its first comparison
-  ([#582](https://github.com/piercefreeman/waymark/issues/582)).
-- Assigning to a subscript, `d["k"] = v`, does nothing, so dict
-  comprehensions always produce `{}`
-  ([#583](https://github.com/piercefreeman/waymark/issues/583)).
-- `**kwargs` and extra positional arguments in an action call, `d[k] += v`,
-  and `a = b = value` are dropped or assigned wrongly
-  ([#584](https://github.com/piercefreeman/waymark/issues/584)).
-- `{**base, "extra": 1}` drops the spread entries
-  ([#587](https://github.com/piercefreeman/waymark/issues/587)).
-- `and` / `or` evaluate both sides, so an action on the right runs even
-  when the left side already decided
-  ([#590](https://github.com/piercefreeman/waymark/issues/590)).
-- `list.append` on a list that another name also refers to - such as a
-  list passed into a helper method - doesn't reach that other name
-  ([#770](https://github.com/piercefreeman/waymark/issues/770)). Return
-  the extended list and reassign it instead.
-- Constructing a model or dataclass fills the fields the call leaves out
-  only from `None`, boolean, number and string defaults: a field with a
-  `default_factory` or any other default (`[]`, `{}`, a tuple, an enum
-  member) is missing from the dict, so reading it fails; and
-  `model_post_init`, computed fields and an inherited `__init__` or
-  `__post_init__` never run, silently
-  ([#829](https://github.com/piercefreeman/waymark/issues/829)). Pass
-  every such field in the call, and build a class that relies on such a
-  hook inside an action.
+Value transport also still needs runtime fixes:
 
-**Compiles, then fails at runtime where Python works:**
-
-- An `await` nested inside a larger expression, like
-  `total = await a() + await b()`; await each into a variable first
-  ([#585](https://github.com/piercefreeman/waymark/issues/585)).
-- Plain `self.attr` attributes: reads fail, and writes are discarded. A
-  `retry=` or `timeout=` policy stored on `self` is the exception and
-  works ([#586](https://github.com/piercefreeman/waymark/issues/586)).
-- Mixing `int` and `float` in arithmetic or comparisons, and `/` on two
-  ints that don't divide evenly, raise; `1 == 1.0` is `False`
-  ([#589](https://github.com/piercefreeman/waymark/issues/589)).
-- Iterating over a dict, and dict keys that aren't strings
-  ([#591](https://github.com/piercefreeman/waymark/issues/591)).
-- `len()` of a string counts bytes, not characters; `"-" * 20` and
-  comparing lists raise
-  ([#592](https://github.com/piercefreeman/waymark/issues/592)).
-- Reading anything from a caught exception (`except ValueError as e:`
-  then `e.args`); passing `e` to an action works
-  ([#594](https://github.com/piercefreeman/waymark/issues/594)).
-- `asyncio.sleep(0)`, or a negative or non-numeric duration, ends the run
-  with an error ([#602](https://github.com/piercefreeman/waymark/issues/602)).
-
-**Values change between the workflow and its actions:**
-
-- Pydantic models and dataclasses become plain dicts inside the workflow,
-  and tuples become lists
-  ([#596](https://github.com/piercefreeman/waymark/issues/596)).
-- `NaN` and infinities become `None`; integers of 2⁶³ and above fail
+- Models and dataclasses become dictionaries inside the workflow, and tuples
+  become lists ([#596](https://github.com/piercefreeman/waymark/issues/596)).
+- Non-finite numbers and out-of-range integers produced at runtime still require
+  validation at the action/wire boundary
   ([#597](https://github.com/piercefreeman/waymark/issues/597)).
-- `datetime`, `Decimal`, `UUID`, `bytes`, `set` and `Enum` values lose
-  their type unless the receiving parameter's annotation restores it
+- `datetime`, `Decimal`, `UUID`, `bytes`, `set`, and `Enum` values can lose their
+  type without a receiving annotation
   ([#599](https://github.com/piercefreeman/waymark/issues/599)).
-- A subclass passed where the annotation names its base class arrives as
-  the base class, losing its own fields - or failing, for dataclasses. An
-  unbound `TypeVar`, like `state: State[DepsT]`, loses all of them
-  ([#771](https://github.com/piercefreeman/waymark/issues/771)).
+- A subclass passed under a base-class annotation can lose its fields. Open
+  generic annotations are rejected, but preserving subclass identity needs a
+  transport change ([#771](https://github.com/piercefreeman/waymark/issues/771)).

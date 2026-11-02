@@ -25,17 +25,15 @@ from typing import (
     get_type_hints,
 )
 
+from waymark import bridge
+from waymark.actions import deserialize_workflow_outcome
+from waymark.exceptions import WorkflowFailedError
+from waymark.logger import configure as configure_logger
 from waymark.proto import ast_pb2 as ir
 from waymark.proto import messages_pb2 as pb2
 from waymark.proto import python_value_pb2 as pb2v
-
-from . import bridge
-from .actions import deserialize_workflow_outcome
-from .exceptions import WorkflowFailedError
-from .ir_builder import build_workflow_ir
-from .logger import configure as configure_logger
-from .serialization import build_arguments_from_kwargs
-from .workflow_runtime import _coerce_value
+from waymark.serialization import build_arguments_from_kwargs
+from waymark.workflow_runtime import _coerce_value
 
 logger = configure_logger("waymark.workflow")
 
@@ -126,27 +124,6 @@ class Workflow:
         """
         raise NotImplementedError
 
-    @classmethod
-    def _normalize_run_inputs(cls, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
-        try:
-            run_impl = cls.__workflow_run_impl__  # type: ignore[attr-defined]
-        except AttributeError:
-            run_impl = cls.run
-        sig = inspect.signature(run_impl)
-
-        # Bound like a call to `run()`: a missing required argument, an extra
-        # positional one or an unknown keyword raises `TypeError` here.
-        bound = sig.bind(None, *args, **kwargs)
-        bound.apply_defaults()
-        return {key: value for key, value in bound.arguments.items() if key != "self"}
-
-    @classmethod
-    def _build_workflow_arguments(
-        cls, args: tuple[Any, ...], kwargs: dict[str, Any]
-    ) -> pb2v.WorkflowArguments:
-        initial_kwargs = cls._normalize_run_inputs(args, kwargs)
-        return build_arguments_from_kwargs(initial_kwargs)
-
     async def run_action(
         self,
         awaitable: Awaitable[TResult],
@@ -195,8 +172,31 @@ class Workflow:
         if cls._workflow_ir is None:
             with cls._ir_lock:
                 if cls._workflow_ir is None:
+                    from waymark.ir_builder import build_workflow_ir
+
                     cls._workflow_ir = build_workflow_ir(cls)
         return cls._workflow_ir
+
+    @classmethod
+    def _normalize_run_inputs(cls, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+        try:
+            run_impl = cls.__workflow_run_impl__  # type: ignore[attr-defined]
+        except AttributeError:
+            run_impl = cls.run
+        sig = inspect.signature(run_impl)
+
+        # Bound like a call to `run()`: a missing required argument, an extra
+        # positional one or an unknown keyword raises `TypeError` here.
+        bound = sig.bind(None, *args, **kwargs)
+        bound.apply_defaults()
+        return {key: value for key, value in bound.arguments.items() if key != "self"}
+
+    @classmethod
+    def _build_workflow_arguments(
+        cls, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> pb2v.WorkflowArguments:
+        initial_kwargs = cls._normalize_run_inputs(args, kwargs)
+        return build_arguments_from_kwargs(initial_kwargs)
 
     @classmethod
     def _build_registration_payload(

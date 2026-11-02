@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-PROJECT_PY_DIR = Path(__file__).resolve().parents[1]
+PROJECT_PY_DIR = Path(__file__).resolve().parent
 SRC_DIR = PROJECT_PY_DIR / "src"
 
 for path in (PROJECT_PY_DIR, SRC_DIR):

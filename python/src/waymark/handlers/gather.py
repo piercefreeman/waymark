@@ -3,10 +3,10 @@
 import ast
 import asyncio
 import copy
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
+from waymark.compiler_ast import rewrite_load_names
 from waymark.compiler_context import CompilerContext
 from waymark.compiler_errors import UnsupportedPatternError
 from waymark.language_calls import LanguageCallHandler, LoweredCall
@@ -115,7 +115,7 @@ class GatherHandler(LanguageCallHandler[GatherArguments]):
         else:
             loop_var = context.next_name("spread_item")
             replacements = self._build_comprehension_target_access_map(generator.target, loop_var)
-            rewritten = self._rewrite_load_name_references(element_node, replacements)
+            rewritten = rewrite_load_names(element_node, replacements)
             if not isinstance(rewritten, ast.expr):
                 raise self.error(
                     comprehension, "spread pattern rewrite produced an invalid expression"
@@ -146,12 +146,8 @@ class GatherHandler(LanguageCallHandler[GatherArguments]):
     ) -> list[ir.Statement]:
         """Build IR that materializes a filtered spread collection."""
         generator = comprehension.generators[0]
-        replacements: dict[str, ast.expr] = {}
-        if isinstance(generator.target, ast.Name):
-            loop_var = generator.target.id
-        else:
-            loop_var = context.next_name("spread_filter_item")
-            replacements = self._build_comprehension_target_access_map(generator.target, loop_var)
+        loop_var = context.next_name("spread_filter_item")
+        replacements = self._build_comprehension_target_access_map(generator.target, loop_var)
 
         init_assign_ast = ast.Assign(
             targets=[ast.Name(id=temp_collection_var, ctx=ast.Store())],
@@ -175,22 +171,14 @@ class GatherHandler(LanguageCallHandler[GatherArguments]):
         ast.fix_missing_locations(append_assign_ast)
 
         loop_body: list[ast.stmt] = [append_assign_ast]
-        if generator.ifs:
-            condition: ast.expr
-            if len(generator.ifs) == 1:
-                condition = copy.deepcopy(generator.ifs[0])
-            else:
-                condition = ast.BoolOp(
-                    op=ast.And(), values=[copy.deepcopy(expr) for expr in generator.ifs]
-                )
-                ast.copy_location(condition, generator.ifs[0])
+        for condition in reversed(generator.ifs):
+            condition = copy.deepcopy(condition)
             if replacements:
-                rewritten = self._rewrite_load_name_references(condition, replacements)
-                if not isinstance(rewritten, ast.expr):
-                    raise self.error(condition, "filter rewrite produced an invalid expression")
+                rewritten = rewrite_load_names(condition, replacements)
+                assert isinstance(rewritten, ast.expr)
                 condition = rewritten
-            if_stmt = ast.If(test=condition, body=[append_assign_ast], orelse=[])
-            ast.copy_location(if_stmt, generator.ifs[0])
+            if_stmt = ast.If(test=condition, body=loop_body, orelse=[])
+            ast.copy_location(if_stmt, condition)
             ast.fix_missing_locations(if_stmt)
             loop_body = [if_stmt]
 
@@ -246,24 +234,3 @@ class GatherHandler(LanguageCallHandler[GatherArguments]):
         ast.fix_missing_locations(root_expr)
         visit_target(target, root_expr)
         return replacements
-
-    def _rewrite_load_name_references(
-        self, node: ast.AST, replacements: Mapping[str, ast.expr]
-    ) -> ast.AST:
-        """Rewrite load-name references in an AST subtree."""
-
-        class LoadNameRewriter(ast.NodeTransformer):
-            def __init__(self, name_replacements: Mapping[str, ast.expr]):
-                self._name_replacements = name_replacements
-
-            def visit_Name(self, current: ast.Name) -> ast.AST:
-                if isinstance(current.ctx, ast.Load) and current.id in self._name_replacements:
-                    rewritten = copy.deepcopy(self._name_replacements[current.id])
-                    ast.copy_location(rewritten, current)
-                    ast.fix_missing_locations(rewritten)
-                    return rewritten
-                return current
-
-        rewritten = LoadNameRewriter(replacements).visit(copy.deepcopy(node))
-        ast.fix_missing_locations(rewritten)
-        return rewritten

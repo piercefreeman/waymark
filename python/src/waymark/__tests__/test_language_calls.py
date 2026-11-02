@@ -50,7 +50,7 @@ def call_expression(source: str) -> ast.Call:
 @pytest.fixture
 def compiler_context() -> CompilerContext:
     """Supply the workflow compiler's shared operations without registering any actions."""
-    return IRBuilder({}, TransformContext())._compiler_context
+    return IRBuilder(TransformContext())._compiler_context
 
 
 def test_dataclass_contract_binds_positionals_keywords_and_defaults() -> None:
@@ -122,12 +122,13 @@ def test_registry_does_not_evaluate_attributes_or_dynamic_callees() -> None:
 @pytest.mark.parametrize("statement", ["result =", "result: int =", "return", ""])
 def test_builder_dispatches_a_new_handler_from_its_registration(statement: str) -> None:
     """A different target lowers in every statement form without adding builder branches."""
-    builder = IRBuilder({}, TransformContext(), module_globals={"alias": example})
+    builder = IRBuilder(TransformContext(), module_globals={"alias": example})
     builder._language_calls = LanguageCallRegistry([ExampleHandler()])
     builder.visit(ast.parse(f"async def run():\n    {statement} await alias(7)"))
     assert builder.function_def is not None
     statements = builder.function_def.body.statements
-    assert statements[0].assignment.value.literal.int_value == 7
+    value = statements[0].expr_stmt.expr if statement == "" else statements[0].assignment.value
+    assert value.literal.int_value == 7
     if statement == "return":
         assert statements[1].return_stmt.value.variable.name == statements[0].assignment.targets[0]
 
@@ -146,21 +147,13 @@ def test_local_names_cannot_resolve_to_registered_globals(source: str, local_nam
     package = ModuleType("example_package")
     vars(package)["exported"] = example
     builder = IRBuilder(
-        {},
         TransformContext(),
         module_globals={"package": package, "alias": example},
         function_locals=(local_name,),
     )
     builder._language_calls = LanguageCallRegistry([ExampleHandler()])
-    builder.visit(ast.parse(source))
-    assert builder.function_def is not None
-    expressions = [
-        statement.expr_stmt.expr
-        for statement in builder.function_def.body.statements
-        if statement.HasField("expr_stmt")
-    ]
-    assert len(expressions) == 1
-    assert expressions[0].HasField("function_call")
+    with pytest.raises(UnsupportedPatternError, match="Awaiting non-action"):
+        builder.visit(ast.parse(source))
 
 
 @pytest.mark.parametrize(

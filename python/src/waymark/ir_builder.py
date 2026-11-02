@@ -21,104 +21,25 @@ import ast
 import builtins
 import copy
 import inspect
-import math
 import textwrap
 import types
-from dataclasses import dataclass
-from datetime import timedelta
+from dataclasses import dataclass, field
 from enum import EnumMeta
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Set
 
-from waymark.compiler_context import (
-    ALLOWED_SYNC_FUNCTIONS,
-    GLOBAL_FUNCTIONS,
-    CompilerContext,
-    is_run_action_call,
-)
+from waymark.call_binding import bind_call
+from waymark.compiler_ast import rewrite_load_names
+from waymark.compiler_context import CompilerContext
 from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler_literals import literal_expression
 from waymark.compiler_recommendations import RECOMMENDATIONS
+from waymark.compiler_types import has_open_type_parameters
+from waymark.compiler_validation import SourceValidator, validate_literal
 from waymark.global_handlers import GLOBAL_HANDLERS
 from waymark.proto import ast_pb2 as ir
-from waymark.registry import registry
-
-DEFAULT_RETRY_POLICY_MAX_RETRIES = 100
-DEFAULT_RETRY_POLICY_EXCEPTION_TYPE = "Exception"
-# `attempts` minus one is the IR's `max_retries`, a uint32.
-MAX_RETRY_POLICY_ATTEMPTS = 2**32
-
-
-def _is_none_literal(node: ast.AST) -> bool:
-    """Whether `node` is the literal `None`."""
-    return isinstance(node, ast.Constant) and node.value is None
-
-
-def _number_literal(node: ast.AST) -> Optional[int | float]:
-    """The number `node` is a literal of, if it is one; a bool is not, a negated one is."""
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        operand = _number_literal(node.operand)
-        return None if operand is None else -operand
-    if isinstance(node, ast.Constant) and not isinstance(node.value, bool):
-        if isinstance(node.value, (int, float)):
-            return node.value
-    return None
-
-
-# A sleep's wake time must fit the runtime's clock, which the sleep handlers
-# add the duration to. A literal past that range would compile and then
-# fail every run; the cap is a round figure far inside it.
-_MAX_DURATION_YEARS = 100
-_MAX_DURATION_SECONDS = _MAX_DURATION_YEARS * 365 * 24 * 60 * 60
-
-
-def _call_name(node: ast.Call) -> Optional[str]:
-    """The name a call is spelled with: `f(...)` or `m.f(...)` give `f`."""
-    if isinstance(node.func, ast.Name):
-        return node.func.id
-    if isinstance(node.func, ast.Attribute):
-        return node.func.attr
-    return None
-
-
-_CURRENT_ACTION_NAMES: set[str] = set()
-
 
 if TYPE_CHECKING:
-    from .workflow import Workflow
-
-
-@dataclass
-class ActionDefinition:
-    """Definition of an action function."""
-
-    action_name: str
-    module_name: Optional[str]
-    signature: inspect.Signature
-
-
-@dataclass
-class FunctionParameter:
-    """A function parameter with optional default value."""
-
-    name: str
-    has_default: bool
-    default_value: Any = None  # The actual Python value if has_default is True
-
-
-@dataclass
-class FunctionSignatureInfo:
-    """Signature info for a workflow function, used to fill in default arguments."""
-
-    parameters: List[FunctionParameter]
-
-
-@dataclass
-class ModuleContext:
-    """Cached IRBuilder context derived from a module."""
-
-    action_defs: Dict[str, ActionDefinition]
-    imported_names: Dict[str, "ImportedName"]
-    module_functions: Set[str]
-    model_defs: Dict[str, "ModelDefinition"]
+    from waymark.workflow import Workflow
 
 
 @dataclass
@@ -128,15 +49,9 @@ class TransformContext:
     # Counter for generating unique function names
     implicit_fn_counter: int = 0
     # Implicit functions generated during transformation
-    implicit_functions: List[ir.FunctionDef] = None  # type: ignore
+    implicit_functions: List[ir.FunctionDef] = field(default_factory=list)
     # Function signatures for workflow methods (used to fill in default arguments)
-    function_signatures: Dict[str, FunctionSignatureInfo] = None  # type: ignore
-
-    def __post_init__(self) -> None:
-        if self.implicit_functions is None:
-            self.implicit_functions = []
-        if self.function_signatures is None:
-            self.function_signatures = {}
+    function_signatures: Dict[str, inspect.Signature] = field(default_factory=dict)
 
     def next_implicit_fn_name(self, prefix: str = "implicit") -> str:
         """Generate a unique implicit function name."""
@@ -162,19 +77,6 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     module = inspect.getmodule(original_run)
     if module is None:
         raise ValueError(f"unable to locate module for workflow {workflow_cls!r}")
-
-    module_contexts: Dict[str, ModuleContext] = {}
-
-    def get_module_context(target_module: Any) -> ModuleContext:
-        module_name = target_module.__name__
-        if module_name not in module_contexts:
-            module_contexts[module_name] = ModuleContext(
-                action_defs=_discover_action_names(target_module),
-                imported_names=_discover_module_imports(target_module),
-                module_functions=_discover_module_functions(target_module),
-                model_defs=_discover_model_definitions(target_module),
-            )
-        return module_contexts[module_name]
 
     # Build the IR with transformation context
     ctx = TransformContext()
@@ -230,22 +132,16 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
         start_line: int,
         override_name: Optional[str] = None,
     ) -> None:
-        global _CURRENT_ACTION_NAMES
         fn_module = inspect.getmodule(fn)
         if fn_module is None:
             raise ValueError(f"unable to locate module for function {fn!r}")
 
-        ctx_data = get_module_context(fn_module)
-        _CURRENT_ACTION_NAMES = set(ctx_data.action_defs.keys())
         builder = IRBuilder(
-            ctx_data.action_defs,
             ctx,
-            ctx_data.imported_names,
-            ctx_data.module_functions,
-            ctx_data.model_defs,
             {**fn_module.__dict__, **inspect.getclosurevars(fn).nonlocals},
             instance_attrs,
             function_locals=fn.__code__.co_varnames + fn.__code__.co_cellvars,
+            receiver_type=workflow_cls,
         )
         try:
             builder.visit(fn_tree)
@@ -268,12 +164,18 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     pending = _collect_self_method_calls(run_tree)
     pending_index = 0
     visited: Set[str] = set()
-    skip_methods = {"run_action"}
 
     while pending_index < len(pending):
         method_name = pending[pending_index]
         pending_index += 1
-        if method_name in visited or method_name == "run" or method_name in skip_methods:
+        if method_name in visited or method_name == "run":
+            continue
+        if (
+            GLOBAL_HANDLERS.resolve(
+                ast.Attribute(value=ast.Name(id="self"), attr=method_name), {"self": workflow_cls}
+            )
+            is not None
+        ):
             continue
         visited.add(method_name)
 
@@ -290,20 +192,9 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     for fn, _fn_tree, _filename, _start_line, override_name in methods_to_process:
         fn_name = override_name if override_name else fn.__name__
         sig = inspect.signature(fn)
-        params: List[FunctionParameter] = []
-        for param_name, param in sig.parameters.items():
-            if param_name == "self":
-                continue
-            has_default = param.default is not inspect.Parameter.empty
-            default_value = param.default if has_default else None
-            params.append(
-                FunctionParameter(
-                    name=param_name,
-                    has_default=has_default,
-                    default_value=default_value,
-                )
-            )
-        ctx.function_signatures[fn_name] = FunctionSignatureInfo(parameters=params)
+        ctx.function_signatures[fn_name] = sig.replace(
+            parameters=[parameter for name, parameter in sig.parameters.items() if name != "self"]
+        )
 
     # Now process all functions with signatures already available
     for fn, fn_tree, filename, start_line, override_name in methods_to_process:
@@ -316,9 +207,6 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     # Add all function definitions (run + reachable helper methods)
     for fn_def in function_defs.values():
         program.functions.append(fn_def)
-
-    global _CURRENT_ACTION_NAMES
-    _CURRENT_ACTION_NAMES = set()
 
     return program
 
@@ -438,329 +326,69 @@ def _self_attribute_assignment(node: ast.AST) -> Optional[tuple[str, ast.expr]]:
     return None
 
 
-def _discover_action_names(module: Any) -> Dict[str, ActionDefinition]:
-    """Discover all @action decorated functions in a module."""
-    names: Dict[str, ActionDefinition] = {}
-    for attr_name in dir(module):
-        attr = getattr(module, attr_name)
-        action_name = getattr(attr, "__waymark_action_name__", None)
-        action_module = getattr(attr, "__waymark_action_module__", None)
-        if callable(attr) and action_name:
-            signature = inspect.signature(attr)
-            names[attr_name] = ActionDefinition(
-                action_name=action_name,
-                module_name=action_module or module.__name__,
-                signature=signature,
-            )
-    for entry in registry.entries():
-        if entry.module != module.__name__:
-            continue
-        func_name = entry.func.__name__
-        if func_name in names:
-            continue
-        signature = inspect.signature(entry.func)
-        names[func_name] = ActionDefinition(
-            action_name=entry.name,
-            module_name=entry.module,
-            signature=signature,
-        )
-    return names
-
-
-def _discover_module_functions(module: Any) -> Set[str]:
-    """Discover all async function names defined in a module.
-
-    This is used to detect when users await functions in the same module
-    that are NOT decorated with @action.
-    """
-    function_names: Set[str] = set()
-    for attr_name in dir(module):
-        try:
-            attr = getattr(module, attr_name)
-        except AttributeError:
-            continue
-
-        # Only include functions defined in THIS module (not imported)
-        if not callable(attr):
-            continue
-        if not inspect.iscoroutinefunction(attr):
-            continue
-
-        # Check if the function is defined in this module
-        func_module = getattr(attr, "__module__", None)
-        if func_module == module.__name__:
-            function_names.add(attr_name)
-
-    return function_names
-
-
-@dataclass
-class ImportedName:
-    """Tracks an imported name and its source module."""
-
-    local_name: str  # Name used in code (e.g., "sleep")
-    module: str  # Source module (e.g., "asyncio")
-    original_name: str  # Original name in source module (e.g., "sleep")
-
-
-@dataclass
-class ModelFieldDefinition:
-    """Definition of a field in a Pydantic model or dataclass."""
-
-    name: str
-    has_default: bool
-    default_value: Any = None  # Only set if has_default is True
-
-
-@dataclass
-class ModelDefinition:
-    """Definition of a Pydantic model or dataclass that can be used in workflows.
-
-    These are data classes that can be instantiated in workflow code and will
-    be converted to dictionary expressions in the IR.
-    """
-
-    class_name: str
-    fields: Dict[str, ModelFieldDefinition]
-    is_pydantic: bool  # True for Pydantic models, False for dataclasses
-
-
-def _is_simple_pydantic_model(cls: type) -> bool:
-    """Check if a class is a simple Pydantic model without custom validators.
-
-    A simple Pydantic model:
-    - Inherits from pydantic.BaseModel
-    - Has no field_validator or model_validator decorators
-    - Has no custom __init__ method
-
-    Returns False if pydantic is not installed or cls is not a Pydantic model.
-    """
-    try:
-        from pydantic import BaseModel
-    except ImportError:
-        return False
-
-    if not isinstance(cls, type) or not issubclass(cls, BaseModel):
-        return False
-
-    # Check for validators - Pydantic v2 uses __pydantic_decorators__
-    decorators = getattr(cls, "__pydantic_decorators__", None)
-    if decorators is not None:
-        # Check for field validators
-        if hasattr(decorators, "field_validators") and decorators.field_validators:
-            return False
-        # Check for model validators
-        if hasattr(decorators, "model_validators") and decorators.model_validators:
-            return False
-
-    # Check for custom __init__ (not the one from BaseModel)
-    if "__init__" in cls.__dict__:
-        return False
-
-    return True
-
-
-def _is_simple_dataclass(cls: type) -> bool:
-    """Check if a class is a simple dataclass without custom logic.
-
-    A simple dataclass:
-    - Is decorated with @dataclass
-    - Has no custom __init__ method (uses the generated one)
-    - Has no __post_init__ method
-
-    Returns False if cls is not a dataclass.
-    """
-    import dataclasses
-
-    if not dataclasses.is_dataclass(cls):
-        return False
-
-    # Check for __post_init__ which could have custom logic
-    if hasattr(cls, "__post_init__") and "__post_init__" in cls.__dict__:
-        return False
-
-    # Dataclasses generate __init__, so check if there's a custom one
-    # that overrides it (unlikely but possible)
-    # The dataclass decorator sets __init__ so we can't easily detect override
-    # We'll trust that dataclasses without __post_init__ are simple
-
-    return True
-
-
-def _get_pydantic_model_fields(cls: type) -> Dict[str, ModelFieldDefinition]:
-    """Extract field definitions from a Pydantic model."""
-    try:
-        from pydantic import BaseModel
-        from pydantic.fields import FieldInfo
-    except ImportError:
-        return {}
-
-    if not issubclass(cls, BaseModel):
-        return {}
-
-    fields: Dict[str, ModelFieldDefinition] = {}
-
-    # Pydantic v2 uses model_fields
-    model_fields = getattr(cls, "model_fields", {})
-    for field_name, field_info in model_fields.items():
-        has_default = False
-        default_value = None
-
-        if isinstance(field_info, FieldInfo):
-            # Check if field has a default value
-            # PydanticUndefined means no default
-            from pydantic_core import PydanticUndefined
-
-            if field_info.default is not PydanticUndefined:
-                has_default = True
-                default_value = field_info.default
-            elif field_info.default_factory is not None:
-                # We can't serialize factory functions, so treat as no default
-                has_default = False
-
-        fields[field_name] = ModelFieldDefinition(
-            name=field_name,
-            has_default=has_default,
-            default_value=default_value,
-        )
-
-    return fields
-
-
-def _get_dataclass_fields(cls: type) -> Dict[str, ModelFieldDefinition]:
-    """Extract field definitions from a dataclass."""
-    import dataclasses
-
-    if not dataclasses.is_dataclass(cls):
-        return {}
-
-    fields: Dict[str, ModelFieldDefinition] = {}
-    for field in dataclasses.fields(cls):
-        has_default = False
-        default_value = None
-
-        if field.default is not dataclasses.MISSING:
-            has_default = True
-            default_value = field.default
-        elif field.default_factory is not dataclasses.MISSING:
-            # We can't serialize factory functions, so treat as no default
-            has_default = False
-
-        fields[field.name] = ModelFieldDefinition(
-            name=field.name,
-            has_default=has_default,
-            default_value=default_value,
-        )
-
-    return fields
-
-
-def _discover_model_definitions(module: Any) -> Dict[str, ModelDefinition]:
-    """Discover all Pydantic models and dataclasses that can be used in workflows.
-
-    Only discovers "simple" models without custom validators or __post_init__.
-    """
-    models: Dict[str, ModelDefinition] = {}
-
-    for attr_name in dir(module):
-        try:
-            attr = getattr(module, attr_name)
-        except AttributeError:
-            continue
-
-        if not isinstance(attr, type):
-            continue
-
-        # Check if this class is defined in this module or imported
-        # We want to include both, as models might be imported
-        if _is_simple_pydantic_model(attr):
-            fields = _get_pydantic_model_fields(attr)
-            models[attr_name] = ModelDefinition(
-                class_name=attr_name,
-                fields=fields,
-                is_pydantic=True,
-            )
-        elif _is_simple_dataclass(attr):
-            fields = _get_dataclass_fields(attr)
-            models[attr_name] = ModelDefinition(
-                class_name=attr_name,
-                fields=fields,
-                is_pydantic=False,
-            )
-
-    return models
-
-
-def _discover_module_imports(module: Any) -> Dict[str, ImportedName]:
-    """Discover imports in a module by parsing its source.
-
-    Tracks imports like:
-    - from asyncio import sleep  -> {"sleep": ImportedName("sleep", "asyncio", "sleep")}
-    - from asyncio import sleep as s -> {"s": ImportedName("s", "asyncio", "sleep")}
-    """
-    imported: Dict[str, ImportedName] = {}
-
-    try:
-        source = inspect.getsource(module)
-        tree = ast.parse(source)
-    except (OSError, TypeError):
-        # Can't get source (e.g., built-in module)
-        return imported
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            for alias in node.names:
-                local_name = alias.asname if alias.asname else alias.name
-                imported[local_name] = ImportedName(
-                    local_name=local_name,
-                    module=node.module,
-                    original_name=alias.name,
-                )
-
-    return imported
-
-
 class IRBuilder(ast.NodeVisitor):
     """Builds IR from Python AST with deep transformations."""
 
     def __init__(
         self,
-        action_defs: Dict[str, ActionDefinition],
         ctx: TransformContext,
-        imported_names: Optional[Dict[str, ImportedName]] = None,
-        module_functions: Optional[Set[str]] = None,
-        model_defs: Optional[Dict[str, ModelDefinition]] = None,
         module_globals: Optional[Mapping[str, Any]] = None,
         instance_attrs: Optional[InstanceAttrs] = None,
         function_locals: tuple[str, ...] = (),
+        receiver_type: type | None = None,
     ):
-        self._action_defs = action_defs
         self._ctx = ctx
-        self._imported_names = imported_names or {}
-        self._module_functions = module_functions or set()
-        self._model_defs = model_defs or {}
         self._module_globals = module_globals or {}
         self._language_call_namespace = {
             name: value
-            for name, value in self._module_globals.items()
+            for name, value in {**vars(builtins), **self._module_globals}.items()
             if name not in function_locals
         }
+        if receiver_type is not None:
+            self._language_call_namespace["self"] = receiver_type
         self._instance_attrs = instance_attrs.literals if instance_attrs else {}
         self._ambiguous_instance_attrs = instance_attrs.ambiguous if instance_attrs else set()
         self._language_calls = GLOBAL_HANDLERS
         self._compiler_context = CompilerContext(
-            expression=self._expr_to_ir_with_model_coercion,
+            expression=self._compile_expression,
             statement=self._visit_statement,
             action=self._extract_action_call,
             function=self._convert_to_function_call,
             next_name=self._ctx.next_implicit_fn_name,
             function_names=self._ctx.function_signatures.keys(),
+            resolve=lambda function: self._language_calls.resolve(
+                function, self._language_call_namespace
+            ),
+            namespace=self._language_call_namespace,
+            instance_attrs=self._instance_attrs,
+            ambiguous_instance_attrs=self._ambiguous_instance_attrs,
         )
         self.function_def: Optional[ir.FunctionDef] = None
         self._statements: List[ir.Statement] = []
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> Any:
         """Visit a function definition (the workflow's run method)."""
+        annotations = [
+            argument.annotation
+            for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+            if argument.annotation is not None
+        ]
+        if node.returns is not None:
+            annotations.append(node.returns)
+        for annotation in annotations:
+            if has_open_type_parameters(ast.unparse(annotation), self._language_call_namespace):
+                raise UnsupportedPatternError(
+                    "Open generic annotations are unsupported",
+                    "Specialize all type parameters before compiling the workflow.",
+                    line=annotation.lineno,
+                    col=annotation.col_offset,
+                )
+        local_types = SourceValidator(
+            self._language_call_namespace,
+            self._language_calls,
+            set(self._ctx.function_signatures),
+        ).validate(node)
+        self._language_call_namespace.update(local_types)
         inputs = self._collect_function_inputs(node)
 
         # Create the function definition
@@ -795,9 +423,6 @@ class IRBuilder(ast.NodeVisitor):
         if language_call is not None:
             return language_call
         if isinstance(node, ast.Assign):
-            dict_expanded = self._expand_dict_comprehension_assignment(node)
-            if dict_expanded is not None:
-                return dict_expanded
             expanded = self._expand_list_comprehension_assignment(node)
             if expanded is not None:
                 return expanded
@@ -934,10 +559,12 @@ class IRBuilder(ast.NodeVisitor):
             active_users = [user for user in users if user.active]
 
         Becomes:
-            active_users = []
-            for user in users:
-                if user.active:
-                    active_users = active_users + [user]
+            source = users
+            result = []
+            for item in source:
+                if item.active:
+                    result = result + [item]
+            active_users = result
         """
         if not isinstance(node.value, ast.ListComp):
             return None
@@ -952,7 +579,7 @@ class IRBuilder(ast.NodeVisitor):
                 col=col,
             )
 
-        listcomp = node.value
+        listcomp = copy.deepcopy(node.value)
         if len(listcomp.generators) != 1:
             line = getattr(listcomp, "lineno", None)
             col = getattr(listcomp, "col_offset", None)
@@ -974,9 +601,33 @@ class IRBuilder(ast.NodeVisitor):
                 col=col,
             )
 
-        target_name = node.targets[0].id
+        replacements = {
+            name: ast.Name(id=self._ctx.next_implicit_fn_name("comprehension_item"), ctx=ast.Load())
+            for name in self._get_assign_targets([gen.target])
+        }
+        for target in ast.walk(gen.target):
+            if isinstance(target, ast.Name):
+                replacement = replacements[target.id]
+                assert isinstance(replacement, ast.Name)
+                target.id = replacement.id
+        rewritten_element = rewrite_load_names(listcomp.elt, replacements)
+        assert isinstance(rewritten_element, ast.expr)
+        listcomp.elt = rewritten_element
+        rewritten_filters = [rewrite_load_names(condition, replacements) for condition in gen.ifs]
+        assert all(isinstance(condition, ast.expr) for condition in rewritten_filters)
+        gen.ifs = [condition for condition in rewritten_filters if isinstance(condition, ast.expr)]
+        iterable_name = self._ctx.next_implicit_fn_name("comprehension_input")
+        iterable_assignment = ast.fix_missing_locations(
+            ast.copy_location(
+                ast.Assign(targets=[ast.Name(id=iterable_name, ctx=ast.Store())], value=gen.iter),
+                node,
+            )
+        )
+        gen.iter = ast.copy_location(ast.Name(id=iterable_name, ctx=ast.Load()), gen.iter)
 
-        # Initialize the accumulator list: active_users = []
+        target_name = self._ctx.next_implicit_fn_name("comprehension_result")
+
+        # Publish only after the entire comprehension succeeds.
         init_assign_ast = ast.Assign(
             targets=[ast.Name(id=target_name, ctx=ast.Store())],
             value=ast.List(elts=[], ctx=ast.Load()),
@@ -1015,15 +666,9 @@ class IRBuilder(ast.NodeVisitor):
             append_statements.append(_make_append_assignment(listcomp.elt))
 
         loop_body: List[ast.stmt] = append_statements
-        if gen.ifs:
-            condition: ast.expr
-            if len(gen.ifs) == 1:
-                condition = copy.deepcopy(gen.ifs[0])
-            else:
-                condition = ast.BoolOp(op=ast.And(), values=[copy.deepcopy(iff) for iff in gen.ifs])
-                ast.copy_location(condition, gen.ifs[0])
-            if_stmt = ast.If(test=condition, body=append_statements, orelse=[])
-            ast.copy_location(if_stmt, gen.ifs[0])
+        for condition in reversed(gen.ifs):
+            if_stmt = ast.If(test=copy.deepcopy(condition), body=loop_body, orelse=[])
+            ast.copy_location(if_stmt, condition)
             ast.fix_missing_locations(if_stmt)
             loop_body = [if_stmt]
 
@@ -1037,11 +682,21 @@ class IRBuilder(ast.NodeVisitor):
         ast.copy_location(loop_ast, node)
         ast.fix_missing_locations(loop_ast)
 
-        statements: List[ir.Statement] = []
+        statements = self._visit_statement(iterable_assignment)
         init_stmt = self._visit_assign(init_assign_ast)
         if init_stmt:
             statements.append(init_stmt)
         statements.extend(self._visit_for(loop_ast))
+        final_assignment = ast.fix_missing_locations(
+            ast.copy_location(
+                ast.Assign(
+                    targets=copy.deepcopy(node.targets),
+                    value=ast.Name(id=target_name, ctx=ast.Load()),
+                ),
+                node,
+            )
+        )
+        statements.extend(self._visit_statement(final_assignment))
 
         return statements
 
@@ -1056,6 +711,15 @@ class IRBuilder(ast.NodeVisitor):
                 targets = []
             case ast.Return(value=ast.Await(value=ast.Call() as call)):
                 targets = []
+            case ast.Expr(value=ast.Call() as call):
+                handler = self._language_calls.resolve(call.func, self._language_call_namespace)
+                if handler is None or handler.requires_await:
+                    return None
+                lowered = handler.compile(call, self._compiler_context)
+                return [
+                    *lowered.statements,
+                    ir.Statement(expr_stmt=ir.ExprStmt(expr=lowered.value)),
+                ]
             case _:
                 return None
 
@@ -1064,11 +728,28 @@ class IRBuilder(ast.NodeVisitor):
             return None
         if isinstance(node, ast.Return):
             targets = [self._ctx.next_implicit_fn_name(prefix="return_tmp")]
+        if not handler.requires_await:
+            raise handler.error(call, "this call cannot be awaited")
         lowered = handler.compile(call, self._compiler_context)
+        if (
+            isinstance(node, (ast.Assign, ast.AnnAssign))
+            and isinstance(
+                node.targets[0] if isinstance(node, ast.Assign) else node.target,
+                (ast.Tuple, ast.List),
+            )
+            and lowered.value.HasField("parallel_expr")
+            and len(targets) != len(lowered.value.parallel_expr.calls)
+        ):
+            raise handler.error(call, "unpacking target count does not match result count")
         lowered.value.span.CopyFrom(_make_span(call))
         statement = ir.Statement(span=_make_span(node))
         if isinstance(node, ast.Expr) and lowered.value.HasField("parallel_expr"):
             statement.parallel_block.calls.extend(lowered.value.parallel_expr.calls)
+        elif isinstance(node, ast.Expr) and not lowered.value.HasField("spread_expr"):
+            if lowered.value.HasField("action_call"):
+                statement.action_call.CopyFrom(lowered.value.action_call)
+            else:
+                statement.expr_stmt.CopyFrom(ir.ExprStmt(expr=lowered.value))
         else:
             statement.assignment.CopyFrom(ir.Assignment(targets=targets, value=lowered.value))
         statements = [*lowered.statements, statement]
@@ -1079,103 +760,6 @@ class IRBuilder(ast.NodeVisitor):
                     span=_make_span(node),
                 )
             )
-        return statements
-
-    def _expand_dict_comprehension_assignment(
-        self, node: ast.Assign
-    ) -> Optional[List[ir.Statement]]:
-        """Expand a dict comprehension assignment into loop-based statements."""
-        if not isinstance(node.value, ast.DictComp):
-            return None
-
-        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
-            line = getattr(node, "lineno", None)
-            col = getattr(node, "col_offset", None)
-            raise UnsupportedPatternError(
-                "Dict comprehension assignments must target a single variable",
-                "Assign the comprehension to a simple variable like `result = {k: v for k, v in pairs}`",
-                line=line,
-                col=col,
-            )
-
-        dictcomp = node.value
-        if len(dictcomp.generators) != 1:
-            line = getattr(dictcomp, "lineno", None)
-            col = getattr(dictcomp, "col_offset", None)
-            raise UnsupportedPatternError(
-                "Dict comprehensions with multiple generators are not supported",
-                "Use nested for loops instead of combining multiple generators in one comprehension",
-                line=line,
-                col=col,
-            )
-
-        gen = dictcomp.generators[0]
-        if gen.is_async:
-            line = getattr(dictcomp, "lineno", None)
-            col = getattr(dictcomp, "col_offset", None)
-            raise UnsupportedPatternError(
-                "Async dict comprehensions are not supported",
-                "Rewrite using an explicit async for loop",
-                line=line,
-                col=col,
-            )
-
-        target_name = node.targets[0].id
-
-        # Initialize accumulator: result = {}
-        init_assign_ast = ast.Assign(
-            targets=[ast.Name(id=target_name, ctx=ast.Store())],
-            value=ast.Dict(keys=[], values=[]),
-            type_comment=None,
-        )
-        ast.copy_location(init_assign_ast, node)
-        ast.fix_missing_locations(init_assign_ast)
-
-        # result[key] = value
-        subscript_target = ast.Subscript(
-            value=ast.Name(id=target_name, ctx=ast.Load()),
-            slice=copy.deepcopy(dictcomp.key),
-            ctx=ast.Store(),
-        )
-        append_assign_ast = ast.Assign(
-            targets=[subscript_target],
-            value=copy.deepcopy(dictcomp.value),
-            type_comment=None,
-        )
-        ast.copy_location(append_assign_ast, node.value)
-        ast.fix_missing_locations(append_assign_ast)
-
-        loop_body: List[ast.stmt] = []
-        if gen.ifs:
-            condition: ast.expr
-            if len(gen.ifs) == 1:
-                condition = copy.deepcopy(gen.ifs[0])
-            else:
-                condition = ast.BoolOp(op=ast.And(), values=[copy.deepcopy(iff) for iff in gen.ifs])
-                ast.copy_location(condition, gen.ifs[0])
-            if_stmt = ast.If(test=condition, body=[append_assign_ast], orelse=[])
-            ast.copy_location(if_stmt, gen.ifs[0])
-            ast.fix_missing_locations(if_stmt)
-            loop_body.append(if_stmt)
-        else:
-            loop_body.append(append_assign_ast)
-
-        loop_ast = ast.For(
-            target=copy.deepcopy(gen.target),
-            iter=copy.deepcopy(gen.iter),
-            body=loop_body,
-            orelse=[],
-            type_comment=None,
-        )
-        ast.copy_location(loop_ast, node)
-        ast.fix_missing_locations(loop_ast)
-
-        statements: List[ir.Statement] = []
-        init_stmt = self._visit_assign(init_assign_ast)
-        if init_stmt:
-            statements.append(init_stmt)
-        statements.extend(self._visit_for(loop_ast))
-
         return statements
 
     def _visit_ann_assign(self, node: ast.AnnAssign) -> Optional[ir.Statement]:
@@ -1204,32 +788,6 @@ class IRBuilder(ast.NodeVisitor):
         stmt = ir.Statement(span=_make_span(node))
         targets = self._get_assign_targets(node.targets)
 
-        # Check for Pydantic model or dataclass constructor calls
-        # These are converted to dict expressions
-        model_name = self._is_model_constructor(node.value)
-        if model_name and isinstance(node.value, ast.Call):
-            value_expr = self._convert_model_constructor_to_dict(node.value, model_name)
-            assign = ir.Assignment(targets=targets, value=value_expr)
-            stmt.assignment.CopyFrom(assign)
-            return stmt
-
-        # Check for constructor calls in assignment (e.g., x = MyModel(...))
-        # This must come AFTER the model constructor check since models are allowed
-        self._check_constructor_in_assignment(node.value)
-
-        # Disallow assigning the result of asyncio.sleep()
-        if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
-            awaited = node.value.value
-            if self._is_asyncio_sleep_call(awaited):
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
-                raise UnsupportedPatternError(
-                    "Assigning the result of asyncio.sleep() is not supported",
-                    RECOMMENDATIONS["sleep_assignment"],
-                    line=line,
-                    col=col,
-                )
-
         # Check if this is an action call - wrap in Assignment for uniform unpacking
         action_call = self._extract_action_call(node.value)
         if action_call:
@@ -1239,7 +797,7 @@ class IRBuilder(ast.NodeVisitor):
             return stmt
 
         # Regular assignment (variables, literals, expressions)
-        value_expr = self._expr_to_ir_with_model_coercion(node.value)
+        value_expr = self._compile_expression(node.value)
         if value_expr:
             assign = ir.Assignment(targets=targets, value=value_expr)
             stmt.assignment.CopyFrom(assign)
@@ -1251,53 +809,14 @@ class IRBuilder(ast.NodeVisitor):
         """Convert expression statement to IR (side effect only, no assignment)."""
         stmt = ir.Statement(span=_make_span(node))
 
-        # Check for asyncio.sleep() - convert to SleepStmt
-        if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
-            awaited = node.value.value
-            if self._is_asyncio_sleep_call(awaited):
-                sleep_stmt = self._convert_asyncio_sleep_to_sleep_stmt(awaited)
-                stmt.sleep_stmt.CopyFrom(sleep_stmt)
-                return stmt
-
         # Check if this is an action call (side effect only)
         action_call = self._extract_action_call(node.value)
         if action_call:
             stmt.action_call.CopyFrom(action_call)
             return stmt
 
-        # Convert list.append(x) to list = list + [x]
-        # This makes the mutation explicit so data flows correctly through the DAG
-        if isinstance(node.value, ast.Call):
-            call = node.value
-            if (
-                isinstance(call.func, ast.Attribute)
-                and call.func.attr == "append"
-                and isinstance(call.func.value, ast.Name)
-                and len(call.args) == 1
-            ):
-                list_name = call.func.value.id
-                append_value = call.args[0]
-                # Create: list = list + [value]
-                list_var = ir.Expr(variable=ir.Variable(name=list_name), span=_make_span(node))
-                value_expr = self._expr_to_ir_with_model_coercion(append_value)
-                if value_expr:
-                    # Create [value] as a list literal
-                    list_literal = ir.Expr(
-                        list=ir.ListExpr(elements=[value_expr]), span=_make_span(node)
-                    )
-                    # Create list + [value]
-                    concat_expr = ir.Expr(
-                        binary_op=ir.BinaryOp(
-                            op=ir.BinaryOperator.BINARY_OP_ADD, left=list_var, right=list_literal
-                        ),
-                        span=_make_span(node),
-                    )
-                    assign = ir.Assignment(targets=[list_name], value=concat_expr)
-                    stmt.assignment.CopyFrom(assign)
-                    return stmt
-
         # Regular expression
-        expr = self._expr_to_ir_with_model_coercion(node.value)
+        expr = self._compile_expression(node.value)
         if expr:
             stmt.expr_stmt.CopyFrom(ir.ExprStmt(expr=expr))
             return stmt
@@ -1311,16 +830,10 @@ class IRBuilder(ast.NodeVisitor):
         statements/calls and early `return`.
         """
         # Get loop variables
-        loop_vars: List[str] = []
-        if isinstance(node.target, ast.Name):
-            loop_vars.append(node.target.id)
-        elif isinstance(node.target, ast.Tuple):
-            for elt in node.target.elts:
-                if isinstance(elt, ast.Name):
-                    loop_vars.append(elt.id)
+        loop_vars = self._get_assign_targets([node.target])
 
         # Get iterable
-        iterable = self._expr_to_ir_with_model_coercion(node.iter)
+        iterable = self._compile_expression(node.iter)
         if not iterable:
             return []
 
@@ -1345,7 +858,7 @@ class IRBuilder(ast.NodeVisitor):
         The loop body is emitted as a full block so it can contain multiple
         statements/calls and early `return`.
         """
-        condition = self._expr_to_ir_with_model_coercion(node.test)
+        condition = self._compile_expression(node.test)
         if not condition:
             return []
 
@@ -1361,109 +874,6 @@ class IRBuilder(ast.NodeVisitor):
         )
         stmt.while_loop.CopyFrom(while_loop)
         return [stmt]
-
-    def _detect_accumulator_targets(
-        self, stmts: List[ir.Statement], in_scope_vars: set
-    ) -> List[str]:
-        """Detect out-of-scope variable modifications in for loop body.
-
-        Scans statements for patterns that modify variables defined outside the loop.
-        Returns a list of accumulator variable names that should be set as targets.
-
-        Supported patterns:
-        1. List append: results.append(value) -> "results"
-        2. Dict subscript: result[key] = value -> "result"
-        3. List/set update methods: results.extend(...), results.add(...) -> "results"
-
-        Note: Patterns like `results = results + [x]` and `count = count + 1` create
-        new assignments which are tracked via in_scope_vars and don't need special
-        detection here - they're handled by the regular assignment target logic.
-        """
-        accumulators: List[str] = []
-        seen: set = set()
-
-        for stmt in stmts:
-            var_name = self._extract_accumulator_from_stmt(stmt, in_scope_vars)
-            if var_name and var_name not in seen:
-                accumulators.append(var_name)
-                seen.add(var_name)
-
-            # Check conditionals for accumulator targets in branch bodies
-            if stmt.HasField("conditional"):
-                cond = stmt.conditional
-                branch_blocks: list[ir.Block] = []
-                if cond.HasField("if_branch") and cond.if_branch.HasField("block_body"):
-                    branch_blocks.append(cond.if_branch.block_body)
-                for branch in cond.elif_branches:
-                    if branch.HasField("block_body"):
-                        branch_blocks.append(branch.block_body)
-                if cond.HasField("else_branch") and cond.else_branch.HasField("block_body"):
-                    branch_blocks.append(cond.else_branch.block_body)
-
-                for block in branch_blocks:
-                    for var in self._detect_accumulator_targets(
-                        list(block.statements), in_scope_vars
-                    ):
-                        if var not in seen:
-                            accumulators.append(var)
-                            seen.add(var)
-
-        return accumulators
-
-    def _extract_accumulator_from_stmt(
-        self, stmt: ir.Statement, in_scope_vars: set
-    ) -> Optional[str]:
-        """Extract accumulator variable name from a single statement.
-
-        Returns the variable name if this statement modifies an out-of-scope variable,
-        None otherwise.
-        """
-        # Pattern 1: Method calls like list.append(), dict.update(), set.add()
-        if stmt.HasField("expr_stmt"):
-            expr = stmt.expr_stmt.expr
-            if expr.HasField("function_call"):
-                fn_name = expr.function_call.name
-                # Check for mutating method calls: x.append, x.extend, x.add, x.update, etc.
-                mutating_methods = {
-                    ".append",
-                    ".extend",
-                    ".add",
-                    ".update",
-                    ".insert",
-                    ".pop",
-                    ".remove",
-                    ".clear",
-                }
-                for method in mutating_methods:
-                    if fn_name.endswith(method):
-                        var_name = fn_name[: len(fn_name) - len(method)]
-                        # Only return if it's an out-of-scope variable
-                        if var_name and var_name not in in_scope_vars:
-                            return var_name
-
-        # Pattern 2: Subscript assignment like dict[key] = value
-        if stmt.HasField("assignment"):
-            for target in stmt.assignment.targets:
-                # Check if target is a subscript pattern (contains '[')
-                if "[" in target:
-                    # Extract base variable name (before '[')
-                    var_name = target.split("[")[0]
-                    if var_name and var_name not in in_scope_vars:
-                        return var_name
-
-        # Pattern 3: Self-referential assignment like x = x + [y]
-        # The target variable is used on the RHS, so it must come from outside.
-        # Note: We don't check in_scope_vars here because the assignment itself
-        # would have added the target to in_scope_vars, but it still needs its
-        # previous value from outside the loop body.
-        if stmt.HasField("assignment"):
-            assign = stmt.assignment
-            rhs_vars = self._collect_variables_from_expr(assign.value)
-            for target in assign.targets:
-                if target in rhs_vars:
-                    return target
-
-        return None
 
     def _collect_variables_from_expr(self, expr: ir.Expr) -> set:
         """Recursively collect all variable names used in an expression."""
@@ -1512,7 +922,7 @@ class IRBuilder(ast.NodeVisitor):
         def normalize_condition(test: ast.expr) -> tuple[List[ir.Statement], Optional[ir.Expr]]:
             action_call = self._extract_action_call(test)
             if action_call is None:
-                return ([], self._expr_to_ir_with_model_coercion(test))
+                return ([], self._compile_expression(test))
 
             if not isinstance(test, ast.Await):
                 line = getattr(test, "lineno", None)
@@ -2096,9 +1506,6 @@ class IRBuilder(ast.NodeVisitor):
         raise an error with a recommendation to use an @action instead.
         """
         if node.value:
-            # Check for constructor calls in return (e.g., return MyModel(...))
-            self._check_constructor_in_return(node.value)
-
             # Check if returning an action call - normalize to assignment + return
             action_call = self._extract_action_call(node.value)
             if action_call:
@@ -2120,7 +1527,7 @@ class IRBuilder(ast.NodeVisitor):
                 return [assign_stmt, return_stmt]
 
             # Normalize return of function calls into assignment + return
-            expr = self._expr_to_ir_with_model_coercion(node.value)
+            expr = self._compile_expression(node.value)
             if expr and expr.HasField("function_call"):
                 tmp_var = self._ctx.next_implicit_fn_name(prefix="return_tmp")
 
@@ -2166,8 +1573,8 @@ class IRBuilder(ast.NodeVisitor):
         if isinstance(node.target, ast.Name):
             targets.append(node.target.id)
 
-        left = self._expr_to_ir_with_model_coercion(node.target)
-        right = self._expr_to_ir_with_model_coercion(node.value)
+        left = self._compile_expression(node.target)
+        right = self._compile_expression(node.value)
         if right and right.HasField("function_call"):
             tmp_var = self._ctx.next_implicit_fn_name(prefix="aug_tmp")
 
@@ -2206,6 +1613,13 @@ class IRBuilder(ast.NodeVisitor):
 
     def _collect_function_inputs(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> List[str]:
         """Collect workflow inputs from function parameters, including kw-only args."""
+        if node.args.vararg is not None or node.args.kwarg is not None:
+            raise UnsupportedPatternError(
+                "Variadic workflow/helper parameters are unsupported",
+                "Declare each workflow argument explicitly.",
+                line=node.lineno,
+                col=node.col_offset,
+            )
         args: List[str] = []
         seen: set[str] = set()
 
@@ -2233,630 +1647,16 @@ class IRBuilder(ast.NodeVisitor):
 
         return args
 
-    def _check_constructor_in_return(self, node: ast.expr) -> None:
-        """Check for constructor calls in return statements.
-
-        Raises UnsupportedPatternError if the return value is a class instantiation
-        like: return MyModel(field=value)
-
-        This is not supported because the workflow IR cannot serialize arbitrary
-        object instantiation. Users should use an @action to create objects.
-        """
-        # Skip if it's an await (action call) - those are fine
-        if isinstance(node, ast.Await):
-            return
-
-        # Check for direct Call that looks like a constructor
-        if isinstance(node, ast.Call):
-            func_name = self._get_constructor_name(node.func)
-            if func_name and self._looks_like_constructor(func_name, node):
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
-                raise UnsupportedPatternError(
-                    f"Returning constructor call '{func_name}(...)' is not supported",
-                    RECOMMENDATIONS["constructor_return"],
-                    line=line,
-                    col=col,
-                )
-
-    def _check_constructor_in_assignment(self, node: ast.expr) -> None:
-        """Check for constructor calls in assignments.
-
-        Raises UnsupportedPatternError if the assignment value is a class instantiation
-        like: result = MyModel(field=value)
-
-        This is not supported because the workflow IR cannot serialize arbitrary
-        object instantiation. Users should use an @action to create objects.
-        """
-        # Skip if it's an await (action call) - those are fine
-        if isinstance(node, ast.Await):
-            return
-
-        # Check for direct Call that looks like a constructor
-        if isinstance(node, ast.Call):
-            func_name = self._get_constructor_name(node.func)
-            if func_name and self._looks_like_constructor(func_name, node):
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
-                raise UnsupportedPatternError(
-                    f"Assigning constructor call '{func_name}(...)' is not supported",
-                    RECOMMENDATIONS["constructor_assignment"],
-                    line=line,
-                    col=col,
-                )
-
-    def _get_constructor_name(self, func: ast.expr) -> Optional[str]:
-        """Get the name from a function expression if it looks like a constructor."""
-        if isinstance(func, ast.Name):
-            return func.id
-        elif isinstance(func, ast.Attribute):
-            return func.attr
-        return None
-
-    def _looks_like_constructor(self, func_name: str, call: ast.Call) -> bool:
-        """Check if a function call looks like a class constructor.
-
-        A constructor is identified by:
-        1. Name starts with uppercase (PEP8 convention for classes)
-        2. It's not a known action
-        3. It's not a known builtin like String operations
-        4. It's not a known Pydantic model or dataclass (those are allowed)
-
-        This is a heuristic - we can't perfectly distinguish constructors
-        from functions without full type information.
-        """
-        # Check if first letter is uppercase (class naming convention)
-        if not func_name or not func_name[0].isupper():
-            return False
-
-        # If it's a known action, it's not a constructor
-        if func_name in self._action_defs:
-            return False
-
-        # If it's a known Pydantic model or dataclass, allow it
-        # (it will be converted to a dict expression)
-        if func_name in self._model_defs:
-            return False
-
-        # Common builtins that start with uppercase but aren't constructors
-        # (these are rarely used in workflow code but let's be safe)
-        builtin_exceptions = {"True", "False", "None", "Ellipsis"}
-        if func_name in builtin_exceptions:
-            return False
-
-        return True
-
-    def _is_model_constructor(self, node: ast.expr) -> Optional[str]:
-        """Check if an expression is a Pydantic model or dataclass constructor call.
-
-        Returns the model name if it is, None otherwise.
-        """
-        if not isinstance(node, ast.Call):
-            return None
-
-        func_name = self._get_constructor_name(node.func)
-        if func_name and func_name in self._model_defs:
-            return func_name
-
-        return None
-
-    def _convert_model_constructor_to_dict(self, node: ast.Call, model_name: str) -> ir.Expr:
-        """Convert a Pydantic model or dataclass constructor call to a dict expression.
-
-        For example:
-            MyModel(field1=value1, field2=value2)
-        becomes:
-            {"field1": value1, "field2": value2}
-
-        Default values from the model definition are included for fields not
-        explicitly provided in the constructor call.
-        """
-        model_def = self._model_defs[model_name]
-        entries: List[ir.DictEntry] = []
-
-        # Track which fields were explicitly provided
-        provided_fields: Set[str] = set()
-
-        # First, add all explicitly provided kwargs
-        for kw in node.keywords:
-            if kw.arg is None:
-                # **kwargs expansion - not supported
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
-                raise UnsupportedPatternError(
-                    f"Model constructor '{model_name}' with **kwargs is not supported",
-                    "Use explicit keyword arguments instead of **kwargs.",
-                    line=line,
-                    col=col,
-                )
-
-            provided_fields.add(kw.arg)
-            key_expr = ir.Expr()
-            key_literal = ir.Literal()
-            key_literal.string_value = kw.arg
-            key_expr.literal.CopyFrom(key_literal)
-
-            value_expr = self._expr_to_ir_with_model_coercion(kw.value)
-            if value_expr is None:
-                # If we can't convert the value, we need to raise an error
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
-                raise UnsupportedPatternError(
-                    f"Cannot convert value for field '{kw.arg}' in '{model_name}'",
-                    "Use simpler expressions (literals, variables, dicts, lists).",
-                    line=line,
-                    col=col,
-                )
-
-            entries.append(ir.DictEntry(key=key_expr, value=value_expr))
-
-        # Handle positional arguments (dataclasses support this)
-        if node.args:
-            # For dataclasses, positional args map to fields in order
-            field_names = list(model_def.fields.keys())
-            for i, arg in enumerate(node.args):
-                if i >= len(field_names):
-                    line = getattr(node, "lineno", None)
-                    col = getattr(node, "col_offset", None)
-                    raise UnsupportedPatternError(
-                        f"Too many positional arguments for '{model_name}'",
-                        "Use keyword arguments for clarity.",
-                        line=line,
-                        col=col,
-                    )
-
-                field_name = field_names[i]
-                provided_fields.add(field_name)
-
-                key_expr = ir.Expr()
-                key_literal = ir.Literal()
-                key_literal.string_value = field_name
-                key_expr.literal.CopyFrom(key_literal)
-
-                value_expr = self._expr_to_ir_with_model_coercion(arg)
-                if value_expr is None:
-                    line = getattr(node, "lineno", None)
-                    col = getattr(node, "col_offset", None)
-                    raise UnsupportedPatternError(
-                        f"Cannot convert positional argument for field '{field_name}' in '{model_name}'",
-                        "Use simpler expressions (literals, variables, dicts, lists).",
-                        line=line,
-                        col=col,
-                    )
-
-                entries.append(ir.DictEntry(key=key_expr, value=value_expr))
-
-        # Add default values for fields not explicitly provided
-        for field_name, field_def in model_def.fields.items():
-            if field_name in provided_fields:
-                continue
-
-            if field_def.has_default:
-                key_expr = ir.Expr()
-                key_literal = ir.Literal()
-                key_literal.string_value = field_name
-                key_expr.literal.CopyFrom(key_literal)
-
-                # Convert the default value to an IR literal
-                default_literal = _constant_to_literal(field_def.default_value)
-                if default_literal is None:
-                    # Can't serialize this default - skip it
-                    # (it's probably a complex object like a list factory)
-                    continue
-
-                value_expr = ir.Expr()
-                value_expr.literal.CopyFrom(default_literal)
-
-                entries.append(ir.DictEntry(key=key_expr, value=value_expr))
-
-        result = ir.Expr(span=_make_span(node))
-        result.dict.CopyFrom(ir.DictExpr(entries=entries))
-        return result
-
-    def _check_non_action_await(self, node: ast.Await) -> None:
-        """Check if an await is for a non-action function.
-
-        Note: We can only reliably detect non-action awaits for functions defined
-        in the same module. Actions imported from other modules will pass through
-        and may fail at runtime if they're not actually actions.
-
-        For now, we only check against common builtins and known non-action patterns.
-        A runtime check will catch functions that aren't registered actions.
-        """
-        awaited = node.value
-        if not isinstance(awaited, ast.Call):
-            return
-
-        # Skip special cases that are handled elsewhere
-        if is_run_action_call(awaited):
-            return
-        if self._is_asyncio_sleep_call(awaited):
-            return
-        if self._language_calls.resolve(awaited.func, self._language_call_namespace) is not None:
-            return
-
-        # Get the function name
-        func_name = None
-        if isinstance(awaited.func, ast.Name):
-            func_name = awaited.func.id
-        elif isinstance(awaited.func, ast.Attribute):
-            func_name = awaited.func.attr
-
-        if not func_name:
-            return
-
-        # Only raise error for functions defined in THIS module that we know
-        # are NOT actions (i.e., async functions without @action decorator)
-        # We can't reliably detect imported non-actions without full type info.
-        #
-        # The check works by looking at _module_functions which contains
-        # functions defined in the same module as the workflow.
-        if func_name in getattr(self, "_module_functions", set()):
-            if func_name not in self._action_defs:
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
-                raise UnsupportedPatternError(
-                    f"Awaiting non-action function '{func_name}()' is not supported",
-                    RECOMMENDATIONS["non_action_call"],
-                    line=line,
-                    col=col,
-                )
-
     def _extract_action_call(self, node: ast.expr) -> Optional[ir.ActionCall]:
-        """Extract an action call from an expression if present.
-
-        Also validates that awaited calls are actually @action decorated functions.
-        Raises UnsupportedPatternError if awaiting a non-action function.
-        """
-        if not isinstance(node, ast.Await):
-            return None
-
-        awaited = node.value
-        # Handle self.run_action(...) wrapper
-        if isinstance(awaited, ast.Call):
-            if is_run_action_call(awaited):
-                # Extract the actual action call from run_action
-                if awaited.args:
-                    action_call = self._extract_action_call_from_awaitable(awaited.args[0])
-                    if action_call:
-                        # Extract policies from run_action kwargs (retry, timeout)
-                        self._extract_policies_from_run_action(awaited, action_call)
-                    return action_call
-            # Try to extract as action call
-            action_call = self._extract_action_call_from_call(awaited)
-            if action_call:
-                return action_call
-
-            # If we get here, it's an await of a non-action function
-            self._check_non_action_await(node)
-            return None
-
+        if isinstance(node, ast.Await) and isinstance(node.value, ast.Call):
+            handler = self._language_calls.resolve(node.value.func, self._language_call_namespace)
+            if handler is not None:
+                if not handler.requires_await:
+                    raise handler.error(node.value, "this call cannot be awaited")
+                lowered = handler.compile(node.value, self._compiler_context)
+                if lowered.value.HasField("action_call") and not lowered.statements:
+                    return lowered.value.action_call
         return None
-
-    def _extract_policies_from_run_action(
-        self, run_action_call: ast.Call, action_call: ir.ActionCall
-    ) -> None:
-        """Extract retry and timeout policies from run_action kwargs.
-
-        Parses patterns like:
-        - self.run_action(action(), retry=RetryPolicy(attempts=3))
-        - self.run_action(action(), timeout=timedelta(seconds=30))
-        - self.run_action(action(), timeout=60)
-
-        Every field must be a literal: the compiler reads them from the
-        source, so anything it cannot read is rejected rather than ignored.
-        A policy passed positionally is rejected too: `run_action` takes it
-        by keyword, and the body never runs as Python to say so.
-        """
-        if len(run_action_call.args) > 1:
-            raise self._policy_error(
-                "run_action() takes one positional argument, the awaitable; "
-                "pass retry= and timeout= by keyword",
-                "run_action_keywords",
-                run_action_call.args[1],
-            )
-        for kw in run_action_call.keywords:
-            if kw.arg not in ("retry", "timeout"):
-                what = "**kwargs" if kw.arg is None else f"a {kw.arg!r} keyword"
-                raise self._policy_error(
-                    f"run_action() does not take {what}", "run_action_keywords", kw.value
-                )
-            literal = self._policy_literal(kw.value, kw.arg)
-            if _is_none_literal(literal):
-                # An explicit None, inline or through a self attribute, is the
-                # parameter's default: no policy.
-                continue
-            policy_bracket = ir.PolicyBracket()
-            if kw.arg == "retry":
-                policy_bracket.retry.CopyFrom(self._parse_retry_policy(literal))
-            else:
-                policy_bracket.timeout.CopyFrom(self._parse_timeout_policy(literal))
-            action_call.policies.append(policy_bracket)
-
-    def _policy_error(
-        self, message: str, recommendation: str, node: ast.AST
-    ) -> UnsupportedPatternError:
-        """An error for a policy the compiler cannot read, located at `node`."""
-        return UnsupportedPatternError(
-            message,
-            RECOMMENDATIONS[recommendation],
-            line=getattr(node, "lineno", None),
-            col=getattr(node, "col_offset", None),
-        )
-
-    def _policy_literal(self, node: ast.expr, keyword: str) -> ast.expr:
-        """The literal a policy keyword carries.
-
-        A `self.<attribute>` resolves to the literal assigned to it once, at
-        the top level of `__init__`; one without such an assignment, or one
-        assigned more than once or under a branch, is rejected. Anything
-        else is returned as is for the caller to read.
-        """
-        if (
-            isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "self"
-        ):
-            if node.attr in self._ambiguous_instance_attrs:
-                raise self._policy_error(
-                    f"{keyword}=self.{node.attr} is assigned more than once or under a "
-                    "branch in __init__",
-                    "policy_literal",
-                    node,
-                )
-            literal = self._instance_attrs.get(node.attr)
-            if literal is None:
-                raise self._policy_error(
-                    f"{keyword}=self.{node.attr} is not assigned a literal in __init__",
-                    "policy_literal",
-                    node,
-                )
-            return literal
-        return node
-
-    def _seconds_literal(self, node: ast.expr, what: str, positive: bool) -> float:
-        """A number literal read as seconds, fractions included.
-
-        A negative is rejected, and so is a zero where `positive` says the
-        value must be more than that. So is a value the runtime cannot sleep:
-        one that is not finite, or a positive one that rounds to zero at
-        nanosecond precision. So is a value above the 100-year cap, a round
-        figure far inside what the runtime can sleep.
-        """
-        seconds = _number_literal(node)
-        if seconds is None:
-            raise self._policy_error(f"{what} must be a number literal", "policy_literal", node)
-        if seconds < 0 or (positive and seconds == 0):
-            bound = "more than zero seconds" if positive else "zero or more seconds"
-            raise self._policy_error(f"{what} must be {bound}", "duration_range", node)
-        return self._runnable_seconds(seconds, what, node)
-
-    def _runnable_seconds(self, seconds: int | float, what: str, node: ast.expr) -> float:
-        """`seconds` as the runtime can sleep it, or the error that says why not."""
-        try:
-            seconds = float(seconds)
-        except OverflowError:
-            # An integer literal too large for a float is too large for a sleep.
-            seconds = math.inf
-        if not math.isfinite(seconds) or seconds > _MAX_DURATION_SECONDS:
-            raise self._policy_error(
-                f"{what} must be at most {_MAX_DURATION_YEARS} years", "duration_range", node
-            )
-        if seconds > 0 and round(seconds * 1e9) == 0:
-            raise self._policy_error(
-                f"{what} must be at least one nanosecond", "duration_range", node
-            )
-        return seconds
-
-    def _parse_retry_policy(self, node: ast.expr) -> ir.RetryPolicy:
-        """Parse a RetryPolicy(...) literal into IR.
-
-        Supports:
-        - RetryPolicy(attempts=3)
-        - RetryPolicy(attempts=3, exception_types=["ValueError"])
-        - RetryPolicy(attempts=3, backoff_seconds=5)
-
-        `node` is the literal itself: a `self.` attribute is resolved by the
-        caller. Anything else is rejected: a field the compiler cannot read
-        would otherwise silently take its default.
-        """
-        if not (isinstance(node, ast.Call) and _call_name(node) == "RetryPolicy"):
-            raise self._policy_error(
-                "retry= must be a RetryPolicy(...) literal", "policy_literal", node
-            )
-        if node.args:
-            raise self._policy_error(
-                "RetryPolicy takes keyword arguments only", "policy_literal", node
-            )
-
-        # RetryPolicy() defaults to a high retry cap when attempts is omitted.
-        policy = ir.RetryPolicy(max_retries=DEFAULT_RETRY_POLICY_MAX_RETRIES)
-        exception_types_listed = False
-
-        for kw in node.keywords:
-            if kw.arg is None:
-                raise self._policy_error(
-                    "RetryPolicy does not take **kwargs", "policy_literal", kw.value
-                )
-            if _is_none_literal(kw.value):
-                # An explicit None is the field's default.
-                continue
-            if kw.arg == "attempts":
-                attempts = _number_literal(kw.value)
-                if not isinstance(attempts, int):
-                    raise self._policy_error(
-                        "RetryPolicy attempts must be an integer literal",
-                        "policy_literal",
-                        kw.value,
-                    )
-                if attempts < 1:
-                    raise self._policy_error(
-                        "RetryPolicy attempts must be at least 1", "policy_literal", kw.value
-                    )
-                if attempts > MAX_RETRY_POLICY_ATTEMPTS:
-                    raise self._policy_error(
-                        f"RetryPolicy attempts must be at most {MAX_RETRY_POLICY_ATTEMPTS}",
-                        "policy_literal",
-                        kw.value,
-                    )
-                # attempts means total executions, max_retries means retries after first attempt
-                # So attempts=1 -> max_retries=0 (no retries), attempts=3 -> max_retries=2
-                policy.max_retries = attempts - 1
-            elif kw.arg == "exception_types":
-                if not isinstance(kw.value, ast.List):
-                    raise self._policy_error(
-                        "RetryPolicy exception_types must be a list literal of class names",
-                        "policy_literal",
-                        kw.value,
-                    )
-                exception_types_listed = True
-                for elt in kw.value.elts:
-                    policy.exception_types.append(self._retry_exception_type_name(elt))
-            elif kw.arg == "backoff_seconds":
-                seconds = self._seconds_literal(
-                    kw.value, "RetryPolicy backoff_seconds", positive=False
-                )
-                # A zero backoff is no backoff: the runtime has no zero sleep.
-                if seconds > 0:
-                    policy.backoff.seconds = seconds
-            else:
-                raise self._policy_error(
-                    f"RetryPolicy has no field {kw.arg!r}", "policy_literal", kw.value
-                )
-
-        # An omitted filter retries on `Exception`, the policy's documented
-        # default. A listed one is kept as written: empty retries nothing.
-        if not exception_types_listed:
-            policy.exception_types.append(DEFAULT_RETRY_POLICY_EXCEPTION_TYPE)
-
-        return policy
-
-    def _retry_exception_type_name(self, node: ast.expr) -> str:
-        """One `exception_types` entry: a bare class name as a string literal.
-
-        The VM matches exceptions by bare class name, so a dotted string,
-        or anything else that is not an identifier, would never match; it
-        is rejected rather than ignored, as is any entry that is not a
-        string literal, such as the class itself.
-        """
-        if (
-            isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and node.value.isidentifier()
-        ):
-            return node.value
-        raise UnsupportedPatternError(
-            "RetryPolicy exception_types entries must be bare class names as strings",
-            RECOMMENDATIONS["retry_exception_types"],
-            line=getattr(node, "lineno", None),
-            col=getattr(node, "col_offset", None),
-        )
-
-    def _parse_timeout_policy(self, node: ast.expr) -> ir.TimeoutPolicy:
-        """Parse a timeout literal into IR.
-
-        `node` is the literal itself: a `self.` attribute is resolved by the
-        caller.
-
-        Supports:
-        - timeout=60 (seconds, fractions included)
-        - timeout=timedelta(seconds=30)
-        - timeout=timedelta(minutes=2)
-
-        Anything else is rejected, as is a duration of zero or less.
-        """
-        policy = ir.TimeoutPolicy()
-
-        if _number_literal(node) is not None:
-            policy.timeout.seconds = self._seconds_literal(node, "timeout", positive=True)
-            return policy
-
-        if isinstance(node, ast.Call) and _call_name(node) == "timedelta":
-            if node.args:
-                raise self._policy_error(
-                    "timedelta(...) in timeout= takes keyword arguments only",
-                    "policy_literal",
-                    node,
-                )
-            keywords: dict[str, int | float] = {}
-            for kw in node.keywords:
-                if kw.arg not in ("seconds", "minutes", "hours", "days"):
-                    what = "**kwargs" if kw.arg is None else f"a {kw.arg!r} keyword"
-                    raise self._policy_error(
-                        f"timedelta(...) in timeout= does not take {what}: "
-                        "use seconds, minutes, hours or days",
-                        "policy_literal",
-                        kw.value,
-                    )
-                value = _number_literal(kw.value)
-                if value is None:
-                    raise self._policy_error(
-                        f"timedelta(...) in timeout= takes a number literal for {kw.arg}",
-                        "policy_literal",
-                        kw.value,
-                    )
-                keywords[kw.arg] = value
-            # Python's own timedelta arithmetic over the accepted keywords:
-            # minutes=4.1 is 246 seconds, as timedelta says.
-            try:
-                seconds = timedelta(**keywords).total_seconds()
-            except OverflowError:
-                raise self._policy_error(
-                    "timeout is outside the range timedelta can hold", "duration_range", node
-                ) from None
-            if seconds <= 0:
-                raise self._policy_error(
-                    "timeout must be more than zero seconds", "duration_range", node
-                )
-            policy.timeout.seconds = self._runnable_seconds(seconds, "timeout", node)
-            return policy
-
-        raise self._policy_error(
-            "timeout= must be a number literal or a timedelta(...) literal",
-            "policy_literal",
-            node,
-        )
-
-    def _is_asyncio_sleep_call(self, node: ast.Call) -> bool:
-        """Check if this is an asyncio.sleep(...) call.
-
-        Supports both patterns:
-        - import asyncio; asyncio.sleep(1)
-        - from asyncio import sleep; sleep(1)
-        - from asyncio import sleep as s; s(1)
-        """
-        if isinstance(node.func, ast.Attribute):
-            # asyncio.sleep(...) pattern
-            if node.func.attr == "sleep" and isinstance(node.func.value, ast.Name):
-                return node.func.value.id == "asyncio"
-        elif isinstance(node.func, ast.Name):
-            # sleep(...) pattern - check if it's imported from asyncio
-            func_name = node.func.id
-            if func_name in self._imported_names:
-                imported = self._imported_names[func_name]
-                return imported.module == "asyncio" and imported.original_name == "sleep"
-        return False
-
-    def _convert_asyncio_sleep_to_sleep_stmt(self, node: ast.Call) -> ir.SleepStmt:
-        """Convert asyncio.sleep(duration) to a SleepStmt."""
-        sleep_stmt = ir.SleepStmt()
-
-        # Extract duration argument (positional or keyword)
-        if node.args:
-            # asyncio.sleep(1) - positional
-            expr = self._expr_to_ir_with_model_coercion(node.args[0])
-            if expr:
-                sleep_stmt.duration.CopyFrom(expr)
-        elif node.keywords:
-            # asyncio.sleep(seconds=1) - keyword (less common)
-            for kw in node.keywords:
-                if kw.arg in ("seconds", "delay", "duration"):
-                    expr = self._expr_to_ir_with_model_coercion(kw.value)
-                    if expr:
-                        sleep_stmt.duration.CopyFrom(expr)
-                    break
-
-        return sleep_stmt
 
     def _convert_to_function_call(self, node: ast.Call) -> Optional[ir.FunctionCall]:
         """Convert an AST Call to IR FunctionCall."""
@@ -2864,26 +1664,28 @@ class IRBuilder(ast.NodeVisitor):
         if not func_name:
             return None
 
+        information = self._ctx.function_signatures.get(func_name)
+        if information is None:
+            return None
+        bound = bind_call(node, information, self._language_call_namespace)
         fn_call = ir.FunctionCall(name=func_name)
-        global_function = _global_function_for_call(func_name, node)
-        if global_function is not None:
-            fn_call.global_function = global_function
-
-        # Add positional args
-        for arg in node.args:
-            expr = self._expr_to_ir_with_model_coercion(arg)
-            if expr:
-                fn_call.args.append(expr)
-
-        # Add keyword args
-        for kw in node.keywords:
-            if kw.arg:
-                expr = self._expr_to_ir_with_model_coercion(kw.value)
-                if expr:
-                    fn_call.kwargs.append(ir.Kwarg(name=kw.arg, value=expr))
-
-        # Fill in missing kwargs with default values from function signature
-        self._fill_default_kwargs_for_expr(fn_call)
+        for argument in node.args:
+            value = self._compile_expression(argument)
+            assert value is not None
+            fn_call.args.append(value)
+        for keyword in node.keywords:
+            assert keyword.arg is not None
+            value = self._compile_expression(keyword.value)
+            assert value is not None
+            fn_call.kwargs.append(ir.Kwarg(name=keyword.arg, value=value))
+        for parameter in information.parameters.values():
+            if (
+                parameter.name not in bound.arguments
+                and parameter.default is not inspect.Parameter.empty
+            ):
+                value = self._compile_expression(literal_expression(parameter.default, node))
+                assert value is not None
+                fn_call.kwargs.append(ir.Kwarg(name=parameter.name, value=value))
 
         return fn_call
 
@@ -2906,13 +1708,28 @@ class IRBuilder(ast.NodeVisitor):
             return name
         return None
 
-    def _convert_model_constructor_if_needed(self, node: ast.Call) -> Optional[ir.Expr]:
-        model_name = self._is_model_constructor(node)
-        if model_name:
-            return self._convert_model_constructor_to_dict(node, model_name)
+    def _convert_registered_call(self, node: ast.Call) -> Optional[ir.Expr]:
+        handler = self._language_calls.resolve(node.func, self._language_call_namespace)
+        if handler is not None:
+            handler.parse_arguments(node)
+            if handler.requires_await:
+                raise handler.error(
+                    node, "await this call in its own assignment, return, or expression statement"
+                )
+            lowered = handler.compile(node, self._compiler_context)
+            if lowered.statements:
+                raise handler.error(node, "use this call in its own expression statement")
+            return lowered.value
+        if _is_self_method_call(node):
+            function = self._convert_to_function_call(node)
+            if function is not None:
+                return ir.Expr(function_call=function)
         return None
 
     def _resolve_enum_attribute(self, node: ast.Attribute) -> Optional[ir.Expr]:
+        instance = self._resolve_instance_attribute_chain(node)
+        if instance is not None:
+            return instance
         value = _resolve_enum_attribute_value(node, self._module_globals)
         if value is None:
             return None
@@ -2930,49 +1747,8 @@ class IRBuilder(ast.NodeVisitor):
         expr.literal.CopyFrom(literal)
         return expr
 
-    def _is_exception_class(self, class_name: str) -> bool:
-        """Check if a class name refers to an exception class.
-
-        This checks both built-in exceptions and imported exception classes.
-        """
-        # Check built-in exceptions first
-        builtin_exc = (
-            getattr(__builtins__, class_name, None)
-            if isinstance(__builtins__, dict)
-            else getattr(__builtins__, class_name, None)
-        )
-        if builtin_exc is None:
-            # Try getting from builtins module directly
-            import builtins
-
-            builtin_exc = getattr(builtins, class_name, None)
-        if (
-            builtin_exc is not None
-            and isinstance(builtin_exc, type)
-            and issubclass(builtin_exc, BaseException)
-        ):
-            return True
-
-        # Check module globals for imported exception classes
-        cls = self._module_globals.get(class_name)
-        if cls is not None and isinstance(cls, type) and issubclass(cls, BaseException):
-            return True
-
-        return False
-
-    def _expr_to_ir_with_model_coercion(self, node: ast.expr) -> Optional[ir.Expr]:
-        """Convert an AST expression to IR, converting model constructors to dicts."""
-        for expression in ast.walk(node):
-            if isinstance(expression, ast.Call):
-                handler = self._language_calls.resolve(
-                    expression.func, self._language_call_namespace
-                )
-                if handler is not None:
-                    handler.parse_arguments(expression)
-                    raise handler.error(
-                        expression,
-                        "await this call in its own assignment, return, or expression statement",
-                    )
+    def _compile_expression(self, node: ast.expr) -> Optional[ir.Expr]:
+        """Convert an expression using the registered calls and workflow symbols."""
         # First, try to resolve self.attr.subattr chains at build time
         resolved = self._resolve_instance_attribute_chain(node)
         if resolved is not None:
@@ -2980,13 +1756,9 @@ class IRBuilder(ast.NodeVisitor):
 
         result = _expr_to_ir(
             node,
-            model_converter=self._convert_model_constructor_if_needed,
+            call_converter=self._convert_registered_call,
             enum_resolver=self._resolve_enum_attribute,
-            exception_class_resolver=self._is_exception_class,
         )
-        # Post-process to fill in default kwargs for function calls (recursively)
-        if result is not None:
-            self._fill_default_kwargs_recursive(result)
         return result
 
     def _resolve_instance_attribute_chain(self, node: ast.expr) -> Optional[ir.Expr]:
@@ -2997,14 +1769,19 @@ class IRBuilder(ast.NodeVisitor):
         the value as an IR literal.
         """
         chain = self._extract_self_attribute_chain(node)
-        if chain is None or len(chain) < 2:
+        if chain is None:
             return None
 
         # chain[0] is the top-level attribute (e.g., "config")
         # chain[1:] are nested attributes (e.g., ["max_retries"])
         top_attr = chain[0]
-        if top_attr not in self._instance_attrs:
-            return None
+        if top_attr not in self._instance_attrs or top_attr in self._ambiguous_instance_attrs:
+            raise UnsupportedPatternError(
+                "Instance attribute is not assigned a unique literal in __init__",
+                "Pass runtime values through run() arguments.",
+                line=node.lineno,
+                col=node.col_offset,
+            )
 
         # Get the AST expression for the top-level attribute
         attr_ast = self._instance_attrs[top_attr]
@@ -3012,14 +1789,18 @@ class IRBuilder(ast.NodeVisitor):
         # Try to resolve nested attributes
         resolved_ast = self._resolve_nested_attributes(attr_ast, chain[1:])
         if resolved_ast is None:
-            return None
+            raise UnsupportedPatternError(
+                "Instance attribute cannot be resolved at compile time",
+                "Pass runtime values through run() arguments.",
+                line=node.lineno,
+                col=node.col_offset,
+            )
 
         # Convert the resolved AST to IR
         return _expr_to_ir(
             resolved_ast,
-            model_converter=self._convert_model_constructor_if_needed,
+            call_converter=self._convert_registered_call,
             enum_resolver=self._resolve_enum_attribute,
-            exception_class_resolver=self._is_exception_class,
         )
 
     def _extract_self_attribute_chain(self, node: ast.expr) -> Optional[List[str]]:
@@ -3057,6 +1838,10 @@ class IRBuilder(ast.NodeVisitor):
 
         # Handle Call expressions (constructor calls)
         if isinstance(ast_node, ast.Call):
+            handler = self._language_calls.resolve(ast_node.func, self._language_call_namespace)
+            if handler is None or handler.requires_await:
+                return None
+            handler.compile(ast_node, self._compiler_context)
             # Look for keyword argument with matching name
             for kw in ast_node.keywords:
                 if kw.arg == attr_name:
@@ -3072,155 +1857,25 @@ class IRBuilder(ast.NodeVisitor):
 
         return None
 
-    def _fill_default_kwargs_recursive(self, expr: ir.Expr) -> None:
-        """Recursively fill in default kwargs for all function calls in an expression."""
-        if expr.HasField("function_call"):
-            self._fill_default_kwargs_for_expr(expr.function_call)
-            # Recurse into function call args and kwargs
-            for arg in expr.function_call.args:
-                self._fill_default_kwargs_recursive(arg)
-            for kwarg in expr.function_call.kwargs:
-                if kwarg.value:
-                    self._fill_default_kwargs_recursive(kwarg.value)
-        elif expr.HasField("binary_op"):
-            if expr.binary_op.left:
-                self._fill_default_kwargs_recursive(expr.binary_op.left)
-            if expr.binary_op.right:
-                self._fill_default_kwargs_recursive(expr.binary_op.right)
-        elif expr.HasField("unary_op"):
-            if expr.unary_op.operand:
-                self._fill_default_kwargs_recursive(expr.unary_op.operand)
-        elif expr.HasField("list"):
-            for elem in expr.list.elements:
-                self._fill_default_kwargs_recursive(elem)
-        elif expr.HasField("dict"):
-            for entry in expr.dict.entries:
-                if entry.key:
-                    self._fill_default_kwargs_recursive(entry.key)
-                if entry.value:
-                    self._fill_default_kwargs_recursive(entry.value)
-        elif expr.HasField("index"):
-            if expr.index.object:
-                self._fill_default_kwargs_recursive(expr.index.object)
-            if expr.index.index:
-                self._fill_default_kwargs_recursive(expr.index.index)
-        elif expr.HasField("dot"):
-            if expr.dot.object:
-                self._fill_default_kwargs_recursive(expr.dot.object)
-
-    def _fill_default_kwargs_for_expr(self, fn_call: ir.FunctionCall) -> None:
-        """Fill in missing kwargs with default values from the function signature."""
-        sig_info = self._ctx.function_signatures.get(fn_call.name)
-        if sig_info is None:
-            return
-
-        # Track which parameters are already provided
-        provided_by_position: Set[str] = set()
-        provided_by_kwarg: Set[str] = set()
-
-        # Positional args map to parameters in order
-        for idx, _arg in enumerate(fn_call.args):
-            if idx < len(sig_info.parameters):
-                provided_by_position.add(sig_info.parameters[idx].name)
-
-        # Kwargs are named
-        for kwarg in fn_call.kwargs:
-            provided_by_kwarg.add(kwarg.name)
-
-        # Add defaults for missing parameters
-        for param in sig_info.parameters:
-            if param.name in provided_by_position or param.name in provided_by_kwarg:
-                continue
-            if not param.has_default:
-                continue
-
-            # Convert the default value to an IR expression
-            literal = _constant_to_literal(param.default_value)
-            if literal is not None:
-                expr = ir.Expr()
-                expr.literal.CopyFrom(literal)
-                fn_call.kwargs.append(ir.Kwarg(name=param.name, value=expr))
-
-    def _extract_action_call_from_awaitable(self, node: ast.expr) -> Optional[ir.ActionCall]:
-        """Extract action call from an awaitable expression."""
-        if isinstance(node, ast.Call):
-            return self._extract_action_call_from_call(node)
-        return None
-
-    def _extract_action_call_from_call(self, node: ast.Call) -> Optional[ir.ActionCall]:
-        """Extract action call info from a Call node.
-
-        Converts positional arguments to keyword arguments using the action's
-        signature introspection. This ensures all arguments are named in the IR.
-
-        Pydantic models and dataclass constructors passed as arguments are
-        automatically converted to dict expressions.
-        """
-        action_name = self._get_action_name(node.func)
-        if not action_name:
-            return None
-
-        if action_name not in self._action_defs:
-            return None
-
-        action_def = self._action_defs[action_name]
-        action_call = ir.ActionCall(action_name=action_def.action_name)
-
-        # Set the module name so the worker knows where to find the action
-        if action_def.module_name:
-            action_call.module_name = action_def.module_name
-
-        # Get parameter names from signature for positional arg conversion
-        param_names = list(action_def.signature.parameters.keys())
-
-        # Convert positional args to kwargs using signature introspection
-        # Model constructors are converted to dict expressions
-        for i, arg in enumerate(node.args):
-            if i < len(param_names):
-                expr = self._expr_to_ir_with_model_coercion(arg)
-                if expr:
-                    kwarg = ir.Kwarg(name=param_names[i], value=expr)
-                    action_call.kwargs.append(kwarg)
-
-        # Add explicit kwargs
-        # Model constructors are converted to dict expressions
-        for kw in node.keywords:
-            if kw.arg:
-                expr = self._expr_to_ir_with_model_coercion(kw.value)
-                if expr:
-                    kwarg = ir.Kwarg(name=kw.arg, value=expr)
-                    action_call.kwargs.append(kwarg)
-
-        return action_call
-
-    def _get_action_name(self, func: ast.expr) -> Optional[str]:
-        """Get the action name from a function expression."""
-        if isinstance(func, ast.Name):
-            return func.id
-        elif isinstance(func, ast.Attribute):
-            return func.attr
-        return None
-
-    def _get_assign_target(self, targets: List[ast.expr]) -> Optional[str]:
-        """Get the target variable name from assignment targets (single target only)."""
-        if targets and isinstance(targets[0], ast.Name):
-            return targets[0].id
-        return None
-
     def _get_assign_targets(self, targets: List[ast.expr]) -> List[str]:
         """Get all target variable names from assignment targets (including tuple unpacking)."""
         result: List[str] = []
-        for t in targets:
-            if isinstance(t, ast.Name):
-                result.append(t.id)
-            elif isinstance(t, ast.Subscript):
-                formatted = _format_subscript_target(t)
-                if formatted:
-                    result.append(formatted)
-            elif isinstance(t, ast.Tuple):
-                for elt in t.elts:
-                    if isinstance(elt, ast.Name):
-                        result.append(elt.id)
+        for target in targets:
+            if isinstance(target, ast.Name):
+                result.append(target.id)
+            elif isinstance(target, (ast.Tuple, ast.List)) and all(
+                isinstance(element, ast.Name) for element in target.elts
+            ):
+                result.extend(
+                    element.id for element in target.elts if isinstance(element, ast.Name)
+                )
+            else:
+                raise UnsupportedPatternError(
+                    "Unsupported assignment or loop target",
+                    "Use a name or flat list/tuple of names.",
+                    line=target.lineno,
+                    col=target.col_offset,
+                )
         return result
 
 
@@ -3277,166 +1932,24 @@ def _resolve_enum_attribute_value(
     return None
 
 
-def _try_convert_isinstance_to_isexception(
-    expr: ast.Call,
-    exception_class_resolver: Callable[[str], bool],
-    model_converter: Optional[Callable[[ast.Call], Optional[ir.Expr]]] = None,
-    enum_resolver: Optional[Callable[[ast.Attribute], Optional[ir.Expr]]] = None,
-) -> Optional[ir.Expr]:
-    """Try to convert isinstance(x, ExceptionClass) to isexception(x, "ExceptionClass").
-
-    Returns None if this is not an isinstance call or if the class is not an exception.
-    Raises UnsupportedPatternError if isinstance is used with a non-exception class.
-    """
-    # FIXME(#790): the VM has no lowering for `isexception` yet, so every hint
-    # below says the call does not run.
-
-    # Check if this is an isinstance call
-    func_name = _get_func_name(expr.func)
-    if func_name != "isinstance":
-        return None
-
-    # isinstance requires exactly 2 positional arguments
-    if len(expr.args) != 2 or expr.keywords:
-        line = expr.lineno if hasattr(expr, "lineno") else None
-        col = expr.col_offset if hasattr(expr, "col_offset") else None
-        raise UnsupportedPatternError(
-            "isinstance() requires exactly 2 positional arguments",
-            "isinstance() compiles only as isinstance(value, ExceptionClass) and does not run "
-            "yet; catch the class with an except clause instead.",
-            line=line,
-            col=col,
-        )
-
-    # Extract exception class names from the second argument
-    second_arg = expr.args[1]
-    exception_names: List[str] = []
-
-    if isinstance(second_arg, ast.Name):
-        # Single class: isinstance(x, ValueError)
-        class_name = second_arg.id
-        if not exception_class_resolver(class_name):
-            line = expr.lineno if hasattr(expr, "lineno") else None
-            col = expr.col_offset if hasattr(expr, "col_offset") else None
-            raise UnsupportedPatternError(
-                f"isinstance() with non-exception class '{class_name}' is not supported in workflows",
-                "isinstance() compiles only for exception classes in workflow code, and does "
-                "not run yet. "
-                "Move other type checks to an @action.",
-                line=line,
-                col=col,
-            )
-        exception_names.append(class_name)
-    elif isinstance(second_arg, ast.Tuple):
-        # Tuple of classes: isinstance(x, (ValueError, TypeError))
-        for elt in second_arg.elts:
-            if not isinstance(elt, ast.Name):
-                line = expr.lineno if hasattr(expr, "lineno") else None
-                col = expr.col_offset if hasattr(expr, "col_offset") else None
-                raise UnsupportedPatternError(
-                    "isinstance() class argument must be a simple name or tuple of names",
-                    "isinstance() compiles only with simple class names like ValueError or "
-                    "(ValueError, TypeError), and does not run yet; catch the class with an "
-                    "except clause instead.",
-                    line=line,
-                    col=col,
-                )
-            class_name = elt.id
-            if not exception_class_resolver(class_name):
-                line = expr.lineno if hasattr(expr, "lineno") else None
-                col = expr.col_offset if hasattr(expr, "col_offset") else None
-                raise UnsupportedPatternError(
-                    f"isinstance() with non-exception class '{class_name}' is not supported in workflows",
-                    "isinstance() compiles only for exception classes in workflow code, and does "
-                    "not run yet. "
-                    "Move other type checks to an @action.",
-                    line=line,
-                    col=col,
-                )
-            exception_names.append(class_name)
-    else:
-        line = expr.lineno if hasattr(expr, "lineno") else None
-        col = expr.col_offset if hasattr(expr, "col_offset") else None
-        raise UnsupportedPatternError(
-            "isinstance() class argument must be a simple name or tuple of names",
-            "isinstance() compiles only with simple class names like ValueError or "
-            "(ValueError, TypeError), and does not run yet; catch the class with an "
-            "except clause instead.",
-            line=line,
-            col=col,
-        )
-
-    # Convert the first argument (the value being checked) to IR
-    value_expr = _expr_to_ir(
-        expr.args[0],
-        model_converter=model_converter,
-        enum_resolver=enum_resolver,
-        exception_class_resolver=exception_class_resolver,
-    )
-    if not value_expr:
-        return None
-
-    # Build the isexception call
-    # If single exception: isexception(x, "ValueError")
-    # If multiple: isexception(x, ["ValueError", "TypeError"])
-    result = ir.Expr(span=_make_span(expr))
-
-    if len(exception_names) == 1:
-        # Single exception name as string
-        type_arg = ir.Expr(span=_make_span(second_arg))
-        type_arg.literal.CopyFrom(ir.Literal(string_value=exception_names[0]))
-        args = [value_expr, type_arg]
-    else:
-        # Multiple exception names as list of strings
-        type_elements = []
-        for name in exception_names:
-            elem = ir.Expr()
-            elem.literal.CopyFrom(ir.Literal(string_value=name))
-            type_elements.append(elem)
-        type_arg = ir.Expr(span=_make_span(second_arg))
-        type_arg.list.CopyFrom(ir.ListExpr(elements=type_elements))
-        args = [value_expr, type_arg]
-
-    func_call = ir.FunctionCall(
-        name="isexception",
-        args=args,
-        kwargs=[],
-    )
-    func_call.global_function = ir.GlobalFunction.GLOBAL_FUNCTION_ISEXCEPTION
-    result.function_call.CopyFrom(func_call)
-    return result
-
-
 def _expr_to_ir(
     expr: ast.AST,
-    model_converter: Optional[Callable[[ast.Call], Optional[ir.Expr]]] = None,
+    call_converter: Optional[Callable[[ast.Call], Optional[ir.Expr]]] = None,
     enum_resolver: Optional[Callable[[ast.Attribute], Optional[ir.Expr]]] = None,
-    exception_class_resolver: Optional[Callable[[str], bool]] = None,
 ) -> Optional[ir.Expr]:
     """Convert Python AST expression to IR Expr.
 
     Args:
         expr: The AST expression to convert.
-        model_converter: Optional callback to convert model constructors.
+        call_converter: Callback for registered language calls and workflow helpers.
         enum_resolver: Optional callback to resolve enum attributes.
-        exception_class_resolver: Optional callback that takes a class name and
-            returns True if it's an exception class. Used to transform
-            isinstance(x, ExceptionClass) to isexception(x, "ExceptionClass").
     """
     result = ir.Expr(span=_make_span(expr))
 
-    if isinstance(expr, ast.Call) and model_converter:
-        converted = model_converter(expr)
+    if isinstance(expr, ast.Call) and call_converter:
+        converted = call_converter(expr)
         if converted:
             return converted
-
-    # Handle isinstance(x, ExceptionClass) -> isexception(x, "ExceptionClass")
-    if isinstance(expr, ast.Call) and exception_class_resolver:
-        isinstance_result = _try_convert_isinstance_to_isexception(
-            expr, exception_class_resolver, model_converter, enum_resolver
-        )
-        if isinstance_result is not None:
-            return isinstance_result
 
     if isinstance(expr, ast.Name):
         result.variable.CopyFrom(ir.Variable(name=expr.id))
@@ -3451,27 +1964,32 @@ def _expr_to_ir(
     if isinstance(expr, ast.BinOp):
         left = _expr_to_ir(
             expr.left,
-            model_converter=model_converter,
+            call_converter=call_converter,
             enum_resolver=enum_resolver,
-            exception_class_resolver=exception_class_resolver,
         )
         right = _expr_to_ir(
             expr.right,
-            model_converter=model_converter,
+            call_converter=call_converter,
             enum_resolver=enum_resolver,
-            exception_class_resolver=exception_class_resolver,
         )
         op = _bin_op_to_ir(expr.op)
         if left and right and op:
             result.binary_op.CopyFrom(ir.BinaryOp(left=left, op=op, right=right))
             return result
 
+    if (
+        isinstance(expr, ast.UnaryOp)
+        and isinstance(expr.op, ast.USub)
+        and isinstance(expr.operand, ast.Constant)
+        and type(expr.operand.value) in (int, float)
+    ):
+        return ir.Expr(literal=_constant_to_literal(-expr.operand.value), span=_make_span(expr))
+
     if isinstance(expr, ast.UnaryOp):
         operand = _expr_to_ir(
             expr.operand,
-            model_converter=model_converter,
+            call_converter=call_converter,
             enum_resolver=enum_resolver,
-            exception_class_resolver=exception_class_resolver,
         )
         op = _unary_op_to_ir(expr.op)
         if operand and op:
@@ -3481,9 +1999,8 @@ def _expr_to_ir(
     if isinstance(expr, ast.Compare):
         left = _expr_to_ir(
             expr.left,
-            model_converter=model_converter,
+            call_converter=call_converter,
             enum_resolver=enum_resolver,
-            exception_class_resolver=exception_class_resolver,
         )
         if not left:
             return None
@@ -3492,34 +2009,12 @@ def _expr_to_ir(
             op = _cmp_op_to_ir(expr.ops[0])
             right = _expr_to_ir(
                 expr.comparators[0],
-                model_converter=model_converter,
+                call_converter=call_converter,
                 enum_resolver=enum_resolver,
             )
             if op and right:
                 result.binary_op.CopyFrom(ir.BinaryOp(left=left, op=op, right=right))
                 return result
-
-    if isinstance(expr, ast.BoolOp):
-        values = [
-            _expr_to_ir(
-                v,
-                model_converter=model_converter,
-                enum_resolver=enum_resolver,
-                exception_class_resolver=exception_class_resolver,
-            )
-            for v in expr.values
-        ]
-        if all(v for v in values):
-            op = _bool_op_to_ir(expr.op)
-            if op and len(values) >= 2:
-                # Chain boolean ops: a and b and c -> (a and b) and c
-                result_expr = values[0]
-                for v in values[1:]:
-                    if result_expr and v:
-                        new_result = ir.Expr()
-                        new_result.binary_op.CopyFrom(ir.BinaryOp(left=result_expr, op=op, right=v))
-                        result_expr = new_result
-                return result_expr
 
     if isinstance(expr, ast.List):
         if any(isinstance(element, ast.Starred) for element in expr.elts):
@@ -3537,9 +2032,8 @@ def _expr_to_ir(
                     flush_buffered_elements()
                     starred_value = _expr_to_ir(
                         element.value,
-                        model_converter=model_converter,
+                        call_converter=call_converter,
                         enum_resolver=enum_resolver,
-                        exception_class_resolver=exception_class_resolver,
                     )
                     if not starred_value:
                         return None
@@ -3548,9 +2042,8 @@ def _expr_to_ir(
 
                 value = _expr_to_ir(
                     element,
-                    model_converter=model_converter,
+                    call_converter=call_converter,
                     enum_resolver=enum_resolver,
-                    exception_class_resolver=exception_class_resolver,
                 )
                 if not value:
                     return None
@@ -3575,9 +2068,8 @@ def _expr_to_ir(
         elements = [
             _expr_to_ir(
                 e,
-                model_converter=model_converter,
+                call_converter=call_converter,
                 enum_resolver=enum_resolver,
-                exception_class_resolver=exception_class_resolver,
             )
             for e in expr.elts
         ]
@@ -3592,12 +2084,12 @@ def _expr_to_ir(
             if k:
                 key_expr = _expr_to_ir(
                     k,
-                    model_converter=model_converter,
+                    call_converter=call_converter,
                     enum_resolver=enum_resolver,
                 )
                 value_expr = _expr_to_ir(
                     v,
-                    model_converter=model_converter,
+                    call_converter=call_converter,
                     enum_resolver=enum_resolver,
                 )
                 if key_expr and value_expr:
@@ -3608,14 +2100,13 @@ def _expr_to_ir(
     if isinstance(expr, ast.Subscript):
         obj = _expr_to_ir(
             expr.value,
-            model_converter=model_converter,
+            call_converter=call_converter,
             enum_resolver=enum_resolver,
-            exception_class_resolver=exception_class_resolver,
         )
         index = (
             _expr_to_ir(
                 expr.slice,
-                model_converter=model_converter,
+                call_converter=call_converter,
                 enum_resolver=enum_resolver,
             )
             if isinstance(expr.slice, ast.AST)
@@ -3632,107 +2123,33 @@ def _expr_to_ir(
                 return resolved
         obj = _expr_to_ir(
             expr.value,
-            model_converter=model_converter,
+            call_converter=call_converter,
             enum_resolver=enum_resolver,
-            exception_class_resolver=exception_class_resolver,
         )
         if obj:
             result.dot.CopyFrom(ir.DotAccess(object=obj, attribute=expr.attr))
             return result
 
-    if isinstance(expr, ast.Await) and isinstance(expr.value, ast.Call):
-        func_name = _get_func_name(expr.value.func)
-        if func_name:
-            args = [
-                _expr_to_ir(
-                    a,
-                    model_converter=model_converter,
-                    enum_resolver=enum_resolver,
-                )
-                for a in expr.value.args
-            ]
-            kwargs: List[ir.Kwarg] = []
-            for kw in expr.value.keywords:
-                if kw.arg:
-                    kw_expr = _expr_to_ir(
-                        kw.value,
-                        model_converter=model_converter,
-                        enum_resolver=enum_resolver,
-                    )
-                    if kw_expr:
-                        kwargs.append(ir.Kwarg(name=kw.arg, value=kw_expr))
-            func_call = ir.FunctionCall(
-                name=func_name,
-                args=[a for a in args if a],
-                kwargs=kwargs,
-            )
-            global_function = _global_function_for_call(func_name, expr.value)
-            if global_function is not None:
-                func_call.global_function = global_function
-            result.function_call.CopyFrom(func_call)
-            return result
+    if isinstance(expr, ast.Await) and isinstance(expr.value, ast.Call) and call_converter:
+        converted = call_converter(expr.value)
+        if converted is not None:
+            return converted
 
     if isinstance(expr, ast.Call):
-        # Function call
-        if not _is_self_method_call(expr):
-            func_name = _get_func_name(expr.func) or "unknown"
-            if isinstance(expr.func, ast.Attribute):
-                line = expr.lineno if hasattr(expr, "lineno") else None
-                col = expr.col_offset if hasattr(expr, "col_offset") else None
-                raise UnsupportedPatternError(
-                    f"Calling '{func_name}()' is not supported in workflow code",
-                    RECOMMENDATIONS["sync_function_call"],
-                    line=line,
-                    col=col,
-                )
-            if func_name not in ALLOWED_SYNC_FUNCTIONS:
-                line = expr.lineno if hasattr(expr, "lineno") else None
-                col = expr.col_offset if hasattr(expr, "col_offset") else None
-                raise UnsupportedPatternError(
-                    f"Calling '{func_name}()' is not supported in workflow code",
-                    RECOMMENDATIONS["sync_function_call"],
-                    line=line,
-                    col=col,
-                )
-        func_name = _get_func_name(expr.func)
-        if func_name:
-            args = [
-                _expr_to_ir(
-                    a,
-                    model_converter=model_converter,
-                    enum_resolver=enum_resolver,
-                )
-                for a in expr.args
-            ]
-            kwargs: List[ir.Kwarg] = []
-            for kw in expr.keywords:
-                if kw.arg:
-                    kw_expr = _expr_to_ir(
-                        kw.value,
-                        model_converter=model_converter,
-                        enum_resolver=enum_resolver,
-                    )
-                    if kw_expr:
-                        kwargs.append(ir.Kwarg(name=kw.arg, value=kw_expr))
-            func_call = ir.FunctionCall(
-                name=func_name,
-                args=[a for a in args if a],
-                kwargs=kwargs,
-            )
-            global_function = _global_function_for_call(func_name, expr)
-            if global_function is not None:
-                func_call.global_function = global_function
-            result.function_call.CopyFrom(func_call)
-            return result
+        raise UnsupportedPatternError(
+            f"Calling '{ast.unparse(expr.func)}()' is not supported in workflow code",
+            RECOMMENDATIONS["sync_function_call"],
+            line=expr.lineno,
+            col=expr.col_offset,
+        )
 
     if isinstance(expr, ast.Tuple):
         # Handle tuple as list for now
         elements = [
             _expr_to_ir(
                 e,
-                model_converter=model_converter,
+                call_converter=call_converter,
                 enum_resolver=enum_resolver,
-                exception_class_resolver=exception_class_resolver,
             )
             for e in expr.elts
         ]
@@ -3826,22 +2243,9 @@ def _check_unsupported_expression(expr: ast.AST) -> None:
         )
 
 
-def _format_subscript_target(target: ast.Subscript) -> Optional[str]:
-    """Convert a subscript target to a string representation for tracking."""
-    if not isinstance(target.value, ast.Name):
-        return None
-
-    base = target.value.id
-    try:
-        index_str = ast.unparse(target.slice)
-    except Exception:
-        return None
-
-    return f"{base}[{index_str}]"
-
-
 def _constant_to_literal(value: Any) -> Optional[ir.Literal]:
     """Convert a Python constant to IR Literal."""
+    validate_literal(value)
     literal = ir.Literal()
     if value is None:
         literal.is_none = True
@@ -3899,15 +2303,6 @@ def _cmp_op_to_ir(op: ast.cmpop) -> Optional[ir.BinaryOperator]:
     return mapping.get(type(op))
 
 
-def _bool_op_to_ir(op: ast.boolop) -> Optional[ir.BinaryOperator]:
-    """Convert Python boolean operator to IR BinaryOperator."""
-    mapping = {
-        ast.And: ir.BinaryOperator.BINARY_OP_AND,
-        ast.Or: ir.BinaryOperator.BINARY_OP_OR,
-    }
-    return mapping.get(type(op))
-
-
 def _get_func_name(func: ast.expr) -> Optional[str]:
     """Get function name from a Call's func attribute."""
     if isinstance(func, ast.Name):
@@ -3936,12 +2331,3 @@ def _is_self_method_call(node: ast.Call) -> bool:
         and isinstance(func.value, ast.Name)
         and func.value.id == "self"
     )
-
-
-def _global_function_for_call(
-    func_name: str, node: ast.Call
-) -> Optional[ir.GlobalFunction.ValueType]:
-    """Return the GlobalFunction enum value for supported globals."""
-    if _is_self_method_call(node):
-        return None
-    return GLOBAL_FUNCTIONS.get(func_name)
