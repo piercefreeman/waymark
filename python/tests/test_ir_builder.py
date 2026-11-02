@@ -3152,7 +3152,8 @@ class TestSpreadAction:
             None,
         )
         assert for_loop is not None, "Expected for loop that populates filtered spread inputs"
-        assert list(for_loop.loop_vars) == ["user"]
+        assert len(for_loop.loop_vars) == 1
+        assert "user" not in for_loop.loop_vars
         assert any(stmt.HasField("conditional") for stmt in for_loop.block_body.statements), (
             "Expected filter condition lowered into loop body"
         )

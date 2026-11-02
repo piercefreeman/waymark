@@ -9,6 +9,7 @@ Once you are done fixing the TODO, double check your work. Have we really taken 
 Follow this syntax:
 
 <code_feedback>
+<rule>Use neutral, descriptive branch names, commit messages, and PR text without assistant branding. Split handler refactors into one stacked PR per handler, keeping shared infrastructure and unrelated compiler guards in separately scoped PRs.</rule>
 <rule></rule>
 </code_feedback>
 
