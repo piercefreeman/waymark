@@ -24,6 +24,7 @@ def compile_gather_statement(statement: str) -> ir.FunctionDef:
         {"task": ActionDefinition("task", __name__, inspect.signature(task))},
         TransformContext(),
         module_globals={"asyncio": asyncio, "aio": asyncio, "g": asyncio.gather},
+        receiver_type=Workflow,
     )
     builder.visit(ast.parse(f"async def run(items, options):\n    {statement}\n"))
     assert builder.function_def is not None
@@ -78,9 +79,9 @@ def test_all_gather_paths_reject_exception_collection(statement: str) -> None:
         ("*[asyncio.sleep(x) for x in items]", "unsupported awaitable 'asyncio.sleep'"),
         ("*[asyncio.sleep(x) for x in items if x]", "unsupported awaitable 'asyncio.sleep'"),
         ("task(), unknown()", "unsupported awaitable 'unknown'"),
-        ("self.run_action()", "run_action() requires an action call"),
-        ("self.run_action(items)", "run_action() requires an action call"),
-        ("self.run_action(task(), unknown=True)", "run_action() does not take"),
+        ("self.run_action()", "missing a required argument"),
+        ("self.run_action(items)", "unsupported awaitable"),
+        ("self.run_action(task(), unknown=True)", "unexpected keyword argument"),
         ("*items", "unsupported awaitable '*items'"),
         ("task(), *[task(x) for x in items]", "must be the only positional argument"),
         ("*[task(x) async for x in items]", "single synchronous comprehension loop"),
