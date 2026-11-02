@@ -5,6 +5,7 @@ from waymark.handlers.syntax.arithmetic import ArithmeticHandler
 from waymark.handlers.syntax.assignments import AssignmentHandler
 from waymark.handlers.syntax.await_expression import AwaitHandler
 from waymark.handlers.syntax.comparisons import ComparisonHandler
+from waymark.handlers.syntax.conditionals import ConditionalHandler
 from waymark.handlers.syntax.dictionaries import DictionaryHandler
 from waymark.handlers.syntax.literals import LiteralHandler
 from waymark.handlers.syntax.loops import LoopHandler
@@ -13,6 +14,7 @@ from waymark.language_syntax import SyntaxRegistry
 
 SYNTAX_HANDLERS = SyntaxRegistry(
     [
+        ConditionalHandler(),
         AwaitHandler(),
         LiteralHandler(),
         AccessHandler(),
