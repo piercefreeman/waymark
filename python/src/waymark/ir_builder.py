@@ -188,8 +188,6 @@ class IRBuilder(ast.NodeVisitor):
         if isinstance(node, ast.Expr):
             result = self._visit_expr_stmt(node)
             return [result] if result else []
-        elif isinstance(node, ast.Return):
-            return self._visit_return(node)
         elif isinstance(node, ast.Pass):
             # Pass statements are fine, they just don't produce IR
             return []
@@ -373,65 +371,6 @@ class IRBuilder(ast.NodeVisitor):
             return stmt
 
         return None
-
-    def _visit_return(self, node: ast.Return) -> List[ir.Statement]:
-        """Convert return statement to IR.
-
-        Return statements should only contain variables or literals, not action calls.
-        If the return contains an action call, we normalize it:
-            return await action()
-        becomes:
-            _return_tmp = await action()
-            return _return_tmp
-
-        Constructor calls (like return MyModel(...)) are not supported and will
-        raise an error with a recommendation to use an @action instead.
-        """
-        if node.value:
-            # Check if returning an action call - normalize to assignment + return
-            action_call = self._extract_action_call(node.value)
-            if action_call:
-                # Create a temporary variable for the action result
-                tmp_var = "_return_tmp"
-
-                # Create assignment: _return_tmp = await action()
-                assign_stmt = ir.Statement(span=make_span(node))
-                value = ir.Expr(action_call=action_call, span=make_span(node))
-                assign = ir.Assignment(targets=[tmp_var], value=value)
-                assign_stmt.assignment.CopyFrom(assign)
-
-                # Create return: return _return_tmp
-                return_stmt = ir.Statement(span=make_span(node))
-                var_expr = ir.Expr(variable=ir.Variable(name=tmp_var), span=make_span(node))
-                ret = ir.ReturnStmt(value=var_expr)
-                return_stmt.return_stmt.CopyFrom(ret)
-
-                return [assign_stmt, return_stmt]
-
-            # Normalize return of function calls into assignment + return
-            expr = self._compile_expression(node.value)
-            if expr and expr.HasField("function_call"):
-                tmp_var = self._ctx.next_implicit_fn_name(prefix="return_tmp")
-
-                assign_stmt = ir.Statement(span=make_span(node))
-                assign_stmt.assignment.CopyFrom(ir.Assignment(targets=[tmp_var], value=expr))
-
-                return_stmt = ir.Statement(span=make_span(node))
-                var_expr = ir.Expr(variable=ir.Variable(name=tmp_var), span=make_span(node))
-                return_stmt.return_stmt.CopyFrom(ir.ReturnStmt(value=var_expr))
-                return [assign_stmt, return_stmt]
-
-            # Regular return with expression (variable, literal, etc.)
-            if expr:
-                stmt = ir.Statement(span=make_span(node))
-                return_stmt = ir.ReturnStmt(value=expr)
-                stmt.return_stmt.CopyFrom(return_stmt)
-                return [stmt]
-
-        # Return with no value
-        stmt = ir.Statement(span=make_span(node))
-        stmt.return_stmt.CopyFrom(ir.ReturnStmt())
-        return [stmt]
 
     def _visit_break(self, node: ast.Break) -> List[ir.Statement]:
         """Convert break statement to IR."""
