@@ -31,24 +31,6 @@ class SourceValidator(ast.NodeVisitor):
         else:
             super().visit(node)
 
-    def visit_For(self, node: ast.For) -> None:
-        if node.orelse:
-            reject(node, "for/else is unsupported")
-        self._check_target(node.target)
-        if self.context.analysis.kind(node.iter) in {"dict", "str", "exception"}:
-            reject(node.iter, "Iteration over dictionaries, strings, or exceptions is unsupported")
-        self.generic_visit(node)
-
-    def visit_While(self, node: ast.While) -> None:
-        if node.orelse:
-            reject(node, "while/else is unsupported")
-        self.generic_visit(node)
-
-    def visit_comprehension(self, node: ast.comprehension) -> None:
-        if self.context.analysis.kind(node.iter) in {"dict", "str", "exception"}:
-            reject(node.iter, "Iteration over dictionaries, strings, or exceptions is unsupported")
-        self.generic_visit(node)
-
     def visit_Compare(self, node: ast.Compare) -> None:
         if len(node.ops) != 1:
             reject(node, "Chained comparisons are unsupported")

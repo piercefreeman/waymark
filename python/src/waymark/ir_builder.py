@@ -444,10 +444,6 @@ class IRBuilder(ast.NodeVisitor):
         elif isinstance(node, ast.Expr):
             result = self._visit_expr_stmt(node)
             return [result] if result else []
-        elif isinstance(node, ast.For):
-            return self._visit_for(node)
-        elif isinstance(node, ast.While):
-            return self._visit_while(node)
         elif isinstance(node, ast.If):
             return self._visit_if(node)
         elif isinstance(node, ast.Return):
@@ -694,7 +690,7 @@ class IRBuilder(ast.NodeVisitor):
         init_stmt = self._visit_assign(init_assign_ast)
         if init_stmt:
             statements.append(init_stmt)
-        statements.extend(self._visit_for(loop_ast))
+        statements.extend(self._visit_statement(loop_ast))
         final_assignment = ast.fix_missing_locations(
             ast.copy_location(
                 ast.Assign(
@@ -830,58 +826,6 @@ class IRBuilder(ast.NodeVisitor):
             return stmt
 
         return None
-
-    def _visit_for(self, node: ast.For) -> List[ir.Statement]:
-        """Convert for loop to IR.
-
-        The loop body is emitted as a full block so it can contain multiple
-        statements/calls and early `return`.
-        """
-        # Get loop variables
-        loop_vars = assignment_targets([node.target])
-
-        # Get iterable
-        iterable = self._compile_expression(node.iter)
-        if not iterable:
-            return []
-
-        # Build body statements (recursively transforms nested structures)
-        body_stmts: List[ir.Statement] = []
-        for body_node in node.body:
-            stmts = self._visit_statement(body_node)
-            body_stmts.extend(stmts)
-
-        stmt = ir.Statement(span=make_span(node))
-        for_loop = ir.ForLoop(
-            loop_vars=loop_vars,
-            iterable=iterable,
-            block_body=ir.Block(statements=body_stmts, span=make_span(node)),
-        )
-        stmt.for_loop.CopyFrom(for_loop)
-        return [stmt]
-
-    def _visit_while(self, node: ast.While) -> List[ir.Statement]:
-        """Convert while loop to IR.
-
-        The loop body is emitted as a full block so it can contain multiple
-        statements/calls and early `return`.
-        """
-        condition = self._compile_expression(node.test)
-        if not condition:
-            return []
-
-        body_stmts: List[ir.Statement] = []
-        for body_node in node.body:
-            stmts = self._visit_statement(body_node)
-            body_stmts.extend(stmts)
-
-        stmt = ir.Statement(span=make_span(node))
-        while_loop = ir.WhileLoop(
-            condition=condition,
-            block_body=ir.Block(statements=body_stmts, span=make_span(node)),
-        )
-        stmt.while_loop.CopyFrom(while_loop)
-        return [stmt]
 
     def _collect_variables_from_expr(self, expr: ir.Expr) -> set:
         """Recursively collect all variable names used in an expression."""
