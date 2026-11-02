@@ -1384,11 +1384,6 @@ def _expr_to_ir(
             result.list.CopyFrom(list_expr)
             return result
 
-    if isinstance(expr, ast.Await) and isinstance(expr.value, ast.Call):
-        converted = context.synchronous_call(expr.value)
-        if converted is not None:
-            return converted
-
     if isinstance(expr, ast.Call):
         raise UnsupportedPatternError(
             f"Calling '{ast.unparse(expr.func)}()' is not supported in workflow code",
