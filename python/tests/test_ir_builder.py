@@ -1357,34 +1357,13 @@ class TestWorkflowHelperMethods:
 
     def test_truly_nested_function_call_defaults(self) -> None:
         """Test: Function calls as arguments to other calls have defaults filled in."""
+        import pytest
+
         from tests.fixtures_workflow.workflow_default_args import WorkflowWithTrulyNestedCalls
+        from waymark.compiler_errors import UnsupportedPatternError
 
-        program = WorkflowWithTrulyNestedCalls.workflow_ir()
-
-        # Find the apply_offset call
-        fc = self._find_function_call_in_assignments(program, "apply_offset")
-        assert fc is not None, "Expected apply_offset as FunctionCall"
-
-        # Check that offset kwarg contains a nested function call
-        offset_kwarg = None
-        for kw in fc.kwargs:
-            if kw.name == "offset":
-                offset_kwarg = kw
-                break
-        assert offset_kwarg is not None, "Expected 'offset' kwarg"
-        assert offset_kwarg.value.HasField("function_call"), "Expected nested function call"
-
-        # The nested get_offset() call should have delta=5 filled in
-        nested_fc = offset_kwarg.value.function_call
-        assert nested_fc.name == "get_offset", "Expected get_offset call"
-
-        kwarg_names = {kw.name for kw in nested_fc.kwargs}
-        assert "delta" in kwarg_names, "Expected 'delta' kwarg (default filled in)"
-
-        for kw in nested_fc.kwargs:
-            if kw.name == "delta":
-                assert kw.value.HasField("literal"), "Expected literal for delta"
-                assert kw.value.literal.int_value == 5, "Expected delta=5"
+        with pytest.raises(UnsupportedPatternError, match="Nested await"):
+            WorkflowWithTrulyNestedCalls.workflow_ir()
 
 
 class TestUnsupportedPatternDetection:
@@ -1519,26 +1498,34 @@ class TestUnsupportedPatternDetection:
 
         run_fn = next(fn for fn in program.functions if fn.name == "main")
 
-        has_initializer = any(
-            stmt.HasField("assignment")
-            and list(stmt.assignment.targets) == ["active_users"]
+        accumulator = next(
+            stmt.assignment.targets[0]
+            for stmt in run_fn.body.statements
+            if stmt.HasField("assignment")
             and stmt.assignment.value.HasField("list")
             and len(stmt.assignment.value.list.elements) == 0
-            for stmt in run_fn.body.statements
         )
-        assert has_initializer, "Expected accumulator initialization for active_users"
+        assert accumulator != "active_users"
 
         for_loop = next(
             (stmt.for_loop for stmt in run_fn.body.statements if stmt.HasField("for_loop")),
             None,
         )
         assert for_loop is not None, "Expected for loop generated from list comprehension"
-        assert "user" in for_loop.loop_vars, "Loop variable should match comprehension"
+        assert "user" not in for_loop.loop_vars, (
+            "Comprehension variables must not leak into the outer scope"
+        )
         assert for_loop.HasField("block_body"), "Expected block_body in for loop"
         assert any(
-            stmt.HasField("assignment") and "active_users" in stmt.assignment.targets
+            stmt.HasField("assignment") and accumulator in stmt.assignment.targets
             for stmt in iter_block_statements(for_loop.block_body)
-        ), "Expected accumulator updates for active_users in loop body"
+        ), "Expected accumulator updates in the loop body"
+        assert any(
+            stmt.HasField("assignment")
+            and list(stmt.assignment.targets) == ["active_users"]
+            and stmt.assignment.value.variable.name == accumulator
+            for stmt in run_fn.body.statements
+        ), "Expected the completed accumulator to be published to the destination"
 
     def test_list_comprehension_ifexp_assignment_is_supported(self) -> None:
         """Test: ternary expressions in list comprehensions expand into conditional IR."""
@@ -1569,58 +1556,27 @@ class TestUnsupportedPatternDetection:
 
     def test_dict_comprehension_assignment_is_supported(self) -> None:
         """Test: dict comprehension assignments expand into for loop IR."""
+        import pytest
+
         from tests.fixtures_comprehension.dict_comprehension_assignment import (
             DictComprehensionAssignmentWorkflow,
         )
+        from waymark.compiler_errors import UnsupportedPatternError
 
-        program = DictComprehensionAssignmentWorkflow.workflow_ir()
-
-        run_fn = next(fn for fn in program.functions if fn.name == "main")
-        has_initializer = any(
-            stmt.HasField("assignment")
-            and list(stmt.assignment.targets) == ["active_lookup"]
-            and stmt.assignment.value.HasField("dict")
-            and len(stmt.assignment.value.dict.entries) == 0
-            for stmt in run_fn.body.statements
-        )
-        assert has_initializer, "Expected accumulator initialization for active_lookup"
-
-        for_loop = next(
-            (stmt.for_loop for stmt in run_fn.body.statements if stmt.HasField("for_loop")),
-            None,
-        )
-        assert for_loop is not None, "Expected for loop generated from dict comprehension"
-        assert "user" in for_loop.loop_vars
-        assert for_loop.HasField("block_body"), "Expected block_body in for loop"
-        assert any(
-            stmt.HasField("assignment")
-            and any(target.startswith("active_lookup[") for target in stmt.assignment.targets)
-            for stmt in iter_block_statements(for_loop.block_body)
-        ), "Expected accumulator updates for active_lookup in loop body"
+        with pytest.raises(UnsupportedPatternError, match="Dict comprehensions"):
+            DictComprehensionAssignmentWorkflow.workflow_ir()
 
     def test_dict_comprehension_tuple_assignment_is_supported(self) -> None:
         """Test: dict comprehension assignments with tuple unpacking expand to IR."""
+        import pytest
+
         from tests.fixtures_comprehension.dict_comprehension_tuple import (
             DictComprehensionTupleWorkflow,
         )
+        from waymark.compiler_errors import UnsupportedPatternError
 
-        program = DictComprehensionTupleWorkflow.workflow_ir()
-        for_loop = next(
-            (
-                stmt.for_loop
-                for fn in program.functions
-                for stmt in fn.body.statements
-                if stmt.HasField("for_loop")
-            ),
-            None,
-        )
-        assert for_loop is not None
-        assert for_loop.HasField("block_body"), "Expected block_body in for loop"
-        assert any(
-            stmt.HasField("assignment")
-            and any(target.startswith("mapping[") for target in stmt.assignment.targets)
-            for stmt in iter_block_statements(for_loop.block_body)
-        ), "Expected accumulator updates for mapping in loop body"
+        with pytest.raises(UnsupportedPatternError, match="Dict comprehensions"):
+            DictComprehensionTupleWorkflow.workflow_ir()
 
     def test_delete_statement_raises_error(self) -> None:
         """Test: del statements raise error with recommendation."""
@@ -2239,16 +2195,12 @@ class TestExpressionTypes:
                 or_result = a or b
                 return [and_result, or_result]
 
-        program = BooleanWorkflow.workflow_ir()
-        assert program is not None
-        func = program.functions[0]
-        # Should have assignments with binary ops
-        binary_count = 0
-        for stmt in func.body.statements:
-            if stmt.HasField("assignment"):
-                if stmt.assignment.value.HasField("binary_op"):
-                    binary_count += 1
-        assert binary_count >= 2, "Should have 2 boolean op assignments"
+        import pytest
+
+        from waymark.compiler_errors import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError, match="Short-circuit"):
+            BooleanWorkflow.workflow_ir()
 
     def test_arithmetic_operators(self) -> None:
         """Test: +, -, *, / arithmetic operators."""

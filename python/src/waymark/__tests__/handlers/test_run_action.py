@@ -64,7 +64,7 @@ REJECTED = [
     ("policy_timeout_negative", "PolicyTimeoutNegativeWorkflow", "more than zero seconds"),
     ("policy_timeout_too_small", "PolicyTimeoutTooSmallWorkflow", "at least one nanosecond"),
     ("policy_timeout_too_large", "PolicyTimeoutTooLargeWorkflow", "at most 100 years"),
-    ("policy_timeout_infinite", "PolicyTimeoutInfiniteWorkflow", "at most 100 years"),
+    ("policy_timeout_infinite", "PolicyTimeoutInfiniteWorkflow", "Non-finite float"),
     (
         "policy_timeout_timedelta_overflow",
         "PolicyTimeoutTimedeltaOverflowWorkflow",

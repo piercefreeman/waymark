@@ -1,6 +1,7 @@
-"""Validate registered calls with conservative local type information."""
+"""Reject source constructs whose meaning the current IR cannot preserve."""
 
 import ast
+import math
 from collections.abc import Mapping
 from typing import Any, NoReturn
 
@@ -19,8 +20,21 @@ def reject(node: ast.expr | ast.stmt | ast.ExceptHandler, message: str) -> NoRet
     )
 
 
+def validate_literal(value: Any) -> None:
+    """Wire literals must fit the VM's finite, signed 64-bit value representation."""
+    if type(value) is int and not -(2**63) <= value < 2**63:
+        raise UnsupportedPatternError(
+            "Integer literal is outside the signed 64-bit range",
+            "Use a string for larger integers, and compute inside an action.",
+        )
+    if type(value) is float and not math.isfinite(value):
+        raise UnsupportedPatternError(
+            "Non-finite float literals are unsupported", "Use finite numbers."
+        )
+
+
 class SourceValidator(ast.NodeVisitor):
-    """Infer local value kinds for handler argument and placement checks."""
+    """Conservative local facts; unknown dynamic values still need VM validation."""
 
     def __init__(
         self,
@@ -152,6 +166,65 @@ class SourceValidator(ast.NodeVisitor):
             name: list for name in self.fresh_lists - self.aliased if self.types.get(name) == "list"
         }
 
+    def visit_Try(self, node: ast.Try) -> None:
+        if node.finalbody or node.orelse:
+            reject(node, "try/finally and try/else are unsupported")
+        self.generic_visit(node)
+
+    def visit_For(self, node: ast.For) -> None:
+        if node.orelse:
+            reject(node, "for/else is unsupported")
+        self._check_target(node.target)
+        if self._kind(node.iter) in {"dict", "str", "exception"}:
+            reject(node.iter, "Iteration over dictionaries, strings, or exceptions is unsupported")
+        self.generic_visit(node)
+
+    def visit_While(self, node: ast.While) -> None:
+        if node.orelse:
+            reject(node, "while/else is unsupported")
+        self.generic_visit(node)
+
+    def visit_comprehension(self, node: ast.comprehension) -> None:
+        if self._kind(node.iter) in {"dict", "str", "exception"}:
+            reject(node.iter, "Iteration over dictionaries, strings, or exceptions is unsupported")
+        self.generic_visit(node)
+
+    def visit_Compare(self, node: ast.Compare) -> None:
+        if len(node.ops) != 1:
+            reject(node, "Chained comparisons are unsupported")
+        if self._kind(node.left) in {"list", "tuple", "dict"} or self._kind(
+            node.comparators[0]
+        ) in {
+            "list",
+            "tuple",
+            "dict",
+        }:
+            reject(node, "Collection comparisons are unsupported")
+        left, right = self._kind(node.left), self._kind(node.comparators[0])
+        if left in {"int", "float", "bool"} and right in {"int", "float", "bool"} and left != right:
+            reject(node, "Mixed numeric comparisons require VM support")
+        self.generic_visit(node)
+
+    def visit_BoolOp(self, node: ast.BoolOp) -> None:
+        reject(node, "Short-circuit and/or expressions are unsupported; use nested if statements")
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if len(node.targets) != 1:
+            reject(node, "Chained assignments are unsupported")
+        self._check_target(node.targets[0])
+        if (
+            isinstance(node.targets[0], (ast.Tuple, ast.List))
+            and isinstance(node.value, (ast.Tuple, ast.List))
+            and len(node.targets[0].elts) != len(node.value.elts)
+        ):
+            reject(node, "Unpacking target count does not match result count")
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        self._check_target(node.target)
+        if node.value is not None:
+            self.visit(node.value)
+
     def visit_AugAssign(self, node: ast.AugAssign) -> None:
         if not isinstance(node.target, ast.Name):
             reject(
@@ -168,6 +241,29 @@ class SourceValidator(ast.NodeVisitor):
             reject(
                 node, "Augmented assignment may mutate an aliased value; use explicit assignment"
             )
+        self.visit_BinOp(
+            ast.copy_location(ast.BinOp(left=node.target, op=node.op, right=node.value), node)
+        )
+
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        reject(node, "Dict comprehensions require unsupported subscript writes")
+
+    def visit_Dict(self, node: ast.Dict) -> None:
+        for key in node.keys:
+            if key is None:
+                return reject(node, "Dictionary unpacking (**mapping) is unsupported")
+            if self._kind(key) != "str":
+                reject(key, "Dictionary keys must be known strings")
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if self._kind(node.value) == "exception":
+            reject(node, "Caught exception inspection is unsupported")
+        self.generic_visit(node)
+
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        if self._kind(node.value) == "exception":
+            reject(node, "Caught exception inspection is unsupported")
         self.generic_visit(node)
 
     def visit_Await(self, node: ast.Await) -> None:
@@ -177,6 +273,11 @@ class SourceValidator(ast.NodeVisitor):
                 handler.parse_arguments(node.value)
                 if not handler.requires_await:
                     raise handler.error(node.value, "this call cannot be awaited")
+        parent = self.parents.get(node)
+        if not isinstance(parent, (ast.Assign, ast.AnnAssign, ast.Expr, ast.Return, ast.If)):
+            reject(
+                node, "Nested await expressions are unsupported; assign the awaited result first"
+            )
         if not isinstance(node.value, ast.Call):
             return reject(node, "Await requires a direct action or workflow-helper call")
         call = node.value
@@ -203,6 +304,40 @@ class SourceValidator(ast.NodeVisitor):
         if handler is not None:
             handler.validate_usage(node, self.parents.get(node), self._kind)
         self.generic_visit(node)
+
+    def visit_BinOp(self, node: ast.BinOp) -> None:
+        if not isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod)):
+            reject(node, "Unsupported binary or augmented operator")
+        left, right = self._kind(node.left), self._kind(node.right)
+        numeric = {"int", "float", "bool"}
+        if left in numeric and right in numeric and (left != right or "bool" in (left, right)):
+            reject(node, "Mixed numeric types and boolean arithmetic require VM support")
+        if isinstance(node.op, ast.Div) and (left == "int" or right == "int"):
+            reject(node, "Integer true division requires VM support")
+        if (
+            isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod))
+            and right == "float"
+            and isinstance(node.right, ast.Constant)
+            and node.right.value == 0
+        ):
+            reject(node, "Float division by zero requires VM exception support")
+        if isinstance(node.op, ast.Mult) and ({left, right} & {"str", "list", "tuple"}):
+            reject(node, "Sequence repetition requires VM support")
+        self.generic_visit(node)
+
+    def visit_Constant(self, node: ast.Constant) -> None:
+        parent = self.parents.get(node)
+        value = node.value
+        if (
+            isinstance(parent, ast.UnaryOp)
+            and isinstance(parent.op, ast.USub)
+            and type(value) in (int, float)
+        ):
+            value = -value
+        try:
+            validate_literal(value)
+        except UnsupportedPatternError as error:
+            reject(node, error.message)
 
     def _record_alias(self, value: ast.Name) -> None:
         """Only escapes that can precede a mutation invalidate local list updates."""
@@ -252,3 +387,15 @@ class SourceValidator(ast.NodeVisitor):
                 return self._kind(left) if self._kind(left) == self._kind(right) else "unknown"
             case _:
                 return "unknown"
+
+    def _check_target(self, target: ast.expr) -> None:
+        if isinstance(target, ast.Name):
+            return
+        if isinstance(target, (ast.Tuple, ast.List)) and all(
+            isinstance(element, ast.Name) for element in target.elts
+        ):
+            return
+        reject(
+            target,
+            "Assignment requires a name or flat unpacking target; attribute and subscript writes are unsupported",
+        )

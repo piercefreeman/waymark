@@ -14,10 +14,10 @@ from waymark.language_calls import LanguageCallRegistry
 
 GLOBAL_HANDLERS = LanguageCallRegistry(
     [
-        GatherHandler(),
         AppendHandler(),
-        RunActionHandler(),
+        GatherHandler(),
         SleepHandler(),
+        RunActionHandler(),
         LengthHandler(),
         RangeHandler(),
         EnumerateHandler(),

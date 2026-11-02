@@ -144,7 +144,7 @@ def test_handler_lowers_filtered_destructuring_in_every_statement_form(statement
 
 def test_nested_gather_does_not_fall_back_to_unknown_function() -> None:
     """An unsupported expression context reports the required standalone call form."""
-    with pytest.raises(UnsupportedPatternError, match="own assignment, return, or expression"):
+    with pytest.raises(UnsupportedPatternError, match="Nested await"):
         compile_gather_statement("results = (await asyncio.gather(task()))[0]")
 
 
