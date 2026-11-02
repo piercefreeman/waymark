@@ -127,7 +127,8 @@ def test_builder_dispatches_a_new_handler_from_its_registration(statement: str) 
     builder.visit(ast.parse(f"async def run():\n    {statement} await alias(7)"))
     assert builder.function_def is not None
     statements = builder.function_def.body.statements
-    assert statements[0].assignment.value.literal.int_value == 7
+    value = statements[0].expr_stmt.expr if statement == "" else statements[0].assignment.value
+    assert value.literal.int_value == 7
     if statement == "return":
         assert statements[1].return_stmt.value.variable.name == statements[0].assignment.targets[0]
 
