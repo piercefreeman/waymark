@@ -31,7 +31,8 @@ from waymark.compiler_analysis import SourceAnalysis
 from waymark.compiler_ast import make_span, rewrite_load_names
 from waymark.compiler_context import CompilerContext
 from waymark.compiler_errors import UnsupportedPatternError
-from waymark.compiler_literals import literal_expression, validate_literal
+from waymark.compiler_literals import constant_to_literal, literal_expression
+from waymark.compiler_operators import binary_operator
 from waymark.compiler_recommendations import RECOMMENDATIONS
 from waymark.compiler_targets import assignment_targets
 from waymark.compiler_types import has_open_type_parameters
@@ -1411,7 +1412,7 @@ class IRBuilder(ast.NodeVisitor):
             )
 
             if left:
-                op = _bin_op_to_ir(node.op)
+                op = binary_operator(node.op)
                 if op:
                     binary = ir.BinaryOp(
                         left=left,
@@ -1425,7 +1426,7 @@ class IRBuilder(ast.NodeVisitor):
             return [assign_tmp]
 
         if left and right:
-            op = _bin_op_to_ir(node.op)
+            op = binary_operator(node.op)
             if op:
                 binary = ir.BinaryOp(left=left, op=op, right=right)
                 value = ir.Expr(binary_op=binary)
@@ -1557,7 +1558,7 @@ class IRBuilder(ast.NodeVisitor):
         value = _resolve_enum_attribute_value(node, self._module_globals)
         if value is None:
             return None
-        literal = _constant_to_literal(value)
+        literal = constant_to_literal(value)
         if literal is None:
             line = getattr(node, "lineno", None)
             col = getattr(node, "col_offset", None)
@@ -1740,32 +1741,9 @@ def _expr_to_ir(
         return result
 
     if isinstance(expr, ast.Constant):
-        literal = _constant_to_literal(expr.value)
+        literal = constant_to_literal(expr.value)
         if literal:
             result.literal.CopyFrom(literal)
-            return result
-
-    if isinstance(expr, ast.BinOp):
-        left = context.expression(expr.left)
-        right = context.expression(expr.right)
-        op = _bin_op_to_ir(expr.op)
-        if left and right and op:
-            result.binary_op.CopyFrom(ir.BinaryOp(left=left, op=op, right=right))
-            return result
-
-    if (
-        isinstance(expr, ast.UnaryOp)
-        and isinstance(expr.op, ast.USub)
-        and isinstance(expr.operand, ast.Constant)
-        and type(expr.operand.value) in (int, float)
-    ):
-        return ir.Expr(literal=_constant_to_literal(-expr.operand.value), span=make_span(expr))
-
-    if isinstance(expr, ast.UnaryOp):
-        operand = context.expression(expr.operand)
-        op = _unary_op_to_ir(expr.op)
-        if operand and op:
-            result.unary_op.CopyFrom(ir.UnaryOp(op=op, operand=operand))
             return result
 
     if isinstance(expr, ast.Compare):
@@ -1884,7 +1862,7 @@ def _check_unsupported_expression(expr: ast.AST) -> None:
     col = getattr(expr, "col_offset", None)
 
     if isinstance(expr, ast.Constant):
-        if _constant_to_literal(expr.value) is None:
+        if constant_to_literal(expr.value) is None:
             raise UnsupportedPatternError(
                 f"Unsupported literal type '{type(expr.value).__name__}'",
                 RECOMMENDATIONS["unsupported_literal"],
@@ -1955,47 +1933,6 @@ def _check_unsupported_expression(expr: ast.AST) -> None:
             line=line,
             col=col,
         )
-
-
-def _constant_to_literal(value: Any) -> Optional[ir.Literal]:
-    """Convert a Python constant to IR Literal."""
-    validate_literal(value)
-    literal = ir.Literal()
-    if value is None:
-        literal.is_none = True
-    elif isinstance(value, bool):
-        literal.bool_value = value
-    elif isinstance(value, int):
-        literal.int_value = value
-    elif isinstance(value, float):
-        literal.float_value = value
-    elif isinstance(value, str):
-        literal.string_value = value
-    else:
-        return None
-    return literal
-
-
-def _bin_op_to_ir(op: ast.operator) -> Optional[ir.BinaryOperator]:
-    """Convert Python binary operator to IR BinaryOperator."""
-    mapping = {
-        ast.Add: ir.BinaryOperator.BINARY_OP_ADD,
-        ast.Sub: ir.BinaryOperator.BINARY_OP_SUB,
-        ast.Mult: ir.BinaryOperator.BINARY_OP_MUL,
-        ast.Div: ir.BinaryOperator.BINARY_OP_DIV,
-        ast.FloorDiv: ir.BinaryOperator.BINARY_OP_FLOOR_DIV,
-        ast.Mod: ir.BinaryOperator.BINARY_OP_MOD,
-    }
-    return mapping.get(type(op))
-
-
-def _unary_op_to_ir(op: ast.unaryop) -> Optional[ir.UnaryOperator]:
-    """Convert Python unary operator to IR UnaryOperator."""
-    mapping = {
-        ast.USub: ir.UnaryOperator.UNARY_OP_NEG,
-        ast.Not: ir.UnaryOperator.UNARY_OP_NOT,
-    }
-    return mapping.get(type(op))
 
 
 def _cmp_op_to_ir(op: ast.cmpop) -> Optional[ir.BinaryOperator]:
