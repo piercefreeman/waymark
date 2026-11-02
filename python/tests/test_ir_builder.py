@@ -3937,7 +3937,8 @@ class TestUnsupportedPatternValidation:
 
     def test_sync_function_call_recommendation_lists_every_accepted_call(self) -> None:
         """Test: the help text names every call kind the VM runs, builtins included."""
-        from waymark.ir_builder import GLOBAL_FUNCTIONS, RECOMMENDATIONS
+        from waymark.compiler_context import GLOBAL_FUNCTIONS
+        from waymark.compiler_recommendations import RECOMMENDATIONS
 
         text = RECOMMENDATIONS["sync_function_call"]
         for name in GLOBAL_FUNCTIONS:

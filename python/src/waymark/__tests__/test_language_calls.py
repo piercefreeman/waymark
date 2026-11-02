@@ -8,6 +8,7 @@ from typing import Any, Literal
 import pytest
 
 from waymark import Workflow, action, workflow
+from waymark.compiler_context import CompilerContext
 from waymark.compiler_errors import UnsupportedPatternError
 from waymark.ir_builder import ActionDefinition, IRBuilder, TransformContext
 from waymark.language_calls import LanguageCallHandler, LanguageCallRegistry, LoweredCall
@@ -31,10 +32,13 @@ class ExampleHandler(LanguageCallHandler[ExampleArguments]):
     arguments_type = ExampleArguments
     recommendation = "Use example(value, mode='safe')."
 
-    def lower(self, arguments: ExampleArguments, node: ast.Call) -> LoweredCall:
-        """Emit a literal for dispatch tests; argument-only tests permit arbitrary ASTs."""
-        assert isinstance(arguments.value, ast.Constant)
-        return LoweredCall(value=ir.Expr(literal=ir.Literal(int_value=arguments.value.value)))
+    def lower(
+        self, arguments: ExampleArguments, node: ast.Call, context: CompilerContext
+    ) -> LoweredCall:
+        """Use the same shared expression compiler that production handlers receive."""
+        value = context.expression(arguments.value)
+        assert value is not None
+        return LoweredCall(value=value)
 
 
 def call_expression(source: str) -> ast.Call:
@@ -42,6 +46,12 @@ def call_expression(source: str) -> ast.Call:
     expression = ast.parse(source, mode="eval").body
     assert isinstance(expression, ast.Call)
     return expression
+
+
+@pytest.fixture
+def compiler_context() -> CompilerContext:
+    """Supply the workflow compiler's shared operations without registering any actions."""
+    return IRBuilder({}, TransformContext())._compiler_context
 
 
 def test_dataclass_contract_binds_positionals_keywords_and_defaults() -> None:
@@ -57,7 +67,9 @@ def test_dataclass_contract_binds_positionals_keywords_and_defaults() -> None:
 @pytest.mark.parametrize(
     "callee", ["example", "alias", "package.exported", "package.nested.exported"]
 )
-def test_registry_resolves_registered_identity_through_aliases(callee: str) -> None:
+def test_registry_resolves_registered_identity_through_aliases(
+    callee: str, compiler_context: CompilerContext
+) -> None:
     """The registration alone recognizes a different target, without gather-specific logic."""
     handler = ExampleHandler()
     registry = LanguageCallRegistry([handler])
@@ -68,7 +80,7 @@ def test_registry_resolves_registered_identity_through_aliases(callee: str) -> N
         call.func, {"example": example, "alias": example, "package": package}
     )
     assert resolved is handler
-    lowered = resolved.compile(call)
+    lowered = resolved.compile(call, compiler_context)
     assert lowered.value.literal.int_value == 1
 
 
@@ -163,10 +175,12 @@ def test_local_names_cannot_resolve_to_registered_globals(source: str, local_nam
         ("example(1, mode='unsafe')", "mode must be a literal 'safe'"),
     ],
 )
-def test_dataclass_contract_rejects_unsupported_arguments(source: str, message: str) -> None:
+def test_dataclass_contract_rejects_unsupported_arguments(
+    source: str, message: str, compiler_context: CompilerContext
+) -> None:
     """Invalid calls fail during binding, before the example's lowering can run."""
     with pytest.raises(UnsupportedPatternError) as raised:
-        ExampleHandler().compile(call_expression(source))
+        ExampleHandler().compile(call_expression(source), compiler_context)
     assert isinstance(raised.value, UnsupportedPatternError)
     assert message in raised.value.message
     assert raised.value.line == 1
@@ -238,6 +252,9 @@ def test_all_gather_paths_reject_exception_collection(statement: str) -> None:
         ("*[asyncio.sleep(x) for x in items]", "unsupported awaitable 'asyncio.sleep'"),
         ("*[asyncio.sleep(x) for x in items if x]", "unsupported awaitable 'asyncio.sleep'"),
         ("task(), unknown()", "unsupported awaitable 'unknown'"),
+        ("self.run_action()", "run_action() requires an action call"),
+        ("self.run_action(items)", "run_action() requires an action call"),
+        ("self.run_action(task(), unknown=True)", "run_action() does not take"),
         ("*items", "unsupported awaitable '*items'"),
         ("task(), *[task(x) for x in items]", "must be the only positional argument"),
         ("*[task(x) async for x in items]", "single synchronous comprehension loop"),
@@ -275,6 +292,27 @@ def test_return_gather_uses_parallel_lowering() -> None:
     assignment, returned = function.body.statements
     assert len(assignment.assignment.value.parallel_expr.calls) == 2
     assert returned.return_stmt.value.variable.name == assignment.assignment.targets[0]
+
+
+@pytest.mark.parametrize("statement", ["results =", "results: list =", "return", ""])
+def test_handler_lowers_filtered_destructuring_in_every_statement_form(statement: str) -> None:
+    """Regression: handler-owned setup must precede the spread for every dispatch path."""
+    function = compile_gather_statement(
+        f"{statement} await asyncio.gather(*[task(x + y) for x, y in items if x > 0])"
+    )
+    statements = list(function.body.statements)
+    if statement == "return":
+        returned = statements.pop()
+        assert returned.return_stmt.value.variable.name == statements[-1].assignment.targets[0]
+    assert len(statements) == 3
+    initialized, filtered, spread_statement = statements
+    assert initialized.assignment.value.HasField("list")
+    assert filtered.HasField("for_loop")
+    spread = spread_statement.assignment.value.spread_expr
+    assert spread.collection.variable.name == initialized.assignment.targets[0]
+    argument = spread.call.action.kwargs[0].value.binary_op
+    assert argument.left.index.object.variable.name == spread.loop_var
+    assert argument.right.index.object.variable.name == spread.loop_var
 
 
 def test_nested_gather_does_not_fall_back_to_unknown_function() -> None:

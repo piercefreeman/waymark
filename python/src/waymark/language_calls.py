@@ -15,6 +15,7 @@ from typing import Any, ClassVar, Generic, Literal, TypeVar, get_args, get_origi
 
 from pydantic import ConfigDict, TypeAdapter, ValidationError
 
+from waymark.compiler_context import CompilerContext
 from waymark.compiler_errors import UnsupportedPatternError
 from waymark.proto import ast_pb2 as ir
 
@@ -87,12 +88,12 @@ class LanguageCallHandler(ABC, Generic[Arguments]):
             for name, annotation in self._annotations.items()
         }
 
-    def compile(self, node: ast.Call) -> LoweredCall:
+    def compile(self, node: ast.Call, context: CompilerContext) -> LoweredCall:
         """Validate a source call before handing its bound arguments to lower."""
-        return self.lower(self.parse_arguments(node), node)
+        return self.lower(self.parse_arguments(node), node, context)
 
     @abstractmethod
-    def lower(self, arguments: Arguments, node: ast.Call) -> LoweredCall:
+    def lower(self, arguments: Arguments, node: ast.Call, context: CompilerContext) -> LoweredCall:
         """Lower a call after its declared argument contract has been checked."""
 
     def parse_arguments(self, node: ast.Call) -> Arguments:

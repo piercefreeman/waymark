@@ -2,10 +2,13 @@
 
 import ast
 import asyncio
-from collections.abc import Callable
+import copy
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
+from waymark.compiler_context import CompilerContext
+from waymark.compiler_errors import UnsupportedPatternError
 from waymark.language_calls import LanguageCallHandler, LoweredCall
 from waymark.proto import ast_pb2 as ir
 
@@ -31,7 +34,7 @@ class GatherArguments:
 
 
 class GatherHandler(LanguageCallHandler[GatherArguments]):
-    """Validate gather's contract and delegate expression lowering to the IR builder."""
+    """Validate and lower gather calls using shared compiler operations."""
 
     target = asyncio.gather
     name = "asyncio.gather"
@@ -43,15 +46,6 @@ class GatherHandler(LanguageCallHandler[GatherArguments]):
         "Omit return_exceptions or pass False; collecting exceptions with "
         "return_exceptions=True is not supported by the runtime."
     )
-
-    def __init__(
-        self,
-        convert_call: Callable[[ast.expr], ir.Call],
-        convert_comprehension: Callable[[ast.ListComp | ast.GeneratorExp], LoweredCall],
-    ) -> None:
-        super().__init__()
-        self._convert_call = convert_call
-        self._convert_comprehension = convert_comprehension
 
     def parse_arguments(self, node: ast.Call) -> GatherArguments:
         """Reject unsupported operand shapes before either gather lowering path runs."""
@@ -74,15 +68,202 @@ class GatherHandler(LanguageCallHandler[GatherArguments]):
                     )
         return arguments
 
-    def lower(self, arguments: GatherArguments, node: ast.Call) -> LoweredCall:
-        """Lower already-validated calls into static parallel calls or a comprehension spread."""
+    def lower(
+        self, arguments: GatherArguments, node: ast.Call, context: CompilerContext
+    ) -> LoweredCall:
+        """Lower validated calls into static parallel calls or a comprehension spread."""
         comprehension = arguments.comprehension
         if comprehension is not None:
-            return self._convert_comprehension(comprehension)
+            return self._lower_comprehension(comprehension, context)
         return LoweredCall(
             value=ir.Expr(
                 parallel_expr=ir.ParallelExpr(
-                    calls=[self._convert_call(call) for call in arguments.awaitables]
+                    calls=[self._lower_awaitable(call, context) for call in arguments.awaitables]
                 )
             )
         )
+
+    def _lower_awaitable(self, node: ast.expr, context: CompilerContext) -> ir.Call:
+        if not isinstance(node, ast.Call):
+            raise self.error(node, "each awaitable must be a direct call")
+        call = context.call(node)
+        if call is None:
+            raise self.error(
+                node,
+                f"unsupported awaitable {ast.unparse(node.func)!r}; use an action or workflow helper",
+            )
+        return call
+
+    def _lower_comprehension(
+        self, comprehension: ast.ListComp | ast.GeneratorExp, context: CompilerContext
+    ) -> LoweredCall:
+        generator = comprehension.generators[0]
+        prologue: list[ir.Statement] = []
+        collection_node = copy.deepcopy(generator.iter)
+        if generator.ifs:
+            temporary = context.next_name("spread_items")
+            prologue = self._build_filtered_spread_collection_statements(
+                comprehension, temporary, context
+            )
+            collection_node = ast.copy_location(
+                ast.Name(id=temporary, ctx=ast.Load()), comprehension
+            )
+
+        element_node = copy.deepcopy(comprehension.elt)
+        if isinstance(generator.target, ast.Name):
+            loop_var = generator.target.id
+        else:
+            loop_var = context.next_name("spread_item")
+            replacements = self._build_comprehension_target_access_map(generator.target, loop_var)
+            rewritten = self._rewrite_load_name_references(element_node, replacements)
+            if not isinstance(rewritten, ast.expr):
+                raise self.error(
+                    comprehension, "spread pattern rewrite produced an invalid expression"
+                )
+            element_node = rewritten
+
+        collection = context.expression(collection_node)
+        if collection is None:
+            raise self.error(
+                collection_node, "could not convert collection expression in spread pattern"
+            )
+        return LoweredCall(
+            value=ir.Expr(
+                spread_expr=ir.SpreadExpr(
+                    collection=collection,
+                    loop_var=loop_var,
+                    call=self._lower_awaitable(element_node, context),
+                )
+            ),
+            statements=prologue,
+        )
+
+    def _build_filtered_spread_collection_statements(
+        self,
+        comprehension: ast.ListComp | ast.GeneratorExp,
+        temp_collection_var: str,
+        context: CompilerContext,
+    ) -> list[ir.Statement]:
+        """Build IR that materializes a filtered spread collection."""
+        generator = comprehension.generators[0]
+        replacements: dict[str, ast.expr] = {}
+        if isinstance(generator.target, ast.Name):
+            loop_var = generator.target.id
+        else:
+            loop_var = context.next_name("spread_filter_item")
+            replacements = self._build_comprehension_target_access_map(generator.target, loop_var)
+
+        init_assign_ast = ast.Assign(
+            targets=[ast.Name(id=temp_collection_var, ctx=ast.Store())],
+            value=ast.List(elts=[], ctx=ast.Load()),
+            type_comment=None,
+        )
+        ast.copy_location(init_assign_ast, comprehension)
+        ast.fix_missing_locations(init_assign_ast)
+
+        append_value = ast.copy_location(ast.Name(id=loop_var, ctx=ast.Load()), generator.target)
+        append_assign_ast = ast.Assign(
+            targets=[ast.Name(id=temp_collection_var, ctx=ast.Store())],
+            value=ast.BinOp(
+                left=ast.Name(id=temp_collection_var, ctx=ast.Load()),
+                op=ast.Add(),
+                right=ast.List(elts=[append_value], ctx=ast.Load()),
+            ),
+            type_comment=None,
+        )
+        ast.copy_location(append_assign_ast, comprehension)
+        ast.fix_missing_locations(append_assign_ast)
+
+        loop_body: list[ast.stmt] = [append_assign_ast]
+        if generator.ifs:
+            condition: ast.expr
+            if len(generator.ifs) == 1:
+                condition = copy.deepcopy(generator.ifs[0])
+            else:
+                condition = ast.BoolOp(
+                    op=ast.And(), values=[copy.deepcopy(expr) for expr in generator.ifs]
+                )
+                ast.copy_location(condition, generator.ifs[0])
+            if replacements:
+                rewritten = self._rewrite_load_name_references(condition, replacements)
+                if not isinstance(rewritten, ast.expr):
+                    raise self.error(condition, "filter rewrite produced an invalid expression")
+                condition = rewritten
+            if_stmt = ast.If(test=condition, body=[append_assign_ast], orelse=[])
+            ast.copy_location(if_stmt, generator.ifs[0])
+            ast.fix_missing_locations(if_stmt)
+            loop_body = [if_stmt]
+
+        loop_ast = ast.For(
+            target=ast.copy_location(ast.Name(id=loop_var, ctx=ast.Store()), generator.target),
+            iter=copy.deepcopy(generator.iter),
+            body=loop_body,
+            orelse=[],
+            type_comment=None,
+        )
+        ast.copy_location(loop_ast, comprehension)
+        ast.fix_missing_locations(loop_ast)
+
+        return [*context.statement(init_assign_ast), *context.statement(loop_ast)]
+
+    def _build_comprehension_target_access_map(
+        self, target: ast.expr, loop_var: str
+    ) -> dict[str, ast.expr]:
+        """Map destructured comprehension variables to accesses on one spread item."""
+        replacements: dict[str, ast.expr] = {}
+
+        def visit_target(current_target: ast.expr, current_expr: ast.expr) -> None:
+            if isinstance(current_target, ast.Name):
+                replacement = copy.deepcopy(current_expr)
+                ast.copy_location(replacement, current_target)
+                ast.fix_missing_locations(replacement)
+                replacements[current_target.id] = replacement
+                return
+
+            if isinstance(current_target, (ast.Tuple, ast.List)):
+                for index, elt in enumerate(current_target.elts):
+                    next_expr = ast.Subscript(
+                        value=copy.deepcopy(current_expr),
+                        slice=ast.Constant(value=index),
+                        ctx=ast.Load(),
+                    )
+                    ast.copy_location(next_expr, elt)
+                    ast.fix_missing_locations(next_expr)
+                    visit_target(elt, next_expr)
+                return
+
+            line = current_target.lineno if hasattr(current_target, "lineno") else None
+            col = current_target.col_offset if hasattr(current_target, "col_offset") else None
+            raise UnsupportedPatternError(
+                "Spread pattern supports loop targets that are simple names or tuple/list unpacking",
+                "Use a simple variable like `for item in items` or tuple/list unpacking of names.",
+                line=line,
+                col=col,
+            )
+
+        root_expr = ast.Name(id=loop_var, ctx=ast.Load())
+        ast.copy_location(root_expr, target)
+        ast.fix_missing_locations(root_expr)
+        visit_target(target, root_expr)
+        return replacements
+
+    def _rewrite_load_name_references(
+        self, node: ast.AST, replacements: Mapping[str, ast.expr]
+    ) -> ast.AST:
+        """Rewrite load-name references in an AST subtree."""
+
+        class LoadNameRewriter(ast.NodeTransformer):
+            def __init__(self, name_replacements: Mapping[str, ast.expr]):
+                self._name_replacements = name_replacements
+
+            def visit_Name(self, current: ast.Name) -> ast.AST:
+                if isinstance(current.ctx, ast.Load) and current.id in self._name_replacements:
+                    rewritten = copy.deepcopy(self._name_replacements[current.id])
+                    ast.copy_location(rewritten, current)
+                    ast.fix_missing_locations(rewritten)
+                    return rewritten
+                return current
+
+        rewritten = LoadNameRewriter(replacements).visit(copy.deepcopy(node))
+        ast.fix_missing_locations(rewritten)
+        return rewritten
