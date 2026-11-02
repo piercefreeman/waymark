@@ -18,6 +18,7 @@ from waymark.bridge import (
 )
 from waymark.grpc_config import GRPC_CHANNEL_OPTIONS
 from waymark.proto import messages_pb2 as pb2
+from waymark.proto import messages_pb2_grpc as pb2_grpc
 from waymark.proto import python_value_pb2 as pb2v
 
 
@@ -46,8 +47,8 @@ class TestWorkflowStub:
             def __init__(self, channel: FakeChannel) -> None:
                 self.channel = channel
 
-        monkeypatch.setattr(bridge.aio, "insecure_channel", fake_insecure_channel)
-        monkeypatch.setattr(bridge.pb2_grpc, "WorkflowServiceStub", FakeStub)
+        monkeypatch.setattr(aio, "insecure_channel", fake_insecure_channel)
+        monkeypatch.setattr(pb2_grpc, "WorkflowServiceStub", FakeStub)
 
         async def first_loop() -> object:
             stub_a = await bridge._workflow_stub()
