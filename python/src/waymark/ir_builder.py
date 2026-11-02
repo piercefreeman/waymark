@@ -29,7 +29,7 @@ from waymark.compiler_analysis import SourceAnalysis
 from waymark.compiler_ast import make_span
 from waymark.compiler_context import CompilerContext
 from waymark.compiler_errors import UnsupportedPatternError
-from waymark.compiler_literals import constant_to_literal, literal_expression
+from waymark.compiler_literals import literal_expression
 from waymark.compiler_recommendations import RECOMMENDATIONS
 from waymark.compiler_targets import assignment_targets
 from waymark.compiler_types import has_open_type_parameters
@@ -1337,12 +1337,6 @@ def _expr_to_ir(
         result.variable.CopyFrom(ir.Variable(name=expr.id))
         return result
 
-    if isinstance(expr, ast.Constant):
-        literal = constant_to_literal(expr.value)
-        if literal:
-            result.literal.CopyFrom(literal)
-            return result
-
     if isinstance(expr, ast.List):
         if any(isinstance(element, ast.Starred) for element in expr.elts):
             segments: list[ir.Expr] = []
@@ -1421,15 +1415,6 @@ def _check_unsupported_expression(expr: ast.AST) -> None:
     """Check for unsupported expression types and raise descriptive errors."""
     line = getattr(expr, "lineno", None)
     col = getattr(expr, "col_offset", None)
-
-    if isinstance(expr, ast.Constant):
-        if constant_to_literal(expr.value) is None:
-            raise UnsupportedPatternError(
-                f"Unsupported literal type '{type(expr.value).__name__}'",
-                RECOMMENDATIONS["unsupported_literal"],
-                line=line,
-                col=col,
-            )
 
     if isinstance(expr, ast.JoinedStr):
         raise UnsupportedPatternError(
