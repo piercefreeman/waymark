@@ -76,9 +76,7 @@ class ModuleContext:
     """Cached IRBuilder context derived from a module."""
 
     action_defs: Dict[str, ActionDefinition]
-    imported_names: Dict[str, "ImportedName"]
     module_functions: Set[str]
-    model_defs: Dict[str, "ModelDefinition"]
 
 
 @dataclass
@@ -130,9 +128,7 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
         if module_name not in module_contexts:
             module_contexts[module_name] = ModuleContext(
                 action_defs=_discover_action_names(target_module),
-                imported_names=_discover_module_imports(target_module),
                 module_functions=_discover_module_functions(target_module),
-                model_defs=_discover_model_definitions(target_module),
             )
         return module_contexts[module_name]
 
@@ -200,9 +196,7 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
         builder = IRBuilder(
             ctx_data.action_defs,
             ctx,
-            ctx_data.imported_names,
             ctx_data.module_functions,
-            ctx_data.model_defs,
             {**fn_module.__dict__, **inspect.getclosurevars(fn).nonlocals},
             instance_attrs,
             function_locals=fn.__code__.co_varnames + fn.__code__.co_cellvars,
@@ -459,232 +453,6 @@ def _discover_module_functions(module: Any) -> Set[str]:
     return function_names
 
 
-@dataclass
-class ImportedName:
-    """Tracks an imported name and its source module."""
-
-    local_name: str  # Name used in code (e.g., "sleep")
-    module: str  # Source module (e.g., "asyncio")
-    original_name: str  # Original name in source module (e.g., "sleep")
-
-
-@dataclass
-class ModelFieldDefinition:
-    """Definition of a field in a Pydantic model or dataclass."""
-
-    name: str
-    has_default: bool
-    default_value: Any = None  # Only set if has_default is True
-
-
-@dataclass
-class ModelDefinition:
-    """Definition of a Pydantic model or dataclass that can be used in workflows.
-
-    These are data classes that can be instantiated in workflow code and will
-    be converted to dictionary expressions in the IR.
-    """
-
-    class_name: str
-    fields: Dict[str, ModelFieldDefinition]
-    is_pydantic: bool  # True for Pydantic models, False for dataclasses
-
-
-def _is_simple_pydantic_model(cls: type) -> bool:
-    """Check if a class is a simple Pydantic model without custom validators.
-
-    A simple Pydantic model:
-    - Inherits from pydantic.BaseModel
-    - Has no field_validator or model_validator decorators
-    - Has no custom __init__ method
-
-    Returns False if pydantic is not installed or cls is not a Pydantic model.
-    """
-    try:
-        from pydantic import BaseModel
-    except ImportError:
-        return False
-
-    if not isinstance(cls, type) or not issubclass(cls, BaseModel):
-        return False
-
-    # Check for validators - Pydantic v2 uses __pydantic_decorators__
-    decorators = getattr(cls, "__pydantic_decorators__", None)
-    if decorators is not None:
-        # Check for field validators
-        if hasattr(decorators, "field_validators") and decorators.field_validators:
-            return False
-        # Check for model validators
-        if hasattr(decorators, "model_validators") and decorators.model_validators:
-            return False
-
-    # Check for custom __init__ (not the one from BaseModel)
-    if "__init__" in cls.__dict__:
-        return False
-
-    return True
-
-
-def _is_simple_dataclass(cls: type) -> bool:
-    """Check if a class is a simple dataclass without custom logic.
-
-    A simple dataclass:
-    - Is decorated with @dataclass
-    - Has no custom __init__ method (uses the generated one)
-    - Has no __post_init__ method
-
-    Returns False if cls is not a dataclass.
-    """
-    import dataclasses
-
-    if not dataclasses.is_dataclass(cls):
-        return False
-
-    # Check for __post_init__ which could have custom logic
-    if hasattr(cls, "__post_init__") and "__post_init__" in cls.__dict__:
-        return False
-
-    # Dataclasses generate __init__, so check if there's a custom one
-    # that overrides it (unlikely but possible)
-    # The dataclass decorator sets __init__ so we can't easily detect override
-    # We'll trust that dataclasses without __post_init__ are simple
-
-    return True
-
-
-def _get_pydantic_model_fields(cls: type) -> Dict[str, ModelFieldDefinition]:
-    """Extract field definitions from a Pydantic model."""
-    try:
-        from pydantic import BaseModel
-        from pydantic.fields import FieldInfo
-    except ImportError:
-        return {}
-
-    if not issubclass(cls, BaseModel):
-        return {}
-
-    fields: Dict[str, ModelFieldDefinition] = {}
-
-    # Pydantic v2 uses model_fields
-    model_fields = getattr(cls, "model_fields", {})
-    for field_name, field_info in model_fields.items():
-        has_default = False
-        default_value = None
-
-        if isinstance(field_info, FieldInfo):
-            # Check if field has a default value
-            # PydanticUndefined means no default
-            from pydantic_core import PydanticUndefined
-
-            if field_info.default is not PydanticUndefined:
-                has_default = True
-                default_value = field_info.default
-            elif field_info.default_factory is not None:
-                # We can't serialize factory functions, so treat as no default
-                has_default = False
-
-        fields[field_name] = ModelFieldDefinition(
-            name=field_name,
-            has_default=has_default,
-            default_value=default_value,
-        )
-
-    return fields
-
-
-def _get_dataclass_fields(cls: type) -> Dict[str, ModelFieldDefinition]:
-    """Extract field definitions from a dataclass."""
-    import dataclasses
-
-    if not dataclasses.is_dataclass(cls):
-        return {}
-
-    fields: Dict[str, ModelFieldDefinition] = {}
-    for field in dataclasses.fields(cls):
-        has_default = False
-        default_value = None
-
-        if field.default is not dataclasses.MISSING:
-            has_default = True
-            default_value = field.default
-        elif field.default_factory is not dataclasses.MISSING:
-            # We can't serialize factory functions, so treat as no default
-            has_default = False
-
-        fields[field.name] = ModelFieldDefinition(
-            name=field.name,
-            has_default=has_default,
-            default_value=default_value,
-        )
-
-    return fields
-
-
-def _discover_model_definitions(module: Any) -> Dict[str, ModelDefinition]:
-    """Discover all Pydantic models and dataclasses that can be used in workflows.
-
-    Only discovers "simple" models without custom validators or __post_init__.
-    """
-    models: Dict[str, ModelDefinition] = {}
-
-    for attr_name in dir(module):
-        try:
-            attr = getattr(module, attr_name)
-        except AttributeError:
-            continue
-
-        if not isinstance(attr, type):
-            continue
-
-        # Check if this class is defined in this module or imported
-        # We want to include both, as models might be imported
-        if _is_simple_pydantic_model(attr):
-            fields = _get_pydantic_model_fields(attr)
-            models[attr_name] = ModelDefinition(
-                class_name=attr_name,
-                fields=fields,
-                is_pydantic=True,
-            )
-        elif _is_simple_dataclass(attr):
-            fields = _get_dataclass_fields(attr)
-            models[attr_name] = ModelDefinition(
-                class_name=attr_name,
-                fields=fields,
-                is_pydantic=False,
-            )
-
-    return models
-
-
-def _discover_module_imports(module: Any) -> Dict[str, ImportedName]:
-    """Discover imports in a module by parsing its source.
-
-    Tracks imports like:
-    - from asyncio import sleep  -> {"sleep": ImportedName("sleep", "asyncio", "sleep")}
-    - from asyncio import sleep as s -> {"s": ImportedName("s", "asyncio", "sleep")}
-    """
-    imported: Dict[str, ImportedName] = {}
-
-    try:
-        source = inspect.getsource(module)
-        tree = ast.parse(source)
-    except (OSError, TypeError):
-        # Can't get source (e.g., built-in module)
-        return imported
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            for alias in node.names:
-                local_name = alias.asname if alias.asname else alias.name
-                imported[local_name] = ImportedName(
-                    local_name=local_name,
-                    module=node.module,
-                    original_name=alias.name,
-                )
-
-    return imported
-
-
 class IRBuilder(ast.NodeVisitor):
     """Builds IR from Python AST with deep transformations."""
 
@@ -692,9 +460,7 @@ class IRBuilder(ast.NodeVisitor):
         self,
         action_defs: Dict[str, ActionDefinition],
         ctx: TransformContext,
-        imported_names: Optional[Dict[str, ImportedName]] = None,
         module_functions: Optional[Set[str]] = None,
-        model_defs: Optional[Dict[str, ModelDefinition]] = None,
         module_globals: Optional[Mapping[str, Any]] = None,
         instance_attrs: Optional[InstanceAttrs] = None,
         function_locals: tuple[str, ...] = (),
@@ -702,9 +468,7 @@ class IRBuilder(ast.NodeVisitor):
     ):
         self._action_defs = action_defs
         self._ctx = ctx
-        self._imported_names = imported_names or {}
         self._module_functions = module_functions or set()
-        self._model_defs = model_defs or {}
         self._module_globals = module_globals or {}
         self._language_call_namespace = {
             name: value
@@ -1207,19 +971,6 @@ class IRBuilder(ast.NodeVisitor):
         """
         stmt = ir.Statement(span=_make_span(node))
         targets = self._get_assign_targets(node.targets)
-
-        # Check for Pydantic model or dataclass constructor calls
-        # These are converted to dict expressions
-        model_name = self._is_model_constructor(node.value)
-        if model_name and isinstance(node.value, ast.Call):
-            value_expr = self._convert_model_constructor_to_dict(node.value, model_name)
-            assign = ir.Assignment(targets=targets, value=value_expr)
-            stmt.assignment.CopyFrom(assign)
-            return stmt
-
-        # Check for constructor calls in assignment (e.g., x = MyModel(...))
-        # This must come AFTER the model constructor check since models are allowed
-        self._check_constructor_in_assignment(node.value)
 
         # Check if this is an action call - wrap in Assignment for uniform unpacking
         action_call = self._extract_action_call(node.value)
@@ -2079,9 +1830,6 @@ class IRBuilder(ast.NodeVisitor):
         raise an error with a recommendation to use an @action instead.
         """
         if node.value:
-            # Check for constructor calls in return (e.g., return MyModel(...))
-            self._check_constructor_in_return(node.value)
-
             # Check if returning an action call - normalize to assignment + return
             action_call = self._extract_action_call(node.value)
             if action_call:
@@ -2216,226 +1964,6 @@ class IRBuilder(ast.NodeVisitor):
 
         return args
 
-    def _check_constructor_in_return(self, node: ast.expr) -> None:
-        """Check for constructor calls in return statements.
-
-        Raises UnsupportedPatternError if the return value is a class instantiation
-        like: return MyModel(field=value)
-
-        This is not supported because the workflow IR cannot serialize arbitrary
-        object instantiation. Users should use an @action to create objects.
-        """
-        # Skip if it's an await (action call) - those are fine
-        if isinstance(node, ast.Await):
-            return
-
-        # Check for direct Call that looks like a constructor
-        if isinstance(node, ast.Call):
-            func_name = self._get_constructor_name(node.func)
-            if func_name and self._looks_like_constructor(func_name, node):
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
-                raise UnsupportedPatternError(
-                    f"Returning constructor call '{func_name}(...)' is not supported",
-                    RECOMMENDATIONS["constructor_return"],
-                    line=line,
-                    col=col,
-                )
-
-    def _check_constructor_in_assignment(self, node: ast.expr) -> None:
-        """Check for constructor calls in assignments.
-
-        Raises UnsupportedPatternError if the assignment value is a class instantiation
-        like: result = MyModel(field=value)
-
-        This is not supported because the workflow IR cannot serialize arbitrary
-        object instantiation. Users should use an @action to create objects.
-        """
-        # Skip if it's an await (action call) - those are fine
-        if isinstance(node, ast.Await):
-            return
-
-        # Check for direct Call that looks like a constructor
-        if isinstance(node, ast.Call):
-            func_name = self._get_constructor_name(node.func)
-            if func_name and self._looks_like_constructor(func_name, node):
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
-                raise UnsupportedPatternError(
-                    f"Assigning constructor call '{func_name}(...)' is not supported",
-                    RECOMMENDATIONS["constructor_assignment"],
-                    line=line,
-                    col=col,
-                )
-
-    def _get_constructor_name(self, func: ast.expr) -> Optional[str]:
-        """Get the name from a function expression if it looks like a constructor."""
-        if isinstance(func, ast.Name):
-            return func.id
-        elif isinstance(func, ast.Attribute):
-            return func.attr
-        return None
-
-    def _looks_like_constructor(self, func_name: str, call: ast.Call) -> bool:
-        """Check if a function call looks like a class constructor.
-
-        A constructor is identified by:
-        1. Name starts with uppercase (PEP8 convention for classes)
-        2. It's not a known action
-        3. It's not a known builtin like String operations
-        4. It's not a known Pydantic model or dataclass (those are allowed)
-
-        This is a heuristic - we can't perfectly distinguish constructors
-        from functions without full type information.
-        """
-        # Check if first letter is uppercase (class naming convention)
-        if not func_name or not func_name[0].isupper():
-            return False
-
-        # If it's a known action, it's not a constructor
-        if func_name in self._action_defs:
-            return False
-
-        # If it's a known Pydantic model or dataclass, allow it
-        # (it will be converted to a dict expression)
-        if func_name in self._model_defs:
-            return False
-
-        # Common builtins that start with uppercase but aren't constructors
-        # (these are rarely used in workflow code but let's be safe)
-        builtin_exceptions = {"True", "False", "None", "Ellipsis"}
-        if func_name in builtin_exceptions:
-            return False
-
-        return True
-
-    def _is_model_constructor(self, node: ast.expr) -> Optional[str]:
-        """Check if an expression is a Pydantic model or dataclass constructor call.
-
-        Returns the model name if it is, None otherwise.
-        """
-        if not isinstance(node, ast.Call):
-            return None
-
-        func_name = self._get_constructor_name(node.func)
-        if func_name and func_name in self._model_defs:
-            return func_name
-
-        return None
-
-    def _convert_model_constructor_to_dict(self, node: ast.Call, model_name: str) -> ir.Expr:
-        """Convert a Pydantic model or dataclass constructor call to a dict expression.
-
-        For example:
-            MyModel(field1=value1, field2=value2)
-        becomes:
-            {"field1": value1, "field2": value2}
-
-        Default values from the model definition are included for fields not
-        explicitly provided in the constructor call.
-        """
-        model_def = self._model_defs[model_name]
-        entries: List[ir.DictEntry] = []
-
-        # Track which fields were explicitly provided
-        provided_fields: Set[str] = set()
-
-        # First, add all explicitly provided kwargs
-        for kw in node.keywords:
-            if kw.arg is None:
-                # **kwargs expansion - not supported
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
-                raise UnsupportedPatternError(
-                    f"Model constructor '{model_name}' with **kwargs is not supported",
-                    "Use explicit keyword arguments instead of **kwargs.",
-                    line=line,
-                    col=col,
-                )
-
-            provided_fields.add(kw.arg)
-            key_expr = ir.Expr()
-            key_literal = ir.Literal()
-            key_literal.string_value = kw.arg
-            key_expr.literal.CopyFrom(key_literal)
-
-            value_expr = self._expr_to_ir_with_model_coercion(kw.value)
-            if value_expr is None:
-                # If we can't convert the value, we need to raise an error
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
-                raise UnsupportedPatternError(
-                    f"Cannot convert value for field '{kw.arg}' in '{model_name}'",
-                    "Use simpler expressions (literals, variables, dicts, lists).",
-                    line=line,
-                    col=col,
-                )
-
-            entries.append(ir.DictEntry(key=key_expr, value=value_expr))
-
-        # Handle positional arguments (dataclasses support this)
-        if node.args:
-            # For dataclasses, positional args map to fields in order
-            field_names = list(model_def.fields.keys())
-            for i, arg in enumerate(node.args):
-                if i >= len(field_names):
-                    line = getattr(node, "lineno", None)
-                    col = getattr(node, "col_offset", None)
-                    raise UnsupportedPatternError(
-                        f"Too many positional arguments for '{model_name}'",
-                        "Use keyword arguments for clarity.",
-                        line=line,
-                        col=col,
-                    )
-
-                field_name = field_names[i]
-                provided_fields.add(field_name)
-
-                key_expr = ir.Expr()
-                key_literal = ir.Literal()
-                key_literal.string_value = field_name
-                key_expr.literal.CopyFrom(key_literal)
-
-                value_expr = self._expr_to_ir_with_model_coercion(arg)
-                if value_expr is None:
-                    line = getattr(node, "lineno", None)
-                    col = getattr(node, "col_offset", None)
-                    raise UnsupportedPatternError(
-                        f"Cannot convert positional argument for field '{field_name}' in '{model_name}'",
-                        "Use simpler expressions (literals, variables, dicts, lists).",
-                        line=line,
-                        col=col,
-                    )
-
-                entries.append(ir.DictEntry(key=key_expr, value=value_expr))
-
-        # Add default values for fields not explicitly provided
-        for field_name, field_def in model_def.fields.items():
-            if field_name in provided_fields:
-                continue
-
-            if field_def.has_default:
-                key_expr = ir.Expr()
-                key_literal = ir.Literal()
-                key_literal.string_value = field_name
-                key_expr.literal.CopyFrom(key_literal)
-
-                # Convert the default value to an IR literal
-                default_literal = _constant_to_literal(field_def.default_value)
-                if default_literal is None:
-                    # Can't serialize this default - skip it
-                    # (it's probably a complex object like a list factory)
-                    continue
-
-                value_expr = ir.Expr()
-                value_expr.literal.CopyFrom(default_literal)
-
-                entries.append(ir.DictEntry(key=key_expr, value=value_expr))
-
-        result = ir.Expr(span=_make_span(node))
-        result.dict.CopyFrom(ir.DictExpr(entries=entries))
-        return result
-
     def _check_non_action_await(self, node: ast.Await) -> None:
         """Check if an await is for a non-action function.
 
@@ -2560,7 +2088,7 @@ class IRBuilder(ast.NodeVisitor):
             return name
         return None
 
-    def _convert_model_constructor_if_needed(self, node: ast.Call) -> Optional[ir.Expr]:
+    def _convert_registered_call(self, node: ast.Call) -> Optional[ir.Expr]:
         handler = self._language_calls.resolve(node.func, self._language_call_namespace)
         if handler is not None:
             if handler.requires_await:
@@ -2572,9 +2100,6 @@ class IRBuilder(ast.NodeVisitor):
             if lowered.statements:
                 raise handler.error(node, "use this call in its own statement")
             return lowered.value
-        model_name = self._is_model_constructor(node)
-        if model_name:
-            return self._convert_model_constructor_to_dict(node, model_name)
         return None
 
     def _resolve_enum_attribute(self, node: ast.Attribute) -> Optional[ir.Expr]:
@@ -2615,7 +2140,7 @@ class IRBuilder(ast.NodeVisitor):
 
         result = _expr_to_ir(
             node,
-            model_converter=self._convert_model_constructor_if_needed,
+            model_converter=self._convert_registered_call,
             enum_resolver=self._resolve_enum_attribute,
         )
         # Post-process to fill in default kwargs for function calls (recursively)
@@ -2651,7 +2176,7 @@ class IRBuilder(ast.NodeVisitor):
         # Convert the resolved AST to IR
         return _expr_to_ir(
             resolved_ast,
-            model_converter=self._convert_model_constructor_if_needed,
+            model_converter=self._convert_registered_call,
             enum_resolver=self._resolve_enum_attribute,
         )
 
