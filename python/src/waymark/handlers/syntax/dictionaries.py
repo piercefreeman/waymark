@@ -33,6 +33,5 @@ class DictionaryHandler(ExpressionHandler[ast.Dict | ast.DictComp]):
             assert key is not None
             key_value = context.expression(key)
             item_value = context.expression(value)
-            assert key_value is not None and item_value is not None
             entries.append(ir.DictEntry(key=key_value, value=item_value))
         return ir.Expr(dict=ir.DictExpr(entries=entries), span=make_span(node))

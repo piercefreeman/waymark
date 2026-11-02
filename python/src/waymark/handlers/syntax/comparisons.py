@@ -59,7 +59,6 @@ class ComparisonHandler(ExpressionHandler[ast.Compare]):
         operator = comparison_operator(node.ops[0])
         if operator is None:
             reject(node, "Unsupported comparison operator")
-        assert left is not None and right is not None
         return ir.Expr(
             binary_op=ir.BinaryOp(left=left, op=operator, right=right), span=make_span(node)
         )

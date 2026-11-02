@@ -39,7 +39,7 @@ class ReturnHandler(StatementHandler[ast.Return]):
 
             # Normalize return of function calls into assignment + return
             expr = context.expression(node.value)
-            if expr and expr.HasField("function_call"):
+            if expr.HasField("function_call"):
                 tmp_var = context.next_name("return_tmp")
 
                 assign_stmt = ir.Statement(span=make_span(node))
@@ -51,11 +51,7 @@ class ReturnHandler(StatementHandler[ast.Return]):
                 return [assign_stmt, return_stmt]
 
             # Regular return with expression (variable, literal, etc.)
-            if expr:
-                stmt = ir.Statement(span=make_span(node))
-                return_stmt = ir.ReturnStmt(value=expr)
-                stmt.return_stmt.CopyFrom(return_stmt)
-                return [stmt]
+            return [ir.Statement(return_stmt=ir.ReturnStmt(value=expr), span=make_span(node))]
 
         # Return with no value
         stmt = ir.Statement(span=make_span(node))

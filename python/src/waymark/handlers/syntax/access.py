@@ -31,10 +31,8 @@ class AccessHandler(ExpressionHandler[ast.Attribute | ast.Subscript]):
             if resolved is not None:
                 return resolved
         value = context.expression(node.value)
-        assert value is not None
         if isinstance(node, ast.Subscript):
             index = context.expression(node.slice)
-            assert index is not None
             return ir.Expr(index=ir.IndexAccess(object=value, index=index), span=make_span(node))
         return ir.Expr(dot=ir.DotAccess(object=value, attribute=node.attr), span=make_span(node))
 

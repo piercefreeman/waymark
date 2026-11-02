@@ -55,7 +55,6 @@ class RangeHandler(LanguageCallHandler[RangeArguments]):
         ):
             raise self.error(arguments.bounds[2], "step cannot be zero")
         values = [context.expression(argument) for argument in arguments.bounds]
-        assert all(value is not None for value in values)
         return LoweredCall(
             ir.Expr(
                 function_call=ir.FunctionCall(

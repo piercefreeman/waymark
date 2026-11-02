@@ -40,7 +40,6 @@ class LengthHandler(LanguageCallHandler[LengthArguments]):
         if isinstance(arguments.obj, ast.Constant) and isinstance(arguments.obj.value, str):
             return LoweredCall(ir.Expr(literal=ir.Literal(int_value=len(arguments.obj.value))))
         value = context.expression(arguments.obj)
-        assert value is not None
         return LoweredCall(
             ir.Expr(
                 function_call=ir.FunctionCall(

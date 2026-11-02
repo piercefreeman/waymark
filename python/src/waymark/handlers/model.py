@@ -156,7 +156,6 @@ class ModelHandler(LanguageCallHandler[ModelArguments]):
         entries = []
         for name, argument in arguments.fields.items():
             value = context.expression(argument)
-            assert value is not None
             entries.append(
                 ir.DictEntry(key=ir.Expr(literal=ir.Literal(string_value=name)), value=value)
             )

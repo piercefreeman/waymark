@@ -186,8 +186,7 @@ class IRBuilder(ast.NodeVisitor):
         if lowered is not None:
             return lowered
         if isinstance(node, ast.Expr):
-            result = self._visit_expr_stmt(node)
-            return [result] if result else []
+            return [self._visit_expr_stmt(node)]
         elif isinstance(node, ast.Pass):
             # Pass statements are fine, they just don't produce IR
             return []
@@ -354,7 +353,7 @@ class IRBuilder(ast.NodeVisitor):
             )
         return statements
 
-    def _visit_expr_stmt(self, node: ast.Expr) -> Optional[ir.Statement]:
+    def _visit_expr_stmt(self, node: ast.Expr) -> ir.Statement:
         """Convert expression statement to IR (side effect only, no assignment)."""
         stmt = ir.Statement(span=make_span(node))
 
@@ -366,11 +365,8 @@ class IRBuilder(ast.NodeVisitor):
 
         # Regular expression
         expr = self._compile_expression(node.value)
-        if expr:
-            stmt.expr_stmt.CopyFrom(ir.ExprStmt(expr=expr))
-            return stmt
-
-        return None
+        stmt.expr_stmt.CopyFrom(ir.ExprStmt(expr=expr))
+        return stmt
 
     def _visit_break(self, node: ast.Break) -> List[ir.Statement]:
         """Convert break statement to IR."""
@@ -444,12 +440,10 @@ class IRBuilder(ast.NodeVisitor):
         fn_call = ir.FunctionCall(name=func_name)
         for argument in node.args:
             value = self._compile_expression(argument)
-            assert value is not None
             fn_call.args.append(value)
         for keyword in node.keywords:
             assert keyword.arg is not None
             value = self._compile_expression(keyword.value)
-            assert value is not None
             fn_call.kwargs.append(ir.Kwarg(name=keyword.arg, value=value))
         for parameter in information.parameters.values():
             if (
@@ -457,7 +451,6 @@ class IRBuilder(ast.NodeVisitor):
                 and parameter.default is not inspect.Parameter.empty
             ):
                 value = self._compile_expression(literal_expression(parameter.default, node))
-                assert value is not None
                 fn_call.kwargs.append(ir.Kwarg(name=parameter.name, value=value))
 
         return fn_call
@@ -499,7 +492,7 @@ class IRBuilder(ast.NodeVisitor):
                 return ir.Expr(function_call=function)
         return None
 
-    def _compile_expression(self, node: ast.expr) -> Optional[ir.Expr]:
+    def _compile_expression(self, node: ast.expr) -> ir.Expr:
         """Dispatch syntax lowering and recurse through shared compiler operations."""
         lowered = SYNTAX_HANDLERS.lower_expression(node, self._compiler_context)
         if lowered is not None:
@@ -510,7 +503,7 @@ class IRBuilder(ast.NodeVisitor):
 def _expr_to_ir(
     expr: ast.expr,
     context: CompilerContext,
-) -> Optional[ir.Expr]:
+) -> ir.Expr:
     """Convert Python AST expression to IR Expr.
 
     Args:
@@ -539,10 +532,8 @@ def _expr_to_ir(
     # Check for unsupported expression types
     _check_unsupported_expression(expr)
 
-    return None
 
-
-def _check_unsupported_expression(expr: ast.expr) -> None:
+def _check_unsupported_expression(expr: ast.expr) -> NoReturn:
     """Check for unsupported expression types and raise descriptive errors."""
     line = expr.lineno
     col = expr.col_offset
@@ -596,7 +587,7 @@ def _check_unsupported_expression(expr: ast.expr) -> None:
             line=line,
             col=col,
         )
-    elif isinstance(expr, ast.expr):
+    else:
         raise UnsupportedPatternError(
             f"Unsupported expression type '{type(expr).__name__}'",
             RECOMMENDATIONS["unsupported_expression"],

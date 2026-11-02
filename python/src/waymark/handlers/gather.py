@@ -123,10 +123,6 @@ class GatherHandler(LanguageCallHandler[GatherArguments]):
             element_node = rewritten
 
         collection = context.expression(collection_node)
-        if collection is None:
-            raise self.error(
-                collection_node, "could not convert collection expression in spread pattern"
-            )
         return LoweredCall(
             value=ir.Expr(
                 spread_expr=ir.SpreadExpr(

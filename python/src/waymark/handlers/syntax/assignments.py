@@ -67,10 +67,9 @@ class AssignmentHandler(StatementHandler[ast.Assign | ast.AnnAssign | ast.AugAss
         expanded = self._expand_comprehension(node, context)
         if expanded is not None:
             return expanded
-        assignment = self._lower_assignment(node, context)
-        return [assignment] if assignment is not None else []
+        return [self._lower_assignment(node, context)]
 
-    def _lower_assignment(self, node: ast.Assign, context: CompilerContext) -> ir.Statement | None:
+    def _lower_assignment(self, node: ast.Assign, context: CompilerContext) -> ir.Statement:
         targets = assignment_targets(node.targets)
         action = context.action(node.value)
         value = (
@@ -78,8 +77,6 @@ class AssignmentHandler(StatementHandler[ast.Assign | ast.AnnAssign | ast.AugAss
             if action is not None
             else context.expression(node.value)
         )
-        if value is None:
-            return None
         return ir.Statement(
             assignment=ir.Assignment(targets=targets, value=value), span=make_span(node)
         )
@@ -109,52 +106,31 @@ class AssignmentHandler(StatementHandler[ast.Assign | ast.AnnAssign | ast.AugAss
         )
 
     def _lower_augmented(self, node: ast.AugAssign, context: CompilerContext) -> list[ir.Statement]:
-        """Convert augmented assignment (+=, -=, etc.) to IR."""
-        # For now, we can represent this as a regular assignment with binary op
-        # target op= value  ->  target = target op value
-        stmt = ir.Statement(span=make_span(node))
-
-        targets: list[str] = []
-        if isinstance(node.target, ast.Name):
-            targets.append(node.target.id)
-
+        """Preserve read-before-write order and materialize helper results before updating."""
         left = context.expression(node.target)
         right = context.expression(node.value)
-        if right and right.HasField("function_call"):
-            tmp_var = context.next_name("aug_tmp")
-
-            assign_tmp = ir.Statement(span=make_span(node))
-            assign_tmp.assignment.CopyFrom(
-                ir.Assignment(
-                    targets=[tmp_var],
-                    value=ir.Expr(function_call=right.function_call, span=make_span(node)),
+        operator = binary_operator(node.op)
+        if operator is None:
+            reject(node, "Unsupported binary operator")
+        statements = []
+        if right.HasField("function_call"):
+            temporary = context.next_name("aug_tmp")
+            statements.append(
+                ir.Statement(
+                    assignment=ir.Assignment(targets=[temporary], value=right), span=make_span(node)
                 )
             )
-
-            if left:
-                op = binary_operator(node.op)
-                if op:
-                    binary = ir.BinaryOp(
-                        left=left,
-                        op=op,
-                        right=ir.Expr(variable=ir.Variable(name=tmp_var)),
-                    )
-                    value = ir.Expr(binary_op=binary)
-                    assign = ir.Assignment(targets=targets, value=value)
-                    stmt.assignment.CopyFrom(assign)
-                    return [assign_tmp, stmt]
-            return [assign_tmp]
-
-        if left and right:
-            op = binary_operator(node.op)
-            if op:
-                binary = ir.BinaryOp(left=left, op=op, right=right)
-                value = ir.Expr(binary_op=binary)
-                assign = ir.Assignment(targets=targets, value=value)
-                stmt.assignment.CopyFrom(assign)
-                return [stmt]
-
-        return []
+            right = ir.Expr(variable=ir.Variable(name=temporary))
+        statements.append(
+            ir.Statement(
+                assignment=ir.Assignment(
+                    targets=assignment_targets([node.target]),
+                    value=ir.Expr(binary_op=ir.BinaryOp(left=left, op=operator, right=right)),
+                ),
+                span=make_span(node),
+            )
+        )
+        return statements
 
     def _expand_comprehension(
         self, node: ast.Assign, context: CompilerContext
@@ -290,8 +266,7 @@ class AssignmentHandler(StatementHandler[ast.Assign | ast.AnnAssign | ast.AugAss
 
         statements = context.statement(iterable_assignment)
         init_stmt = self._lower_assignment(init_assign_ast, context)
-        if init_stmt:
-            statements.append(init_stmt)
+        statements.append(init_stmt)
         statements.extend(context.statement(loop_ast))
         final_assignment = ast.fix_missing_locations(
             ast.copy_location(

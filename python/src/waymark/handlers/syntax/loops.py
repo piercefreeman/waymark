@@ -35,7 +35,6 @@ class LoopHandler(StatementHandler[ast.For | ast.While | ast.comprehension]):
         assert isinstance(node, (ast.For, ast.While))
         if isinstance(node, ast.For):
             iterable = context.expression(node.iter)
-            assert iterable is not None
             return [
                 ir.Statement(
                     for_loop=ir.ForLoop(
@@ -47,7 +46,6 @@ class LoopHandler(StatementHandler[ast.For | ast.While | ast.comprehension]):
                 )
             ]
         condition = context.expression(node.test)
-        assert condition is not None
         return [
             ir.Statement(
                 while_loop=ir.WhileLoop(

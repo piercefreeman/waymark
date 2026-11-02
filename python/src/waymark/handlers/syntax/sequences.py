@@ -31,11 +31,9 @@ class SequenceHandler(ExpressionHandler[ast.List | ast.Tuple]):
                 if isinstance(element, ast.Starred):
                     flush()
                     value = context.expression(element.value)
-                    assert value is not None
                     segments.append(value)
                 else:
                     value = context.expression(element)
-                    assert value is not None
                     buffered.append(value)
             flush()
             combined = segments[0]
@@ -47,8 +45,7 @@ class SequenceHandler(ExpressionHandler[ast.List | ast.Tuple]):
                 )
             return combined
         elements = [context.expression(element) for element in node.elts]
-        assert all(element is not None for element in elements)
         return ir.Expr(
-            list=ir.ListExpr(elements=[element for element in elements if element is not None]),
+            list=ir.ListExpr(elements=elements),
             span=make_span(node),
         )

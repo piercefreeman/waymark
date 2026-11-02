@@ -17,7 +17,7 @@ from waymark.proto import ast_pb2 as ir
 class CompilerContext:
     """Compile nested syntax using the current workflow's symbols and temporary names."""
 
-    expression: Callable[[ast.expr], ir.Expr | None]
+    expression: Callable[[ast.expr], ir.Expr]
     statement: Callable[[ast.stmt], list[ir.Statement]]
     action: Callable[[ast.expr], ir.ActionCall | None]
     function: Callable[[ast.Call], ir.FunctionCall | None]
