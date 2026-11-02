@@ -218,24 +218,24 @@ class LoopExceptionWorkflow(Workflow):
 
 ## Durable sleep {{ id: 'durable-sleep' }}
 
-`await asyncio.sleep(seconds)` is recognized specially. It's a durable
+`await asyncio.sleep(30)` accepts a finite literal delay. It's a durable
 sleep - its wake-up time is recorded in Postgres, so the sleep survives
 node restarts: if the node running the workflow dies, another node picks
 the instance up and it still wakes at the original time. While it sleeps,
 the instance stays loaded on its node and counts toward that node's
 `WAYMARK_MAX_CONCURRENT_INSTANCES`. Sleeps are woken by the node's sleep
 poller, so one can wake up to one poll interval late -
-`WAYMARK_SLEEP_POLL_INTERVAL_MS`, 250 ms by default. Fractional seconds
-work.
+`WAYMARK_SLEEP_POLL_INTERVAL_MS`, 250 ms by default. Fractional seconds work. Dynamic delays are rejected until the VM can
+validate them with Python-compatible exceptions.
 
 ```python
 @workflow
 class DurableSleepWorkflow(Workflow):
-    async def run(self, seconds: int) -> SleepResult:
+    async def run(self) -> SleepResult:
         started = await get_timestamp()
-        await asyncio.sleep(seconds)  # survives worker restarts
+        await asyncio.sleep(30)  # survives worker restarts
         resumed = await get_timestamp()
-        return await format_sleep_result(started, resumed, seconds)
+        return await format_sleep_result(started, resumed, 30)
 ```
 
 This is also fine inside loops - useful for polling or for slow drip
@@ -243,9 +243,11 @@ behaviors:
 
 ```python
 for i in range(iterations):
-    await asyncio.sleep(sleep_seconds)
+    await asyncio.sleep(5)
     await perform_loop_action(iteration=i + 1)
 ```
+
+`asyncio.sleep` also accepts `result=`. Nonpositive delays return the result without a VM wait; positive delays must fit the runtime duration range.
 
 ## Early return {{ id: 'early-return' }}
 
