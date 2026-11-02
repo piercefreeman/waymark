@@ -39,38 +39,18 @@ class ParsedFunction:
         )
 
 
-def parse_function(function: FunctionType, name: str | None = None) -> ParsedFunction:
-    """Parse a method once while retaining its lexical scope and original indentation."""
-    source_lines, start_line = inspect.getsourcelines(function)
-    source = textwrap.dedent("".join(source_lines))
-    filename = inspect.getsourcefile(function) or inspect.getfile(function)
-    tree = ast.parse(source, filename=filename or "<unknown>")
-    parsed_lines = source.splitlines(keepends=True)
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.stmt, ast.expr, ast.arg, ast.keyword, ast.ExceptHandler)):
-            node.col_offset += len(source_lines[node.lineno - 1]) - len(
-                parsed_lines[node.lineno - 1]
-            )
-            if node.end_lineno is not None and node.end_col_offset is not None:
-                node.end_col_offset += len(source_lines[node.end_lineno - 1]) - len(
-                    parsed_lines[node.end_lineno - 1]
-                )
-    function_node = tree.body[0]
-    assert isinstance(function_node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    signature = inspect.signature(function)
-    return ParsedFunction(
-        name=name if name is not None else function.__name__,
-        node=function_node,
-        namespace={**function.__globals__, **inspect.getclosurevars(function).nonlocals},
-        signature=signature.replace(
-            parameters=[
-                parameter for key, parameter in signature.parameters.items() if key != "self"
-            ]
-        ),
-        local_names=function.__code__.co_varnames + function.__code__.co_cellvars,
-        filename=filename,
-        start_line=start_line,
-    )
+@dataclass(frozen=True)
+class InstanceAttrs:
+    """What `__init__` assigns to `self`, as far as the compiler can read it."""
+
+    literals: dict[str, ast.expr]
+    """Attributes assigned exactly once, at the top level of `__init__`, with the value."""
+
+    ambiguous: set[str]
+    """Attributes assigned more than once, or under a branch or loop: unreadable."""
+
+    namespace: Mapping[str, Any] = field(default_factory=dict)
+    """Globals and closure bindings where the initializer expressions were defined."""
 
 
 def load_workflow_source(workflow_cls: type["Workflow"]) -> list[ParsedFunction]:
@@ -107,57 +87,38 @@ def load_workflow_source(workflow_cls: type["Workflow"]) -> list[ParsedFunction]
     return methods
 
 
-def _collect_self_method_calls(tree: ast.AST) -> list[str]:
-    """Collect self.method(...) call names from a parsed function AST in source order."""
-
-    class SelfMethodCallCollector(ast.NodeVisitor):
-        def __init__(self) -> None:
-            self.calls: list[str] = []
-            self._seen: set[str] = set()
-
-        def visit_Call(self, node: ast.Call) -> None:
-            func = node.func
-            if (
-                isinstance(func, ast.Attribute)
-                and isinstance(func.value, ast.Name)
-                and func.value.id == "self"
-                and func.attr not in self._seen
-            ):
-                self._seen.add(func.attr)
-                self.calls.append(func.attr)
-
-            self.generic_visit(node)
-
-    collector = SelfMethodCallCollector()
-    collector.visit(tree)
-    return collector.calls
-
-
-def _find_workflow_method(workflow_cls: type["Workflow"], name: str) -> FunctionType | None:
-    """Find a workflow method by name across the class MRO."""
-    for base in workflow_cls.__mro__:
-        if name not in base.__dict__:
-            continue
-        value = base.__dict__[name]
-        if isinstance(value, staticmethod) or isinstance(value, classmethod):
-            return value.__func__
-        if inspect.isfunction(value):
-            return value
-    return None
-
-
-@dataclass(frozen=True)
-class InstanceAttrs:
-    """What `__init__` assigns to `self`, as far as the compiler can read it."""
-
-    literals: dict[str, ast.expr]
-    """Attributes assigned exactly once, at the top level of `__init__`, with the value."""
-
-    ambiguous: set[str]
-    """Attributes assigned more than once, or under a branch or loop: unreadable."""
-
-    namespace: Mapping[str, Any] = field(default_factory=dict)
-    """Globals and closure bindings where the initializer expressions were defined."""
+def parse_function(function: FunctionType, name: str | None = None) -> ParsedFunction:
+    """Parse a method once while retaining its lexical scope and original indentation."""
+    source_lines, start_line = inspect.getsourcelines(function)
+    source = textwrap.dedent("".join(source_lines))
+    filename = inspect.getsourcefile(function) or inspect.getfile(function)
+    tree = ast.parse(source, filename=filename or "<unknown>")
+    parsed_lines = source.splitlines(keepends=True)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.stmt, ast.expr, ast.arg, ast.keyword, ast.ExceptHandler)):
+            node.col_offset += len(source_lines[node.lineno - 1]) - len(
+                parsed_lines[node.lineno - 1]
+            )
+            if node.end_lineno is not None and node.end_col_offset is not None:
+                node.end_col_offset += len(source_lines[node.end_lineno - 1]) - len(
+                    parsed_lines[node.end_lineno - 1]
+                )
+    function_node = tree.body[0]
+    assert isinstance(function_node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    signature = inspect.signature(function)
+    return ParsedFunction(
+        name=name if name is not None else function.__name__,
+        node=function_node,
+        namespace={**function.__globals__, **inspect.getclosurevars(function).nonlocals},
+        signature=signature.replace(
+            parameters=[
+                parameter for key, parameter in signature.parameters.items() if key != "self"
+            ]
+        ),
+        local_names=function.__code__.co_varnames + function.__code__.co_cellvars,
+        filename=filename,
+        start_line=start_line,
+    )
 
 
 def extract_instance_attrs(workflow_cls: type["Workflow"]) -> InstanceAttrs:
@@ -214,6 +175,45 @@ def extract_instance_attrs(workflow_cls: type["Workflow"]) -> InstanceAttrs:
             **inspect.getclosurevars(init_method).nonlocals,
         },
     )
+
+
+def _find_workflow_method(workflow_cls: type["Workflow"], name: str) -> FunctionType | None:
+    """Find a workflow method by name across the class MRO."""
+    for base in workflow_cls.__mro__:
+        if name not in base.__dict__:
+            continue
+        value = base.__dict__[name]
+        if isinstance(value, staticmethod) or isinstance(value, classmethod):
+            return value.__func__
+        if inspect.isfunction(value):
+            return value
+    return None
+
+
+def _collect_self_method_calls(tree: ast.AST) -> list[str]:
+    """Collect self.method(...) call names from a parsed function AST in source order."""
+
+    class SelfMethodCallCollector(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+            self._seen: set[str] = set()
+
+        def visit_Call(self, node: ast.Call) -> None:
+            func = node.func
+            if (
+                isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "self"
+                and func.attr not in self._seen
+            ):
+                self._seen.add(func.attr)
+                self.calls.append(func.attr)
+
+            self.generic_visit(node)
+
+    collector = SelfMethodCallCollector()
+    collector.visit(tree)
+    return collector.calls
 
 
 def _self_attribute_assignment(node: ast.AST) -> tuple[str, ast.expr] | None:

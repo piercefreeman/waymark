@@ -48,6 +48,7 @@ def test_conditional_setup_preserves_evaluation_order(
 @workflow
 class SetupGuardWorkflow(Workflow):
     async def run(self, first: bool, values: list[int]) -> int:
+        """Make eager evaluation of the later guard fail when values is empty."""
         if first:
             return 1
         elif await asyncio.sleep(1, result=values[0] > 0):
