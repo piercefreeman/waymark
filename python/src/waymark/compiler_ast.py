@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from types import ModuleType
 from typing import Any
 
+from waymark.proto import ast_pb2 as ir
+
 
 def rewrite_load_names(node: ast.AST, replacements: Mapping[str, ast.expr]) -> ast.AST:
     """Copy a subtree while substituting reads, preserving source locations and stores."""
@@ -39,3 +41,14 @@ def resolve_reference(function: ast.expr, namespace: Mapping[str, Any]) -> Any:
                 None,
             )
     return None
+
+
+def make_span(node: ast.AST) -> ir.Span:
+    """Preserve source positions, including generated nodes that have no location yet."""
+    location = vars(node)
+    return ir.Span(
+        start_line=location.get("lineno", 0),
+        start_col=location.get("col_offset", 0),
+        end_line=location.get("end_lineno", 0) or 0,
+        end_col=location.get("end_col_offset", 0) or 0,
+    )

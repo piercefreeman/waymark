@@ -25,18 +25,21 @@ import textwrap
 import types
 from dataclasses import dataclass, field
 from enum import EnumMeta
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Set
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, NoReturn, Optional, Set
 
 from waymark.call_binding import bind_call
-from waymark.compiler_ast import rewrite_load_names
+from waymark.compiler_analysis import SourceAnalysis
+from waymark.compiler_ast import make_span, rewrite_load_names
 from waymark.compiler_context import CompilerContext
 from waymark.compiler_errors import UnsupportedPatternError
-from waymark.compiler_literals import literal_expression
+from waymark.compiler_literals import literal_expression, validate_literal
 from waymark.compiler_recommendations import RECOMMENDATIONS
+from waymark.compiler_targets import assignment_targets
 from waymark.compiler_types import has_open_type_parameters
-from waymark.compiler_validation import SourceValidator, validate_literal
+from waymark.compiler_validation import SourceValidator
 from waymark.global_handlers import GLOBAL_HANDLERS
 from waymark.proto import ast_pb2 as ir
+from waymark.syntax_handlers import SYNTAX_HANDLERS
 
 if TYPE_CHECKING:
     from waymark.workflow import Workflow
@@ -360,6 +363,10 @@ class IRBuilder(ast.NodeVisitor):
                 function, self._language_call_namespace
             ),
             namespace=self._language_call_namespace,
+            synchronous_call=self._convert_registered_call,
+            validate_syntax=lambda node: SourceValidator(
+                self._compiler_context, SYNTAX_HANDLERS
+            ).visit(node),
             instance_attrs=self._instance_attrs,
             ambiguous_instance_attrs=self._ambiguous_instance_attrs,
         )
@@ -383,19 +390,24 @@ class IRBuilder(ast.NodeVisitor):
                     line=annotation.lineno,
                     col=annotation.col_offset,
                 )
-        local_types = SourceValidator(
-            self._language_call_namespace,
-            self._language_calls,
-            set(self._ctx.function_signatures),
-        ).validate(node)
-        self._language_call_namespace.update(local_types)
+        analysis = SourceAnalysis()
+        analysis.analyze(node)
+        self._compiler_context.analysis = analysis
+        self._language_call_namespace.update(
+            {
+                name: list
+                for name in analysis.fresh_lists - analysis.aliased
+                if analysis.types.get(name) == "list"
+            }
+        )
+        SourceValidator(self._compiler_context, SYNTAX_HANDLERS).validate(node)
         inputs = self._collect_function_inputs(node)
 
         # Create the function definition
         self.function_def = ir.FunctionDef(
             name=node.name,
             io=ir.IoDecl(inputs=inputs, outputs=[]),
-            span=_make_span(node),
+            span=make_span(node),
         )
 
         # Visit the body - _visit_statement now returns a list
@@ -422,6 +434,9 @@ class IRBuilder(ast.NodeVisitor):
         language_call = self._visit_language_call(node)
         if language_call is not None:
             return language_call
+        lowered = SYNTAX_HANDLERS.lower_statement(node, self._compiler_context)
+        if lowered is not None:
+            return lowered
         if isinstance(node, ast.Assign):
             expanded = self._expand_list_comprehension_assignment(node)
             if expanded is not None:
@@ -603,7 +618,7 @@ class IRBuilder(ast.NodeVisitor):
 
         replacements = {
             name: ast.Name(id=self._ctx.next_implicit_fn_name("comprehension_item"), ctx=ast.Load())
-            for name in self._get_assign_targets([gen.target])
+            for name in assignment_targets([gen.target])
         }
         for target in ast.walk(gen.target):
             if isinstance(target, ast.Name):
@@ -704,9 +719,9 @@ class IRBuilder(ast.NodeVisitor):
         """Dispatch registered awaited calls; handlers own recognition and lowering."""
         match node:
             case ast.Assign(value=ast.Await(value=ast.Call() as call)):
-                targets = self._get_assign_targets(node.targets)
+                targets = assignment_targets(node.targets)
             case ast.AnnAssign(value=ast.Await(value=ast.Call() as call)):
-                targets = self._get_assign_targets([node.target])
+                targets = assignment_targets([node.target])
             case ast.Expr(value=ast.Await(value=ast.Call() as call)):
                 targets = []
             case ast.Return(value=ast.Await(value=ast.Call() as call)):
@@ -741,8 +756,8 @@ class IRBuilder(ast.NodeVisitor):
             and len(targets) != len(lowered.value.parallel_expr.calls)
         ):
             raise handler.error(call, "unpacking target count does not match result count")
-        lowered.value.span.CopyFrom(_make_span(call))
-        statement = ir.Statement(span=_make_span(node))
+        lowered.value.span.CopyFrom(make_span(call))
+        statement = ir.Statement(span=make_span(node))
         if isinstance(node, ast.Expr) and lowered.value.HasField("parallel_expr"):
             statement.parallel_block.calls.extend(lowered.value.parallel_expr.calls)
         elif isinstance(node, ast.Expr) and not lowered.value.HasField("spread_expr"):
@@ -757,7 +772,7 @@ class IRBuilder(ast.NodeVisitor):
             statements.append(
                 ir.Statement(
                     return_stmt=ir.ReturnStmt(value=ir.Expr(variable=ir.Variable(name=targets[0]))),
-                    span=_make_span(node),
+                    span=make_span(node),
                 )
             )
         return statements
@@ -785,13 +800,13 @@ class IRBuilder(ast.NodeVisitor):
         - Constructor calls: x = MyClass(...)
         - Non-action await: x = await some_func()
         """
-        stmt = ir.Statement(span=_make_span(node))
-        targets = self._get_assign_targets(node.targets)
+        stmt = ir.Statement(span=make_span(node))
+        targets = assignment_targets(node.targets)
 
         # Check if this is an action call - wrap in Assignment for uniform unpacking
         action_call = self._extract_action_call(node.value)
         if action_call:
-            value = ir.Expr(action_call=action_call, span=_make_span(node))
+            value = ir.Expr(action_call=action_call, span=make_span(node))
             assign = ir.Assignment(targets=targets, value=value)
             stmt.assignment.CopyFrom(assign)
             return stmt
@@ -807,7 +822,7 @@ class IRBuilder(ast.NodeVisitor):
 
     def _visit_expr_stmt(self, node: ast.Expr) -> Optional[ir.Statement]:
         """Convert expression statement to IR (side effect only, no assignment)."""
-        stmt = ir.Statement(span=_make_span(node))
+        stmt = ir.Statement(span=make_span(node))
 
         # Check if this is an action call (side effect only)
         action_call = self._extract_action_call(node.value)
@@ -830,7 +845,7 @@ class IRBuilder(ast.NodeVisitor):
         statements/calls and early `return`.
         """
         # Get loop variables
-        loop_vars = self._get_assign_targets([node.target])
+        loop_vars = assignment_targets([node.target])
 
         # Get iterable
         iterable = self._compile_expression(node.iter)
@@ -843,11 +858,11 @@ class IRBuilder(ast.NodeVisitor):
             stmts = self._visit_statement(body_node)
             body_stmts.extend(stmts)
 
-        stmt = ir.Statement(span=_make_span(node))
+        stmt = ir.Statement(span=make_span(node))
         for_loop = ir.ForLoop(
             loop_vars=loop_vars,
             iterable=iterable,
-            block_body=ir.Block(statements=body_stmts, span=_make_span(node)),
+            block_body=ir.Block(statements=body_stmts, span=make_span(node)),
         )
         stmt.for_loop.CopyFrom(for_loop)
         return [stmt]
@@ -867,10 +882,10 @@ class IRBuilder(ast.NodeVisitor):
             stmts = self._visit_statement(body_node)
             body_stmts.extend(stmts)
 
-        stmt = ir.Statement(span=_make_span(node))
+        stmt = ir.Statement(span=make_span(node))
         while_loop = ir.WhileLoop(
             condition=condition,
-            block_body=ir.Block(statements=body_stmts, span=_make_span(node)),
+            block_body=ir.Block(statements=body_stmts, span=make_span(node)),
         )
         stmt.while_loop.CopyFrom(while_loop)
         return [stmt]
@@ -935,14 +950,14 @@ class IRBuilder(ast.NodeVisitor):
                 )
 
             cond_var = self._ctx.next_implicit_fn_name(prefix="if_cond")
-            assign_stmt = ir.Statement(span=_make_span(test))
+            assign_stmt = ir.Statement(span=make_span(test))
             assign_stmt.assignment.CopyFrom(
                 ir.Assignment(
                     targets=[cond_var],
-                    value=ir.Expr(action_call=action_call, span=_make_span(test)),
+                    value=ir.Expr(action_call=action_call, span=make_span(test)),
                 )
             )
-            cond_expr = ir.Expr(variable=ir.Variable(name=cond_var), span=_make_span(test))
+            cond_expr = ir.Expr(variable=ir.Variable(name=cond_var), span=make_span(test))
             return ([assign_stmt], cond_expr)
 
         def visit_body(nodes: list[ast.stmt]) -> List[ir.Statement]:
@@ -979,20 +994,20 @@ class IRBuilder(ast.NodeVisitor):
             else_body_statements: List[ir.Statement],
             span_node: ast.AST,
         ) -> ir.Statement:
-            conditional_stmt = ir.Statement(span=_make_span(span_node))
+            conditional_stmt = ir.Statement(span=make_span(span_node))
             if_branch = ir.IfBranch(
                 condition=condition,
-                block_body=ir.Block(statements=then_body, span=_make_span(span_node)),
-                span=_make_span(span_node),
+                block_body=ir.Block(statements=then_body, span=make_span(span_node)),
+                span=make_span(span_node),
             )
             conditional = ir.Conditional(if_branch=if_branch)
             if else_body_statements:
                 else_branch = ir.ElseBranch(
                     block_body=ir.Block(
                         statements=else_body_statements,
-                        span=_make_span(span_node),
+                        span=make_span(span_node),
                     ),
-                    span=_make_span(span_node),
+                    span=make_span(span_node),
                 )
                 conditional.else_branch.CopyFrom(else_branch)
             conditional_stmt.conditional.CopyFrom(conditional)
@@ -1017,11 +1032,11 @@ class IRBuilder(ast.NodeVisitor):
         if if_condition is None:
             return []
 
-        conditional_stmt = ir.Statement(span=_make_span(if_span_node))
+        conditional_stmt = ir.Statement(span=make_span(if_span_node))
         if_branch = ir.IfBranch(
             condition=if_condition,
-            block_body=ir.Block(statements=if_body, span=_make_span(if_span_node)),
-            span=_make_span(if_span_node),
+            block_body=ir.Block(statements=if_body, span=make_span(if_span_node)),
+            span=make_span(if_span_node),
         )
         conditional = ir.Conditional(if_branch=if_branch)
 
@@ -1030,15 +1045,15 @@ class IRBuilder(ast.NodeVisitor):
                 continue
             elif_branch = ir.ElifBranch(
                 condition=elif_condition,
-                block_body=ir.Block(statements=elif_body, span=_make_span(elif_span_node)),
-                span=_make_span(elif_span_node),
+                block_body=ir.Block(statements=elif_body, span=make_span(elif_span_node)),
+                span=make_span(elif_span_node),
             )
             conditional.elif_branches.append(elif_branch)
 
         if else_body:
             else_branch = ir.ElseBranch(
-                block_body=ir.Block(statements=else_body, span=_make_span(if_span_node)),
-                span=_make_span(if_span_node),
+                block_body=ir.Block(statements=else_body, span=make_span(if_span_node)),
+                span=make_span(if_span_node),
             )
             conditional.else_branch.CopyFrom(else_branch)
 
@@ -1370,18 +1385,18 @@ class IRBuilder(ast.NodeVisitor):
 
             except_handler = ir.ExceptHandler(
                 exception_types=exception_types,
-                block_body=ir.Block(statements=handler_body, span=_make_span(handler)),
-                span=_make_span(handler),
+                block_body=ir.Block(statements=handler_body, span=make_span(handler)),
+                span=make_span(handler),
             )
             if handler.name:
                 except_handler.exception_var = handler.name
             handlers.append(except_handler)
 
         # Build the try/except statement
-        try_stmt = ir.Statement(span=_make_span(node))
+        try_stmt = ir.Statement(span=make_span(node))
         try_except = ir.TryExcept(
             handlers=handlers,
-            try_block=ir.Block(statements=try_body, span=_make_span(node)),
+            try_block=ir.Block(statements=try_body, span=make_span(node)),
         )
         try_stmt.try_except.CopyFrom(try_except)
 
@@ -1447,7 +1462,7 @@ class IRBuilder(ast.NodeVisitor):
             if len(modified_vars) == 1:
                 return_expr = ir.Expr(
                     variable=ir.Variable(name=modified_vars[0]),
-                    span=_make_span(node),
+                    span=make_span(node),
                 )
             else:
                 # Return as list (tuples are represented as lists in IR)
@@ -1455,9 +1470,9 @@ class IRBuilder(ast.NodeVisitor):
                     list=ir.ListExpr(
                         elements=[ir.Expr(variable=ir.Variable(name=var)) for var in modified_vars]
                     ),
-                    span=_make_span(node),
+                    span=make_span(node),
                 )
-            return_stmt = ir.Statement(span=_make_span(node))
+            return_stmt = ir.Statement(span=make_span(node))
             return_stmt.return_stmt.CopyFrom(ir.ReturnStmt(value=return_expr))
             wrapped_body.append(return_stmt)
 
@@ -1466,7 +1481,7 @@ class IRBuilder(ast.NodeVisitor):
             name=fn_name,
             io=ir.IoDecl(inputs=fn_inputs, outputs=modified_vars),
             body=ir.Block(statements=wrapped_body),
-            span=_make_span(node),
+            span=make_span(node),
         )
         self._ctx.implicit_functions.append(implicit_fn)
 
@@ -1476,12 +1491,12 @@ class IRBuilder(ast.NodeVisitor):
         ]
         fn_call_expr = ir.Expr(
             function_call=ir.FunctionCall(name=fn_name, kwargs=kwargs),
-            span=_make_span(node),
+            span=make_span(node),
         )
 
         # If there are modified variables, create an assignment statement
         # so the returned values are assigned back to the variables
-        call_stmt = ir.Statement(span=_make_span(node))
+        call_stmt = ir.Statement(span=make_span(node))
         if modified_vars:
             # Create assignment: var1, var2 = fn(...) or var1 = fn(...)
             assign = ir.Assignment(value=fn_call_expr)
@@ -1513,14 +1528,14 @@ class IRBuilder(ast.NodeVisitor):
                 tmp_var = "_return_tmp"
 
                 # Create assignment: _return_tmp = await action()
-                assign_stmt = ir.Statement(span=_make_span(node))
-                value = ir.Expr(action_call=action_call, span=_make_span(node))
+                assign_stmt = ir.Statement(span=make_span(node))
+                value = ir.Expr(action_call=action_call, span=make_span(node))
                 assign = ir.Assignment(targets=[tmp_var], value=value)
                 assign_stmt.assignment.CopyFrom(assign)
 
                 # Create return: return _return_tmp
-                return_stmt = ir.Statement(span=_make_span(node))
-                var_expr = ir.Expr(variable=ir.Variable(name=tmp_var), span=_make_span(node))
+                return_stmt = ir.Statement(span=make_span(node))
+                var_expr = ir.Expr(variable=ir.Variable(name=tmp_var), span=make_span(node))
                 ret = ir.ReturnStmt(value=var_expr)
                 return_stmt.return_stmt.CopyFrom(ret)
 
@@ -1531,35 +1546,35 @@ class IRBuilder(ast.NodeVisitor):
             if expr and expr.HasField("function_call"):
                 tmp_var = self._ctx.next_implicit_fn_name(prefix="return_tmp")
 
-                assign_stmt = ir.Statement(span=_make_span(node))
+                assign_stmt = ir.Statement(span=make_span(node))
                 assign_stmt.assignment.CopyFrom(ir.Assignment(targets=[tmp_var], value=expr))
 
-                return_stmt = ir.Statement(span=_make_span(node))
-                var_expr = ir.Expr(variable=ir.Variable(name=tmp_var), span=_make_span(node))
+                return_stmt = ir.Statement(span=make_span(node))
+                var_expr = ir.Expr(variable=ir.Variable(name=tmp_var), span=make_span(node))
                 return_stmt.return_stmt.CopyFrom(ir.ReturnStmt(value=var_expr))
                 return [assign_stmt, return_stmt]
 
             # Regular return with expression (variable, literal, etc.)
             if expr:
-                stmt = ir.Statement(span=_make_span(node))
+                stmt = ir.Statement(span=make_span(node))
                 return_stmt = ir.ReturnStmt(value=expr)
                 stmt.return_stmt.CopyFrom(return_stmt)
                 return [stmt]
 
         # Return with no value
-        stmt = ir.Statement(span=_make_span(node))
+        stmt = ir.Statement(span=make_span(node))
         stmt.return_stmt.CopyFrom(ir.ReturnStmt())
         return [stmt]
 
     def _visit_break(self, node: ast.Break) -> List[ir.Statement]:
         """Convert break statement to IR."""
-        stmt = ir.Statement(span=_make_span(node))
+        stmt = ir.Statement(span=make_span(node))
         stmt.break_stmt.CopyFrom(ir.BreakStmt())
         return [stmt]
 
     def _visit_continue(self, node: ast.Continue) -> List[ir.Statement]:
         """Convert continue statement to IR."""
-        stmt = ir.Statement(span=_make_span(node))
+        stmt = ir.Statement(span=make_span(node))
         stmt.continue_stmt.CopyFrom(ir.ContinueStmt())
         return [stmt]
 
@@ -1567,7 +1582,7 @@ class IRBuilder(ast.NodeVisitor):
         """Convert augmented assignment (+=, -=, etc.) to IR."""
         # For now, we can represent this as a regular assignment with binary op
         # target op= value  ->  target = target op value
-        stmt = ir.Statement(span=_make_span(node))
+        stmt = ir.Statement(span=make_span(node))
 
         targets: List[str] = []
         if isinstance(node.target, ast.Name):
@@ -1578,11 +1593,11 @@ class IRBuilder(ast.NodeVisitor):
         if right and right.HasField("function_call"):
             tmp_var = self._ctx.next_implicit_fn_name(prefix="aug_tmp")
 
-            assign_tmp = ir.Statement(span=_make_span(node))
+            assign_tmp = ir.Statement(span=make_span(node))
             assign_tmp.assignment.CopyFrom(
                 ir.Assignment(
                     targets=[tmp_var],
-                    value=ir.Expr(function_call=right.function_call, span=_make_span(node)),
+                    value=ir.Expr(function_call=right.function_call, span=make_span(node)),
                 )
             )
 
@@ -1743,23 +1758,20 @@ class IRBuilder(ast.NodeVisitor):
                 line=line,
                 col=col,
             )
-        expr = ir.Expr(span=_make_span(node))
+        expr = ir.Expr(span=make_span(node))
         expr.literal.CopyFrom(literal)
         return expr
 
     def _compile_expression(self, node: ast.expr) -> Optional[ir.Expr]:
-        """Convert an expression using the registered calls and workflow symbols."""
-        # First, try to resolve self.attr.subattr chains at build time
-        resolved = self._resolve_instance_attribute_chain(node)
-        if resolved is not None:
-            return resolved
-
-        result = _expr_to_ir(
-            node,
-            call_converter=self._convert_registered_call,
-            enum_resolver=self._resolve_enum_attribute,
-        )
-        return result
+        """Dispatch syntax lowering and recurse through shared compiler operations."""
+        lowered = SYNTAX_HANDLERS.lower_expression(node, self._compiler_context)
+        if lowered is not None:
+            return lowered
+        if isinstance(node, ast.Attribute):
+            resolved = self._resolve_enum_attribute(node)
+            if resolved is not None:
+                return resolved
+        return _expr_to_ir(node, self._compiler_context)
 
     def _resolve_instance_attribute_chain(self, node: ast.expr) -> Optional[ir.Expr]:
         """Resolve self.attr.subattr chains at build time.
@@ -1797,11 +1809,7 @@ class IRBuilder(ast.NodeVisitor):
             )
 
         # Convert the resolved AST to IR
-        return _expr_to_ir(
-            resolved_ast,
-            call_converter=self._convert_registered_call,
-            enum_resolver=self._resolve_enum_attribute,
-        )
+        return self._compile_expression(resolved_ast)
 
     def _extract_self_attribute_chain(self, node: ast.expr) -> Optional[List[str]]:
         """Extract attribute chain from self.a.b.c pattern.
@@ -1857,37 +1865,6 @@ class IRBuilder(ast.NodeVisitor):
 
         return None
 
-    def _get_assign_targets(self, targets: List[ast.expr]) -> List[str]:
-        """Get all target variable names from assignment targets (including tuple unpacking)."""
-        result: List[str] = []
-        for target in targets:
-            if isinstance(target, ast.Name):
-                result.append(target.id)
-            elif isinstance(target, (ast.Tuple, ast.List)) and all(
-                isinstance(element, ast.Name) for element in target.elts
-            ):
-                result.extend(
-                    element.id for element in target.elts if isinstance(element, ast.Name)
-                )
-            else:
-                raise UnsupportedPatternError(
-                    "Unsupported assignment or loop target",
-                    "Use a name or flat list/tuple of names.",
-                    line=target.lineno,
-                    col=target.col_offset,
-                )
-        return result
-
-
-def _make_span(node: ast.AST) -> ir.Span:
-    """Create a Span from an AST node."""
-    return ir.Span(
-        start_line=getattr(node, "lineno", 0),
-        start_col=getattr(node, "col_offset", 0),
-        end_line=getattr(node, "end_lineno", 0) or 0,
-        end_col=getattr(node, "end_col_offset", 0) or 0,
-    )
-
 
 def _attribute_chain(node: ast.Attribute) -> Optional[List[str]]:
     parts: List[str] = []
@@ -1933,21 +1910,19 @@ def _resolve_enum_attribute_value(
 
 
 def _expr_to_ir(
-    expr: ast.AST,
-    call_converter: Optional[Callable[[ast.Call], Optional[ir.Expr]]] = None,
-    enum_resolver: Optional[Callable[[ast.Attribute], Optional[ir.Expr]]] = None,
+    expr: ast.expr,
+    context: CompilerContext,
 ) -> Optional[ir.Expr]:
     """Convert Python AST expression to IR Expr.
 
     Args:
         expr: The AST expression to convert.
-        call_converter: Callback for registered language calls and workflow helpers.
-        enum_resolver: Optional callback to resolve enum attributes.
+        context: Shared recursive expression and call compilation.
     """
-    result = ir.Expr(span=_make_span(expr))
+    result = ir.Expr(span=make_span(expr))
 
-    if isinstance(expr, ast.Call) and call_converter:
-        converted = call_converter(expr)
+    if isinstance(expr, ast.Call):
+        converted = context.synchronous_call(expr)
         if converted:
             return converted
 
@@ -1962,16 +1937,8 @@ def _expr_to_ir(
             return result
 
     if isinstance(expr, ast.BinOp):
-        left = _expr_to_ir(
-            expr.left,
-            call_converter=call_converter,
-            enum_resolver=enum_resolver,
-        )
-        right = _expr_to_ir(
-            expr.right,
-            call_converter=call_converter,
-            enum_resolver=enum_resolver,
-        )
+        left = context.expression(expr.left)
+        right = context.expression(expr.right)
         op = _bin_op_to_ir(expr.op)
         if left and right and op:
             result.binary_op.CopyFrom(ir.BinaryOp(left=left, op=op, right=right))
@@ -1983,35 +1950,23 @@ def _expr_to_ir(
         and isinstance(expr.operand, ast.Constant)
         and type(expr.operand.value) in (int, float)
     ):
-        return ir.Expr(literal=_constant_to_literal(-expr.operand.value), span=_make_span(expr))
+        return ir.Expr(literal=_constant_to_literal(-expr.operand.value), span=make_span(expr))
 
     if isinstance(expr, ast.UnaryOp):
-        operand = _expr_to_ir(
-            expr.operand,
-            call_converter=call_converter,
-            enum_resolver=enum_resolver,
-        )
+        operand = context.expression(expr.operand)
         op = _unary_op_to_ir(expr.op)
         if operand and op:
             result.unary_op.CopyFrom(ir.UnaryOp(op=op, operand=operand))
             return result
 
     if isinstance(expr, ast.Compare):
-        left = _expr_to_ir(
-            expr.left,
-            call_converter=call_converter,
-            enum_resolver=enum_resolver,
-        )
+        left = context.expression(expr.left)
         if not left:
             return None
         # For simplicity, handle single comparison
         if expr.ops and expr.comparators:
             op = _cmp_op_to_ir(expr.ops[0])
-            right = _expr_to_ir(
-                expr.comparators[0],
-                call_converter=call_converter,
-                enum_resolver=enum_resolver,
-            )
+            right = context.expression(expr.comparators[0])
             if op and right:
                 result.binary_op.CopyFrom(ir.BinaryOp(left=left, op=op, right=right))
                 return result
@@ -2030,21 +1985,13 @@ def _expr_to_ir(
             for element in expr.elts:
                 if isinstance(element, ast.Starred):
                     flush_buffered_elements()
-                    starred_value = _expr_to_ir(
-                        element.value,
-                        call_converter=call_converter,
-                        enum_resolver=enum_resolver,
-                    )
+                    starred_value = context.expression(element.value)
                     if not starred_value:
                         return None
                     segments.append(starred_value)
                     continue
 
-                value = _expr_to_ir(
-                    element,
-                    call_converter=call_converter,
-                    enum_resolver=enum_resolver,
-                )
+                value = context.expression(element)
                 if not value:
                     return None
                 buffered_elements.append(value)
@@ -2065,14 +2012,7 @@ def _expr_to_ir(
                 )
             return combined
 
-        elements = [
-            _expr_to_ir(
-                e,
-                call_converter=call_converter,
-                enum_resolver=enum_resolver,
-            )
-            for e in expr.elts
-        ]
+        elements = [context.expression(e) for e in expr.elts]
         if all(e for e in elements):
             list_expr = ir.ListExpr(elements=[e for e in elements if e])
             result.list.CopyFrom(list_expr)
@@ -2082,56 +2022,28 @@ def _expr_to_ir(
         entries: List[ir.DictEntry] = []
         for k, v in zip(expr.keys, expr.values, strict=False):
             if k:
-                key_expr = _expr_to_ir(
-                    k,
-                    call_converter=call_converter,
-                    enum_resolver=enum_resolver,
-                )
-                value_expr = _expr_to_ir(
-                    v,
-                    call_converter=call_converter,
-                    enum_resolver=enum_resolver,
-                )
+                key_expr = context.expression(k)
+                value_expr = context.expression(v)
                 if key_expr and value_expr:
                     entries.append(ir.DictEntry(key=key_expr, value=value_expr))
         result.dict.CopyFrom(ir.DictExpr(entries=entries))
         return result
 
     if isinstance(expr, ast.Subscript):
-        obj = _expr_to_ir(
-            expr.value,
-            call_converter=call_converter,
-            enum_resolver=enum_resolver,
-        )
-        index = (
-            _expr_to_ir(
-                expr.slice,
-                call_converter=call_converter,
-                enum_resolver=enum_resolver,
-            )
-            if isinstance(expr.slice, ast.AST)
-            else None
-        )
+        obj = context.expression(expr.value)
+        index = context.expression(expr.slice) if isinstance(expr.slice, ast.AST) else None
         if obj and index:
             result.index.CopyFrom(ir.IndexAccess(object=obj, index=index))
             return result
 
     if isinstance(expr, ast.Attribute):
-        if enum_resolver:
-            resolved = enum_resolver(expr)
-            if resolved:
-                return resolved
-        obj = _expr_to_ir(
-            expr.value,
-            call_converter=call_converter,
-            enum_resolver=enum_resolver,
-        )
+        obj = context.expression(expr.value)
         if obj:
             result.dot.CopyFrom(ir.DotAccess(object=obj, attribute=expr.attr))
             return result
 
-    if isinstance(expr, ast.Await) and isinstance(expr.value, ast.Call) and call_converter:
-        converted = call_converter(expr.value)
+    if isinstance(expr, ast.Await) and isinstance(expr.value, ast.Call):
+        converted = context.synchronous_call(expr.value)
         if converted is not None:
             return converted
 
@@ -2145,14 +2057,7 @@ def _expr_to_ir(
 
     if isinstance(expr, ast.Tuple):
         # Handle tuple as list for now
-        elements = [
-            _expr_to_ir(
-                e,
-                call_converter=call_converter,
-                enum_resolver=enum_resolver,
-            )
-            for e in expr.elts
-        ]
+        elements = [context.expression(e) for e in expr.elts]
         if all(e for e in elements):
             list_expr = ir.ListExpr(elements=[e for e in elements if e])
             result.list.CopyFrom(list_expr)
