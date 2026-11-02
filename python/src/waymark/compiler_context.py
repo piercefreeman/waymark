@@ -13,7 +13,6 @@ from waymark.proto import ast_pb2 as ir
 GLOBAL_FUNCTIONS = {
     "enumerate": ir.GlobalFunction.GLOBAL_FUNCTION_ENUMERATE,
     "isexception": ir.GlobalFunction.GLOBAL_FUNCTION_ISEXCEPTION,
-    "len": ir.GlobalFunction.GLOBAL_FUNCTION_LEN,
     "range": ir.GlobalFunction.GLOBAL_FUNCTION_RANGE,
 }
 ALLOWED_SYNC_FUNCTIONS = set(GLOBAL_FUNCTIONS)
