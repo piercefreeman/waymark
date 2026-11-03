@@ -40,17 +40,17 @@ Program {
                                         },
                                         span: Span {
                                             start_line: 2,
-                                            start_col: 4,
+                                            start_col: 20,
                                             end_line: 2,
-                                            end_col: 42,
+                                            end_col: 46,
                                         },
                                     },
                                 },
                                 span: Span {
                                     start_line: 2,
-                                    start_col: 4,
+                                    start_col: 8,
                                     end_line: 2,
-                                    end_col: 42,
+                                    end_col: 46,
                                 },
                             },
                             Spanned {
@@ -62,24 +62,45 @@ Program {
                                             ),
                                         },
                                         span: Span {
+                                            start_line: 0,
+                                            start_col: 0,
+                                            end_line: 0,
+                                            end_col: 0,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 0,
+                                    start_col: 0,
+                                    end_line: 0,
+                                    end_col: 0,
+                                },
+                            },
+                            Spanned {
+                                value: ExprStmt {
+                                    expr: Spanned {
+                                        value: Literal {
+                                            value: None,
+                                        },
+                                        span: Span {
                                             start_line: 3,
-                                            start_col: 24,
+                                            start_col: 14,
                                             end_line: 3,
-                                            end_col: 25,
+                                            end_col: 30,
                                         },
                                     },
                                 },
                                 span: Span {
                                     start_line: 3,
-                                    start_col: 4,
+                                    start_col: 8,
                                     end_line: 3,
-                                    end_col: 26,
+                                    end_col: 30,
                                 },
                             },
                             Spanned {
                                 value: Assignment {
                                     targets: [
-                                        "_return_tmp",
+                                        "__return_tmp_1__",
                                     ],
                                     value: Spanned {
                                         value: ActionCall {
@@ -94,9 +115,9 @@ Program {
                                                             },
                                                             span: Span {
                                                                 start_line: 4,
-                                                                start_col: 50,
+                                                                start_col: 54,
                                                                 end_line: 4,
-                                                                end_col: 53,
+                                                                end_col: 57,
                                                             },
                                                         },
                                                     },
@@ -109,17 +130,17 @@ Program {
                                         },
                                         span: Span {
                                             start_line: 4,
-                                            start_col: 4,
+                                            start_col: 21,
                                             end_line: 4,
-                                            end_col: 54,
+                                            end_col: 58,
                                         },
                                     },
                                 },
                                 span: Span {
                                     start_line: 4,
-                                    start_col: 4,
+                                    start_col: 8,
                                     end_line: 4,
-                                    end_col: 54,
+                                    end_col: 58,
                                 },
                             },
                             Spanned {
@@ -127,22 +148,22 @@ Program {
                                     value: Some(
                                         Spanned {
                                             value: Variable {
-                                                name: "_return_tmp",
+                                                name: "__return_tmp_1__",
                                             },
                                             span: Span {
                                                 start_line: 4,
-                                                start_col: 4,
+                                                start_col: 8,
                                                 end_line: 4,
-                                                end_col: 54,
+                                                end_col: 58,
                                             },
                                         },
                                     ),
                                 },
                                 span: Span {
                                     start_line: 4,
-                                    start_col: 4,
+                                    start_col: 8,
                                     end_line: 4,
-                                    end_col: 54,
+                                    end_col: 58,
                                 },
                             },
                         ],
@@ -157,9 +178,9 @@ Program {
             },
             span: Span {
                 start_line: 1,
-                start_col: 0,
+                start_col: 4,
                 end_line: 4,
-                end_col: 54,
+                end_col: 58,
             },
         },
     ],
