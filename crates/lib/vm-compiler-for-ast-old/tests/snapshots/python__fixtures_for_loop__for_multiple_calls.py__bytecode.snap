@@ -8,6 +8,7 @@ fn main(input: [items], output: []):
         a = @for_multiple_calls.for_step_one(item=item)
         b = @for_multiple_calls.for_step_two(value=a)
         results = results + [b]
+        None
     return results
 ---
 f0: [9 registers]
@@ -40,4 +41,5 @@ f0: [9 registers]
   s8:
     PureSet(MakeList { dst: r5, items: [r8] })
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r5 } })
+    PureSet(LoadConst { dst: r5, value: None })
     CoreSet(Jump { target_state: s3 })
