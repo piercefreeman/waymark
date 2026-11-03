@@ -3,7 +3,6 @@
 import ast
 
 from waymark.compiler_context import CompilerContext
-from waymark.compiler_diagnostics import reject
 from waymark.language_syntax import SyntaxRegistry
 
 
@@ -28,39 +27,6 @@ class SourceValidator(ast.NodeVisitor):
                 self.visit(child)
         else:
             super().visit(node)
-
-    def visit_Await(self, node: ast.Await) -> None:
-        if isinstance(node.value, ast.Call):
-            handler = self.context.resolve(node.value.func)
-            if handler is not None:
-                handler.parse_arguments(node.value)
-                if not handler.requires_await:
-                    raise handler.error(node.value, "this call cannot be awaited")
-        parent = self.context.analysis.parents.get(node)
-        if not isinstance(parent, (ast.Assign, ast.AnnAssign, ast.Expr, ast.Return, ast.If)):
-            reject(
-                node, "Nested await expressions are unsupported; assign the awaited result first"
-            )
-        if not isinstance(node.value, ast.Call):
-            return reject(node, "Await requires a direct action or workflow-helper call")
-        call = node.value
-        function = call.func
-        name = (
-            function.id
-            if isinstance(function, ast.Name)
-            else function.attr
-            if isinstance(function, ast.Attribute)
-            else "unknown"
-        )
-        helper = (
-            isinstance(function, ast.Attribute)
-            and isinstance(function.value, ast.Name)
-            and function.value.id == "self"
-            and name in self.context.function_names
-        )
-        if self.context.resolve(function) is None and not helper:
-            reject(node, f"Awaiting non-action function '{name}()' is not supported")
-        self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
         handler = self.context.resolve(node.func)
