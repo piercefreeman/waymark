@@ -4,8 +4,6 @@ import ast
 
 from waymark.compiler_context import CompilerContext
 from waymark.compiler_diagnostics import reject
-from waymark.compiler_errors import UnsupportedPatternError
-from waymark.compiler_literals import validate_literal
 from waymark.language_syntax import SyntaxRegistry
 
 
@@ -71,17 +69,3 @@ class SourceValidator(ast.NodeVisitor):
                 node, self.context.analysis.parents.get(node), self.context.analysis.kind
             )
         self.generic_visit(node)
-
-    def visit_Constant(self, node: ast.Constant) -> None:
-        parent = self.context.analysis.parents.get(node)
-        value = node.value
-        if (
-            isinstance(parent, ast.UnaryOp)
-            and isinstance(parent.op, ast.USub)
-            and type(value) in (int, float)
-        ):
-            value = -value
-        try:
-            validate_literal(value)
-        except UnsupportedPatternError as error:
-            reject(node, error.message)
