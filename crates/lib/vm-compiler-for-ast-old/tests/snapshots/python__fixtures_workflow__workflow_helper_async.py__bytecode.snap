@@ -7,8 +7,8 @@ fn main(input: [value], output: []):
     return result
 
 fn run_internal(input: [value], output: []):
-    _return_tmp = @workflow_helper_async.increment(value=value)
-    return _return_tmp
+    __return_tmp_1__ = @workflow_helper_async.increment(value=value)
+    return __return_tmp_1__
 ---
 f0: [2 registers]
   s0:
