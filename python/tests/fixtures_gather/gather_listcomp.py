@@ -15,7 +15,7 @@ async def process_item(item: str, multiplier: int) -> str:
 class GatherListCompWorkflow(Workflow):
     """Gather with starred list comprehension for parallel fan-out.
 
-    Pattern: await asyncio.gather(*[action(x) for x in items], return_exceptions=True)
+    Pattern: await asyncio.gather(*[action(x) for x in items], return_exceptions=False)
     This is a common idiom for parallel processing of collections.
     """
 
@@ -23,6 +23,6 @@ class GatherListCompWorkflow(Workflow):
         # Starred list comprehension - fan out over items
         results = await asyncio.gather(
             *[process_item(item=item, multiplier=multiplier) for item in items],
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return results

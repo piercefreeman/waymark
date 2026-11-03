@@ -64,7 +64,7 @@ class WelcomeEmailWorkflow(Workflow):
 
         results = await asyncio.gather(
             *[send_email(to=user.email, subject="Welcome") for user in active_users],
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return results
 ```

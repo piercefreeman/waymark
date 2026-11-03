@@ -24,6 +24,6 @@ class GatherWithArgsWorkflow(Workflow):
         square, cube = await asyncio.gather(
             compute_square(n=value),
             compute_cube(n=value),
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return square, cube

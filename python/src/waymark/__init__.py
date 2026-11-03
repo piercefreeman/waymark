@@ -1,5 +1,8 @@
 """Public API for user-defined waymark actions."""
 
+from waymark.compiler_errors import UnsupportedPatternError
+from waymark.ir_builder import build_workflow_ir
+
 from . import bridge  # noqa: F401
 from . import workflow_runtime as _workflow_runtime  # noqa: F401
 from .actions import (
@@ -18,7 +21,6 @@ from .exceptions import (
     ScheduleAlreadyExistsError,
     WorkflowFailedError,
 )
-from .ir_builder import UnsupportedPatternError, build_workflow_ir
 from .registry import registry
 from .schedule import (
     Absolute,

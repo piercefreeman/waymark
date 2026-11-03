@@ -21,5 +21,5 @@ class GatherUnsupportedVariableWorkflow(Workflow):
             tasks.append(i)
 
         # Spread the variable - this should raise an error
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=False)
         return results

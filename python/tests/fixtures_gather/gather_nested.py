@@ -31,7 +31,7 @@ class GatherNestedWorkflow(Workflow):
         results = await asyncio.gather(
             fetch_a(),
             fetch_b(),
-            return_exceptions=True,
+            return_exceptions=False,
         )
         # Fan-in
         total = await combine(values=results)

@@ -33,7 +33,7 @@ class ParallelWorkflow(Workflow):
         doubled, squared = await asyncio.gather(
             compute_double(value),
             compute_square(value),
-            return_exceptions=True,
+            return_exceptions=False,
         )
         # Fan in: combine results
         result = await combine_results(doubled=doubled, squared=squared)

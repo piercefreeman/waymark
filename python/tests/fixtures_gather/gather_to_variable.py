@@ -32,6 +32,6 @@ class GatherToVariableWorkflow(Workflow):
             fetch_value_1(),
             fetch_value_2(),
             fetch_value_3(),
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return results

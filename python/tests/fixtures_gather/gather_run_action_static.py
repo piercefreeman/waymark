@@ -32,7 +32,7 @@ class GatherRunActionStaticWorkflow(Workflow):
     Pattern: await asyncio.gather(
         self.run_action(action1(...), retry=..., timeout=...),
         self.run_action(action2(...), retry=..., timeout=...),
-        return_exceptions=True,
+        return_exceptions=False,
     )
     """
 
@@ -48,7 +48,7 @@ class GatherRunActionStaticWorkflow(Workflow):
                 timeout=timedelta(minutes=1),
                 retry=RetryPolicy(attempts=2),
             ),
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return results
 
@@ -60,7 +60,7 @@ class GatherMixedRunActionWorkflow(Workflow):
     Pattern: await asyncio.gather(
         self.run_action(action1(...), retry=...),
         action2(...),  # direct call without wrapper
-        return_exceptions=True,
+        return_exceptions=False,
     )
     """
 
@@ -71,6 +71,6 @@ class GatherMixedRunActionWorkflow(Workflow):
                 retry=RetryPolicy(attempts=3),
             ),
             send_notification(message=message),  # No run_action wrapper
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return results

@@ -57,7 +57,7 @@ class ParallelMathWorkflow(Workflow):
         factorial_value, fib_value = await asyncio.gather(
             compute_factorial(number),
             compute_fibonacci(number),
-            return_exceptions=True,
+            return_exceptions=False,
         )
         return await summarize_math(
             input_number=number,
@@ -66,8 +66,9 @@ class ParallelMathWorkflow(Workflow):
         )
 ```
 
-`return_exceptions=True` is required - the compiler rejects a `gather`
-without it.
+Omit `return_exceptions` or pass the literal `False`: failures propagate to the
+workflow. The compiler rejects `return_exceptions=True` until the runtime can
+collect exceptions as results. Unknown keywords and `**kwargs` are rejected too.
 
 You can also spread a list comprehension into `gather` for variable-width
 fan-outs:
@@ -75,7 +76,7 @@ fan-outs:
 ```python
 results = await asyncio.gather(
     *[send_email(to=user.email, subject="Welcome") for user in active_users],
-    return_exceptions=True,
+    return_exceptions=False,
 )
 ```
 
@@ -313,10 +314,10 @@ rejected. The rejected patterns:
 - **Comprehensions outside two positions.** List and dict comprehensions
   compile when assigned directly to a variable or spread into `gather`;
   set comprehensions don't compile at all, and generator expressions
-  only directly inside `gather`.
-- **`gather` anywhere but a statement of its own or the right-hand side
-  of an assignment.** `return await asyncio.gather(...)` doesn't compile:
-  assign the result to a variable, then return it. Spreading a variable
+  only as starred arguments inside `gather`.
+- **`gather` nested inside a larger expression.** Await it in a statement
+  of its own, on the right-hand side of an assignment, or directly in a
+  return: `return await asyncio.gather(...)`. Spreading a variable
   (`*tasks`) doesn't compile either; spread a list comprehension directly
   into the `gather`.
 - **A `retry=` or `timeout=` that isn't a literal.** What compiles is a
@@ -345,6 +346,14 @@ rejected. The rejected patterns:
   handler type, and `except ():`, which would catch nothing. A name
   imported only under `TYPE_CHECKING` or inside a function is not in
   scope.
+
+- **Unsupported `asyncio.gather` arguments.** `return_exceptions=True`,
+  dynamic option values, unknown keywords, and `**kwargs` are rejected.
+  Awaitables must be direct action or workflow-helper calls, or a single
+  starred list/generator comprehension. Passing `asyncio.sleep` directly,
+  coroutine variables, mixed spreads, async comprehensions, and an empty
+  argument list is unsupported. An empty collection inside a supported
+  comprehension spread still works.
 
 Everything in this list fails at your desk, the first time the workflow
 is run or scheduled. Nothing here surfaces as a production surprise.
@@ -393,11 +402,6 @@ Until then, avoid them.
 
 **Compiles, then fails at runtime where Python works:**
 
-- `asyncio.sleep(...)` inside a `gather`
-  ([#579](https://github.com/piercefreeman/waymark/issues/579)).
-- A failure inside a `gather` raises out of it instead of arriving as a
-  value, whatever `return_exceptions` says
-  ([#575](https://github.com/piercefreeman/waymark/issues/575)).
 - An `await` nested inside a larger expression, like
   `total = await a() + await b()`; await each into a variable first
   ([#585](https://github.com/piercefreeman/waymark/issues/585)).
