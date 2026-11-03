@@ -36,7 +36,7 @@ def test_try_preserves_both_execution_paths(fail: bool, expected: int) -> None:
 
 @pytest.mark.parametrize("clause", ["", " ValueError", " ValueError as error"])
 def test_exception_binding_is_present_only_when_named(clause: str) -> None:
-    """An unnamed catch must not allocate an exception variable in the Rust compiler."""
+    """Regression: an empty exception name made Rust allocate a spurious register."""
     function = compile_source(f"try:\n    await task()\nexcept{clause}:\n    pass")
     handler = function.body.statements[0].try_except.handlers[0]
     named = clause.endswith(" as error")
