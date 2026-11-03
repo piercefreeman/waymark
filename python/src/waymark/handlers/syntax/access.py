@@ -62,18 +62,10 @@ class AccessHandler(ExpressionHandler[ast.Attribute | ast.Subscript]):
     def _resolve_instance_attribute_chain(
         self, node: ast.expr, context: CompilerContext
     ) -> ir.Expr | None:
-        """Resolve self.attr.subattr chains at build time.
-
-        For expressions like self.config.max_retries where self.config is
-        defined in __init__, evaluate the chain at build time and return
-        the value as an IR literal.
-        """
+        """Lower an initializer once, then select nested fields from its resulting value."""
         chain = self._extract_self_attribute_chain(node)
         if chain is None:
             return None
-
-        # chain[0] is the top-level attribute (e.g., "config")
-        # chain[1:] are nested attributes (e.g., ["max_retries"])
         top_attr = chain[0]
         if top_attr not in context.instance_attrs or top_attr in context.ambiguous_instance_attrs:
             raise UnsupportedPatternError(
@@ -83,20 +75,6 @@ class AccessHandler(ExpressionHandler[ast.Attribute | ast.Subscript]):
                 col=node.col_offset,
             )
 
-        # Get the AST expression for the top-level attribute
-        attr_ast = context.instance_attrs[top_attr]
-
-        # Try to resolve nested attributes
-        resolved_ast = self._resolve_nested_attributes(attr_ast, chain[1:], context)
-        if resolved_ast is None:
-            raise UnsupportedPatternError(
-                "Instance attribute cannot be resolved at compile time",
-                "Pass runtime values through run() arguments.",
-                line=node.lineno,
-                col=node.col_offset,
-            )
-
-        # Bind initializer enum references before entering the current method's local scope.
         class InitializerEnums(ast.NodeTransformer):
             def visit_Attribute(self, attribute: ast.Attribute) -> ast.AST:
                 """Keep initializer enum references in their defining scope."""
@@ -105,9 +83,17 @@ class AccessHandler(ExpressionHandler[ast.Attribute | ast.Subscript]):
                     return ast.copy_location(ast.Constant(value=value), attribute)
                 return self.generic_visit(attribute)
 
-        bound = InitializerEnums().visit(copy.deepcopy(resolved_ast))
+        bound = InitializerEnums().visit(copy.deepcopy(context.instance_attrs[top_attr]))
         assert isinstance(bound, ast.expr)
-        return context.expression(bound)
+        resolved = self._resolve_nested_attributes(context.expression(bound), chain[1:])
+        if resolved is None:
+            raise UnsupportedPatternError(
+                "Instance attribute cannot be resolved at compile time",
+                "Pass runtime values through run() arguments.",
+                line=node.lineno,
+                col=node.col_offset,
+            )
+        return resolved
 
     def _extract_self_attribute_chain(self, node: ast.expr) -> list[str] | None:
         """Extract attribute chain from self.a.b.c pattern.
@@ -128,40 +114,26 @@ class AccessHandler(ExpressionHandler[ast.Attribute | ast.Subscript]):
 
         return None
 
-    def _resolve_nested_attributes(
-        self, ast_node: ast.expr, attrs: list[str], context: CompilerContext
-    ) -> ast.expr | None:
-        """Resolve nested attributes on an AST expression.
-
-        For a Call like ClassName(a=1, b=2), resolving ["a"] returns the
-        AST node for 1.
-        """
-        if not attrs:
-            return ast_node
-
-        attr_name = attrs[0]
-        remaining = attrs[1:]
-
-        # Handle Call expressions (constructor calls)
-        if isinstance(ast_node, ast.Call):
-            handler = context.resolve(ast_node.func)
-            if handler is None or handler.requires_await:
+    def _resolve_nested_attributes(self, value: ir.Expr, attrs: list[str]) -> ir.Expr | None:
+        """Read already-lowered dictionary fields without recompiling selected constructor arguments."""
+        for name in attrs:
+            if not value.HasField("dict"):
                 return None
-            handler.compile(ast_node, context)
-            # Look for keyword argument with matching name
-            for kw in ast_node.keywords:
-                if kw.arg == attr_name:
-                    return self._resolve_nested_attributes(kw.value, remaining, context)
-            return None
-
-        # Handle Dict expressions
-        if isinstance(ast_node, ast.Dict):
-            for key, value in zip(ast_node.keys, ast_node.values, strict=True):
-                if isinstance(key, ast.Constant) and key.value == attr_name:
-                    return self._resolve_nested_attributes(value, remaining, context)
-            return None
-
-        return None
+            # Dictionary construction keeps the last occurrence of a duplicate key.
+            entry = next(
+                (
+                    entry
+                    for entry in reversed(value.dict.entries)
+                    if entry.key.HasField("literal")
+                    and entry.key.literal.HasField("string_value")
+                    and entry.key.literal.string_value == name
+                ),
+                None,
+            )
+            if entry is None:
+                return None
+            value = entry.value
+        return value
 
 
 def _attribute_chain(node: ast.Attribute) -> list[str] | None:
