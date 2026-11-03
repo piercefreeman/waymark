@@ -4,6 +4,7 @@ from waymark.handlers.enumerate import EnumerateHandler
 from waymark.handlers.gather import GatherHandler
 from waymark.handlers.isinstance import IsinstanceHandler
 from waymark.handlers.length import LengthHandler
+from waymark.handlers.model import model_handler
 from waymark.handlers.range import RangeHandler
 from waymark.handlers.run_action import RunActionHandler
 from waymark.handlers.sleep import SleepHandler
@@ -18,5 +19,6 @@ GLOBAL_HANDLERS = LanguageCallRegistry(
         RangeHandler(),
         EnumerateHandler(),
         IsinstanceHandler(),
-    ]
+    ],
+    factories=[model_handler],
 )
