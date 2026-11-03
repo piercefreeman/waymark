@@ -167,7 +167,7 @@ class PolicyCompiler:
                 "RetryPolicy takes keyword arguments only", "policy_literal", node
             )
 
-        bind_call(
+        bound = bind_call(
             node,
             inspect.Signature(
                 [
@@ -181,60 +181,48 @@ class PolicyCompiler:
         policy = ir.RetryPolicy(max_retries=DEFAULT_RETRY_POLICY_MAX_RETRIES)
         exception_types_listed = False
 
-        for kw in node.keywords:
-            if kw.arg is None:
-                raise self._policy_error(
-                    "RetryPolicy does not take **kwargs", "policy_literal", kw.value
-                )
-            if kw.arg not in {"attempts", "exception_types", "backoff_seconds"}:
-                raise self._policy_error(
-                    f"RetryPolicy has no field {kw.arg!r}", "policy_literal", kw.value
-                )
-            if _is_none_literal(kw.value):
+        for name, value in bound.arguments.items():
+            if _is_none_literal(value):
                 # An explicit None is the field's default.
                 continue
-            if kw.arg == "attempts":
-                attempts = _number_literal(kw.value)
+            if name == "attempts":
+                attempts = _number_literal(value)
                 if not isinstance(attempts, int):
                     raise self._policy_error(
                         "RetryPolicy attempts must be an integer literal",
                         "policy_literal",
-                        kw.value,
+                        value,
                     )
                 if attempts < 1:
                     raise self._policy_error(
-                        "RetryPolicy attempts must be at least 1", "policy_literal", kw.value
+                        "RetryPolicy attempts must be at least 1", "policy_literal", value
                     )
                 if attempts > MAX_RETRY_POLICY_ATTEMPTS:
                     raise self._policy_error(
                         f"RetryPolicy attempts must be at most {MAX_RETRY_POLICY_ATTEMPTS}",
                         "policy_literal",
-                        kw.value,
+                        value,
                     )
                 # attempts means total executions, max_retries means retries after first attempt
                 # So attempts=1 -> max_retries=0 (no retries), attempts=3 -> max_retries=2
                 policy.max_retries = attempts - 1
-            elif kw.arg == "exception_types":
-                if not isinstance(kw.value, ast.List):
+            elif name == "exception_types":
+                if not isinstance(value, ast.List):
                     raise self._policy_error(
                         "RetryPolicy exception_types must be a list literal of class names",
                         "policy_literal",
-                        kw.value,
+                        value,
                     )
                 exception_types_listed = True
-                for elt in kw.value.elts:
+                for elt in value.elts:
                     policy.exception_types.append(self._retry_exception_type_name(elt))
-            elif kw.arg == "backoff_seconds":
+            elif name == "backoff_seconds":
                 seconds = self._seconds_literal(
-                    kw.value, "RetryPolicy backoff_seconds", positive=False
+                    value, "RetryPolicy backoff_seconds", positive=False
                 )
                 # A zero backoff is no backoff: the runtime has no zero sleep.
                 if seconds > 0:
                     policy.backoff.seconds = seconds
-            else:
-                raise self._policy_error(
-                    f"RetryPolicy has no field {kw.arg!r}", "policy_literal", kw.value
-                )
 
         # An omitted filter retries on `Exception`, the policy's documented
         # default. A listed one is kept as written: empty retries nothing.
@@ -293,7 +281,7 @@ class PolicyCompiler:
                     "policy_literal",
                     node,
                 )
-            bind_call(
+            bound = bind_call(
                 node,
                 inspect.Signature(
                     [
@@ -303,23 +291,15 @@ class PolicyCompiler:
                 ),
             )
             keywords: dict[str, int | float] = {}
-            for kw in node.keywords:
-                if kw.arg not in ("seconds", "minutes", "hours", "days"):
-                    what = "**kwargs" if kw.arg is None else f"a {kw.arg!r} keyword"
-                    raise self._policy_error(
-                        f"timedelta(...) in timeout= does not take {what}: "
-                        "use seconds, minutes, hours or days",
-                        "policy_literal",
-                        kw.value,
-                    )
-                value = _number_literal(kw.value)
+            for name, argument in bound.arguments.items():
+                value = _number_literal(argument)
                 if value is None:
                     raise self._policy_error(
-                        f"timedelta(...) in timeout= takes a number literal for {kw.arg}",
+                        f"timedelta(...) in timeout= takes a number literal for {name}",
                         "policy_literal",
-                        kw.value,
+                        argument,
                     )
-                keywords[kw.arg] = value
+                keywords[name] = value
             # Python's own timedelta arithmetic over the accepted keywords:
             # minutes=4.1 is 246 seconds, as timedelta says.
             try:

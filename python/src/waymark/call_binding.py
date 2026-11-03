@@ -2,11 +2,30 @@
 
 import ast
 import inspect
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from waymark.compiler.errors import UnsupportedPatternError
 from waymark.compiler.types import has_open_type_parameters
+
+
+def bind_arguments(
+    node: ast.Call,
+    signature: inspect.Signature,
+    error: Callable[[ast.expr, str], UnsupportedPatternError],
+) -> inspect.BoundArguments:
+    """Bind AST arguments without expanding keywords or evaluating expressions."""
+    keywords: dict[str, ast.expr] = {}
+    for keyword in node.keywords:
+        if keyword.arg is None:
+            raise error(keyword.value, "keyword unpacking (**kwargs) is unsupported")
+        if keyword.arg in keywords:
+            raise error(keyword.value, f"duplicate argument {keyword.arg!r}")
+        keywords[keyword.arg] = keyword.value
+    try:
+        return signature.bind(*node.args, **keywords)
+    except TypeError as cause:
+        raise error(node, str(cause)) from cause
 
 
 def bind_call(
@@ -32,17 +51,7 @@ def bind_call(
         raise fail("open generic annotations are unsupported; specialize all type parameters")
     if any(isinstance(argument, ast.Starred) for argument in node.args):
         raise fail("positional unpacking (*args) is unsupported")
-    keywords: dict[str, ast.expr] = {}
-    for keyword in node.keywords:
-        if keyword.arg is None:
-            raise fail("keyword unpacking (**kwargs) is unsupported")
-        if keyword.arg in keywords:
-            raise fail(f"duplicate argument {keyword.arg!r}")
-        keywords[keyword.arg] = keyword.value
-    try:
-        bound = signature.bind(*node.args, **keywords)
-    except TypeError as error:
-        raise fail(str(error)) from error
+    bound = bind_arguments(node, signature, lambda _location, message: fail(message))
     for name in bound.arguments:
         if signature.parameters[name].kind in (
             inspect.Parameter.VAR_POSITIONAL,
@@ -50,9 +59,8 @@ def bind_call(
             inspect.Parameter.POSITIONAL_ONLY,
         ):
             raise fail(f"parameter {name!r} cannot be represented as a named argument")
-    positional_names = list(signature.parameters)[: len(node.args)]
-    source_names = [*positional_names, *keywords]
-    ordered = {name: bound.arguments[name] for name in source_names}
-    bound.arguments.clear()
-    bound.arguments.update(ordered)
+    # Binding orders by signature; move explicit keywords back into source order.
+    for keyword in node.keywords:
+        assert keyword.arg is not None
+        bound.arguments[keyword.arg] = bound.arguments.pop(keyword.arg)
     return bound

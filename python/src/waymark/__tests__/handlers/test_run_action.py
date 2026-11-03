@@ -10,6 +10,7 @@ from typing import cast
 
 import pytest
 
+from waymark.__tests__.compiler_test_helpers import compile_source
 from waymark.ir_builder import UnsupportedPatternError
 
 REJECTED = [
@@ -120,7 +121,6 @@ def test_unreadable_policy_fields_are_rejected(
 def test_run_action_accepts_the_named_awaitable_and_policy_aliases() -> None:
     from datetime import timedelta
 
-    from waymark.__tests__.compiler_test_helpers import compile_source
     from waymark.workflow import RetryPolicy
 
     function = compile_source(
@@ -131,3 +131,17 @@ def test_run_action_accepts_the_named_awaitable_and_policy_aliases() -> None:
     assert action.kwargs[0].value.literal.int_value == 4
     assert action.policies[0].retry.max_retries == 1
     assert action.policies[1].timeout.timeout.seconds == 0.5
+
+
+@pytest.mark.parametrize(
+    ("policy", "message"),
+    [
+        ("retry=RetryPolicy(attempts=2, **options)", "keyword unpacking"),
+        ("retry=RetryPolicy(attempts=2, attempts=3)", "duplicate argument 'attempts'"),
+        ("timeout=timedelta(seconds=1, **options)", "keyword unpacking"),
+        ("timeout=timedelta(seconds=1, seconds=2)", "duplicate argument 'seconds'"),
+    ],
+)
+def test_policy_binding_rejects_ambiguous_keywords(policy: str, message: str) -> None:
+    with pytest.raises(UnsupportedPatternError, match=message):
+        compile_source(f"return await self.run_action(task(), {policy})", "options: dict")
