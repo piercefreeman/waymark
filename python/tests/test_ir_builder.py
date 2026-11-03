@@ -1997,14 +1997,12 @@ class TestAugmentedAssignment:
                 left += right
                 return left
 
-        program = PlusEqualsListMergeWorkflow.workflow_ir()
-        assignment = self._find_binary_assignment(program, "left")
+        import pytest
 
-        assert assignment is not None, "Should have binary assignment for left"
-        binary = assignment.value.binary_op
-        assert binary.op == ir.BinaryOperator.BINARY_OP_ADD
-        assert binary.left.variable.name == "left"
-        assert binary.right.variable.name == "right"
+        from waymark.compiler_errors import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError, match="aliased value"):
+            PlusEqualsListMergeWorkflow.workflow_ir()
 
     def test_explicit_list_merge_assignment(self) -> None:
         """Test: left = left + right remains an add binary op in IR."""
