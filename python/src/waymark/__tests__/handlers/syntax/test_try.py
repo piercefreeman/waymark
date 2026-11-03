@@ -34,6 +34,17 @@ def test_try_preserves_both_execution_paths(fail: bool, expected: int) -> None:
     assert asyncio.run(TryWorkflow().run(fail)) == expected
 
 
+@pytest.mark.parametrize("clause", ["", " ValueError", " ValueError as error"])
+def test_exception_binding_is_present_only_when_named(clause: str) -> None:
+    """An unnamed catch must not allocate an exception variable in the Rust compiler."""
+    function = compile_source(f"try:\n    await task()\nexcept{clause}:\n    pass")
+    handler = function.body.statements[0].try_except.handlers[0]
+    named = clause.endswith(" as error")
+    assert handler.HasField("exception_var") is named
+    if named:
+        assert handler.exception_var == "error"
+
+
 @pytest.mark.parametrize("clause", ["finally", "except ValueError:\n    pass\nelse"])
 def test_try_rejects_unsupported_clauses(clause: str) -> None:
     """Unsupported bodies are rejected with their source location instead of discarded."""

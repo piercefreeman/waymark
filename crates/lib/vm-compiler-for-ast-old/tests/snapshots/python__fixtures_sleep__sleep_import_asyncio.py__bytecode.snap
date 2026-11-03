@@ -5,8 +5,9 @@ expression: bytecode for python/tests/fixtures_sleep/sleep_import_asyncio.py
 fn main(input: [], output: []):
     val = @sleep_import_asyncio.get_value_asyncio_import()
     sleep 1
-    _return_tmp = @sleep_import_asyncio.format_done_asyncio_import(value=val)
-    return _return_tmp
+    None
+    __return_tmp_1__ = @sleep_import_asyncio.format_done_asyncio_import(value=val)
+    return __return_tmp_1__
 ---
 f0: [4 registers]
   s0:
@@ -19,6 +20,7 @@ f0: [4 registers]
   s3:
     CoreSet(Await { dst: r1, src: r1, resume: s4 })
   s4:
+    PureSet(LoadConst { dst: r1, value: None })
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("format_done_asyncio_import"), args: [r0], resume: s5 })
   s5:
     CoreSet(Await { dst: r3, src: r3, resume: s6 })
