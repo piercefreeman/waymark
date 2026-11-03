@@ -15,45 +15,21 @@ class ReturnHandler(StatementHandler[ast.Return]):
         """Returned values are checked by their expression and call handlers."""
 
     def lower(self, node: ast.Return, context: CompilerContext) -> list[ir.Statement]:
-        """Normalize returned calls and preserve explicit and implicit None results."""
-        if node.value:
-            # Check if returning an action call - normalize to assignment + return
-            action_call = context.action(node.value)
-            if action_call:
-                # Create a temporary variable for the action result
-                tmp_var = context.next_name("return_tmp")
-
-                # Create assignment: _return_tmp = await action()
-                assign_stmt = ir.Statement(span=make_span(node))
-                value = ir.Expr(action_call=action_call, span=make_span(node))
-                assign = ir.Assignment(targets=[tmp_var], value=value)
-                assign_stmt.assignment.CopyFrom(assign)
-
-                # Create return: return _return_tmp
-                return_stmt = ir.Statement(span=make_span(node))
-                var_expr = ir.Expr(variable=ir.Variable(name=tmp_var), span=make_span(node))
-                ret = ir.ReturnStmt(value=var_expr)
-                return_stmt.return_stmt.CopyFrom(ret)
-
-                return [assign_stmt, return_stmt]
-
-            # Normalize return of function calls into assignment + return
-            expr = context.expression(node.value)
-            if expr.HasField("function_call"):
-                tmp_var = context.next_name("return_tmp")
-
-                assign_stmt = ir.Statement(span=make_span(node))
-                assign_stmt.assignment.CopyFrom(ir.Assignment(targets=[tmp_var], value=expr))
-
-                return_stmt = ir.Statement(span=make_span(node))
-                var_expr = ir.Expr(variable=ir.Variable(name=tmp_var), span=make_span(node))
-                return_stmt.return_stmt.CopyFrom(ir.ReturnStmt(value=var_expr))
-                return [assign_stmt, return_stmt]
-
-            # Regular return with expression (variable, literal, etc.)
-            return [ir.Statement(return_stmt=ir.ReturnStmt(value=expr), span=make_span(node))]
-
-        # Return with no value
-        stmt = ir.Statement(span=make_span(node))
-        stmt.return_stmt.CopyFrom(ir.ReturnStmt())
-        return [stmt]
+        """Run setup before the result and materialize calls before returning from this function."""
+        if node.value is None:
+            return [ir.Statement(return_stmt=ir.ReturnStmt(), span=make_span(node))]
+        lowered = context.lower_value(node.value)
+        statements = list(lowered.statements)
+        value = lowered.value
+        if isinstance(node.value, ast.Await) or value.HasField("function_call"):
+            temporary = context.next_name("return_tmp")
+            statements.append(
+                ir.Statement(
+                    assignment=ir.Assignment(targets=[temporary], value=value), span=make_span(node)
+                )
+            )
+            value = ir.Expr(variable=ir.Variable(name=temporary), span=make_span(node))
+        statements.append(
+            ir.Statement(return_stmt=ir.ReturnStmt(value=value), span=make_span(node))
+        )
+        return statements

@@ -39,7 +39,7 @@ class AwaitHandler(ExpressionHandler[ast.Await]):
             isinstance(function, ast.Attribute)
             and isinstance(function.value, ast.Name)
             and function.value.id == "self"
-            and name in context.function_names
+            and name in context.function_signatures
         )
         if context.resolve(function) is None and not helper:
             reject(node, f"Awaiting non-action function '{name}()' is not supported")
@@ -48,7 +48,7 @@ class AwaitHandler(ExpressionHandler[ast.Await]):
         """Lower a directly awaited helper; statement-level durable calls use their call handlers."""
         if not isinstance(node.value, ast.Call):
             return reject(node, "Await requires a direct action or workflow-helper call")
-        value = context.synchronous_call(node.value)
-        if value is None:
-            return reject(node, "Await requires a direct action or workflow-helper call")
-        return value
+        lowered = context.compile_call(node.value, awaited=True)
+        if lowered.statements:
+            reject(node, "Awaited call requires setup statements; assign its result first")
+        return lowered.value

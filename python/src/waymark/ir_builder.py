@@ -1,35 +1,18 @@
-"""
-IR Builder - Converts Python workflow AST to Waymark IR (ast.proto).
-
-This module parses Python workflow classes and produces the IR representation
-that can be sent to the Rust runtime for execution.
-
-The IR builder performs deep transformations to convert Python patterns into
-valid Waymark IR structures. Control flow bodies (try, for, while, if branches)
-are represented as full blocks, so they can contain arbitrary statements and
-`return` behaves consistently with Python (returns from the entry function end
-the workflow).
-
-Validation:
-The IR builder proactively detects unsupported Python patterns and raises
-UnsupportedPatternError with clear recommendations for how to rewrite the code.
-"""
+"""Compile workflow source through shared analysis and registered lowering handlers."""
 
 import ast
 import builtins
 import inspect
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, NoReturn, Optional
+from typing import TYPE_CHECKING, Any, NoReturn
 
-from waymark.call_binding import bind_call
 from waymark.compiler.analysis import SourceAnalysis
 from waymark.compiler.ast import make_span
 from waymark.compiler.context import CompilerContext
 from waymark.compiler.errors import UnsupportedPatternError
-from waymark.compiler.literals import literal_expression
 from waymark.compiler.recommendations import RECOMMENDATIONS
 from waymark.compiler.source import InstanceAttrs, extract_instance_attrs, load_workflow_source
-from waymark.compiler.targets import assignment_targets
 from waymark.compiler.types import has_open_type_parameters
 from waymark.compiler.validation import SourceValidator
 from waymark.global_handlers import GLOBAL_HANDLERS
@@ -44,15 +27,15 @@ if TYPE_CHECKING:
 class TransformContext:
     """Context for IR transformations."""
 
-    # Counter for generating unique function names
-    implicit_fn_counter: int = 0
+    # Counter for generating unique temporary names
+    temporary_counter: int = 0
     # Function signatures for workflow methods (used to fill in default arguments)
-    function_signatures: Dict[str, inspect.Signature] = field(default_factory=dict)
+    function_signatures: dict[str, inspect.Signature] = field(default_factory=dict)
 
-    def next_implicit_fn_name(self, prefix: str = "implicit") -> str:
-        """Generate a unique implicit function name."""
-        self.implicit_fn_counter += 1
-        return f"__{prefix}_{self.implicit_fn_counter}__"
+    def next_name(self, prefix: str = "temporary") -> str:
+        """Generate a unique temporary name across the workflow program."""
+        self.temporary_counter += 1
+        return f"__{prefix}_{self.temporary_counter}__"
 
 
 def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
@@ -87,46 +70,40 @@ class IRBuilder(ast.NodeVisitor):
     def __init__(
         self,
         ctx: TransformContext,
-        module_globals: Optional[Mapping[str, Any]] = None,
-        instance_attrs: Optional[InstanceAttrs] = None,
+        module_globals: Mapping[str, Any] | None = None,
+        instance_attrs: InstanceAttrs | None = None,
         function_locals: tuple[str, ...] = (),
         receiver_type: type | None = None,
     ):
-        self._ctx = ctx
-        self._module_globals = module_globals or {}
+        module_namespace = module_globals or {}
         self._language_call_namespace = {
             name: value
-            for name, value in {**vars(builtins), **self._module_globals}.items()
+            for name, value in {**vars(builtins), **module_namespace}.items()
             if name not in function_locals
         }
         if receiver_type is not None:
             self._language_call_namespace["self"] = receiver_type
-        self._instance_attrs = instance_attrs.literals if instance_attrs else {}
-        self._ambiguous_instance_attrs = instance_attrs.ambiguous if instance_attrs else set()
         self._language_calls = GLOBAL_HANDLERS
         self._compiler_context = CompilerContext(
             expression=self._compile_expression,
             statement=self._visit_statement,
-            action=self._extract_action_call,
-            function=self._convert_to_function_call,
-            next_name=self._ctx.next_implicit_fn_name,
-            function_names=self._ctx.function_signatures.keys(),
+            next_name=ctx.next_name,
+            function_signatures=ctx.function_signatures,
             resolve=lambda function: self._language_calls.resolve(
                 function, self._language_call_namespace
             ),
             namespace=self._language_call_namespace,
-            synchronous_call=self._convert_registered_call,
             validate_syntax=lambda node: SourceValidator(
                 self._compiler_context, SYNTAX_HANDLERS
             ).visit(node),
-            instance_attrs=self._instance_attrs,
-            instance_namespace=instance_attrs.namespace if instance_attrs else self._module_globals,
-            ambiguous_instance_attrs=self._ambiguous_instance_attrs,
+            instance_attrs=instance_attrs.literals if instance_attrs else {},
+            instance_namespace=instance_attrs.namespace if instance_attrs else module_namespace,
+            ambiguous_instance_attrs=instance_attrs.ambiguous if instance_attrs else set(),
         )
-        self.function_def: Optional[ir.FunctionDef] = None
+        self.function_def: ir.FunctionDef | None = None
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> Any:
-        """Visit a function definition (the workflow's run method)."""
+        """Validate and lower one workflow method."""
         annotations = [
             argument.annotation
             for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
@@ -168,25 +145,21 @@ class IRBuilder(ast.NodeVisitor):
         self.function_def.body.CopyFrom(ir.Block(statements=statements))
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> Any:
-        """Visit an async function definition (the workflow's run method)."""
+        """Apply the same lowering rules to asynchronous methods."""
         self.visit_FunctionDef(node)
 
-    def _visit_statement(self, node: ast.stmt) -> List[ir.Statement]:
+    def _visit_statement(self, node: ast.stmt) -> list[ir.Statement]:
         """Convert a Python statement to IR Statement(s).
 
-        Returns a list because some transformations (like try block hoisting)
-        may expand a single Python statement into multiple IR statements.
+        Handlers may emit setup before the statement, so lowering returns an ordered list.
 
         Raises UnsupportedPatternError for unsupported statement types.
         """
-        language_call = self._visit_language_call(node)
-        if language_call is not None:
-            return language_call
         lowered = SYNTAX_HANDLERS.lower_statement(node, self._compiler_context)
         if lowered is not None:
             return lowered
         if isinstance(node, ast.Expr):
-            return [self._visit_expr_stmt(node)]
+            return self._visit_expr_stmt(node)
         elif isinstance(node, ast.Pass):
             # Pass statements are fine, they just don't produce IR
             return []
@@ -273,7 +246,7 @@ class IRBuilder(ast.NodeVisitor):
                 line=line,
                 col=col,
             )
-        elif hasattr(ast, "Match") and isinstance(node, ast.Match):
+        elif isinstance(node, ast.Match):
             raise UnsupportedPatternError(
                 "Match statements are not supported",
                 RECOMMENDATIONS["match"],
@@ -291,96 +264,34 @@ class IRBuilder(ast.NodeVisitor):
                 col=col,
             )
 
-    def _visit_language_call(self, node: ast.stmt) -> list[ir.Statement] | None:
-        """Dispatch registered awaited calls; handlers own recognition and lowering."""
-        match node:
-            case ast.Assign(value=ast.Await(value=ast.Call() as call)):
-                targets = assignment_targets(node.targets)
-            case ast.AnnAssign(value=ast.Await(value=ast.Call() as call)):
-                targets = assignment_targets([node.target])
-            case ast.Expr(value=ast.Await(value=ast.Call() as call)):
-                targets = []
-            case ast.Return(value=ast.Await(value=ast.Call() as call)):
-                targets = []
-            case ast.Expr(value=ast.Call() as call):
-                handler = self._language_calls.resolve(call.func, self._language_call_namespace)
-                if handler is None or handler.requires_await:
-                    return None
-                lowered = handler.compile(call, self._compiler_context)
-                return [
-                    *lowered.statements,
-                    ir.Statement(expr_stmt=ir.ExprStmt(expr=lowered.value)),
-                ]
-            case _:
-                return None
-
-        handler = self._language_calls.resolve(call.func, self._language_call_namespace)
-        if handler is None:
-            return None
-        if isinstance(node, ast.Return):
-            targets = [self._ctx.next_implicit_fn_name(prefix="return_tmp")]
-        if not handler.requires_await:
-            raise handler.error(call, "this call cannot be awaited")
-        lowered = handler.compile(call, self._compiler_context)
-        if (
-            isinstance(node, (ast.Assign, ast.AnnAssign))
-            and isinstance(
-                node.targets[0] if isinstance(node, ast.Assign) else node.target,
-                (ast.Tuple, ast.List),
-            )
-            and lowered.value.HasField("parallel_expr")
-            and len(targets) != len(lowered.value.parallel_expr.calls)
-        ):
-            raise handler.error(call, "unpacking target count does not match result count")
-        lowered.value.span.CopyFrom(make_span(call))
+    def _visit_expr_stmt(self, node: ast.Expr) -> list[ir.Statement]:
+        """Execute a value for its effects, retaining any setup emitted by its handler."""
+        lowered = self._compiler_context.lower_value(node.value)
+        value = lowered.value
         statement = ir.Statement(span=make_span(node))
-        if isinstance(node, ast.Expr) and lowered.value.HasField("parallel_expr"):
-            statement.parallel_block.calls.extend(lowered.value.parallel_expr.calls)
-        elif isinstance(node, ast.Expr) and not lowered.value.HasField("spread_expr"):
-            if lowered.value.HasField("action_call"):
-                statement.action_call.CopyFrom(lowered.value.action_call)
-            else:
-                statement.expr_stmt.CopyFrom(ir.ExprStmt(expr=lowered.value))
+        if value.HasField("parallel_expr"):
+            statement.parallel_block.calls.extend(value.parallel_expr.calls)
+        elif value.HasField("action_call"):
+            statement.action_call.CopyFrom(value.action_call)
+        elif value.HasField("spread_expr"):
+            statement.assignment.CopyFrom(ir.Assignment(value=value))
         else:
-            statement.assignment.CopyFrom(ir.Assignment(targets=targets, value=lowered.value))
-        statements = [*lowered.statements, statement]
-        if isinstance(node, ast.Return):
-            statements.append(
-                ir.Statement(
-                    return_stmt=ir.ReturnStmt(value=ir.Expr(variable=ir.Variable(name=targets[0]))),
-                    span=make_span(node),
-                )
-            )
-        return statements
+            statement.expr_stmt.CopyFrom(ir.ExprStmt(expr=value))
+        return [*lowered.statements, statement]
 
-    def _visit_expr_stmt(self, node: ast.Expr) -> ir.Statement:
-        """Convert expression statement to IR (side effect only, no assignment)."""
-        stmt = ir.Statement(span=make_span(node))
-
-        # Check if this is an action call (side effect only)
-        action_call = self._extract_action_call(node.value)
-        if action_call:
-            stmt.action_call.CopyFrom(action_call)
-            return stmt
-
-        # Regular expression
-        expr = self._compile_expression(node.value)
-        stmt.expr_stmt.CopyFrom(ir.ExprStmt(expr=expr))
-        return stmt
-
-    def _visit_break(self, node: ast.Break) -> List[ir.Statement]:
+    def _visit_break(self, node: ast.Break) -> list[ir.Statement]:
         """Convert break statement to IR."""
         stmt = ir.Statement(span=make_span(node))
         stmt.break_stmt.CopyFrom(ir.BreakStmt())
         return [stmt]
 
-    def _visit_continue(self, node: ast.Continue) -> List[ir.Statement]:
+    def _visit_continue(self, node: ast.Continue) -> list[ir.Statement]:
         """Convert continue statement to IR."""
         stmt = ir.Statement(span=make_span(node))
         stmt.continue_stmt.CopyFrom(ir.ContinueStmt())
         return [stmt]
 
-    def _collect_function_inputs(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> List[str]:
+    def _collect_function_inputs(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
         """Collect workflow inputs from function parameters, including kw-only args."""
         if node.args.vararg is not None or node.args.kwarg is not None:
             raise UnsupportedPatternError(
@@ -389,7 +300,7 @@ class IRBuilder(ast.NodeVisitor):
                 line=node.lineno,
                 col=node.col_offset,
             )
-        args: List[str] = []
+        args: list[str] = []
         seen: set[str] = set()
 
         ordered_args = list(node.args.posonlyargs) + list(node.args.args)
@@ -416,82 +327,6 @@ class IRBuilder(ast.NodeVisitor):
 
         return args
 
-    def _extract_action_call(self, node: ast.expr) -> Optional[ir.ActionCall]:
-        if isinstance(node, ast.Await) and isinstance(node.value, ast.Call):
-            handler = self._language_calls.resolve(node.value.func, self._language_call_namespace)
-            if handler is not None:
-                if not handler.requires_await:
-                    raise handler.error(node.value, "this call cannot be awaited")
-                lowered = handler.compile(node.value, self._compiler_context)
-                if lowered.value.HasField("action_call") and not lowered.statements:
-                    return lowered.value.action_call
-        return None
-
-    def _convert_to_function_call(self, node: ast.Call) -> Optional[ir.FunctionCall]:
-        """Convert an AST Call to IR FunctionCall."""
-        func_name = self._get_func_name(node.func)
-        if not func_name:
-            return None
-
-        information = self._ctx.function_signatures.get(func_name)
-        if information is None:
-            return None
-        bound = bind_call(node, information, self._language_call_namespace)
-        fn_call = ir.FunctionCall(name=func_name)
-        for argument in node.args:
-            value = self._compile_expression(argument)
-            fn_call.args.append(value)
-        for keyword in node.keywords:
-            assert keyword.arg is not None
-            value = self._compile_expression(keyword.value)
-            fn_call.kwargs.append(ir.Kwarg(name=keyword.arg, value=value))
-        for parameter in information.parameters.values():
-            if (
-                parameter.name not in bound.arguments
-                and parameter.default is not inspect.Parameter.empty
-            ):
-                value = self._compile_expression(literal_expression(parameter.default, node))
-                fn_call.kwargs.append(ir.Kwarg(name=parameter.name, value=value))
-
-        return fn_call
-
-    def _get_func_name(self, node: ast.expr) -> Optional[str]:
-        """Get function name from a func node."""
-        if isinstance(node, ast.Name):
-            return node.id
-        elif isinstance(node, ast.Attribute):
-            # Handle chained attributes like obj.method
-            parts = []
-            current = node
-            while isinstance(current, ast.Attribute):
-                parts.append(current.attr)
-                current = current.value
-            if isinstance(current, ast.Name):
-                parts.append(current.id)
-            name = ".".join(reversed(parts))
-            if name.startswith("self."):
-                return name[5:]
-            return name
-        return None
-
-    def _convert_registered_call(self, node: ast.Call) -> Optional[ir.Expr]:
-        handler = self._language_calls.resolve(node.func, self._language_call_namespace)
-        if handler is not None:
-            handler.parse_arguments(node)
-            if handler.requires_await:
-                raise handler.error(
-                    node, "await this call in its own assignment, return, or expression statement"
-                )
-            lowered = handler.compile(node, self._compiler_context)
-            if lowered.statements:
-                raise handler.error(node, "use this call in its own expression statement")
-            return lowered.value
-        if _is_self_method_call(node):
-            function = self._convert_to_function_call(node)
-            if function is not None:
-                return ir.Expr(function_call=function)
-        return None
-
     def _compile_expression(self, node: ast.expr) -> ir.Expr:
         """Dispatch syntax lowering and recurse through shared compiler operations."""
         lowered = SYNTAX_HANDLERS.lower_expression(node, self._compiler_context)
@@ -500,36 +335,20 @@ class IRBuilder(ast.NodeVisitor):
         return _expr_to_ir(node, self._compiler_context)
 
 
-def _expr_to_ir(
-    expr: ast.expr,
-    context: CompilerContext,
-) -> ir.Expr:
-    """Convert Python AST expression to IR Expr.
-
-    Args:
-        expr: The AST expression to convert.
-        context: Shared recursive expression and call compilation.
-    """
-    result = ir.Expr(span=make_span(expr))
-
-    if isinstance(expr, ast.Call):
-        converted = context.synchronous_call(expr)
-        if converted:
-            return converted
-
+def _expr_to_ir(expr: ast.expr, context: CompilerContext) -> ir.Expr:
+    """Compile leaf values and calls that do not require surrounding setup statements."""
     if isinstance(expr, ast.Name):
-        result.variable.CopyFrom(ir.Variable(name=expr.id))
-        return result
-
+        return ir.Expr(variable=ir.Variable(name=expr.id), span=make_span(expr))
     if isinstance(expr, ast.Call):
-        raise UnsupportedPatternError(
-            f"Calling '{ast.unparse(expr.func)}()' is not supported in workflow code",
-            RECOMMENDATIONS["sync_function_call"],
-            line=expr.lineno,
-            col=expr.col_offset,
-        )
-
-    # Check for unsupported expression types
+        lowered = context.compile_call(expr, awaited=False)
+        if lowered.statements:
+            raise UnsupportedPatternError(
+                "This call requires setup statements; use it in its own statement",
+                RECOMMENDATIONS["sync_function_call"],
+                line=expr.lineno,
+                col=expr.col_offset,
+            )
+        return lowered.value
     _check_unsupported_expression(expr)
 
 
@@ -594,13 +413,3 @@ def _check_unsupported_expression(expr: ast.expr) -> NoReturn:
             line=line,
             col=col,
         )
-
-
-def _is_self_method_call(node: ast.Call) -> bool:
-    """Return True if the call is a direct self.method(...) invocation."""
-    func = node.func
-    return (
-        isinstance(func, ast.Attribute)
-        and isinstance(func.value, ast.Name)
-        and func.value.id == "self"
-    )

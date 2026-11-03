@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from waymark.compiler.ast import rewrite_load_names
-from waymark.compiler.context import CompilerContext
+from waymark.compiler.context import CompilerContext, LoweredCall
 from waymark.compiler.errors import UnsupportedPatternError
-from waymark.language_calls import LanguageCallHandler, LoweredCall
+from waymark.language_calls import LanguageCallHandler
 from waymark.proto import ast_pb2 as ir
 
 
@@ -86,13 +86,7 @@ class GatherHandler(LanguageCallHandler[GatherArguments]):
     def _lower_awaitable(self, node: ast.expr, context: CompilerContext) -> ir.Call:
         if not isinstance(node, ast.Call):
             raise self.error(node, "each awaitable must be a direct call")
-        call = context.call(node)
-        if call is None:
-            raise self.error(
-                node,
-                f"unsupported awaitable {ast.unparse(node.func)!r}; use an action or workflow helper",
-            )
-        return call
+        return context.call(node)
 
     def _lower_comprehension(
         self, comprehension: ast.ListComp | ast.GeneratorExp, context: CompilerContext
