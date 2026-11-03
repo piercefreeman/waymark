@@ -12,8 +12,8 @@ export const sections = [
   { title: 'Try / except', id: 'try-except' },
   { title: 'Durable sleep', id: 'durable-sleep' },
   { title: 'Early return', id: 'early-return' },
-  { title: 'What does not compile (yet)', id: 'limitations' },
-  { title: 'Known issues', id: 'known-issues' },
+  { title: 'Compiler limitations', id: 'limitations' },
+  { title: 'Runtime limitations', id: 'known-issues' },
 ]
 
 # Control Flow
@@ -21,10 +21,9 @@ export const sections = [
 Anything inside a workflow's `run()` method is parsed into Waymark IR the
 first time the workflow is run or scheduled, then compiled into the
 program the runtime executes. The patterns below are what the compiler
-recognizes today. They cover almost everything you'd actually want
-to write - and where they don't, the compiler tells you up front, not at
-recovery time. The few patterns that currently slip through are listed
-under [Known issues](#known-issues).
+recognizes today. [Compiler limitations](#limitations) describe which forms
+to use while broader support is being added. Some dynamic values still expose
+[runtime limitations](#known-issues) that compilation cannot yet detect.
 
 Every sample in this guide compiles.
 
@@ -271,62 +270,142 @@ class LoopReturnWorkflow(Workflow):
         )
 ```
 
-## What does not compile (yet) {{ id: 'limitations' }}
+## Compiler limitations {{ id: 'limitations' }}
 
-The compiler refuses anything it can't lower to IR, and it tells you when
-the workflow is first run or scheduled. A pattern the SDK rejects raises
-an `UnsupportedPatternError` with the offending line and a suggested fix;
-one the runtime rejects raises a plain `RuntimeError` whose message
-carries what the runtime could not lower (under pytest,
-`workflow.run(...)` raises the gRPC error itself; see
-[Exceptions](/python/api/exceptions)). Waymark compiles only a
-deterministic set of instructions and effects; anything outside it is
-rejected. The rejected patterns:
+Waymark compiles a growing subset of Python. Support for the linked constructs
+below is planned; use the supported forms described here until it is available.
+For example, `finally` currently raises a compilation error: keep cleanup that
+needs `finally` inside an action while workflow-level support is being added.
 
-- **f-strings.** Anywhere in the workflow body. Build formatted strings
-  inside an action.
-- **Calling anything but actions, the workflow's own methods, awaited
-  `asyncio.sleep` and `asyncio.gather`, `len`, and `range` and
-  `enumerate` as a `for` loop's iterable (`range` also assigned to a
-  name or returned).** That covers other builtins like `str()` and `int()`,
-  library calls like `datetime.now()` or `uuid4()`, and methods on any
-  object but `self` - `Model.model_validate(...)` included (the one
-  exception is `list.append`). Do that work inside an action - that's
-  what actions are for.
+Compilation happens when a workflow is first run or scheduled. Unsupported
+patterns detected by the SDK raise `UnsupportedPatternError` with a source
+location and guidance. A limitation detected during runtime compilation raises
+`RuntimeError` (or the underlying gRPC error under pytest); see
+[Exceptions](/python/api/exceptions). The linked issues stay open until the
+behavior is supported.
+
+### Control flow
+
+- **`try/finally` and `try/else`.** Use `try/except` today. Adding `finally`
+  or `else` raises a compilation error; support for these clauses is planned
+  in [#580](https://github.com/piercefreeman/waymark/issues/580).
+- **Loop `else` clauses.** `for/else` and `while/else` currently raise a
+  compilation error. Track whether the loop completed with an explicit flag
+  until loop `else` support is available
+  ([#581](https://github.com/piercefreeman/waymark/issues/581)).
+- **Chained comparisons and short-circuit operators.** Use explicit nested
+  conditions today. Chained comparisons such as `0 < x < 10` and `and` / `or`
+  currently raise compilation errors; support is planned in
+  [#582](https://github.com/piercefreeman/waymark/issues/582) and
+  [#590](https://github.com/piercefreeman/waymark/issues/590).
+- **Nested `await`.** Await an action into its own variable before using its
+  result in a larger expression. Nested awaits currently raise a compilation
+  error; general expression support is tracked in
+  [#585](https://github.com/piercefreeman/waymark/issues/585).
+- **Comprehensions.** List comprehensions compile when assigned directly to
+  a variable or spread into `gather`; generator expressions compile only as
+  starred arguments inside `gather`. Dict and set comprehensions currently
+  raise compilation errors. Dict-comprehension support is tracked in
+  [#583](https://github.com/piercefreeman/waymark/issues/583).
+- **`raise`.** Raise inside an action today; the workflow handles it with
+  `try/except`.
+- **Other Python constructs.** Keep `with`, `lambda`, `match`, `yield`, walrus
+  (`:=`), `assert`, `del`, `global`/`nonlocal`, `import`, and nested `def` or
+  `class` inside actions for now; they have no workflow IR lowerings yet.
+
+### Calls and parallel work
+
+- **String formatting.** Build formatted strings inside actions today;
+  f-strings currently raise compilation errors anywhere in the workflow body.
+- **Supported calls.** Call actions, the workflow's own methods, supported
+  data-only constructors, awaited `asyncio.sleep` and `asyncio.gather`, `len`,
+  `range`, `enumerate`, and local-list `append` using the forms described here.
+  Put other builtins such as `str()` and `int()`, library calls such as
+  `datetime.now()` or `uuid4()`, and other object methods such as
+  `Model.model_validate(...)` inside actions; direct workflow calls currently
+  raise compilation errors.
 - **`isinstance(value, SomeError)`.** The compiler rejects runtime type
   checks until the VM supports them
   ([#790](https://github.com/piercefreeman/waymark/issues/790)). Catch
   the class with an `except` clause instead.
-- **Constructing classes with behavior.** Data-only pydantic models and
+- **`asyncio.gather` options and operands.** Omit `return_exceptions` or pass
+  the literal `False` today. `return_exceptions=True` raises a compilation
+  error until exception collection is supported
+  ([#575](https://github.com/piercefreeman/waymark/issues/575)). Awaitables must
+  be direct action or workflow-helper calls, or a single starred list/generator
+  comprehension. Direct `asyncio.sleep` operands and coroutine variables
+  currently raise compilation errors
+  ([#579](https://github.com/piercefreeman/waymark/issues/579)). Mixed spreads,
+  async comprehensions, and an empty argument list are also unsupported; an
+  empty collection inside a supported comprehension spread works. Dynamic
+  option values, unknown keywords, `**kwargs`, and statically known unpacking
+  target-count mismatches raise compilation errors.
+- **`gather` in larger expressions.** Await it in a statement of its own,
+  on the right-hand side of an assignment, or directly in a return:
+  `return await asyncio.gather(...)`. Spreading a variable (`*tasks`) currently
+  raises a compilation error; spread a list comprehension directly instead.
+- **Call arguments.** Pass action and helper arguments explicitly today;
+  `*args` / `**kwargs` raise compilation errors
+  ([#584](https://github.com/piercefreeman/waymark/issues/584)). Missing,
+  duplicate, unknown, or extra arguments are also errors. Dependency-injected
+  action parameters are excluded from the public signature. Aliases and module
+  re-exports follow the same validation rules.
+- **`range` and `enumerate`.** Use one to three integer bounds for `range`
+  directly in a loop, assignment, or return; a literal zero step is an error.
+  Use `enumerate(items, start=0)` directly in a loop; other starts and expression
+  positions currently raise compilation errors.
+
+### Values and workflow state
+
+- **Models and dataclasses.** Data-only pydantic models and
   dataclasses become dictionaries. Factories, inherited hooks, custom
   initializers, validators and computed fields are rejected. Construct
   those objects inside an action, even if the call supplies every field.
   Omitted defaults are populated when they consist of supported primitive
-  values, lists, tuples, or string-keyed dictionaries. Other defaults, such as enum members,
-  must be passed explicitly or constructed inside an action. Tuple identity
-  is still subject to [the transport limitation below](#known-issues).
-- **`raise`.** Raise inside an action; the workflow handles it with
-  `try/except`.
-- **`with`, `lambda`, `match`, `yield`, walrus (`:=`), `assert`, `del`,
-  `global`/`nonlocal`, `import`, and nested `def` or `class`.** None of
-  these have IR lowerings yet.
-- **Most references to module-level globals.** Enum members and exception
-  classes resolve fine; arbitrary globals don't. Pass values in through
-  workflow inputs or fetch them inside an action.
-- **Comprehensions outside two positions.** List comprehensions
-  compile when assigned directly to a variable or spread into `gather`;
-  dict and set comprehensions do not compile, and generator expressions
-  only as starred arguments inside `gather`.
-- **`gather` nested inside a larger expression.** Await it in a statement
-  of its own, on the right-hand side of an assignment, or directly in a
-  return: `return await asyncio.gather(...)`. Spreading a variable
-  (`*tasks`) doesn't compile either; spread a list comprehension directly
-  into the `gather`.
-- **A `retry=` or `timeout=` that isn't a literal.** What compiles is a
-  `RetryPolicy(...)` with keyword literals, a number or a `timedelta(...)`
-  of `seconds`, `minutes`, `hours` or `days` literals, or a `self.`
-  attribute assigned one of those once, at the top level of `__init__`,
-  passed by keyword. Rejected, among others: a variable, a call result,
+  values, lists, tuples, or string-keyed dictionaries. Other defaults, such as
+  enum members, must be passed explicitly or constructed inside an action.
+  Tuple identity is still subject to [the transport limitation below](#known-issues).
+  Broader construction support is planned in
+  [#829](https://github.com/piercefreeman/waymark/issues/829).
+- **List mutation through aliases.** Use `append()` and list `+=` on fresh
+  local lists whose ownership the compiler can establish. Mutating a parameter
+  or aliased list currently raises a compilation error; return a new list and
+  reassign it until shared mutation is supported
+  ([#770](https://github.com/piercefreeman/waymark/issues/770)).
+- **Assignment targets.** Use names and flat unpacking targets today.
+  Attribute and subscript writes, including `d[key] += value`, and chained
+  assignments such as `a = b = value` currently raise compilation errors.
+  Additional assignment forms are tracked in
+  [#583](https://github.com/piercefreeman/waymark/issues/583) and
+  [#584](https://github.com/piercefreeman/waymark/issues/584).
+- **Dictionary construction.** Use explicit entries with keys known to be
+  strings today. Dictionary spreads such as `{**base, "extra": 1}` raise a
+  compilation error until spread support is added
+  ([#587](https://github.com/piercefreeman/waymark/issues/587)).
+- **Instance state.** Pass runtime state through `run()` arguments. Reads of
+  a unique literal assigned in `__init__` compile, including inside larger
+  expressions. Unknown or ambiguous instance attributes and all instance writes
+  currently raise compilation errors
+  ([#586](https://github.com/piercefreeman/waymark/issues/586)).
+- **String lengths.** Literal strings use Python's character count. Compute
+  other string lengths inside an action for now; operands known to be strings
+  or caught exceptions raise compilation errors until the VM can preserve
+  their semantics.
+- **Numeric literals.** Use finite floats and integers within signed 64-bit
+  range; other numeric literals raise compilation errors.
+- **Generic annotations.** Specialize open type parameters in workflow inputs
+  and returns before compilation.
+- **Module-level values.** Enum members and exception classes resolve at
+  compilation. Pass other values through workflow inputs or fetch them inside
+  an action; arbitrary globals currently raise compilation errors.
+
+### Policies and exception handlers
+
+- **Retry and timeout policies.** Use `RetryPolicy(...)` with keyword
+  literals for `retry`, and a number or `timedelta(...)` with literal
+  `seconds`, `minutes`, `hours` or `days` for `timeout`. A `self.` attribute
+  assigned one of these once at the top level of `__init__` also works.
+  Pass policies by keyword. Compilation errors include a variable, a call result,
   positional `RetryPolicy` arguments, a policy passed to `run_action`
   positionally, a `self.` attribute assigned more than once or under a
   branch, a tuple for `exception_types`, a non-string or dotted entry in
@@ -335,8 +414,8 @@ rejected. The rejected patterns:
   [Retries & Timeouts](/python/retries) and the
   [RetryPolicy reference](/python/api/retry) point here for the rejected
   forms.
-- **`except` with anything but an exception class in scope.** The name
-  must resolve, in the workflow's module or the builtins, to an exception
+- **Exception handlers.** Name an exception class in the workflow's module
+  or the builtins. The name must resolve to an exception
   class, and a dotted name's root to a module or a class:
   `except httpx.ConnectError:` compiles and matches the class called
   `ConnectError`. An alias resolves to the class it names, so `except VE:`
@@ -349,67 +428,7 @@ rejected. The rejected patterns:
   imported only under `TYPE_CHECKING` or inside a function is not in
   scope.
 
-- **Unsupported `asyncio.gather` arguments.** `return_exceptions=True`,
-  dynamic option values, unknown keywords, and `**kwargs` are rejected.
-  Awaitables must be direct action or workflow-helper calls, or a single
-  starred list/generator comprehension. Passing `asyncio.sleep` directly,
-  coroutine variables, mixed spreads, async comprehensions, and an empty
-  argument list is unsupported. An empty collection inside a supported
-  comprehension spread still works. A statically known mismatch between
-  the number of gathered results and unpacking targets is rejected too.
-
-- **String lengths.** Literal strings use Python's character count. Other
-  operands known to be strings or caught exceptions are rejected until the
-  VM can preserve their semantics.
-
-- **Unsupported `range` forms.** Use one to three integer bounds directly in a loop, assignment, or return. A literal zero step is rejected.
-
-- **Nonzero `enumerate` starts.** Only `enumerate(items, start=0)` directly in a loop is supported; other starts and expression positions are rejected.
-
-- **Invalid call arguments.** Action and helper calls bind their complete
-  signatures, rejecting missing, duplicate, unknown, or extra arguments and
-  `*args` / `**kwargs`. Dependency-injected action parameters are excluded from
-  that public signature. Compiler-handled calls use the same validation for
-  aliases and module re-exports.
-
-- **List mutation through aliases.** `append()` and list `+=` are supported only for a fresh local list whose ownership the compiler can establish. Mutating a parameter or aliased list is rejected; return a new list and reassign it instead.
-
-- **Clauses and expressions the IR cannot preserve.** `try/finally`,
-  `try/else`, `for/else`, `while/else`, chained comparisons, and `and` / `or`
-  are rejected. Use explicit nested conditions. Await an action into its own
-  variable before using the result in a larger expression.
-- **Writes that require shared mutation.** Attribute and subscript assignments,
-  dict comprehensions, and chained assignments are rejected.
-- **Unrepresentable literals.** Non-finite float literals and integers outside
-  signed 64-bit range are rejected, as are dictionary spreads and keys not known
-  to be strings.
-- **Open workflow annotations.** Workflow inputs and returns must specialize
-  open type parameters before compilation.
-- **Instance state.** Reads of a unique literal assigned in `__init__` can be
-  compiled, including inside larger expressions. Unknown or ambiguous instance
-  attributes and all instance writes are rejected. Pass runtime state through
-  `run()` arguments.
-
-The accepted-but-wrong patterns in the following reports are now rejected
-at compilation, or lowered correctly for the supported cases described above:
-[#575](https://github.com/piercefreeman/waymark/issues/575),
-[#579](https://github.com/piercefreeman/waymark/issues/579),
-[#580](https://github.com/piercefreeman/waymark/issues/580),
-[#581](https://github.com/piercefreeman/waymark/issues/581),
-[#582](https://github.com/piercefreeman/waymark/issues/582),
-[#583](https://github.com/piercefreeman/waymark/issues/583),
-[#584](https://github.com/piercefreeman/waymark/issues/584),
-[#585](https://github.com/piercefreeman/waymark/issues/585),
-[#586](https://github.com/piercefreeman/waymark/issues/586),
-[#587](https://github.com/piercefreeman/waymark/issues/587),
-[#590](https://github.com/piercefreeman/waymark/issues/590),
-[#770](https://github.com/piercefreeman/waymark/issues/770), and
-[#829](https://github.com/piercefreeman/waymark/issues/829).
-Rejecting a construct prevents its silent miscompilation; it does not add
-runtime support for it. These issues remain open while their behavior is
-unsupported or limited.
-
-## Known issues {{ id: 'known-issues' }}
+## Runtime limitations {{ id: 'known-issues' }}
 
 The compiler also rejects statically identifiable VM mismatches: mixed numeric
 operations and integer true division
@@ -423,16 +442,15 @@ to an action remains supported.
 
 These reports remain open: the checks use local source facts, not a complete
 runtime type system. Values returned by actions or reached through dynamic
-containers can still expose the
-underlying VM bugs. A compilation success does not yet establish full Python
-semantics for those values. Follow
+containers can still encounter these runtime limitations after compilation.
+Follow
 [#772](https://github.com/piercefreeman/waymark/issues/772) for the remaining work.
 
 Dynamic `asyncio.sleep` delays that evaluate to zero, negative numbers, or invalid
 values still end the run with a VM error. Nonpositive literal delays are handled
 by the compiler ([#602](https://github.com/piercefreeman/waymark/issues/602)).
 
-Value transport also still needs runtime fixes:
+Values crossing between workflows and actions have these current limitations:
 
 - Models and dataclasses become dictionaries inside the workflow, and tuples
   become lists ([#596](https://github.com/piercefreeman/waymark/issues/596)).
