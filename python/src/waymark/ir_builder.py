@@ -5,11 +5,12 @@ import builtins
 import inspect
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any
 
 from waymark.compiler.analysis import SourceAnalysis
 from waymark.compiler.ast import make_span
 from waymark.compiler.context import CompilerContext
+from waymark.compiler.diagnostics import reject_unsupported
 from waymark.compiler.errors import UnsupportedPatternError
 from waymark.compiler.recommendations import RECOMMENDATIONS
 from waymark.compiler.source import InstanceAttrs, extract_instance_attrs, load_workflow_source
@@ -168,101 +169,7 @@ class IRBuilder(ast.NodeVisitor):
         elif isinstance(node, ast.Continue):
             return self._visit_continue(node)
 
-        # Check for unsupported statement types - this MUST raise for any
-        # unhandled statement to avoid silently dropping code
-        self._check_unsupported_statement(node)
-
-    def _check_unsupported_statement(self, node: ast.stmt) -> NoReturn:
-        """Check for unsupported statement types and raise descriptive errors.
-
-        This function ALWAYS raises an exception - it never returns normally.
-        Any statement type that reaches this function is either explicitly
-        unsupported (with a specific error message) or unhandled (with a
-        generic catch-all error). This ensures we never silently drop code.
-        """
-        line = node.lineno
-        col = node.col_offset
-
-        if isinstance(node, (ast.With, ast.AsyncWith)):
-            raise UnsupportedPatternError(
-                "Context managers (with statements) are not supported",
-                RECOMMENDATIONS["with_statement"],
-                line=line,
-                col=col,
-            )
-        elif isinstance(node, ast.Raise):
-            raise UnsupportedPatternError(
-                "The 'raise' statement is not supported",
-                RECOMMENDATIONS["raise_statement"],
-                line=line,
-                col=col,
-            )
-        elif isinstance(node, ast.Assert):
-            raise UnsupportedPatternError(
-                "Assert statements are not supported",
-                RECOMMENDATIONS["assert_statement"],
-                line=line,
-                col=col,
-            )
-        elif isinstance(node, ast.Delete):
-            raise UnsupportedPatternError(
-                "The 'del' statement is not supported",
-                RECOMMENDATIONS["delete"],
-                line=line,
-                col=col,
-            )
-        elif isinstance(node, ast.Global):
-            raise UnsupportedPatternError(
-                "Global statements are not supported",
-                RECOMMENDATIONS["global_statement"],
-                line=line,
-                col=col,
-            )
-        elif isinstance(node, ast.Nonlocal):
-            raise UnsupportedPatternError(
-                "Nonlocal statements are not supported",
-                RECOMMENDATIONS["nonlocal_statement"],
-                line=line,
-                col=col,
-            )
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            raise UnsupportedPatternError(
-                "Import statements inside workflow run() are not supported",
-                RECOMMENDATIONS["import_statement"],
-                line=line,
-                col=col,
-            )
-        elif isinstance(node, ast.ClassDef):
-            raise UnsupportedPatternError(
-                "Class definitions inside workflow run() are not supported",
-                RECOMMENDATIONS["class_def"],
-                line=line,
-                col=col,
-            )
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            raise UnsupportedPatternError(
-                "Nested function definitions are not supported",
-                RECOMMENDATIONS["function_def"],
-                line=line,
-                col=col,
-            )
-        elif isinstance(node, ast.Match):
-            raise UnsupportedPatternError(
-                "Match statements are not supported",
-                RECOMMENDATIONS["match"],
-                line=line,
-                col=col,
-            )
-        else:
-            # Catch-all for any unhandled statement types.
-            # This is critical to avoid silently dropping code.
-            stmt_type = type(node).__name__
-            raise UnsupportedPatternError(
-                f"Unhandled statement type: {stmt_type}",
-                RECOMMENDATIONS["unsupported_statement"],
-                line=line,
-                col=col,
-            )
+        reject_unsupported(node)
 
     def _visit_expr_stmt(self, node: ast.Expr) -> list[ir.Statement]:
         """Execute a value for its effects, retaining any setup emitted by its handler."""
@@ -349,67 +256,4 @@ def _expr_to_ir(expr: ast.expr, context: CompilerContext) -> ir.Expr:
                 col=expr.col_offset,
             )
         return lowered.value
-    _check_unsupported_expression(expr)
-
-
-def _check_unsupported_expression(expr: ast.expr) -> NoReturn:
-    """Check for unsupported expression types and raise descriptive errors."""
-    line = expr.lineno
-    col = expr.col_offset
-
-    if isinstance(expr, ast.JoinedStr):
-        raise UnsupportedPatternError(
-            "F-strings are not supported",
-            RECOMMENDATIONS["fstring"],
-            line=line,
-            col=col,
-        )
-    elif isinstance(expr, ast.Lambda):
-        raise UnsupportedPatternError(
-            "Lambda expressions are not supported",
-            RECOMMENDATIONS["lambda"],
-            line=line,
-            col=col,
-        )
-    elif isinstance(expr, ast.ListComp):
-        raise UnsupportedPatternError(
-            "List comprehensions are not supported in this context",
-            RECOMMENDATIONS["list_comprehension"],
-            line=line,
-            col=col,
-        )
-    elif isinstance(expr, ast.SetComp):
-        raise UnsupportedPatternError(
-            "Set comprehensions are not supported",
-            RECOMMENDATIONS["set_comprehension"],
-            line=line,
-            col=col,
-        )
-    elif isinstance(expr, ast.GeneratorExp):
-        raise UnsupportedPatternError(
-            "Generator expressions are not supported",
-            RECOMMENDATIONS["generator"],
-            line=line,
-            col=col,
-        )
-    elif isinstance(expr, ast.NamedExpr):
-        raise UnsupportedPatternError(
-            "The walrus operator (:=) is not supported",
-            RECOMMENDATIONS["walrus"],
-            line=line,
-            col=col,
-        )
-    elif isinstance(expr, ast.Yield) or isinstance(expr, ast.YieldFrom):
-        raise UnsupportedPatternError(
-            "Yield expressions are not supported",
-            RECOMMENDATIONS["yield_statement"],
-            line=line,
-            col=col,
-        )
-    else:
-        raise UnsupportedPatternError(
-            f"Unsupported expression type '{type(expr).__name__}'",
-            RECOMMENDATIONS["unsupported_expression"],
-            line=line,
-            col=col,
-        )
+    reject_unsupported(expr)
