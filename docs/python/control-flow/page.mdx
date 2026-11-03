@@ -272,10 +272,10 @@ class LoopReturnWorkflow(Workflow):
 
 ## Compiler limitations {{ id: 'limitations' }}
 
-Waymark compiles a growing subset of Python. Support for the linked constructs
-below is planned; use the supported forms described here until it is available.
-For example, `finally` currently raises a compilation error: keep cleanup that
-needs `finally` inside an action while workflow-level support is being added.
+Waymark compiles a growing subset of Python. The limitations below describe
+what to use today and where support is planned. For example, `finally` currently
+raises a compilation error: put an operation and its `finally` cleanup in the
+same action while workflow-level support is being added.
 
 Compilation happens when a workflow is first run or scheduled. Unsupported
 patterns detected by the SDK raise `UnsupportedPatternError` with a source
@@ -286,9 +286,13 @@ behavior is supported.
 
 ### Control flow
 
-- **`try/finally` and `try/else`.** Use `try/except` today. Adding `finally`
-  or `else` raises a compilation error; support for these clauses is planned
-  in [#580](https://github.com/piercefreeman/waymark/issues/580).
+- **`try/finally` and `try/else`.** Use `try/except` today, with operations
+  that require `finally` cleanup contained in an action. For success-only work,
+  initialize a flag to `False` before the `try`, set it to `True` at the end of
+  the `try` body, and check it in an `if` after the entire `try/except`. This keeps
+  errors from that work outside the original handler. Adding `finally` or
+  `else` currently raises a compilation error; support is planned in
+  [#580](https://github.com/piercefreeman/waymark/issues/580).
 - **Loop `else` clauses.** `for/else` and `while/else` currently raise a
   compilation error. Track whether the loop completed with an explicit flag
   until loop `else` support is available
