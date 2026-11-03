@@ -5,12 +5,14 @@ expression: bytecode for python/tests/fixtures_control_flow/if_elif_else.py
 fn main(input: [value], output: []):
     if value == 1:
         result = @if_elif_else.handle_case_a()
-    elif value == 2:
-        result = @if_elif_else.handle_case_b()
-    elif value == 3:
-        result = @if_elif_else.handle_case_c()
     else:
-        result = @if_elif_else.handle_default()
+        if value == 2:
+            result = @if_elif_else.handle_case_b()
+        else:
+            if value == 3:
+                result = @if_elif_else.handle_case_c()
+            else:
+                result = @if_elif_else.handle_default()
     return result
 ---
 f0: [4 registers]
@@ -20,32 +22,36 @@ f0: [4 registers]
     CoreSet(JumpIf { target_state: s2, cond: r2 })
     PureSet(LoadConst { dst: r2, value: Int(2) })
     PureSet(Binary { kind: Eq, op: BinaryOp { dst: r1, a: r0, b: r2 } })
-    CoreSet(JumpIf { target_state: s3, cond: r1 })
+    CoreSet(JumpIf { target_state: s4, cond: r1 })
     PureSet(LoadConst { dst: r1, value: Int(3) })
     PureSet(Binary { kind: Eq, op: BinaryOp { dst: r2, a: r0, b: r1 } })
-    CoreSet(JumpIf { target_state: s4, cond: r2 })
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_default"), args: [], resume: s5 })
+    CoreSet(JumpIf { target_state: s6, cond: r2 })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_default"), args: [], resume: s7 })
   s1:
     CoreSet(Return { src: r3 })
   s2:
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_case_a"), args: [], resume: s7 })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_case_a"), args: [], resume: s13 })
   s3:
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_case_b"), args: [], resume: s9 })
-  s4:
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_case_c"), args: [], resume: s11 })
-  s5:
-    CoreSet(Await { dst: r3, src: r3, resume: s6 })
-  s6:
     CoreSet(Jump { target_state: s1 })
+  s4:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_case_b"), args: [], resume: s11 })
+  s5:
+    CoreSet(Jump { target_state: s3 })
+  s6:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_case_c"), args: [], resume: s9 })
   s7:
     CoreSet(Await { dst: r3, src: r3, resume: s8 })
   s8:
-    CoreSet(Jump { target_state: s1 })
+    CoreSet(Jump { target_state: s5 })
   s9:
     CoreSet(Await { dst: r3, src: r3, resume: s10 })
   s10:
-    CoreSet(Jump { target_state: s1 })
+    CoreSet(Jump { target_state: s5 })
   s11:
     CoreSet(Await { dst: r3, src: r3, resume: s12 })
   s12:
+    CoreSet(Jump { target_state: s3 })
+  s13:
+    CoreSet(Await { dst: r3, src: r3, resume: s14 })
+  s14:
     CoreSet(Jump { target_state: s1 })

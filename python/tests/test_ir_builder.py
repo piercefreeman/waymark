@@ -760,18 +760,6 @@ class TestConditionalConversion:
         assert conditional.HasField("else_branch"), "Expected else_branch"
         assert conditional.else_branch.HasField("block_body"), "Expected else_branch block body"
 
-    def test_elif_chain_creates_branches(self) -> None:
-        """Test: if/elif/elif/else creates proper branch structure."""
-        from tests.fixtures_control_flow.if_elif_else import IfElifElseWorkflow
-
-        program = IfElifElseWorkflow.workflow_ir()
-
-        conditional = self._find_conditional(program)
-        assert conditional is not None, "Expected conditional in IR"
-
-        # Should have elif branches
-        assert len(conditional.elif_branches) >= 2, "Expected at least 2 elif branches"
-
     def test_multi_action_branches_keep_block_bodies(self) -> None:
         """Test: Multi-action if/else branches are emitted as blocks (no implicit wrapping)."""
         from tests.fixtures_control_flow.if_multi_action import IfMultiActionWorkflow

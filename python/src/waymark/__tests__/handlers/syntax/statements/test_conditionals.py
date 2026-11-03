@@ -64,3 +64,33 @@ def test_call_setup_stays_inside_its_conditional_branch(
 ) -> None:
     """Regression: evaluating the skipped sleep result would index an empty list."""
     assert asyncio.run(SetupGuardWorkflow().run(first, values)) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [(1, "case_a"), (2, "case_b"), (3, "case_c"), (4, "default")]
+)
+def test_elif_branches_join_with_the_selected_result(value: int, expected: str) -> None:
+    """Each nested branch must carry its assigned value into the shared return."""
+    from tests.fixtures_control_flow.if_elif_else import IfElifElseWorkflow
+
+    assert asyncio.run(IfElifElseWorkflow().run(value)) == expected
+
+
+@workflow
+class LoopBranchesWorkflow(Workflow):
+    async def run(self, values: list[int]) -> int:
+        total = 0
+        for value in values:
+            if value == 0:
+                continue
+            elif value < 0:
+                break
+            elif value == 1:
+                total += 10
+            else:
+                total += value
+        return total
+
+
+def test_elif_loop_exits_skip_remaining_branches_and_preserve_updates() -> None:
+    assert asyncio.run(LoopBranchesWorkflow().run([0, 1, 2, -1, 99])) == 12

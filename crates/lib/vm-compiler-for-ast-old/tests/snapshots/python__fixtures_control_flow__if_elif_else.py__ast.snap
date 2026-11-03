@@ -114,184 +114,7 @@ Program {
                                             end_col: 43,
                                         },
                                     },
-                                    elif_branches: [
-                                        Spanned {
-                                            value: ElifBranch {
-                                                condition: Spanned {
-                                                    value: BinaryOp {
-                                                        left: Spanned {
-                                                            value: Variable {
-                                                                name: "value",
-                                                            },
-                                                            span: Span {
-                                                                start_line: 4,
-                                                                start_col: 13,
-                                                                end_line: 4,
-                                                                end_col: 18,
-                                                            },
-                                                        },
-                                                        op: Eq,
-                                                        right: Spanned {
-                                                            value: Literal {
-                                                                value: Int(
-                                                                    2,
-                                                                ),
-                                                            },
-                                                            span: Span {
-                                                                start_line: 4,
-                                                                start_col: 22,
-                                                                end_line: 4,
-                                                                end_col: 23,
-                                                            },
-                                                        },
-                                                    },
-                                                    span: Span {
-                                                        start_line: 4,
-                                                        start_col: 13,
-                                                        end_line: 4,
-                                                        end_col: 23,
-                                                    },
-                                                },
-                                                body: Spanned {
-                                                    value: Block {
-                                                        statements: [
-                                                            Spanned {
-                                                                value: Assignment {
-                                                                    targets: [
-                                                                        "result",
-                                                                    ],
-                                                                    value: Spanned {
-                                                                        value: ActionCall {
-                                                                            call: ActionCall {
-                                                                                action_name: "handle_case_b",
-                                                                                kwargs: [],
-                                                                                policies: [],
-                                                                                module_name: Some(
-                                                                                    "if_elif_else",
-                                                                                ),
-                                                                            },
-                                                                        },
-                                                                        span: Span {
-                                                                            start_line: 5,
-                                                                            start_col: 27,
-                                                                            end_line: 5,
-                                                                            end_col: 42,
-                                                                        },
-                                                                    },
-                                                                },
-                                                                span: Span {
-                                                                    start_line: 5,
-                                                                    start_col: 12,
-                                                                    end_line: 5,
-                                                                    end_col: 42,
-                                                                },
-                                                            },
-                                                        ],
-                                                    },
-                                                    span: Span {
-                                                        start_line: 4,
-                                                        start_col: 8,
-                                                        end_line: 9,
-                                                        end_col: 43,
-                                                    },
-                                                },
-                                            },
-                                            span: Span {
-                                                start_line: 4,
-                                                start_col: 8,
-                                                end_line: 9,
-                                                end_col: 43,
-                                            },
-                                        },
-                                        Spanned {
-                                            value: ElifBranch {
-                                                condition: Spanned {
-                                                    value: BinaryOp {
-                                                        left: Spanned {
-                                                            value: Variable {
-                                                                name: "value",
-                                                            },
-                                                            span: Span {
-                                                                start_line: 6,
-                                                                start_col: 13,
-                                                                end_line: 6,
-                                                                end_col: 18,
-                                                            },
-                                                        },
-                                                        op: Eq,
-                                                        right: Spanned {
-                                                            value: Literal {
-                                                                value: Int(
-                                                                    3,
-                                                                ),
-                                                            },
-                                                            span: Span {
-                                                                start_line: 6,
-                                                                start_col: 22,
-                                                                end_line: 6,
-                                                                end_col: 23,
-                                                            },
-                                                        },
-                                                    },
-                                                    span: Span {
-                                                        start_line: 6,
-                                                        start_col: 13,
-                                                        end_line: 6,
-                                                        end_col: 23,
-                                                    },
-                                                },
-                                                body: Spanned {
-                                                    value: Block {
-                                                        statements: [
-                                                            Spanned {
-                                                                value: Assignment {
-                                                                    targets: [
-                                                                        "result",
-                                                                    ],
-                                                                    value: Spanned {
-                                                                        value: ActionCall {
-                                                                            call: ActionCall {
-                                                                                action_name: "handle_case_c",
-                                                                                kwargs: [],
-                                                                                policies: [],
-                                                                                module_name: Some(
-                                                                                    "if_elif_else",
-                                                                                ),
-                                                                            },
-                                                                        },
-                                                                        span: Span {
-                                                                            start_line: 7,
-                                                                            start_col: 27,
-                                                                            end_line: 7,
-                                                                            end_col: 42,
-                                                                        },
-                                                                    },
-                                                                },
-                                                                span: Span {
-                                                                    start_line: 7,
-                                                                    start_col: 12,
-                                                                    end_line: 7,
-                                                                    end_col: 42,
-                                                                },
-                                                            },
-                                                        ],
-                                                    },
-                                                    span: Span {
-                                                        start_line: 6,
-                                                        start_col: 8,
-                                                        end_line: 9,
-                                                        end_col: 43,
-                                                    },
-                                                },
-                                            },
-                                            span: Span {
-                                                start_line: 6,
-                                                start_col: 8,
-                                                end_line: 9,
-                                                end_col: 43,
-                                            },
-                                        },
-                                    ],
+                                    elif_branches: [],
                                     else_branch: Some(
                                         Spanned {
                                             value: ElseBranch {
@@ -299,32 +122,278 @@ Program {
                                                     value: Block {
                                                         statements: [
                                                             Spanned {
-                                                                value: Assignment {
-                                                                    targets: [
-                                                                        "result",
-                                                                    ],
-                                                                    value: Spanned {
-                                                                        value: ActionCall {
-                                                                            call: ActionCall {
-                                                                                action_name: "handle_default",
-                                                                                kwargs: [],
-                                                                                policies: [],
-                                                                                module_name: Some(
-                                                                                    "if_elif_else",
-                                                                                ),
+                                                                value: Conditional {
+                                                                    if_branch: Spanned {
+                                                                        value: IfBranch {
+                                                                            condition: Spanned {
+                                                                                value: BinaryOp {
+                                                                                    left: Spanned {
+                                                                                        value: Variable {
+                                                                                            name: "value",
+                                                                                        },
+                                                                                        span: Span {
+                                                                                            start_line: 4,
+                                                                                            start_col: 13,
+                                                                                            end_line: 4,
+                                                                                            end_col: 18,
+                                                                                        },
+                                                                                    },
+                                                                                    op: Eq,
+                                                                                    right: Spanned {
+                                                                                        value: Literal {
+                                                                                            value: Int(
+                                                                                                2,
+                                                                                            ),
+                                                                                        },
+                                                                                        span: Span {
+                                                                                            start_line: 4,
+                                                                                            start_col: 22,
+                                                                                            end_line: 4,
+                                                                                            end_col: 23,
+                                                                                        },
+                                                                                    },
+                                                                                },
+                                                                                span: Span {
+                                                                                    start_line: 4,
+                                                                                    start_col: 13,
+                                                                                    end_line: 4,
+                                                                                    end_col: 23,
+                                                                                },
+                                                                            },
+                                                                            body: Spanned {
+                                                                                value: Block {
+                                                                                    statements: [
+                                                                                        Spanned {
+                                                                                            value: Assignment {
+                                                                                                targets: [
+                                                                                                    "result",
+                                                                                                ],
+                                                                                                value: Spanned {
+                                                                                                    value: ActionCall {
+                                                                                                        call: ActionCall {
+                                                                                                            action_name: "handle_case_b",
+                                                                                                            kwargs: [],
+                                                                                                            policies: [],
+                                                                                                            module_name: Some(
+                                                                                                                "if_elif_else",
+                                                                                                            ),
+                                                                                                        },
+                                                                                                    },
+                                                                                                    span: Span {
+                                                                                                        start_line: 5,
+                                                                                                        start_col: 27,
+                                                                                                        end_line: 5,
+                                                                                                        end_col: 42,
+                                                                                                    },
+                                                                                                },
+                                                                                            },
+                                                                                            span: Span {
+                                                                                                start_line: 5,
+                                                                                                start_col: 12,
+                                                                                                end_line: 5,
+                                                                                                end_col: 42,
+                                                                                            },
+                                                                                        },
+                                                                                    ],
+                                                                                },
+                                                                                span: Span {
+                                                                                    start_line: 4,
+                                                                                    start_col: 8,
+                                                                                    end_line: 9,
+                                                                                    end_col: 43,
+                                                                                },
                                                                             },
                                                                         },
                                                                         span: Span {
-                                                                            start_line: 9,
-                                                                            start_col: 27,
+                                                                            start_line: 4,
+                                                                            start_col: 8,
                                                                             end_line: 9,
                                                                             end_col: 43,
                                                                         },
                                                                     },
+                                                                    elif_branches: [],
+                                                                    else_branch: Some(
+                                                                        Spanned {
+                                                                            value: ElseBranch {
+                                                                                body: Spanned {
+                                                                                    value: Block {
+                                                                                        statements: [
+                                                                                            Spanned {
+                                                                                                value: Conditional {
+                                                                                                    if_branch: Spanned {
+                                                                                                        value: IfBranch {
+                                                                                                            condition: Spanned {
+                                                                                                                value: BinaryOp {
+                                                                                                                    left: Spanned {
+                                                                                                                        value: Variable {
+                                                                                                                            name: "value",
+                                                                                                                        },
+                                                                                                                        span: Span {
+                                                                                                                            start_line: 6,
+                                                                                                                            start_col: 13,
+                                                                                                                            end_line: 6,
+                                                                                                                            end_col: 18,
+                                                                                                                        },
+                                                                                                                    },
+                                                                                                                    op: Eq,
+                                                                                                                    right: Spanned {
+                                                                                                                        value: Literal {
+                                                                                                                            value: Int(
+                                                                                                                                3,
+                                                                                                                            ),
+                                                                                                                        },
+                                                                                                                        span: Span {
+                                                                                                                            start_line: 6,
+                                                                                                                            start_col: 22,
+                                                                                                                            end_line: 6,
+                                                                                                                            end_col: 23,
+                                                                                                                        },
+                                                                                                                    },
+                                                                                                                },
+                                                                                                                span: Span {
+                                                                                                                    start_line: 6,
+                                                                                                                    start_col: 13,
+                                                                                                                    end_line: 6,
+                                                                                                                    end_col: 23,
+                                                                                                                },
+                                                                                                            },
+                                                                                                            body: Spanned {
+                                                                                                                value: Block {
+                                                                                                                    statements: [
+                                                                                                                        Spanned {
+                                                                                                                            value: Assignment {
+                                                                                                                                targets: [
+                                                                                                                                    "result",
+                                                                                                                                ],
+                                                                                                                                value: Spanned {
+                                                                                                                                    value: ActionCall {
+                                                                                                                                        call: ActionCall {
+                                                                                                                                            action_name: "handle_case_c",
+                                                                                                                                            kwargs: [],
+                                                                                                                                            policies: [],
+                                                                                                                                            module_name: Some(
+                                                                                                                                                "if_elif_else",
+                                                                                                                                            ),
+                                                                                                                                        },
+                                                                                                                                    },
+                                                                                                                                    span: Span {
+                                                                                                                                        start_line: 7,
+                                                                                                                                        start_col: 27,
+                                                                                                                                        end_line: 7,
+                                                                                                                                        end_col: 42,
+                                                                                                                                    },
+                                                                                                                                },
+                                                                                                                            },
+                                                                                                                            span: Span {
+                                                                                                                                start_line: 7,
+                                                                                                                                start_col: 12,
+                                                                                                                                end_line: 7,
+                                                                                                                                end_col: 42,
+                                                                                                                            },
+                                                                                                                        },
+                                                                                                                    ],
+                                                                                                                },
+                                                                                                                span: Span {
+                                                                                                                    start_line: 6,
+                                                                                                                    start_col: 8,
+                                                                                                                    end_line: 9,
+                                                                                                                    end_col: 43,
+                                                                                                                },
+                                                                                                            },
+                                                                                                        },
+                                                                                                        span: Span {
+                                                                                                            start_line: 6,
+                                                                                                            start_col: 8,
+                                                                                                            end_line: 9,
+                                                                                                            end_col: 43,
+                                                                                                        },
+                                                                                                    },
+                                                                                                    elif_branches: [],
+                                                                                                    else_branch: Some(
+                                                                                                        Spanned {
+                                                                                                            value: ElseBranch {
+                                                                                                                body: Spanned {
+                                                                                                                    value: Block {
+                                                                                                                        statements: [
+                                                                                                                            Spanned {
+                                                                                                                                value: Assignment {
+                                                                                                                                    targets: [
+                                                                                                                                        "result",
+                                                                                                                                    ],
+                                                                                                                                    value: Spanned {
+                                                                                                                                        value: ActionCall {
+                                                                                                                                            call: ActionCall {
+                                                                                                                                                action_name: "handle_default",
+                                                                                                                                                kwargs: [],
+                                                                                                                                                policies: [],
+                                                                                                                                                module_name: Some(
+                                                                                                                                                    "if_elif_else",
+                                                                                                                                                ),
+                                                                                                                                            },
+                                                                                                                                        },
+                                                                                                                                        span: Span {
+                                                                                                                                            start_line: 9,
+                                                                                                                                            start_col: 27,
+                                                                                                                                            end_line: 9,
+                                                                                                                                            end_col: 43,
+                                                                                                                                        },
+                                                                                                                                    },
+                                                                                                                                },
+                                                                                                                                span: Span {
+                                                                                                                                    start_line: 9,
+                                                                                                                                    start_col: 12,
+                                                                                                                                    end_line: 9,
+                                                                                                                                    end_col: 43,
+                                                                                                                                },
+                                                                                                                            },
+                                                                                                                        ],
+                                                                                                                    },
+                                                                                                                    span: Span {
+                                                                                                                        start_line: 6,
+                                                                                                                        start_col: 8,
+                                                                                                                        end_line: 9,
+                                                                                                                        end_col: 43,
+                                                                                                                    },
+                                                                                                                },
+                                                                                                            },
+                                                                                                            span: Span {
+                                                                                                                start_line: 6,
+                                                                                                                start_col: 8,
+                                                                                                                end_line: 9,
+                                                                                                                end_col: 43,
+                                                                                                            },
+                                                                                                        },
+                                                                                                    ),
+                                                                                                },
+                                                                                                span: Span {
+                                                                                                    start_line: 6,
+                                                                                                    start_col: 8,
+                                                                                                    end_line: 9,
+                                                                                                    end_col: 43,
+                                                                                                },
+                                                                                            },
+                                                                                        ],
+                                                                                    },
+                                                                                    span: Span {
+                                                                                        start_line: 4,
+                                                                                        start_col: 8,
+                                                                                        end_line: 9,
+                                                                                        end_col: 43,
+                                                                                    },
+                                                                                },
+                                                                            },
+                                                                            span: Span {
+                                                                                start_line: 4,
+                                                                                start_col: 8,
+                                                                                end_line: 9,
+                                                                                end_col: 43,
+                                                                            },
+                                                                        },
+                                                                    ),
                                                                 },
                                                                 span: Span {
-                                                                    start_line: 9,
-                                                                    start_col: 12,
+                                                                    start_line: 4,
+                                                                    start_col: 8,
                                                                     end_line: 9,
                                                                     end_col: 43,
                                                                 },
