@@ -1539,17 +1539,6 @@ def _expr_to_ir(
             result.list.CopyFrom(list_expr)
             return result
 
-    if isinstance(expr, ast.Dict):
-        entries: List[ir.DictEntry] = []
-        for k, v in zip(expr.keys, expr.values, strict=False):
-            if k:
-                key_expr = context.expression(k)
-                value_expr = context.expression(v)
-                if key_expr and value_expr:
-                    entries.append(ir.DictEntry(key=key_expr, value=value_expr))
-        result.dict.CopyFrom(ir.DictExpr(entries=entries))
-        return result
-
     if isinstance(expr, ast.Subscript):
         obj = context.expression(expr.value)
         index = context.expression(expr.slice) if isinstance(expr.slice, ast.AST) else None
@@ -1622,13 +1611,6 @@ def _check_unsupported_expression(expr: ast.AST) -> None:
         raise UnsupportedPatternError(
             "List comprehensions are not supported in this context",
             RECOMMENDATIONS["list_comprehension"],
-            line=line,
-            col=col,
-        )
-    elif isinstance(expr, ast.DictComp):
-        raise UnsupportedPatternError(
-            "Dict comprehensions are not supported in this context",
-            RECOMMENDATIONS["dict_comprehension"],
             line=line,
             col=col,
         )
