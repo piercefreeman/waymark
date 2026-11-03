@@ -359,6 +359,8 @@ rejected. The rejected patterns:
 
 - **String lengths.** Literal strings use Python's character count. Dynamic string and exception lengths are rejected until the VM can preserve their semantics.
 
+- **Unsupported `range` forms.** Use one to three integer bounds directly in a loop, assignment, or return. A literal zero step is rejected.
+
 Everything in this list fails at your desk, the first time the workflow
 is run or scheduled. Nothing here surfaces as a production surprise.
 
