@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Annotated, Generic, TypeVar
 
 import pytest
-from pydantic import AfterValidator, BaseModel, Field, computed_field
+from pydantic import AfterValidator, BaseModel, Field, computed_field, root_validator, validator
 
 from waymark import Workflow, workflow
 from waymark.__tests__.compiler_test_helpers import compile_source
@@ -80,6 +80,42 @@ class CustomData:
         raise AssertionError("must not run")
 
 
+@dataclass(init=False)
+class InheritedInitializerData(CustomData):
+    pass
+
+
+class CustomInitializerModel(BaseModel):
+    count: int = 0
+
+    def __init__(self, **data: object) -> None:
+        raise AssertionError("must not run")
+
+
+class InheritedInitializerModel(CustomInitializerModel):
+    pass
+
+
+# These deprecated decorators are explicitly part of the construction gap in #829.
+with pytest.warns(DeprecationWarning):
+
+    class LegacyValidatorModel(BaseModel):
+        count: int = 0
+
+        @validator("count")
+        @classmethod
+        def validate_count(cls, value: int) -> int:
+            raise AssertionError("must not run")
+
+    class LegacyRootValidatorModel(BaseModel):
+        count: int = 0
+
+        @root_validator(skip_on_failure=True)
+        @classmethod
+        def validate_values(cls, values: dict) -> dict:
+            raise AssertionError("must not run")
+
+
 Value = TypeVar("Value")
 
 
@@ -99,6 +135,10 @@ class GenericModel(BaseModel, Generic[Value]):
         HookData,
         InheritedHookData,
         CustomData,
+        InheritedInitializerData,
+        InheritedInitializerModel,
+        LegacyValidatorModel,
+        LegacyRootValidatorModel,
         GenericModel,
     ],
 )

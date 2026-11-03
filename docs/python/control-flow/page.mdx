@@ -406,7 +406,8 @@ at compilation, or lowered correctly for the supported cases described above:
 [#770](https://github.com/piercefreeman/waymark/issues/770), and
 [#829](https://github.com/piercefreeman/waymark/issues/829).
 Rejecting a construct prevents its silent miscompilation; it does not add
-runtime support for it.
+runtime support for it. These issues remain open while their behavior is
+unsupported or limited.
 
 ## Known issues {{ id: 'known-issues' }}
 
@@ -439,7 +440,8 @@ Value transport also still needs runtime fixes:
   validation at the action/wire boundary
   ([#597](https://github.com/piercefreeman/waymark/issues/597)).
 - `datetime`, `Decimal`, `UUID`, `bytes`, `set`, and `Enum` values can lose their
-  type without a receiving annotation
+  type. Receiving annotations restore only some types: enum annotations do not
+  restore enum members, and `bytes | str` can reinterpret strings as bytes
   ([#599](https://github.com/piercefreeman/waymark/issues/599)).
 - A subclass passed under a base-class annotation can lose its fields. Open
   generic workflow and action annotations are rejected during compilation,
