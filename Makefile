@@ -1,6 +1,6 @@
 PY_PROTO_OUT := python/src/waymark/proto
 
-.PHONY: all build-proto clean lint lint-verify lint-extended lint-extended-verify python-lint python-lint-verify rust-lint rust-lint-verify rust-lint-extended rust-lint-extended-verify coverage python-coverage rust-coverage benchmark benchmark-console benchmark-console-run benchmark-trace
+.PHONY: all build-proto clean lint lint-verify lint-extended lint-extended-verify python-lint python-lint-verify rust-lint rust-lint-verify rust-lint-extended rust-lint-extended-verify coverage python-coverage rust-coverage python-compiler-snapshots-update benchmark benchmark-console benchmark-console-run benchmark-trace
 
 all: build-proto
 
@@ -110,6 +110,19 @@ rust-coverage: js-deps
 	cargo llvm-cov --all-features --no-report
 	cargo llvm-cov report --lcov --output-path target/rust-coverage.lcov
 	cargo llvm-cov report --html --output-dir target/rust-htmlcov
+
+# Rewrite the Python compiler's snapshots (the fixture list, AST and
+# bytecode of the Python fixtures under `python/tests`, snapshotted by
+# `compile_python_tests` in `waymark-vm-compiler-for-ast-old`'s
+# `tests/python.rs`, the only `python` test target in the workspace) in
+# place with what the test produces now; review the diff before
+# committing. insta reads `INSTA_UPDATE` itself, so `cargo-insta` is not
+# needed. The whole workspace is selected so features unify as in a full
+# build and the artifacts are shared with it (`-p` would be ignored next
+# to `--workspace` anyway); the target and test-name filters pin the one
+# test.
+python-compiler-snapshots-update:
+	INSTA_UPDATE=always cargo test --all-features --workspace --test python -- --exact compile_python_tests
 
 BENCH_ARGS ?= --count 1000
 BENCH_TRACE ?= target/benchmark-trace.json
