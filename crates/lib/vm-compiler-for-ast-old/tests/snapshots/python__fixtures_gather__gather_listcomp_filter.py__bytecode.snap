@@ -4,9 +4,9 @@ expression: bytecode for python/tests/fixtures_gather/gather_listcomp_filter.py
 ---
 fn main(input: [users], output: []):
     __spread_items_1__ = []
-    for user in users:
-        if user.active:
-            __spread_items_1__ = __spread_items_1__ + [user]
+    for __spread_filter_item_2__ in users:
+        if __spread_filter_item_2__.active:
+            __spread_items_1__ = __spread_items_1__ + [__spread_filter_item_2__]
     results = spread __spread_items_1__:user -> @gather_listcomp_filter.process_user(user=user)
     return results
 ---
