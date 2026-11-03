@@ -9,8 +9,10 @@ fn main(input: [items], output: []):
         is_valid, processed = @for_multi_accumulator.multi_accum_classify_item(item=item)
         if is_valid:
             valid_items = valid_items + [processed]
+            None
         else:
             invalid_items = invalid_items + [processed]
+            None
     return {"valid": valid_items, "invalid": invalid_items}
 ---
 f0: [17 registers]
@@ -54,10 +56,12 @@ f0: [17 registers]
     CoreSet(JumpIf { target_state: s9, cond: r8 })
     PureSet(MakeList { dst: r6, items: [r9] })
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r2, a: r2, b: r6 } })
+    PureSet(LoadConst { dst: r6, value: None })
     CoreSet(Jump { target_state: s8 })
   s8:
     CoreSet(Jump { target_state: s3 })
   s9:
     PureSet(MakeList { dst: r6, items: [r9] })
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r6 } })
+    PureSet(LoadConst { dst: r6, value: None })
     CoreSet(Jump { target_state: s8 })

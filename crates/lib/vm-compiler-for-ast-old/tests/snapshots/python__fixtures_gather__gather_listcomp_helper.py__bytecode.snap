@@ -7,8 +7,8 @@ fn main(input: [items], output: []):
     return results
 
 fn helper(input: [value], output: []):
-    _return_tmp = @gather_listcomp_helper.increment(value=value)
-    return _return_tmp
+    __return_tmp_1__ = @gather_listcomp_helper.increment(value=value)
+    return __return_tmp_1__
 ---
 f0: [8 registers]
   s0:
