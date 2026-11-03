@@ -4,6 +4,10 @@ This tests workflows with:
 - String manipulation and formatting
 - Sequential transformations
 - Multiple string operations chained together
+
+Regression: compiled workflows reject dynamic string lengths, so count characters
+inside the Python action. The Unicode case uses 'éléphant' (8 characters, 10 UTF-8
+bytes) to guard against byte-count semantics.
 """
 from waymark import action, workflow
 from waymark.workflow import Workflow
@@ -37,11 +41,11 @@ async def extract_prefix(text: str, length: int) -> str:
 
 
 @action
-async def generate_code(prefix: str, text_len: int) -> str:
+async def generate_code(prefix: str, text: str) -> str:
     """Generate a code from prefix and computed suffix."""
     if prefix == "INVALID":
         return "ERROR:invalid_input"
-    suffix = text_len * 7  # Simple hash-like computation
+    suffix = len(text) * 7  # Simple hash-like computation
     return f"{prefix.upper()}-{suffix}"
 
 
@@ -60,5 +64,5 @@ class StringProcessingWorkflow(Workflow):
         prefix = await extract_prefix(normalized, 3)
 
         # Generate final code (handles INVALID case internally)
-        code = await generate_code(prefix, len(text))
+        code = await generate_code(prefix, text)
         return code

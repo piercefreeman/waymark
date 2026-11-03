@@ -132,6 +132,18 @@ pub const CASES: &[FixtureCase] = &[
         kwargs: &[("text", Kwarg::Str("Alpha123"))],
     },
     FixtureCase {
+        id: "string-processing-unicode",
+        module_name: "integration_string_processing",
+        workflow_class: "StringProcessingWorkflow",
+        kwargs: &[("text", Kwarg::Str("éléphant"))],
+    },
+    FixtureCase {
+        id: "string-processing-invalid",
+        module_name: "integration_string_processing",
+        workflow_class: "StringProcessingWorkflow",
+        kwargs: &[("text", Kwarg::Str("!"))],
+    },
+    FixtureCase {
         id: "timeout",
         module_name: "integration_timeout_workflow",
         workflow_class: "TimeoutWorkflow",
