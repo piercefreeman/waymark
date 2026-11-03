@@ -73,7 +73,7 @@ Program {
                                         },
                                         span: Span {
                                             start_line: 2,
-                                            start_col: 8,
+                                            start_col: 23,
                                             end_line: 2,
                                             end_col: 64,
                                         },

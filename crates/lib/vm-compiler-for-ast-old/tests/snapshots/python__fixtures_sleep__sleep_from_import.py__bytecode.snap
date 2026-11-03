@@ -6,8 +6,8 @@ fn main(input: [], output: []):
     val = @sleep_from_import.get_value_from_import()
     sleep 2
     None
-    _return_tmp = @sleep_from_import.format_done_from_import(value=val)
-    return _return_tmp
+    __return_tmp_1__ = @sleep_from_import.format_done_from_import(value=val)
+    return __return_tmp_1__
 ---
 f0: [4 registers]
   s0:

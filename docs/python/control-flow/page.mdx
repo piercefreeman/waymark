@@ -359,6 +359,12 @@ rejected. The rejected patterns:
 
 - **Nonzero `enumerate` starts.** Only `enumerate(items, start=0)` directly in a loop is supported; other starts and expression positions are rejected.
 
+- **Invalid call arguments.** Action and helper calls bind their complete
+  signatures, rejecting missing, duplicate, unknown, or extra arguments and
+  `*args` / `**kwargs`. Dependency-injected action parameters are excluded from
+  that public signature. Compiler-handled calls use the same validation for
+  aliases and module re-exports.
+
 Everything in this list fails at your desk, the first time the workflow
 is run or scheduled. Nothing here surfaces as a production surprise.
 
@@ -382,8 +388,8 @@ Until then, avoid them.
 - Assigning to a subscript, `d["k"] = v`, does nothing, so dict
   comprehensions always produce `{}`
   ([#583](https://github.com/piercefreeman/waymark/issues/583)).
-- `**kwargs` and extra positional arguments in an action call, `d[k] += v`,
-  and `a = b = value` are dropped or assigned wrongly
+- Subscript augmented assignment, `d[k] += v`, and chained assignment,
+  `a = b = value`, are still dropped or assigned wrongly
   ([#584](https://github.com/piercefreeman/waymark/issues/584)).
 - `{**base, "extra": 1}` drops the spread entries
   ([#587](https://github.com/piercefreeman/waymark/issues/587)).

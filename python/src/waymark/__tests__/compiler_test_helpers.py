@@ -2,13 +2,12 @@
 
 import ast
 import asyncio
-import inspect
 import textwrap
 from datetime import timedelta
 from typing import Any
 
 from waymark import action
-from waymark.ir_builder import ActionDefinition, IRBuilder, TransformContext
+from waymark.ir_builder import IRBuilder, TransformContext
 from waymark.proto import ast_pb2 as ir
 from waymark.workflow import RetryPolicy, Workflow
 
@@ -22,7 +21,6 @@ def compile_source(
     body: str, parameters: str = "", namespace: dict[str, Any] | None = None
 ) -> ir.FunctionDef:
     builder = IRBuilder(
-        {"task": ActionDefinition("task", __name__, inspect.signature(task))},
         TransformContext(),
         module_globals={
             "asyncio": asyncio,

@@ -40,7 +40,7 @@ Program {
                                         },
                                         span: Span {
                                             start_line: 2,
-                                            start_col: 8,
+                                            start_col: 25,
                                             end_line: 2,
                                             end_col: 36,
                                         },
@@ -152,7 +152,7 @@ Program {
                                                                     },
                                                                     span: Span {
                                                                         start_line: 7,
-                                                                        start_col: 12,
+                                                                        start_col: 26,
                                                                         end_line: 7,
                                                                         end_col: 55,
                                                                     },
@@ -225,7 +225,7 @@ Program {
                                         },
                                         span: Span {
                                             start_line: 10,
-                                            start_col: 8,
+                                            start_col: 23,
                                             end_line: 10,
                                             end_col: 38,
                                         },

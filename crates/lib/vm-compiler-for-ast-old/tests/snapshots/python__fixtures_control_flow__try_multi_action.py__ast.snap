@@ -52,7 +52,7 @@ Program {
                                                                         },
                                                                         span: Span {
                                                                             start_line: 7,
-                                                                            start_col: 12,
+                                                                            start_col: 27,
                                                                             end_line: 7,
                                                                             end_col: 51,
                                                                         },
@@ -104,7 +104,7 @@ Program {
                                                             },
                                                             span: Span {
                                                                 start_line: 3,
-                                                                start_col: 12,
+                                                                start_col: 22,
                                                                 end_line: 3,
                                                                 end_col: 34,
                                                             },
@@ -150,7 +150,7 @@ Program {
                                                             },
                                                             span: Span {
                                                                 start_line: 4,
-                                                                start_col: 12,
+                                                                start_col: 22,
                                                                 end_line: 4,
                                                                 end_col: 37,
                                                             },
@@ -196,7 +196,7 @@ Program {
                                                             },
                                                             span: Span {
                                                                 start_line: 5,
-                                                                start_col: 12,
+                                                                start_col: 27,
                                                                 end_line: 5,
                                                                 end_col: 42,
                                                             },

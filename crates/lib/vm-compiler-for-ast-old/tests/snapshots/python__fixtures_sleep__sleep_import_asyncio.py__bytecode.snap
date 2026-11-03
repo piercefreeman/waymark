@@ -6,8 +6,8 @@ fn main(input: [], output: []):
     val = @sleep_import_asyncio.get_value_asyncio_import()
     sleep 1
     None
-    _return_tmp = @sleep_import_asyncio.format_done_asyncio_import(value=val)
-    return _return_tmp
+    __return_tmp_1__ = @sleep_import_asyncio.format_done_asyncio_import(value=val)
+    return __return_tmp_1__
 ---
 f0: [4 registers]
   s0:

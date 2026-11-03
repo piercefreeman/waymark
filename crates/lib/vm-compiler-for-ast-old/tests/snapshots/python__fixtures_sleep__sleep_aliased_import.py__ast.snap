@@ -40,7 +40,7 @@ Program {
                                         },
                                         span: Span {
                                             start_line: 2,
-                                            start_col: 8,
+                                            start_col: 20,
                                             end_line: 2,
                                             end_col: 46,
                                         },
@@ -100,7 +100,7 @@ Program {
                             Spanned {
                                 value: Assignment {
                                     targets: [
-                                        "_return_tmp",
+                                        "__return_tmp_1__",
                                     ],
                                     value: Spanned {
                                         value: ActionCall {
@@ -130,7 +130,7 @@ Program {
                                         },
                                         span: Span {
                                             start_line: 4,
-                                            start_col: 8,
+                                            start_col: 21,
                                             end_line: 4,
                                             end_col: 58,
                                         },
@@ -148,13 +148,13 @@ Program {
                                     value: Some(
                                         Spanned {
                                             value: Variable {
-                                                name: "_return_tmp",
+                                                name: "__return_tmp_1__",
                                             },
                                             span: Span {
-                                                start_line: 4,
-                                                start_col: 8,
-                                                end_line: 4,
-                                                end_col: 58,
+                                                start_line: 0,
+                                                start_col: 0,
+                                                end_line: 0,
+                                                end_col: 0,
                                             },
                                         },
                                     ),

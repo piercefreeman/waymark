@@ -27,7 +27,7 @@ Program {
                             Spanned {
                                 value: Assignment {
                                     targets: [
-                                        "_return_tmp",
+                                        "__return_tmp_1__",
                                     ],
                                     value: Spanned {
                                         value: ActionCall {
@@ -57,7 +57,7 @@ Program {
                                         },
                                         span: Span {
                                             start_line: 3,
-                                            start_col: 8,
+                                            start_col: 21,
                                             end_line: 3,
                                             end_col: 42,
                                         },
@@ -75,13 +75,13 @@ Program {
                                     value: Some(
                                         Spanned {
                                             value: Variable {
-                                                name: "_return_tmp",
+                                                name: "__return_tmp_1__",
                                             },
                                             span: Span {
-                                                start_line: 3,
-                                                start_col: 8,
-                                                end_line: 3,
-                                                end_col: 42,
+                                                start_line: 0,
+                                                start_col: 0,
+                                                end_line: 0,
+                                                end_col: 0,
                                             },
                                         },
                                     ),

@@ -57,7 +57,7 @@ Program {
                                         },
                                         span: Span {
                                             start_line: 3,
-                                            start_col: 8,
+                                            start_col: 23,
                                             end_line: 3,
                                             end_col: 37,
                                         },
