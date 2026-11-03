@@ -57,7 +57,6 @@ class ArithmeticHandler(ExpressionHandler[ast.BinOp | ast.UnaryOp | ast.BoolOp])
             operator = binary_operator(node.op)
             if operator is None:
                 reject(node, "Unsupported binary or augmented operator")
-            assert left is not None and right is not None
             return ir.Expr(
                 binary_op=ir.BinaryOp(left=left, op=operator, right=right), span=make_span(node)
             )
@@ -72,5 +71,4 @@ class ArithmeticHandler(ExpressionHandler[ast.BinOp | ast.UnaryOp | ast.BoolOp])
         operator = unary_operator(node.op)
         if operator is None:
             reject(node, "Unsupported unary operator")
-        assert operand is not None
         return ir.Expr(unary_op=ir.UnaryOp(op=operator, operand=operand), span=make_span(node))

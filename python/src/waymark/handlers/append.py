@@ -30,7 +30,6 @@ class AppendHandler(LanguageCallHandler[AppendArguments]):
         if not isinstance(node.func, ast.Attribute) or not isinstance(node.func.value, ast.Name):
             raise self.error(node, "requires a local list")
         value = context.expression(arguments.object)
-        assert value is not None
         name = node.func.value.id
         if name not in context.analysis.fresh_lists - context.analysis.aliased:
             raise self.error(node, "requires a fresh, unaliased local list")

@@ -46,7 +46,6 @@ class ActionHandler(LanguageCallHandler[ActionArguments]):
         )
         for name, argument in arguments.values.items():
             value = context.expression(argument)
-            assert value is not None
             call.kwargs.append(ir.Kwarg(name=name, value=value))
         return LoweredCall(ir.Expr(action_call=call))
 

@@ -27,7 +27,7 @@ class ConditionalHandler(StatementHandler[ast.If]):
                 ...
         """
 
-        def normalize_condition(test: ast.expr) -> tuple[list[ir.Statement], ir.Expr | None]:
+        def normalize_condition(test: ast.expr) -> tuple[list[ir.Statement], ir.Expr]:
             action_call = context.action(test)
             if action_call is None:
                 return ([], context.expression(test))
@@ -69,9 +69,7 @@ class ConditionalHandler(StatementHandler[ast.If]):
 
         else_nodes = current.orelse
 
-        normalized: list[
-            tuple[list[ir.Statement], ir.Expr | None, list[ir.Statement], ast.AST]
-        ] = []
+        normalized: list[tuple[list[ir.Statement], ir.Expr, list[ir.Statement], ast.AST]] = []
         for test_expr, body_nodes, span_node in branches:
             prefix, cond = normalize_condition(test_expr)
             normalized.append((prefix, cond, visit_body(body_nodes), span_node))
@@ -109,8 +107,6 @@ class ConditionalHandler(StatementHandler[ast.If]):
         if requires_nested:
             nested_else: list[ir.Statement] = else_body
             for prefix, cond, then_body, span_node in reversed(normalized):
-                if cond is None:
-                    continue
                 nested_if_stmt = build_conditional_stmt(
                     condition=cond,
                     then_body=then_body,
@@ -122,8 +118,6 @@ class ConditionalHandler(StatementHandler[ast.If]):
 
         # Flat conditional with elif/else (original behavior), plus optional prefix for the if guard.
         if_prefix, if_condition, if_body, if_span_node = normalized[0]
-        if if_condition is None:
-            return []
 
         conditional_stmt = ir.Statement(span=make_span(if_span_node))
         if_branch = ir.IfBranch(
@@ -134,8 +128,6 @@ class ConditionalHandler(StatementHandler[ast.If]):
         conditional = ir.Conditional(if_branch=if_branch)
 
         for _, elif_condition, elif_body, elif_span_node in normalized[1:]:
-            if elif_condition is None:
-                continue
             elif_branch = ir.ElifBranch(
                 condition=elif_condition,
                 block_body=ir.Block(statements=elif_body, span=make_span(elif_span_node)),

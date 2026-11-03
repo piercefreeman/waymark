@@ -40,7 +40,6 @@ class EnumerateHandler(LanguageCallHandler[EnumerateArguments]):
     ) -> LoweredCall:
         """Emit the VM enumeration intrinsic for the validated iterable and zero start."""
         value = context.expression(arguments.iterable)
-        assert value is not None
         return LoweredCall(
             ir.Expr(
                 function_call=ir.FunctionCall(

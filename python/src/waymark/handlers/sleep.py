@@ -64,7 +64,6 @@ class SleepHandler(LanguageCallHandler[SleepArguments]):
             if is_delay and delay is not None:
                 continue
             expression = context.expression(argument)
-            assert expression is not None
             if not isinstance(argument, ast.Constant):
                 temporary = context.next_name("sleep_delay" if is_delay else "sleep_result")
                 statements.append(
