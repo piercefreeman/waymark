@@ -9,6 +9,7 @@ fn main(input: [], output: []):
         first = @for_multi_action.step_one_for(x=item)
         second = @for_multi_action.step_two_for(x=first)
         results = results + [second]
+        None
     return results
 ---
 f0: [11 registers]
@@ -45,4 +46,5 @@ f0: [11 registers]
   s8:
     PureSet(MakeList { dst: r3, items: [r10] })
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r4, a: r4, b: r3 } })
+    PureSet(LoadConst { dst: r3, value: None })
     CoreSet(Jump { target_state: s3 })

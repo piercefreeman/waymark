@@ -4,8 +4,8 @@ expression: bytecode for python/tests/fixtures_gather/gather_run_action_spread.p
 ---
 fn main(input: [items], output: []):
     results = spread items:item -> @gather_run_action_spread.process_item(item=item) [Exception -> retry: 2] [timeout: 30s]
-    _return_tmp = @gather_run_action_spread.combine_results(results=results)
-    return _return_tmp
+    __return_tmp_1__ = @gather_run_action_spread.combine_results(results=results)
+    return __return_tmp_1__
 ---
 f0: [9 registers]
   s0:

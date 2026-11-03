@@ -11,8 +11,8 @@ fn main(input: [should_fail], output: []):
     except ValueError:
         message = @try_stateful_outputs.annotate_recovery(reason="fail", previous=message)
         recovered = True
-    _return_tmp = @try_stateful_outputs.finalize_result(attempted=True, recovered=recovered, message=message)
-    return _return_tmp
+    __return_tmp_1__ = @try_stateful_outputs.finalize_result(attempted=True, recovered=recovered, message=message)
+    return __return_tmp_1__
 ---
 f0: [6 registers]
   s0:
