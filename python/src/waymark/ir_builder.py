@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import ast
 import builtins
-import copy
 import inspect
 import textwrap
 from dataclasses import dataclass, field
@@ -28,11 +27,10 @@ from typing import TYPE_CHECKING, Any, Dict, List, Mapping, NoReturn, Optional, 
 
 from waymark.call_binding import bind_call
 from waymark.compiler_analysis import SourceAnalysis
-from waymark.compiler_ast import make_span, rewrite_load_names
+from waymark.compiler_ast import make_span
 from waymark.compiler_context import CompilerContext
 from waymark.compiler_errors import UnsupportedPatternError
 from waymark.compiler_literals import constant_to_literal, literal_expression
-from waymark.compiler_operators import binary_operator
 from waymark.compiler_recommendations import RECOMMENDATIONS
 from waymark.compiler_targets import assignment_targets
 from waymark.compiler_types import has_open_type_parameters
@@ -433,24 +431,13 @@ class IRBuilder(ast.NodeVisitor):
         lowered = SYNTAX_HANDLERS.lower_statement(node, self._compiler_context)
         if lowered is not None:
             return lowered
-        if isinstance(node, ast.Assign):
-            expanded = self._expand_list_comprehension_assignment(node)
-            if expanded is not None:
-                return expanded
-            result = self._visit_assign(node)
-            return [result] if result else []
-        elif isinstance(node, ast.AnnAssign):
-            result = self._visit_ann_assign(node)
-            return [result] if result else []
-        elif isinstance(node, ast.Expr):
+        if isinstance(node, ast.Expr):
             result = self._visit_expr_stmt(node)
             return [result] if result else []
         elif isinstance(node, ast.If):
             return self._visit_if(node)
         elif isinstance(node, ast.Return):
             return self._visit_return(node)
-        elif isinstance(node, ast.AugAssign):
-            return self._visit_aug_assign(node)
         elif isinstance(node, ast.Pass):
             # Pass statements are fine, they just don't produce IR
             return []
@@ -555,156 +542,6 @@ class IRBuilder(ast.NodeVisitor):
                 col=col,
             )
 
-    def _expand_list_comprehension_assignment(
-        self, node: ast.Assign
-    ) -> Optional[List[ir.Statement]]:
-        """Expand a list comprehension assignment into loop-based statements.
-
-        Example:
-            active_users = [user for user in users if user.active]
-
-        Becomes:
-            source = users
-            result = []
-            for item in source:
-                if item.active:
-                    result = result + [item]
-            active_users = result
-        """
-        if not isinstance(node.value, ast.ListComp):
-            return None
-
-        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
-            line = getattr(node, "lineno", None)
-            col = getattr(node, "col_offset", None)
-            raise UnsupportedPatternError(
-                "List comprehension assignments must target a single variable",
-                "Assign the comprehension to a simple variable like `results = [x for x in items]`",
-                line=line,
-                col=col,
-            )
-
-        listcomp = copy.deepcopy(node.value)
-        if len(listcomp.generators) != 1:
-            line = getattr(listcomp, "lineno", None)
-            col = getattr(listcomp, "col_offset", None)
-            raise UnsupportedPatternError(
-                "List comprehensions with multiple generators are not supported",
-                "Use nested for loops instead of combining multiple generators in one comprehension",
-                line=line,
-                col=col,
-            )
-
-        gen = listcomp.generators[0]
-        if gen.is_async:
-            line = getattr(listcomp, "lineno", None)
-            col = getattr(listcomp, "col_offset", None)
-            raise UnsupportedPatternError(
-                "Async list comprehensions are not supported",
-                "Rewrite using an explicit async for loop",
-                line=line,
-                col=col,
-            )
-
-        replacements = {
-            name: ast.Name(id=self._ctx.next_implicit_fn_name("comprehension_item"), ctx=ast.Load())
-            for name in assignment_targets([gen.target])
-        }
-        for target in ast.walk(gen.target):
-            if isinstance(target, ast.Name):
-                replacement = replacements[target.id]
-                assert isinstance(replacement, ast.Name)
-                target.id = replacement.id
-        rewritten_element = rewrite_load_names(listcomp.elt, replacements)
-        assert isinstance(rewritten_element, ast.expr)
-        listcomp.elt = rewritten_element
-        rewritten_filters = [rewrite_load_names(condition, replacements) for condition in gen.ifs]
-        assert all(isinstance(condition, ast.expr) for condition in rewritten_filters)
-        gen.ifs = [condition for condition in rewritten_filters if isinstance(condition, ast.expr)]
-        iterable_name = self._ctx.next_implicit_fn_name("comprehension_input")
-        iterable_assignment = ast.fix_missing_locations(
-            ast.copy_location(
-                ast.Assign(targets=[ast.Name(id=iterable_name, ctx=ast.Store())], value=gen.iter),
-                node,
-            )
-        )
-        gen.iter = ast.copy_location(ast.Name(id=iterable_name, ctx=ast.Load()), gen.iter)
-
-        target_name = self._ctx.next_implicit_fn_name("comprehension_result")
-
-        # Publish only after the entire comprehension succeeds.
-        init_assign_ast = ast.Assign(
-            targets=[ast.Name(id=target_name, ctx=ast.Store())],
-            value=ast.List(elts=[], ctx=ast.Load()),
-            type_comment=None,
-        )
-        ast.copy_location(init_assign_ast, node)
-        ast.fix_missing_locations(init_assign_ast)
-
-        def _make_append_assignment(value_expr: ast.expr) -> ast.Assign:
-            append_assign = ast.Assign(
-                targets=[ast.Name(id=target_name, ctx=ast.Store())],
-                value=ast.BinOp(
-                    left=ast.Name(id=target_name, ctx=ast.Load()),
-                    op=ast.Add(),
-                    right=ast.List(elts=[copy.deepcopy(value_expr)], ctx=ast.Load()),
-                ),
-                type_comment=None,
-            )
-            ast.copy_location(append_assign, node.value)
-            ast.fix_missing_locations(append_assign)
-            return append_assign
-
-        append_statements: List[ast.stmt] = []
-        if isinstance(listcomp.elt, ast.IfExp):
-            then_assign = _make_append_assignment(listcomp.elt.body)
-            else_assign = _make_append_assignment(listcomp.elt.orelse)
-            branch_if = ast.If(
-                test=copy.deepcopy(listcomp.elt.test),
-                body=[then_assign],
-                orelse=[else_assign],
-            )
-            ast.copy_location(branch_if, listcomp.elt)
-            ast.fix_missing_locations(branch_if)
-            append_statements.append(branch_if)
-        else:
-            append_statements.append(_make_append_assignment(listcomp.elt))
-
-        loop_body: List[ast.stmt] = append_statements
-        for condition in reversed(gen.ifs):
-            if_stmt = ast.If(test=copy.deepcopy(condition), body=loop_body, orelse=[])
-            ast.copy_location(if_stmt, condition)
-            ast.fix_missing_locations(if_stmt)
-            loop_body = [if_stmt]
-
-        loop_ast = ast.For(
-            target=copy.deepcopy(gen.target),
-            iter=copy.deepcopy(gen.iter),
-            body=loop_body,
-            orelse=[],
-            type_comment=None,
-        )
-        ast.copy_location(loop_ast, node)
-        ast.fix_missing_locations(loop_ast)
-
-        statements = self._visit_statement(iterable_assignment)
-        init_stmt = self._visit_assign(init_assign_ast)
-        if init_stmt:
-            statements.append(init_stmt)
-        statements.extend(self._visit_statement(loop_ast))
-        final_assignment = ast.fix_missing_locations(
-            ast.copy_location(
-                ast.Assign(
-                    targets=copy.deepcopy(node.targets),
-                    value=ast.Name(id=target_name, ctx=ast.Load()),
-                ),
-                node,
-            )
-        )
-        statements.extend(self._visit_statement(final_assignment))
-
-        return statements
-
     def _visit_language_call(self, node: ast.stmt) -> list[ir.Statement] | None:
         """Dispatch registered awaited calls; handlers own recognition and lowering."""
         match node:
@@ -766,49 +603,6 @@ class IRBuilder(ast.NodeVisitor):
                 )
             )
         return statements
-
-    def _visit_ann_assign(self, node: ast.AnnAssign) -> Optional[ir.Statement]:
-        """Convert annotated assignment to IR when a value is present."""
-        if node.value is None:
-            return None
-
-        assign = ast.Assign(targets=[node.target], value=node.value, type_comment=None)
-        ast.copy_location(assign, node)
-        ast.fix_missing_locations(assign)
-        return self._visit_assign(assign)
-
-    def _visit_assign(self, node: ast.Assign) -> Optional[ir.Statement]:
-        """Convert assignment to IR.
-
-        All assignments with targets use the Assignment statement type.
-        This provides uniform unpacking support for:
-        - Action calls: a, b = @get_pair()
-        - Parallel blocks: a, b = parallel: @x() @y()
-        - Regular expressions: a, b = some_list
-
-        Raises UnsupportedPatternError for:
-        - Constructor calls: x = MyClass(...)
-        - Non-action await: x = await some_func()
-        """
-        stmt = ir.Statement(span=make_span(node))
-        targets = assignment_targets(node.targets)
-
-        # Check if this is an action call - wrap in Assignment for uniform unpacking
-        action_call = self._extract_action_call(node.value)
-        if action_call:
-            value = ir.Expr(action_call=action_call, span=make_span(node))
-            assign = ir.Assignment(targets=targets, value=value)
-            stmt.assignment.CopyFrom(assign)
-            return stmt
-
-        # Regular assignment (variables, literals, expressions)
-        value_expr = self._compile_expression(node.value)
-        if value_expr:
-            assign = ir.Assignment(targets=targets, value=value_expr)
-            stmt.assignment.CopyFrom(assign)
-            return stmt
-
-        return None
 
     def _visit_expr_stmt(self, node: ast.Expr) -> Optional[ir.Statement]:
         """Convert expression statement to IR (side effect only, no assignment)."""
@@ -1387,54 +1181,6 @@ class IRBuilder(ast.NodeVisitor):
         stmt = ir.Statement(span=make_span(node))
         stmt.continue_stmt.CopyFrom(ir.ContinueStmt())
         return [stmt]
-
-    def _visit_aug_assign(self, node: ast.AugAssign) -> List[ir.Statement]:
-        """Convert augmented assignment (+=, -=, etc.) to IR."""
-        # For now, we can represent this as a regular assignment with binary op
-        # target op= value  ->  target = target op value
-        stmt = ir.Statement(span=make_span(node))
-
-        targets: List[str] = []
-        if isinstance(node.target, ast.Name):
-            targets.append(node.target.id)
-
-        left = self._compile_expression(node.target)
-        right = self._compile_expression(node.value)
-        if right and right.HasField("function_call"):
-            tmp_var = self._ctx.next_implicit_fn_name(prefix="aug_tmp")
-
-            assign_tmp = ir.Statement(span=make_span(node))
-            assign_tmp.assignment.CopyFrom(
-                ir.Assignment(
-                    targets=[tmp_var],
-                    value=ir.Expr(function_call=right.function_call, span=make_span(node)),
-                )
-            )
-
-            if left:
-                op = binary_operator(node.op)
-                if op:
-                    binary = ir.BinaryOp(
-                        left=left,
-                        op=op,
-                        right=ir.Expr(variable=ir.Variable(name=tmp_var)),
-                    )
-                    value = ir.Expr(binary_op=binary)
-                    assign = ir.Assignment(targets=targets, value=value)
-                    stmt.assignment.CopyFrom(assign)
-                    return [assign_tmp, stmt]
-            return [assign_tmp]
-
-        if left and right:
-            op = binary_operator(node.op)
-            if op:
-                binary = ir.BinaryOp(left=left, op=op, right=right)
-                value = ir.Expr(binary_op=binary)
-                assign = ir.Assignment(targets=targets, value=value)
-                stmt.assignment.CopyFrom(assign)
-                return [stmt]
-
-        return []
 
     def _collect_function_inputs(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> List[str]:
         """Collect workflow inputs from function parameters, including kw-only args."""
