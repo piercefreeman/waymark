@@ -27,7 +27,31 @@ Program {
                             Spanned {
                                 value: Assignment {
                                     targets: [
-                                        "active_users",
+                                        "__comprehension_input_2__",
+                                    ],
+                                    value: Spanned {
+                                        value: Variable {
+                                            name: "users",
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 41,
+                                            end_line: 2,
+                                            end_col: 46,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 8,
+                                    end_line: 2,
+                                    end_col: 62,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "__comprehension_result_3__",
                                     ],
                                     value: Spanned {
                                         value: List {
@@ -51,11 +75,11 @@ Program {
                             Spanned {
                                 value: ForLoop {
                                     loop_vars: [
-                                        "user",
+                                        "__comprehension_item_1__",
                                     ],
                                     iterable: Spanned {
                                         value: Variable {
-                                            name: "users",
+                                            name: "__comprehension_input_2__",
                                         },
                                         span: Span {
                                             start_line: 2,
@@ -75,7 +99,7 @@ Program {
                                                                     value: Dot {
                                                                         object: Spanned {
                                                                             value: Variable {
-                                                                                name: "user",
+                                                                                name: "__comprehension_item_1__",
                                                                             },
                                                                             span: Span {
                                                                                 start_line: 2,
@@ -99,13 +123,13 @@ Program {
                                                                             Spanned {
                                                                                 value: Assignment {
                                                                                     targets: [
-                                                                                        "active_users",
+                                                                                        "__comprehension_result_3__",
                                                                                     ],
                                                                                     value: Spanned {
                                                                                         value: BinaryOp {
                                                                                             left: Spanned {
                                                                                                 value: Variable {
-                                                                                                    name: "active_users",
+                                                                                                    name: "__comprehension_result_3__",
                                                                                                 },
                                                                                                 span: Span {
                                                                                                     start_line: 2,
@@ -120,7 +144,7 @@ Program {
                                                                                                     elements: [
                                                                                                         Spanned {
                                                                                                             value: Variable {
-                                                                                                                name: "user",
+                                                                                                                name: "__comprehension_item_1__",
                                                                                                             },
                                                                                                             span: Span {
                                                                                                                 start_line: 2,
@@ -182,6 +206,30 @@ Program {
                                                     },
                                                 },
                                             ],
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 8,
+                                            end_line: 2,
+                                            end_col: 62,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 8,
+                                    end_line: 2,
+                                    end_col: 62,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "active_users",
+                                    ],
+                                    value: Spanned {
+                                        value: Variable {
+                                            name: "__comprehension_result_3__",
                                         },
                                         span: Span {
                                             start_line: 2,

@@ -28,16 +28,18 @@ from enum import EnumMeta
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Set
 
 from waymark.call_binding import bind_call
+from waymark.compiler_ast import rewrite_load_names
 from waymark.compiler_context import CompilerContext
 from waymark.compiler_errors import UnsupportedPatternError
 from waymark.compiler_literals import literal_expression
 from waymark.compiler_recommendations import RECOMMENDATIONS
-from waymark.compiler_validation import SourceValidator
+from waymark.compiler_types import has_open_type_parameters
+from waymark.compiler_validation import SourceValidator, validate_literal
 from waymark.global_handlers import GLOBAL_HANDLERS
 from waymark.proto import ast_pb2 as ir
 
 if TYPE_CHECKING:
-    from .workflow import Workflow
+    from waymark.workflow import Workflow
 
 
 @dataclass
@@ -366,8 +368,25 @@ class IRBuilder(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> Any:
         """Visit a function definition (the workflow's run method)."""
+        annotations = [
+            argument.annotation
+            for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+            if argument.annotation is not None
+        ]
+        if node.returns is not None:
+            annotations.append(node.returns)
+        for annotation in annotations:
+            if has_open_type_parameters(ast.unparse(annotation), self._language_call_namespace):
+                raise UnsupportedPatternError(
+                    "Open generic annotations are unsupported",
+                    "Specialize all type parameters before compiling the workflow.",
+                    line=annotation.lineno,
+                    col=annotation.col_offset,
+                )
         local_types = SourceValidator(
-            self._language_call_namespace, self._language_calls, set(self._ctx.function_signatures)
+            self._language_call_namespace,
+            self._language_calls,
+            set(self._ctx.function_signatures),
         ).validate(node)
         self._language_call_namespace.update(local_types)
         inputs = self._collect_function_inputs(node)
@@ -404,9 +423,6 @@ class IRBuilder(ast.NodeVisitor):
         if language_call is not None:
             return language_call
         if isinstance(node, ast.Assign):
-            dict_expanded = self._expand_dict_comprehension_assignment(node)
-            if dict_expanded is not None:
-                return dict_expanded
             expanded = self._expand_list_comprehension_assignment(node)
             if expanded is not None:
                 return expanded
@@ -543,10 +559,12 @@ class IRBuilder(ast.NodeVisitor):
             active_users = [user for user in users if user.active]
 
         Becomes:
-            active_users = []
-            for user in users:
-                if user.active:
-                    active_users = active_users + [user]
+            source = users
+            result = []
+            for item in source:
+                if item.active:
+                    result = result + [item]
+            active_users = result
         """
         if not isinstance(node.value, ast.ListComp):
             return None
@@ -561,7 +579,7 @@ class IRBuilder(ast.NodeVisitor):
                 col=col,
             )
 
-        listcomp = node.value
+        listcomp = copy.deepcopy(node.value)
         if len(listcomp.generators) != 1:
             line = getattr(listcomp, "lineno", None)
             col = getattr(listcomp, "col_offset", None)
@@ -583,9 +601,33 @@ class IRBuilder(ast.NodeVisitor):
                 col=col,
             )
 
-        target_name = node.targets[0].id
+        replacements = {
+            name: ast.Name(id=self._ctx.next_implicit_fn_name("comprehension_item"), ctx=ast.Load())
+            for name in self._get_assign_targets([gen.target])
+        }
+        for target in ast.walk(gen.target):
+            if isinstance(target, ast.Name):
+                replacement = replacements[target.id]
+                assert isinstance(replacement, ast.Name)
+                target.id = replacement.id
+        rewritten_element = rewrite_load_names(listcomp.elt, replacements)
+        assert isinstance(rewritten_element, ast.expr)
+        listcomp.elt = rewritten_element
+        rewritten_filters = [rewrite_load_names(condition, replacements) for condition in gen.ifs]
+        assert all(isinstance(condition, ast.expr) for condition in rewritten_filters)
+        gen.ifs = [condition for condition in rewritten_filters if isinstance(condition, ast.expr)]
+        iterable_name = self._ctx.next_implicit_fn_name("comprehension_input")
+        iterable_assignment = ast.fix_missing_locations(
+            ast.copy_location(
+                ast.Assign(targets=[ast.Name(id=iterable_name, ctx=ast.Store())], value=gen.iter),
+                node,
+            )
+        )
+        gen.iter = ast.copy_location(ast.Name(id=iterable_name, ctx=ast.Load()), gen.iter)
 
-        # Initialize the accumulator list: active_users = []
+        target_name = self._ctx.next_implicit_fn_name("comprehension_result")
+
+        # Publish only after the entire comprehension succeeds.
         init_assign_ast = ast.Assign(
             targets=[ast.Name(id=target_name, ctx=ast.Store())],
             value=ast.List(elts=[], ctx=ast.Load()),
@@ -624,15 +666,9 @@ class IRBuilder(ast.NodeVisitor):
             append_statements.append(_make_append_assignment(listcomp.elt))
 
         loop_body: List[ast.stmt] = append_statements
-        if gen.ifs:
-            condition: ast.expr
-            if len(gen.ifs) == 1:
-                condition = copy.deepcopy(gen.ifs[0])
-            else:
-                condition = ast.BoolOp(op=ast.And(), values=[copy.deepcopy(iff) for iff in gen.ifs])
-                ast.copy_location(condition, gen.ifs[0])
-            if_stmt = ast.If(test=condition, body=append_statements, orelse=[])
-            ast.copy_location(if_stmt, gen.ifs[0])
+        for condition in reversed(gen.ifs):
+            if_stmt = ast.If(test=copy.deepcopy(condition), body=loop_body, orelse=[])
+            ast.copy_location(if_stmt, condition)
             ast.fix_missing_locations(if_stmt)
             loop_body = [if_stmt]
 
@@ -646,11 +682,21 @@ class IRBuilder(ast.NodeVisitor):
         ast.copy_location(loop_ast, node)
         ast.fix_missing_locations(loop_ast)
 
-        statements: List[ir.Statement] = []
+        statements = self._visit_statement(iterable_assignment)
         init_stmt = self._visit_assign(init_assign_ast)
         if init_stmt:
             statements.append(init_stmt)
         statements.extend(self._visit_for(loop_ast))
+        final_assignment = ast.fix_missing_locations(
+            ast.copy_location(
+                ast.Assign(
+                    targets=copy.deepcopy(node.targets),
+                    value=ast.Name(id=target_name, ctx=ast.Load()),
+                ),
+                node,
+            )
+        )
+        statements.extend(self._visit_statement(final_assignment))
 
         return statements
 
@@ -714,103 +760,6 @@ class IRBuilder(ast.NodeVisitor):
                     span=_make_span(node),
                 )
             )
-        return statements
-
-    def _expand_dict_comprehension_assignment(
-        self, node: ast.Assign
-    ) -> Optional[List[ir.Statement]]:
-        """Expand a dict comprehension assignment into loop-based statements."""
-        if not isinstance(node.value, ast.DictComp):
-            return None
-
-        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
-            line = getattr(node, "lineno", None)
-            col = getattr(node, "col_offset", None)
-            raise UnsupportedPatternError(
-                "Dict comprehension assignments must target a single variable",
-                "Assign the comprehension to a simple variable like `result = {k: v for k, v in pairs}`",
-                line=line,
-                col=col,
-            )
-
-        dictcomp = node.value
-        if len(dictcomp.generators) != 1:
-            line = getattr(dictcomp, "lineno", None)
-            col = getattr(dictcomp, "col_offset", None)
-            raise UnsupportedPatternError(
-                "Dict comprehensions with multiple generators are not supported",
-                "Use nested for loops instead of combining multiple generators in one comprehension",
-                line=line,
-                col=col,
-            )
-
-        gen = dictcomp.generators[0]
-        if gen.is_async:
-            line = getattr(dictcomp, "lineno", None)
-            col = getattr(dictcomp, "col_offset", None)
-            raise UnsupportedPatternError(
-                "Async dict comprehensions are not supported",
-                "Rewrite using an explicit async for loop",
-                line=line,
-                col=col,
-            )
-
-        target_name = node.targets[0].id
-
-        # Initialize accumulator: result = {}
-        init_assign_ast = ast.Assign(
-            targets=[ast.Name(id=target_name, ctx=ast.Store())],
-            value=ast.Dict(keys=[], values=[]),
-            type_comment=None,
-        )
-        ast.copy_location(init_assign_ast, node)
-        ast.fix_missing_locations(init_assign_ast)
-
-        # result[key] = value
-        subscript_target = ast.Subscript(
-            value=ast.Name(id=target_name, ctx=ast.Load()),
-            slice=copy.deepcopy(dictcomp.key),
-            ctx=ast.Store(),
-        )
-        append_assign_ast = ast.Assign(
-            targets=[subscript_target],
-            value=copy.deepcopy(dictcomp.value),
-            type_comment=None,
-        )
-        ast.copy_location(append_assign_ast, node.value)
-        ast.fix_missing_locations(append_assign_ast)
-
-        loop_body: List[ast.stmt] = []
-        if gen.ifs:
-            condition: ast.expr
-            if len(gen.ifs) == 1:
-                condition = copy.deepcopy(gen.ifs[0])
-            else:
-                condition = ast.BoolOp(op=ast.And(), values=[copy.deepcopy(iff) for iff in gen.ifs])
-                ast.copy_location(condition, gen.ifs[0])
-            if_stmt = ast.If(test=condition, body=[append_assign_ast], orelse=[])
-            ast.copy_location(if_stmt, gen.ifs[0])
-            ast.fix_missing_locations(if_stmt)
-            loop_body.append(if_stmt)
-        else:
-            loop_body.append(append_assign_ast)
-
-        loop_ast = ast.For(
-            target=copy.deepcopy(gen.target),
-            iter=copy.deepcopy(gen.iter),
-            body=loop_body,
-            orelse=[],
-            type_comment=None,
-        )
-        ast.copy_location(loop_ast, node)
-        ast.fix_missing_locations(loop_ast)
-
-        statements: List[ir.Statement] = []
-        init_stmt = self._visit_assign(init_assign_ast)
-        if init_stmt:
-            statements.append(init_stmt)
-        statements.extend(self._visit_for(loop_ast))
-
         return statements
 
     def _visit_ann_assign(self, node: ast.AnnAssign) -> Optional[ir.Statement]:
@@ -881,13 +830,7 @@ class IRBuilder(ast.NodeVisitor):
         statements/calls and early `return`.
         """
         # Get loop variables
-        loop_vars: List[str] = []
-        if isinstance(node.target, ast.Name):
-            loop_vars.append(node.target.id)
-        elif isinstance(node.target, ast.Tuple):
-            for elt in node.target.elts:
-                if isinstance(elt, ast.Name):
-                    loop_vars.append(elt.id)
+        loop_vars = self._get_assign_targets([node.target])
 
         # Get iterable
         iterable = self._compile_expression(node.iter)
@@ -1784,6 +1727,9 @@ class IRBuilder(ast.NodeVisitor):
         return None
 
     def _resolve_enum_attribute(self, node: ast.Attribute) -> Optional[ir.Expr]:
+        instance = self._resolve_instance_attribute_chain(node)
+        if instance is not None:
+            return instance
         value = _resolve_enum_attribute_value(node, self._module_globals)
         if value is None:
             return None
@@ -1823,14 +1769,19 @@ class IRBuilder(ast.NodeVisitor):
         the value as an IR literal.
         """
         chain = self._extract_self_attribute_chain(node)
-        if chain is None or len(chain) < 2:
+        if chain is None:
             return None
 
         # chain[0] is the top-level attribute (e.g., "config")
         # chain[1:] are nested attributes (e.g., ["max_retries"])
         top_attr = chain[0]
-        if top_attr not in self._instance_attrs:
-            return None
+        if top_attr not in self._instance_attrs or top_attr in self._ambiguous_instance_attrs:
+            raise UnsupportedPatternError(
+                "Instance attribute is not assigned a unique literal in __init__",
+                "Pass runtime values through run() arguments.",
+                line=node.lineno,
+                col=node.col_offset,
+            )
 
         # Get the AST expression for the top-level attribute
         attr_ast = self._instance_attrs[top_attr]
@@ -1838,7 +1789,12 @@ class IRBuilder(ast.NodeVisitor):
         # Try to resolve nested attributes
         resolved_ast = self._resolve_nested_attributes(attr_ast, chain[1:])
         if resolved_ast is None:
-            return None
+            raise UnsupportedPatternError(
+                "Instance attribute cannot be resolved at compile time",
+                "Pass runtime values through run() arguments.",
+                line=node.lineno,
+                col=node.col_offset,
+            )
 
         # Convert the resolved AST to IR
         return _expr_to_ir(
@@ -1882,6 +1838,10 @@ class IRBuilder(ast.NodeVisitor):
 
         # Handle Call expressions (constructor calls)
         if isinstance(ast_node, ast.Call):
+            handler = self._language_calls.resolve(ast_node.func, self._language_call_namespace)
+            if handler is None or handler.requires_await:
+                return None
+            handler.compile(ast_node, self._compiler_context)
             # Look for keyword argument with matching name
             for kw in ast_node.keywords:
                 if kw.arg == attr_name:
@@ -1897,26 +1857,25 @@ class IRBuilder(ast.NodeVisitor):
 
         return None
 
-    def _get_assign_target(self, targets: List[ast.expr]) -> Optional[str]:
-        """Get the target variable name from assignment targets (single target only)."""
-        if targets and isinstance(targets[0], ast.Name):
-            return targets[0].id
-        return None
-
     def _get_assign_targets(self, targets: List[ast.expr]) -> List[str]:
         """Get all target variable names from assignment targets (including tuple unpacking)."""
         result: List[str] = []
-        for t in targets:
-            if isinstance(t, ast.Name):
-                result.append(t.id)
-            elif isinstance(t, ast.Subscript):
-                formatted = _format_subscript_target(t)
-                if formatted:
-                    result.append(formatted)
-            elif isinstance(t, ast.Tuple):
-                for elt in t.elts:
-                    if isinstance(elt, ast.Name):
-                        result.append(elt.id)
+        for target in targets:
+            if isinstance(target, ast.Name):
+                result.append(target.id)
+            elif isinstance(target, (ast.Tuple, ast.List)) and all(
+                isinstance(element, ast.Name) for element in target.elts
+            ):
+                result.extend(
+                    element.id for element in target.elts if isinstance(element, ast.Name)
+                )
+            else:
+                raise UnsupportedPatternError(
+                    "Unsupported assignment or loop target",
+                    "Use a name or flat list/tuple of names.",
+                    line=target.lineno,
+                    col=target.col_offset,
+                )
         return result
 
 
@@ -1977,17 +1936,13 @@ def _expr_to_ir(
     expr: ast.AST,
     call_converter: Optional[Callable[[ast.Call], Optional[ir.Expr]]] = None,
     enum_resolver: Optional[Callable[[ast.Attribute], Optional[ir.Expr]]] = None,
-    exception_class_resolver: Optional[Callable[[str], bool]] = None,
 ) -> Optional[ir.Expr]:
     """Convert Python AST expression to IR Expr.
 
     Args:
         expr: The AST expression to convert.
-        call_converter: Optional callback to convert model constructors.
+        call_converter: Callback for registered language calls and workflow helpers.
         enum_resolver: Optional callback to resolve enum attributes.
-        exception_class_resolver: Optional callback that takes a class name and
-            returns True if it's an exception class. Used to transform
-            isinstance(x, ExceptionClass) to isexception(x, "ExceptionClass").
     """
     result = ir.Expr(span=_make_span(expr))
 
@@ -2011,25 +1966,30 @@ def _expr_to_ir(
             expr.left,
             call_converter=call_converter,
             enum_resolver=enum_resolver,
-            exception_class_resolver=exception_class_resolver,
         )
         right = _expr_to_ir(
             expr.right,
             call_converter=call_converter,
             enum_resolver=enum_resolver,
-            exception_class_resolver=exception_class_resolver,
         )
         op = _bin_op_to_ir(expr.op)
         if left and right and op:
             result.binary_op.CopyFrom(ir.BinaryOp(left=left, op=op, right=right))
             return result
 
+    if (
+        isinstance(expr, ast.UnaryOp)
+        and isinstance(expr.op, ast.USub)
+        and isinstance(expr.operand, ast.Constant)
+        and type(expr.operand.value) in (int, float)
+    ):
+        return ir.Expr(literal=_constant_to_literal(-expr.operand.value), span=_make_span(expr))
+
     if isinstance(expr, ast.UnaryOp):
         operand = _expr_to_ir(
             expr.operand,
             call_converter=call_converter,
             enum_resolver=enum_resolver,
-            exception_class_resolver=exception_class_resolver,
         )
         op = _unary_op_to_ir(expr.op)
         if operand and op:
@@ -2041,7 +2001,6 @@ def _expr_to_ir(
             expr.left,
             call_converter=call_converter,
             enum_resolver=enum_resolver,
-            exception_class_resolver=exception_class_resolver,
         )
         if not left:
             return None
@@ -2056,28 +2015,6 @@ def _expr_to_ir(
             if op and right:
                 result.binary_op.CopyFrom(ir.BinaryOp(left=left, op=op, right=right))
                 return result
-
-    if isinstance(expr, ast.BoolOp):
-        values = [
-            _expr_to_ir(
-                v,
-                call_converter=call_converter,
-                enum_resolver=enum_resolver,
-                exception_class_resolver=exception_class_resolver,
-            )
-            for v in expr.values
-        ]
-        if all(v for v in values):
-            op = _bool_op_to_ir(expr.op)
-            if op and len(values) >= 2:
-                # Chain boolean ops: a and b and c -> (a and b) and c
-                result_expr = values[0]
-                for v in values[1:]:
-                    if result_expr and v:
-                        new_result = ir.Expr()
-                        new_result.binary_op.CopyFrom(ir.BinaryOp(left=result_expr, op=op, right=v))
-                        result_expr = new_result
-                return result_expr
 
     if isinstance(expr, ast.List):
         if any(isinstance(element, ast.Starred) for element in expr.elts):
@@ -2097,7 +2034,6 @@ def _expr_to_ir(
                         element.value,
                         call_converter=call_converter,
                         enum_resolver=enum_resolver,
-                        exception_class_resolver=exception_class_resolver,
                     )
                     if not starred_value:
                         return None
@@ -2108,7 +2044,6 @@ def _expr_to_ir(
                     element,
                     call_converter=call_converter,
                     enum_resolver=enum_resolver,
-                    exception_class_resolver=exception_class_resolver,
                 )
                 if not value:
                     return None
@@ -2135,7 +2070,6 @@ def _expr_to_ir(
                 e,
                 call_converter=call_converter,
                 enum_resolver=enum_resolver,
-                exception_class_resolver=exception_class_resolver,
             )
             for e in expr.elts
         ]
@@ -2168,7 +2102,6 @@ def _expr_to_ir(
             expr.value,
             call_converter=call_converter,
             enum_resolver=enum_resolver,
-            exception_class_resolver=exception_class_resolver,
         )
         index = (
             _expr_to_ir(
@@ -2192,94 +2125,23 @@ def _expr_to_ir(
             expr.value,
             call_converter=call_converter,
             enum_resolver=enum_resolver,
-            exception_class_resolver=exception_class_resolver,
         )
         if obj:
             result.dot.CopyFrom(ir.DotAccess(object=obj, attribute=expr.attr))
             return result
 
-    if isinstance(expr, ast.Await) and isinstance(expr.value, ast.Call):
-        if call_converter is not None and _is_self_method_call(expr.value):
-            converted = call_converter(expr.value)
-            if converted is not None:
-                return converted
-        func_name = _get_func_name(expr.value.func)
-        if func_name:
-            args = [
-                _expr_to_ir(
-                    a,
-                    call_converter=call_converter,
-                    enum_resolver=enum_resolver,
-                )
-                for a in expr.value.args
-            ]
-            kwargs: List[ir.Kwarg] = []
-            for kw in expr.value.keywords:
-                if kw.arg:
-                    kw_expr = _expr_to_ir(
-                        kw.value,
-                        call_converter=call_converter,
-                        enum_resolver=enum_resolver,
-                    )
-                    if kw_expr:
-                        kwargs.append(ir.Kwarg(name=kw.arg, value=kw_expr))
-            func_call = ir.FunctionCall(
-                name=func_name,
-                args=[a for a in args if a],
-                kwargs=kwargs,
-            )
-            result.function_call.CopyFrom(func_call)
-            return result
+    if isinstance(expr, ast.Await) and isinstance(expr.value, ast.Call) and call_converter:
+        converted = call_converter(expr.value)
+        if converted is not None:
+            return converted
 
     if isinstance(expr, ast.Call):
-        # Function call
-        if not _is_self_method_call(expr):
-            func_name = _get_func_name(expr.func) or "unknown"
-            if isinstance(expr.func, ast.Attribute):
-                line = expr.lineno if hasattr(expr, "lineno") else None
-                col = expr.col_offset if hasattr(expr, "col_offset") else None
-                raise UnsupportedPatternError(
-                    f"Calling '{func_name}()' is not supported in workflow code",
-                    RECOMMENDATIONS["sync_function_call"],
-                    line=line,
-                    col=col,
-                )
-            if not _is_self_method_call(expr):
-                line = expr.lineno if hasattr(expr, "lineno") else None
-                col = expr.col_offset if hasattr(expr, "col_offset") else None
-                raise UnsupportedPatternError(
-                    f"Calling '{func_name}()' is not supported in workflow code",
-                    RECOMMENDATIONS["sync_function_call"],
-                    line=line,
-                    col=col,
-                )
-        func_name = _get_func_name(expr.func)
-        if func_name:
-            args = [
-                _expr_to_ir(
-                    a,
-                    call_converter=call_converter,
-                    enum_resolver=enum_resolver,
-                )
-                for a in expr.args
-            ]
-            kwargs: List[ir.Kwarg] = []
-            for kw in expr.keywords:
-                if kw.arg:
-                    kw_expr = _expr_to_ir(
-                        kw.value,
-                        call_converter=call_converter,
-                        enum_resolver=enum_resolver,
-                    )
-                    if kw_expr:
-                        kwargs.append(ir.Kwarg(name=kw.arg, value=kw_expr))
-            func_call = ir.FunctionCall(
-                name=func_name,
-                args=[a for a in args if a],
-                kwargs=kwargs,
-            )
-            result.function_call.CopyFrom(func_call)
-            return result
+        raise UnsupportedPatternError(
+            f"Calling '{ast.unparse(expr.func)}()' is not supported in workflow code",
+            RECOMMENDATIONS["sync_function_call"],
+            line=expr.lineno,
+            col=expr.col_offset,
+        )
 
     if isinstance(expr, ast.Tuple):
         # Handle tuple as list for now
@@ -2288,7 +2150,6 @@ def _expr_to_ir(
                 e,
                 call_converter=call_converter,
                 enum_resolver=enum_resolver,
-                exception_class_resolver=exception_class_resolver,
             )
             for e in expr.elts
         ]
@@ -2382,22 +2243,9 @@ def _check_unsupported_expression(expr: ast.AST) -> None:
         )
 
 
-def _format_subscript_target(target: ast.Subscript) -> Optional[str]:
-    """Convert a subscript target to a string representation for tracking."""
-    if not isinstance(target.value, ast.Name):
-        return None
-
-    base = target.value.id
-    try:
-        index_str = ast.unparse(target.slice)
-    except Exception:
-        return None
-
-    return f"{base}[{index_str}]"
-
-
 def _constant_to_literal(value: Any) -> Optional[ir.Literal]:
     """Convert a Python constant to IR Literal."""
+    validate_literal(value)
     literal = ir.Literal()
     if value is None:
         literal.is_none = True
@@ -2451,15 +2299,6 @@ def _cmp_op_to_ir(op: ast.cmpop) -> Optional[ir.BinaryOperator]:
         # with serialized values where object identity doesn't apply
         ast.Is: ir.BinaryOperator.BINARY_OP_EQ,
         ast.IsNot: ir.BinaryOperator.BINARY_OP_NE,
-    }
-    return mapping.get(type(op))
-
-
-def _bool_op_to_ir(op: ast.boolop) -> Optional[ir.BinaryOperator]:
-    """Convert Python boolean operator to IR BinaryOperator."""
-    mapping = {
-        ast.And: ir.BinaryOperator.BINARY_OP_AND,
-        ast.Or: ir.BinaryOperator.BINARY_OP_OR,
     }
     return mapping.get(type(op))
 

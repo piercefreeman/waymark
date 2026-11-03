@@ -202,3 +202,64 @@ def test_filtered_gather_with_nested_target(
 ) -> None:
     """Regression: all filters and the action see names bound by nested unpacking."""
     assert asyncio.run(GatherFilteredNestedTargetWorkflow().run(items)) == expected
+
+
+@workflow
+class HandlerContractsWorkflow(Workflow):
+    async def run(self) -> list[int]:
+        values = []
+        values.append(7)
+        result = await asyncio.sleep(0, result=11)
+        length = len("é🙂")
+        return [values[0], result, length]
+
+
+def test_registered_handlers_preserve_results_in_the_vm() -> None:
+    assert asyncio.run(HandlerContractsWorkflow().run()) == [7, 11, 2]
+
+
+@workflow
+class ComprehensionScopeWorkflow(Workflow):
+    async def run(self) -> list[int]:
+        item = 9
+        values = [1, 2]
+        values = [item + 1 for item in values]
+        return [item, values[0], values[1]]
+
+
+def test_list_comprehensions_capture_the_input_and_preserve_outer_bindings() -> None:
+    """Regression: comprehension iteration has its own bindings and captures its input once."""
+    assert asyncio.run(ComprehensionScopeWorkflow().run()) == [9, 2, 3]
+
+
+@workflow
+class ComprehensionDestinationWorkflow(Workflow):
+    async def run(self) -> list[int]:
+        values = [7]
+        values = [values[0] for item in [1, 2] if values]
+        return values
+
+
+def test_comprehensions_publish_the_destination_after_elements_and_filters_finish() -> None:
+    """Regression: elements and filters must read the destination's original value."""
+    assert asyncio.run(ComprehensionDestinationWorkflow().run()) == [7, 7]
+
+
+@action
+async def identity_list(values: list[int]) -> list[int]:
+    return values
+
+
+@workflow
+class AccumulateThenDispatchWorkflow(Workflow):
+    async def run(self) -> list[int]:
+        values = []
+        for item in [1, 2]:
+            values.append(item)
+        result = await identity_list(values)
+        return result
+
+
+def test_local_list_can_escape_after_its_last_mutation() -> None:
+    """Regression: returning an accumulated list through an action needs no alias mutation."""
+    assert asyncio.run(AccumulateThenDispatchWorkflow().run()) == [1, 2]
