@@ -2,6 +2,7 @@
 
 from waymark.handlers.enumerate import EnumerateHandler
 from waymark.handlers.gather import GatherHandler
+from waymark.handlers.isinstance import IsinstanceHandler
 from waymark.handlers.length import LengthHandler
 from waymark.handlers.range import RangeHandler
 from waymark.handlers.run_action import RunActionHandler
@@ -16,5 +17,6 @@ GLOBAL_HANDLERS = LanguageCallRegistry(
         LengthHandler(),
         RangeHandler(),
         EnumerateHandler(),
+        IsinstanceHandler(),
     ]
 )

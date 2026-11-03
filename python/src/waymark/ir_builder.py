@@ -2595,36 +2595,6 @@ class IRBuilder(ast.NodeVisitor):
         expr.literal.CopyFrom(literal)
         return expr
 
-    def _is_exception_class(self, class_name: str) -> bool:
-        """Check if a class name refers to an exception class.
-
-        This checks both built-in exceptions and imported exception classes.
-        """
-        # Check built-in exceptions first
-        builtin_exc = (
-            getattr(__builtins__, class_name, None)
-            if isinstance(__builtins__, dict)
-            else getattr(__builtins__, class_name, None)
-        )
-        if builtin_exc is None:
-            # Try getting from builtins module directly
-            import builtins
-
-            builtin_exc = getattr(builtins, class_name, None)
-        if (
-            builtin_exc is not None
-            and isinstance(builtin_exc, type)
-            and issubclass(builtin_exc, BaseException)
-        ):
-            return True
-
-        # Check module globals for imported exception classes
-        cls = self._module_globals.get(class_name)
-        if cls is not None and isinstance(cls, type) and issubclass(cls, BaseException):
-            return True
-
-        return False
-
     def _expr_to_ir_with_model_coercion(self, node: ast.expr) -> Optional[ir.Expr]:
         """Convert an AST expression to IR, converting model constructors to dicts."""
         for expression in ast.walk(node):
@@ -2647,7 +2617,6 @@ class IRBuilder(ast.NodeVisitor):
             node,
             model_converter=self._convert_model_constructor_if_needed,
             enum_resolver=self._resolve_enum_attribute,
-            exception_class_resolver=self._is_exception_class,
         )
         # Post-process to fill in default kwargs for function calls (recursively)
         if result is not None:
@@ -2684,7 +2653,6 @@ class IRBuilder(ast.NodeVisitor):
             resolved_ast,
             model_converter=self._convert_model_constructor_if_needed,
             enum_resolver=self._resolve_enum_attribute,
-            exception_class_resolver=self._is_exception_class,
         )
 
     def _extract_self_attribute_chain(self, node: ast.expr) -> Optional[List[str]]:
@@ -2936,136 +2904,6 @@ def _resolve_enum_attribute_value(
     return None
 
 
-def _try_convert_isinstance_to_isexception(
-    expr: ast.Call,
-    exception_class_resolver: Callable[[str], bool],
-    model_converter: Optional[Callable[[ast.Call], Optional[ir.Expr]]] = None,
-    enum_resolver: Optional[Callable[[ast.Attribute], Optional[ir.Expr]]] = None,
-) -> Optional[ir.Expr]:
-    """Try to convert isinstance(x, ExceptionClass) to isexception(x, "ExceptionClass").
-
-    Returns None if this is not an isinstance call or if the class is not an exception.
-    Raises UnsupportedPatternError if isinstance is used with a non-exception class.
-    """
-    # FIXME(#790): the VM has no lowering for `isexception` yet, so every hint
-    # below says the call does not run.
-
-    # Check if this is an isinstance call
-    func_name = _get_func_name(expr.func)
-    if func_name != "isinstance":
-        return None
-
-    # isinstance requires exactly 2 positional arguments
-    if len(expr.args) != 2 or expr.keywords:
-        line = expr.lineno if hasattr(expr, "lineno") else None
-        col = expr.col_offset if hasattr(expr, "col_offset") else None
-        raise UnsupportedPatternError(
-            "isinstance() requires exactly 2 positional arguments",
-            "isinstance() compiles only as isinstance(value, ExceptionClass) and does not run "
-            "yet; catch the class with an except clause instead.",
-            line=line,
-            col=col,
-        )
-
-    # Extract exception class names from the second argument
-    second_arg = expr.args[1]
-    exception_names: List[str] = []
-
-    if isinstance(second_arg, ast.Name):
-        # Single class: isinstance(x, ValueError)
-        class_name = second_arg.id
-        if not exception_class_resolver(class_name):
-            line = expr.lineno if hasattr(expr, "lineno") else None
-            col = expr.col_offset if hasattr(expr, "col_offset") else None
-            raise UnsupportedPatternError(
-                f"isinstance() with non-exception class '{class_name}' is not supported in workflows",
-                "isinstance() compiles only for exception classes in workflow code, and does "
-                "not run yet. "
-                "Move other type checks to an @action.",
-                line=line,
-                col=col,
-            )
-        exception_names.append(class_name)
-    elif isinstance(second_arg, ast.Tuple):
-        # Tuple of classes: isinstance(x, (ValueError, TypeError))
-        for elt in second_arg.elts:
-            if not isinstance(elt, ast.Name):
-                line = expr.lineno if hasattr(expr, "lineno") else None
-                col = expr.col_offset if hasattr(expr, "col_offset") else None
-                raise UnsupportedPatternError(
-                    "isinstance() class argument must be a simple name or tuple of names",
-                    "isinstance() compiles only with simple class names like ValueError or "
-                    "(ValueError, TypeError), and does not run yet; catch the class with an "
-                    "except clause instead.",
-                    line=line,
-                    col=col,
-                )
-            class_name = elt.id
-            if not exception_class_resolver(class_name):
-                line = expr.lineno if hasattr(expr, "lineno") else None
-                col = expr.col_offset if hasattr(expr, "col_offset") else None
-                raise UnsupportedPatternError(
-                    f"isinstance() with non-exception class '{class_name}' is not supported in workflows",
-                    "isinstance() compiles only for exception classes in workflow code, and does "
-                    "not run yet. "
-                    "Move other type checks to an @action.",
-                    line=line,
-                    col=col,
-                )
-            exception_names.append(class_name)
-    else:
-        line = expr.lineno if hasattr(expr, "lineno") else None
-        col = expr.col_offset if hasattr(expr, "col_offset") else None
-        raise UnsupportedPatternError(
-            "isinstance() class argument must be a simple name or tuple of names",
-            "isinstance() compiles only with simple class names like ValueError or "
-            "(ValueError, TypeError), and does not run yet; catch the class with an "
-            "except clause instead.",
-            line=line,
-            col=col,
-        )
-
-    # Convert the first argument (the value being checked) to IR
-    value_expr = _expr_to_ir(
-        expr.args[0],
-        model_converter=model_converter,
-        enum_resolver=enum_resolver,
-        exception_class_resolver=exception_class_resolver,
-    )
-    if not value_expr:
-        return None
-
-    # Build the isexception call
-    # If single exception: isexception(x, "ValueError")
-    # If multiple: isexception(x, ["ValueError", "TypeError"])
-    result = ir.Expr(span=_make_span(expr))
-
-    if len(exception_names) == 1:
-        # Single exception name as string
-        type_arg = ir.Expr(span=_make_span(second_arg))
-        type_arg.literal.CopyFrom(ir.Literal(string_value=exception_names[0]))
-        args = [value_expr, type_arg]
-    else:
-        # Multiple exception names as list of strings
-        type_elements = []
-        for name in exception_names:
-            elem = ir.Expr()
-            elem.literal.CopyFrom(ir.Literal(string_value=name))
-            type_elements.append(elem)
-        type_arg = ir.Expr(span=_make_span(second_arg))
-        type_arg.list.CopyFrom(ir.ListExpr(elements=type_elements))
-        args = [value_expr, type_arg]
-
-    func_call = ir.FunctionCall(
-        name="isexception",
-        args=args,
-        kwargs=[],
-    )
-    func_call.global_function = ir.GlobalFunction.GLOBAL_FUNCTION_ISEXCEPTION
-    result.function_call.CopyFrom(func_call)
-    return result
-
-
 def _expr_to_ir(
     expr: ast.AST,
     model_converter: Optional[Callable[[ast.Call], Optional[ir.Expr]]] = None,
@@ -3088,14 +2926,6 @@ def _expr_to_ir(
         converted = model_converter(expr)
         if converted:
             return converted
-
-    # Handle isinstance(x, ExceptionClass) -> isexception(x, "ExceptionClass")
-    if isinstance(expr, ast.Call) and exception_class_resolver:
-        isinstance_result = _try_convert_isinstance_to_isexception(
-            expr, exception_class_resolver, model_converter, enum_resolver
-        )
-        if isinstance_result is not None:
-            return isinstance_result
 
     if isinstance(expr, ast.Name):
         result.variable.CopyFrom(ir.Variable(name=expr.id))

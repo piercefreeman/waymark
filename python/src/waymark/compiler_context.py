@@ -10,9 +10,7 @@ if TYPE_CHECKING:
 
 from waymark.proto import ast_pb2 as ir
 
-GLOBAL_FUNCTIONS = {
-    "isexception": ir.GlobalFunction.GLOBAL_FUNCTION_ISEXCEPTION,
-}
+GLOBAL_FUNCTIONS = {}
 ALLOWED_SYNC_FUNCTIONS = set(GLOBAL_FUNCTIONS)
 
 
