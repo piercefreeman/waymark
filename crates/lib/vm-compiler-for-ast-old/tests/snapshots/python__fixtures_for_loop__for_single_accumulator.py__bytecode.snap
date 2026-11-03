@@ -7,6 +7,7 @@ fn main(input: [items], output: []):
     for item in items:
         processed = @for_single_accumulator.single_accum_process_value(value=item)
         results = results + [processed]
+        None
     return results
 ---
 f0: [8 registers]
@@ -35,4 +36,5 @@ f0: [8 registers]
   s6:
     PureSet(MakeList { dst: r5, items: [r7] })
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r5 } })
+    PureSet(LoadConst { dst: r5, value: None })
     CoreSet(Jump { target_state: s3 })
