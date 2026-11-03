@@ -34,6 +34,7 @@ from waymark.compiler_context import (
 )
 from waymark.compiler_errors import UnsupportedPatternError
 from waymark.compiler_recommendations import RECOMMENDATIONS
+from waymark.compiler_validation import SourceValidator
 from waymark.global_handlers import GLOBAL_HANDLERS
 from waymark.proto import ast_pb2 as ir
 from waymark.registry import registry
@@ -734,6 +735,10 @@ class IRBuilder(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> Any:
         """Visit a function definition (the workflow's run method)."""
+        local_types = SourceValidator(
+            self._language_call_namespace, self._language_calls, set(self._ctx.function_signatures)
+        ).validate(node)
+        self._language_call_namespace.update(local_types)
         inputs = self._collect_function_inputs(node)
 
         # Create the function definition

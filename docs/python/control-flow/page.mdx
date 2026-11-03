@@ -357,6 +357,8 @@ rejected. The rejected patterns:
   argument list is unsupported. An empty collection inside a supported
   comprehension spread still works.
 
+- **String lengths.** Literal strings use Python's character count. Dynamic string and exception lengths are rejected until the VM can preserve their semantics.
+
 Everything in this list fails at your desk, the first time the workflow
 is run or scheduled. Nothing here surfaces as a production surprise.
 
