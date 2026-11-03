@@ -62,10 +62,31 @@ Program {
                                             ),
                                         },
                                         span: Span {
+                                            start_line: 0,
+                                            start_col: 0,
+                                            end_line: 0,
+                                            end_col: 0,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 0,
+                                    start_col: 0,
+                                    end_line: 0,
+                                    end_col: 0,
+                                },
+                            },
+                            Spanned {
+                                value: ExprStmt {
+                                    expr: Spanned {
+                                        value: Literal {
+                                            value: None,
+                                        },
+                                        span: Span {
                                             start_line: 3,
-                                            start_col: 28,
+                                            start_col: 14,
                                             end_line: 3,
-                                            end_col: 29,
+                                            end_col: 30,
                                         },
                                     },
                                 },

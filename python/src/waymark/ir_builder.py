@@ -1216,19 +1216,6 @@ class IRBuilder(ast.NodeVisitor):
         # This must come AFTER the model constructor check since models are allowed
         self._check_constructor_in_assignment(node.value)
 
-        # Disallow assigning the result of asyncio.sleep()
-        if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
-            awaited = node.value.value
-            if self._is_asyncio_sleep_call(awaited):
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
-                raise UnsupportedPatternError(
-                    "Assigning the result of asyncio.sleep() is not supported",
-                    RECOMMENDATIONS["sleep_assignment"],
-                    line=line,
-                    col=col,
-                )
-
         # Check if this is an action call - wrap in Assignment for uniform unpacking
         action_call = self._extract_action_call(node.value)
         if action_call:
@@ -1249,14 +1236,6 @@ class IRBuilder(ast.NodeVisitor):
     def _visit_expr_stmt(self, node: ast.Expr) -> Optional[ir.Statement]:
         """Convert expression statement to IR (side effect only, no assignment)."""
         stmt = ir.Statement(span=_make_span(node))
-
-        # Check for asyncio.sleep() - convert to SleepStmt
-        if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
-            awaited = node.value.value
-            if self._is_asyncio_sleep_call(awaited):
-                sleep_stmt = self._convert_asyncio_sleep_to_sleep_stmt(awaited)
-                stmt.sleep_stmt.CopyFrom(sleep_stmt)
-                return stmt
 
         # Check if this is an action call (side effect only)
         action_call = self._extract_action_call(node.value)
@@ -2467,8 +2446,6 @@ class IRBuilder(ast.NodeVisitor):
             return
 
         # Skip special cases that are handled elsewhere
-        if self._is_asyncio_sleep_call(awaited):
-            return
         if self._language_calls.resolve(awaited.func, self._language_call_namespace) is not None:
             return
 
@@ -2529,47 +2506,6 @@ class IRBuilder(ast.NodeVisitor):
             return None
 
         return None
-
-    def _is_asyncio_sleep_call(self, node: ast.Call) -> bool:
-        """Check if this is an asyncio.sleep(...) call.
-
-        Supports both patterns:
-        - import asyncio; asyncio.sleep(1)
-        - from asyncio import sleep; sleep(1)
-        - from asyncio import sleep as s; s(1)
-        """
-        if isinstance(node.func, ast.Attribute):
-            # asyncio.sleep(...) pattern
-            if node.func.attr == "sleep" and isinstance(node.func.value, ast.Name):
-                return node.func.value.id == "asyncio"
-        elif isinstance(node.func, ast.Name):
-            # sleep(...) pattern - check if it's imported from asyncio
-            func_name = node.func.id
-            if func_name in self._imported_names:
-                imported = self._imported_names[func_name]
-                return imported.module == "asyncio" and imported.original_name == "sleep"
-        return False
-
-    def _convert_asyncio_sleep_to_sleep_stmt(self, node: ast.Call) -> ir.SleepStmt:
-        """Convert asyncio.sleep(duration) to a SleepStmt."""
-        sleep_stmt = ir.SleepStmt()
-
-        # Extract duration argument (positional or keyword)
-        if node.args:
-            # asyncio.sleep(1) - positional
-            expr = self._expr_to_ir_with_model_coercion(node.args[0])
-            if expr:
-                sleep_stmt.duration.CopyFrom(expr)
-        elif node.keywords:
-            # asyncio.sleep(seconds=1) - keyword (less common)
-            for kw in node.keywords:
-                if kw.arg in ("seconds", "delay", "duration"):
-                    expr = self._expr_to_ir_with_model_coercion(kw.value)
-                    if expr:
-                        sleep_stmt.duration.CopyFrom(expr)
-                    break
-
-        return sleep_stmt
 
     def _convert_to_function_call(self, node: ast.Call) -> Optional[ir.FunctionCall]:
         """Convert an AST Call to IR FunctionCall."""
