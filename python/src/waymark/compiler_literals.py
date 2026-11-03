@@ -5,6 +5,7 @@ import math
 from typing import Any
 
 from waymark.compiler_errors import UnsupportedPatternError
+from waymark.proto import ast_pb2 as ir
 
 
 def literal_expression(value: Any, location: ast.expr) -> ast.expr:
@@ -41,3 +42,22 @@ def validate_literal(value: Any) -> None:
         raise UnsupportedPatternError(
             "Non-finite float literals are unsupported", "Use finite numbers."
         )
+
+
+def constant_to_literal(value: Any) -> ir.Literal | None:
+    """Convert a Python constant to IR Literal."""
+    validate_literal(value)
+    literal = ir.Literal()
+    if value is None:
+        literal.is_none = True
+    elif isinstance(value, bool):
+        literal.bool_value = value
+    elif isinstance(value, int):
+        literal.int_value = value
+    elif isinstance(value, float):
+        literal.float_value = value
+    elif isinstance(value, str):
+        literal.string_value = value
+    else:
+        return None
+    return literal

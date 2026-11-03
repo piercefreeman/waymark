@@ -52,9 +52,6 @@ class SourceValidator(ast.NodeVisitor):
             reject(node, "Mixed numeric comparisons require VM support")
         self.generic_visit(node)
 
-    def visit_BoolOp(self, node: ast.BoolOp) -> None:
-        reject(node, "Short-circuit and/or expressions are unsupported; use nested if statements")
-
     def visit_Assign(self, node: ast.Assign) -> None:
         if len(node.targets) != 1:
             reject(node, "Chained assignments are unsupported")
@@ -92,7 +89,7 @@ class SourceValidator(ast.NodeVisitor):
             reject(
                 node, "Augmented assignment may mutate an aliased value; use explicit assignment"
             )
-        self.visit_BinOp(
+        self.context.validate_syntax(
             ast.copy_location(ast.BinOp(left=node.target, op=node.op, right=node.value), node)
         )
 
@@ -156,26 +153,6 @@ class SourceValidator(ast.NodeVisitor):
             handler.validate_usage(
                 node, self.context.analysis.parents.get(node), self.context.analysis.kind
             )
-        self.generic_visit(node)
-
-    def visit_BinOp(self, node: ast.BinOp) -> None:
-        if not isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod)):
-            reject(node, "Unsupported binary or augmented operator")
-        left, right = self.context.analysis.kind(node.left), self.context.analysis.kind(node.right)
-        numeric = {"int", "float", "bool"}
-        if left in numeric and right in numeric and (left != right or "bool" in (left, right)):
-            reject(node, "Mixed numeric types and boolean arithmetic require VM support")
-        if isinstance(node.op, ast.Div) and (left == "int" or right == "int"):
-            reject(node, "Integer true division requires VM support")
-        if (
-            isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod))
-            and right == "float"
-            and isinstance(node.right, ast.Constant)
-            and node.right.value == 0
-        ):
-            reject(node, "Float division by zero requires VM exception support")
-        if isinstance(node.op, ast.Mult) and ({left, right} & {"str", "list", "tuple"}):
-            reject(node, "Sequence repetition requires VM support")
         self.generic_visit(node)
 
     def visit_Constant(self, node: ast.Constant) -> None:
