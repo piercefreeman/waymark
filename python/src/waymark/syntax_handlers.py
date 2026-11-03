@@ -9,11 +9,13 @@ from waymark.handlers.syntax.conditionals import ConditionalHandler
 from waymark.handlers.syntax.dictionaries import DictionaryHandler
 from waymark.handlers.syntax.literals import LiteralHandler
 from waymark.handlers.syntax.loops import LoopHandler
+from waymark.handlers.syntax.returns import ReturnHandler
 from waymark.handlers.syntax.try_statement import TryHandler
 from waymark.language_syntax import SyntaxRegistry
 
 SYNTAX_HANDLERS = SyntaxRegistry(
     [
+        ReturnHandler(),
         ConditionalHandler(),
         AwaitHandler(),
         LiteralHandler(),
