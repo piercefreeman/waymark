@@ -10,13 +10,14 @@ import inspect
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from types import ModuleType
 from typing import Any, ClassVar, Generic, Literal, TypeVar, get_args, get_origin, get_type_hints
 
 from pydantic import ConfigDict, TypeAdapter, ValidationError
 
+from waymark.compiler_ast import resolve_reference
 from waymark.compiler_context import CompilerContext
 from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler_types import ValueKind
 from waymark.proto import ast_pb2 as ir
 
 Arguments = TypeVar("Arguments")
@@ -33,29 +34,29 @@ class LoweredCall:
 class LanguageCallRegistry:
     """Resolve source names to registered callables without evaluating user expressions."""
 
-    def __init__(self, handlers: Iterable["LanguageCallHandler[Any]"]) -> None:
+    def __init__(
+        self,
+        handlers: Iterable["LanguageCallHandler[Any]"],
+        factories: Iterable[Callable[[Any], "LanguageCallHandler[Any] | None"]] = (),
+    ) -> None:
         self._handlers = list(handlers)
+        self._factories = list(factories)
 
     def resolve(
         self, function: ast.expr, namespace: Mapping[str, Any]
     ) -> "LanguageCallHandler[Any] | None":
         """Match callable identity, so aliases and module re-exports share one handler."""
-        attributes: list[str] = []
-        while isinstance(function, ast.Attribute):
-            attributes.append(function.attr)
-            function = function.value
-        if not isinstance(function, ast.Name):
-            return None
-
-        value = namespace.get(function.id)
-        for attribute in reversed(attributes):
-            # Subclasses may override __dict__ with an executable descriptor.
-            if type(value) is not ModuleType:
-                return None
-            # Reading module dictionaries must not invoke module __getattr__ hooks.
-            value = vars(value).get(attribute)
-
-        return next((handler for handler in self._handlers if value is type(handler).target), None)
+        value = resolve_reference(function, namespace)
+        registered = next(
+            (handler for handler in self._handlers if value is type(handler).target), None
+        )
+        if registered is not None:
+            return registered
+        for factory in self._factories:
+            handler = factory(value)
+            if handler is not None:
+                return handler
+        return None
 
 
 class LanguageCallHandler(ABC, Generic[Arguments]):
@@ -66,6 +67,8 @@ class LanguageCallHandler(ABC, Generic[Arguments]):
     arguments_type: type[Arguments]
     recommendation: str
     variadic_argument: str | None = None
+    positional_only: tuple[str, ...] = ()
+    requires_await: bool = True
 
     def __init__(self) -> None:
         signature = inspect.signature(self.arguments_type)
@@ -78,6 +81,14 @@ class LanguageCallHandler(ABC, Generic[Arguments]):
                     for parameter in signature.parameters.values()
                 ]
             )
+        signature = signature.replace(
+            parameters=[
+                parameter.replace(kind=inspect.Parameter.POSITIONAL_ONLY)
+                if parameter.name in self.positional_only
+                else parameter
+                for parameter in signature.parameters.values()
+            ]
+        )
         self._signature = signature
         annotations = get_type_hints(self.arguments_type)
         self._annotations = {name: annotations[name] for name in signature.parameters}
@@ -91,6 +102,11 @@ class LanguageCallHandler(ABC, Generic[Arguments]):
     def compile(self, node: ast.Call, context: CompilerContext) -> LoweredCall:
         """Validate a source call before handing its bound arguments to lower."""
         return self.lower(self.parse_arguments(node), node, context)
+
+    def validate_usage(
+        self, node: ast.Call, parent: ast.AST | None, kind: Callable[[ast.expr | None], ValueKind]
+    ) -> None:
+        """Check placement and statically known operands before lowering."""
 
     @abstractmethod
     def lower(self, arguments: Arguments, node: ast.Call, context: CompilerContext) -> LoweredCall:

@@ -47,7 +47,7 @@ def test_workflow_decorator_registers_and_caches_ir(monkeypatch: pytest.MonkeyPa
         calls.append(cls)
         return program
 
-    monkeypatch.setattr(workflow_module, "build_workflow_ir", fake_build)
+    monkeypatch.setattr("waymark.ir_builder.build_workflow_ir", fake_build)
 
     async def fake_execute_workflow(_payload: bytes) -> bytes:
         return workflow_completion_payload("done")

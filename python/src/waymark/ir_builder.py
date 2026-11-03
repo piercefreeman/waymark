@@ -246,6 +246,7 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
             {**fn_module.__dict__, **inspect.getclosurevars(fn).nonlocals},
             instance_attrs,
             function_locals=fn.__code__.co_varnames + fn.__code__.co_cellvars,
+            receiver_type=workflow_cls,
         )
         try:
             builder.visit(fn_tree)
@@ -733,6 +734,7 @@ class IRBuilder(ast.NodeVisitor):
         module_globals: Optional[Mapping[str, Any]] = None,
         instance_attrs: Optional[InstanceAttrs] = None,
         function_locals: tuple[str, ...] = (),
+        receiver_type: type | None = None,
     ):
         self._action_defs = action_defs
         self._ctx = ctx
@@ -742,9 +744,11 @@ class IRBuilder(ast.NodeVisitor):
         self._module_globals = module_globals or {}
         self._language_call_namespace = {
             name: value
-            for name, value in self._module_globals.items()
+            for name, value in {**vars(builtins), **self._module_globals}.items()
             if name not in function_locals
         }
+        if receiver_type is not None:
+            self._language_call_namespace["self"] = receiver_type
         self._instance_attrs = instance_attrs.literals if instance_attrs else {}
         self._ambiguous_instance_attrs = instance_attrs.ambiguous if instance_attrs else set()
         self._language_calls = GLOBAL_HANDLERS
@@ -755,6 +759,12 @@ class IRBuilder(ast.NodeVisitor):
             function=self._convert_to_function_call,
             next_name=self._ctx.next_implicit_fn_name,
             function_names=self._ctx.function_signatures.keys(),
+            resolve=lambda function: self._language_calls.resolve(
+                function, self._language_call_namespace
+            ),
+            namespace=self._language_call_namespace,
+            instance_attrs=self._instance_attrs,
+            ambiguous_instance_attrs=self._ambiguous_instance_attrs,
         )
         self.function_def: Optional[ir.FunctionDef] = None
         self._statements: List[ir.Statement] = []
@@ -1056,6 +1066,15 @@ class IRBuilder(ast.NodeVisitor):
                 targets = []
             case ast.Return(value=ast.Await(value=ast.Call() as call)):
                 targets = []
+            case ast.Expr(value=ast.Call() as call):
+                handler = self._language_calls.resolve(call.func, self._language_call_namespace)
+                if handler is None or handler.requires_await:
+                    return None
+                lowered = handler.compile(call, self._compiler_context)
+                return [
+                    *lowered.statements,
+                    ir.Statement(expr_stmt=ir.ExprStmt(expr=lowered.value)),
+                ]
             case _:
                 return None
 
@@ -1064,11 +1083,28 @@ class IRBuilder(ast.NodeVisitor):
             return None
         if isinstance(node, ast.Return):
             targets = [self._ctx.next_implicit_fn_name(prefix="return_tmp")]
+        if not handler.requires_await:
+            raise handler.error(call, "this call cannot be awaited")
         lowered = handler.compile(call, self._compiler_context)
+        if (
+            isinstance(node, (ast.Assign, ast.AnnAssign))
+            and isinstance(
+                node.targets[0] if isinstance(node, ast.Assign) else node.target,
+                (ast.Tuple, ast.List),
+            )
+            and lowered.value.HasField("parallel_expr")
+            and len(targets) != len(lowered.value.parallel_expr.calls)
+        ):
+            raise handler.error(call, "unpacking target count does not match result count")
         lowered.value.span.CopyFrom(_make_span(call))
         statement = ir.Statement(span=_make_span(node))
         if isinstance(node, ast.Expr) and lowered.value.HasField("parallel_expr"):
             statement.parallel_block.calls.extend(lowered.value.parallel_expr.calls)
+        elif isinstance(node, ast.Expr) and not lowered.value.HasField("spread_expr"):
+            if lowered.value.HasField("action_call"):
+                statement.action_call.CopyFrom(lowered.value.action_call)
+            else:
+                statement.expr_stmt.CopyFrom(ir.ExprStmt(expr=lowered.value))
         else:
             statement.assignment.CopyFrom(ir.Assignment(targets=targets, value=lowered.value))
         statements = [*lowered.statements, statement]
@@ -2907,6 +2943,17 @@ class IRBuilder(ast.NodeVisitor):
         return None
 
     def _convert_model_constructor_if_needed(self, node: ast.Call) -> Optional[ir.Expr]:
+        handler = self._language_calls.resolve(node.func, self._language_call_namespace)
+        if handler is not None:
+            if handler.requires_await:
+                handler.parse_arguments(node)
+                raise handler.error(
+                    node, "await this call in its own assignment, return, or expression statement"
+                )
+            lowered = handler.compile(node, self._compiler_context)
+            if lowered.statements:
+                raise handler.error(node, "use this call in its own statement")
+            return lowered.value
         model_name = self._is_model_constructor(node)
         if model_name:
             return self._convert_model_constructor_to_dict(node, model_name)
@@ -2967,7 +3014,7 @@ class IRBuilder(ast.NodeVisitor):
                 handler = self._language_calls.resolve(
                     expression.func, self._language_call_namespace
                 )
-                if handler is not None:
+                if handler is not None and handler.requires_await:
                     handler.parse_arguments(expression)
                     raise handler.error(
                         expression,

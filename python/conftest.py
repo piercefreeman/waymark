@@ -3,7 +3,16 @@ from pathlib import Path
 
 import pytest
 
-PROJECT_PY_DIR = Path(__file__).resolve().parents[1]
+
+def find_project_root(start: Path) -> Path:
+    """Find the nearest Python project manifest above a test or configuration directory."""
+    for directory in (start, *start.parents):
+        if (directory / "pyproject.toml").is_file():
+            return directory
+    raise FileNotFoundError(f"No pyproject.toml found above {start}")
+
+
+PROJECT_PY_DIR = find_project_root(Path(__file__).resolve().parent)
 SRC_DIR = PROJECT_PY_DIR / "src"
 
 for path in (PROJECT_PY_DIR, SRC_DIR):
