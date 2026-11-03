@@ -35,9 +35,9 @@ Program {
                                 },
                                 span: Span {
                                     start_line: 2,
-                                    start_col: 4,
+                                    start_col: 8,
                                     end_line: 2,
-                                    end_col: 23,
+                                    end_col: 27,
                                 },
                             },
                             Spanned {
@@ -46,9 +46,9 @@ Program {
                                 },
                                 span: Span {
                                     start_line: 3,
-                                    start_col: 4,
+                                    start_col: 8,
                                     end_line: 3,
-                                    end_col: 10,
+                                    end_col: 14,
                                 },
                             },
                         ],
@@ -63,9 +63,9 @@ Program {
             },
             span: Span {
                 start_line: 1,
-                start_col: 0,
+                start_col: 4,
                 end_line: 3,
-                end_col: 10,
+                end_col: 14,
             },
         },
     ],
