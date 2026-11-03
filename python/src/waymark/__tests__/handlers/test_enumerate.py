@@ -1,7 +1,7 @@
 import pytest
 
 from waymark.__tests__.compiler_test_helpers import compile_source
-from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler.errors import UnsupportedPatternError
 
 
 def test_enumerate_accepts_explicit_zero_start_and_alias() -> None:

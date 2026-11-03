@@ -2,11 +2,11 @@
 
 import ast
 
-from waymark.compiler_ast import make_span
-from waymark.compiler_context import CompilerContext
-from waymark.compiler_diagnostics import reject
-from waymark.compiler_literals import constant_to_literal
-from waymark.compiler_operators import binary_operator, unary_operator
+from waymark.compiler.ast import make_span
+from waymark.compiler.context import CompilerContext
+from waymark.compiler.diagnostics import reject
+from waymark.compiler.literals import constant_to_literal
+from waymark.compiler.operators import binary_operator, unary_operator
 from waymark.language_syntax import ExpressionHandler
 from waymark.proto import ast_pb2 as ir
 

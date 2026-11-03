@@ -8,8 +8,8 @@ from typing import Any, Literal
 import pytest
 
 from waymark import Workflow, workflow
-from waymark.compiler_context import CompilerContext
-from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler.context import CompilerContext
+from waymark.compiler.errors import UnsupportedPatternError
 from waymark.ir_builder import IRBuilder, TransformContext
 from waymark.language_calls import LanguageCallHandler, LanguageCallRegistry, LoweredCall
 

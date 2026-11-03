@@ -7,7 +7,7 @@ from typing import Any, ForwardRef, Literal, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel
 
-from waymark.compiler_ast import resolve_reference
+from waymark.compiler.ast import resolve_reference
 
 ValueKind = Literal[
     "unknown", "mixed", "list", "tuple", "dict", "int", "float", "bool", "str", "exception", "none"

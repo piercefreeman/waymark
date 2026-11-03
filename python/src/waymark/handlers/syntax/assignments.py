@@ -4,12 +4,12 @@ import ast
 import copy
 from collections.abc import Iterable
 
-from waymark.compiler_ast import make_span, rewrite_load_names
-from waymark.compiler_context import CompilerContext
-from waymark.compiler_diagnostics import reject
-from waymark.compiler_errors import UnsupportedPatternError
-from waymark.compiler_operators import binary_operator
-from waymark.compiler_targets import assignment_targets
+from waymark.compiler.ast import make_span, rewrite_load_names
+from waymark.compiler.context import CompilerContext
+from waymark.compiler.diagnostics import reject
+from waymark.compiler.errors import UnsupportedPatternError
+from waymark.compiler.operators import binary_operator
+from waymark.compiler.targets import assignment_targets
 from waymark.language_syntax import StatementHandler
 from waymark.proto import ast_pb2 as ir
 

@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from waymark.__tests__.compiler_test_helpers import compile_source
-from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler.errors import UnsupportedPatternError
 
 
 @pytest.mark.parametrize("callee", ["asyncio.sleep", "nap"])

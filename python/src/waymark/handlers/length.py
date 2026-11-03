@@ -4,8 +4,8 @@ import ast
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from waymark.compiler_context import CompilerContext
-from waymark.compiler_types import ValueKind
+from waymark.compiler.context import CompilerContext
+from waymark.compiler.types import ValueKind
 from waymark.language_calls import LanguageCallHandler, LoweredCall
 from waymark.proto import ast_pb2 as ir
 

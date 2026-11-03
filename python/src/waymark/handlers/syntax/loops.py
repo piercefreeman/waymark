@@ -2,10 +2,10 @@
 
 import ast
 
-from waymark.compiler_ast import make_span
-from waymark.compiler_context import CompilerContext
-from waymark.compiler_diagnostics import reject
-from waymark.compiler_targets import assignment_targets
+from waymark.compiler.ast import make_span
+from waymark.compiler.context import CompilerContext
+from waymark.compiler.diagnostics import reject
+from waymark.compiler.targets import assignment_targets
 from waymark.language_syntax import StatementHandler
 from waymark.proto import ast_pb2 as ir
 

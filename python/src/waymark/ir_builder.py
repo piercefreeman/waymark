@@ -25,15 +25,15 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, NoReturn, Optional, Set
 
 from waymark.call_binding import bind_call
-from waymark.compiler_analysis import SourceAnalysis
-from waymark.compiler_ast import make_span
-from waymark.compiler_context import CompilerContext
-from waymark.compiler_errors import UnsupportedPatternError
-from waymark.compiler_literals import literal_expression
-from waymark.compiler_recommendations import RECOMMENDATIONS
-from waymark.compiler_targets import assignment_targets
-from waymark.compiler_types import has_open_type_parameters
-from waymark.compiler_validation import SourceValidator
+from waymark.compiler.analysis import SourceAnalysis
+from waymark.compiler.ast import make_span
+from waymark.compiler.context import CompilerContext
+from waymark.compiler.errors import UnsupportedPatternError
+from waymark.compiler.literals import literal_expression
+from waymark.compiler.recommendations import RECOMMENDATIONS
+from waymark.compiler.targets import assignment_targets
+from waymark.compiler.types import has_open_type_parameters
+from waymark.compiler.validation import SourceValidator
 from waymark.global_handlers import GLOBAL_HANDLERS
 from waymark.proto import ast_pb2 as ir
 from waymark.syntax_handlers import SYNTAX_HANDLERS

@@ -2,7 +2,7 @@
 
 import ast
 
-from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler.errors import UnsupportedPatternError
 
 
 def assignment_targets(targets: list[ast.expr]) -> list[str]:

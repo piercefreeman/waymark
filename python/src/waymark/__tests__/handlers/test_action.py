@@ -7,7 +7,7 @@ import pytest
 
 from waymark import Workflow, action, workflow
 from waymark.__tests__.compiler_test_helpers import compile_source, task
-from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler.errors import UnsupportedPatternError
 
 
 @pytest.mark.parametrize("callee", ["alias", "package.exported"])

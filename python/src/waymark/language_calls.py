@@ -14,10 +14,10 @@ from typing import Any, ClassVar, Generic, Literal, TypeVar, get_args, get_origi
 
 from pydantic import ConfigDict, TypeAdapter, ValidationError
 
-from waymark.compiler_ast import resolve_reference
-from waymark.compiler_context import CompilerContext
-from waymark.compiler_errors import UnsupportedPatternError
-from waymark.compiler_types import ValueKind
+from waymark.compiler.ast import resolve_reference
+from waymark.compiler.context import CompilerContext
+from waymark.compiler.errors import UnsupportedPatternError
+from waymark.compiler.types import ValueKind
 from waymark.proto import ast_pb2 as ir
 
 Arguments = TypeVar("Arguments")

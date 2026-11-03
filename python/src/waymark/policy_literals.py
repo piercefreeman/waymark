@@ -7,10 +7,10 @@ from datetime import timedelta
 from typing import Optional
 
 from waymark.call_binding import bind_call
-from waymark.compiler_ast import resolve_reference
-from waymark.compiler_context import CompilerContext
-from waymark.compiler_errors import UnsupportedPatternError
-from waymark.compiler_recommendations import RECOMMENDATIONS
+from waymark.compiler.ast import resolve_reference
+from waymark.compiler.context import CompilerContext
+from waymark.compiler.errors import UnsupportedPatternError
+from waymark.compiler.recommendations import RECOMMENDATIONS
 from waymark.proto import ast_pb2 as ir
 from waymark.workflow import RetryPolicy
 

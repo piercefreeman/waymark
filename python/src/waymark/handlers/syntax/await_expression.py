@@ -2,8 +2,8 @@
 
 import ast
 
-from waymark.compiler_context import CompilerContext
-from waymark.compiler_diagnostics import reject
+from waymark.compiler.context import CompilerContext
+from waymark.compiler.diagnostics import reject
 from waymark.language_syntax import ExpressionHandler
 from waymark.proto import ast_pb2 as ir
 

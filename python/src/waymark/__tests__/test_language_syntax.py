@@ -6,8 +6,8 @@ import pytest
 
 from waymark import ir_builder
 from waymark.__tests__.compiler_test_helpers import compile_source
-from waymark.compiler_analysis import SourceAnalysis
-from waymark.compiler_context import CompilerContext
+from waymark.compiler.analysis import SourceAnalysis
+from waymark.compiler.context import CompilerContext
 from waymark.language_syntax import StatementHandler, SyntaxRegistry
 from waymark.proto import ast_pb2 as ir
 

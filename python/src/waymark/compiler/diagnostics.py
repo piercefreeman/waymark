@@ -3,7 +3,7 @@
 import ast
 from typing import NoReturn
 
-from waymark.compiler_errors import UnsupportedPatternError
+from waymark.compiler.errors import UnsupportedPatternError
 
 
 def reject(node: ast.expr | ast.stmt | ast.ExceptHandler, message: str) -> NoReturn:

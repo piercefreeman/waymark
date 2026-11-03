@@ -7,7 +7,7 @@ from types import FunctionType
 from typing import Any
 
 from waymark.call_binding import bind_call
-from waymark.compiler_context import CompilerContext
+from waymark.compiler.context import CompilerContext
 from waymark.dependencies import strip_depends_from_signature
 from waymark.language_calls import LanguageCallHandler, LoweredCall
 from waymark.proto import ast_pb2 as ir
