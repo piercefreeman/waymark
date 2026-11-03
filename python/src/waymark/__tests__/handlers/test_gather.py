@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from waymark import Workflow, action, workflow
+from waymark.__tests__.compiler_test_helpers import compile_source
 from waymark.compiler.errors import UnsupportedPatternError
 from waymark.ir_builder import IRBuilder, TransformContext
 from waymark.proto import ast_pb2 as ir
@@ -206,3 +207,9 @@ def test_gather_error_preserves_original_source_location() -> None:
 def test_gather_rejects_known_unpacking_arity_mismatches(target: str) -> None:
     with pytest.raises(UnsupportedPatternError, match="target count"):
         compile_gather_statement(f"{target} = await asyncio.gather(task(), task())")
+
+
+def test_precreated_coroutine_reports_gather_restriction() -> None:
+    """Regression #579: report the unsupported operand instead of a synchronous-call error."""
+    with pytest.raises(UnsupportedPatternError, match="gather.*unsupported awaitables"):
+        compile_source("pending = task(1)\nreturn await asyncio.gather(pending, task(2))")

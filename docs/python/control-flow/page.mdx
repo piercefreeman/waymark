@@ -300,7 +300,11 @@ rejected. The rejected patterns:
 - **Constructing classes with behavior.** Data-only pydantic models and
   dataclasses become dictionaries. Factories, inherited hooks, custom
   initializers, validators and computed fields are rejected. Construct
-  those objects inside an action.
+  those objects inside an action, even if the call supplies every field.
+  Omitted defaults are populated when they consist of supported primitive
+  values, lists, tuples, or string-keyed dictionaries. Other defaults, such as enum members,
+  must be passed explicitly or constructed inside an action. Tuple identity
+  is still subject to [the transport limitation below](#known-issues).
 - **`raise`.** Raise inside an action; the workflow handles it with
   `try/except`.
 - **`with`, `lambda`, `match`, `yield`, walrus (`:=`), `assert`, `del`,
@@ -351,9 +355,12 @@ rejected. The rejected patterns:
   starred list/generator comprehension. Passing `asyncio.sleep` directly,
   coroutine variables, mixed spreads, async comprehensions, and an empty
   argument list is unsupported. An empty collection inside a supported
-  comprehension spread still works.
+  comprehension spread still works. A statically known mismatch between
+  the number of gathered results and unpacking targets is rejected too.
 
-- **String lengths.** Literal strings use Python's character count. Dynamic string and exception lengths are rejected until the VM can preserve their semantics.
+- **String lengths.** Literal strings use Python's character count. Other
+  operands known to be strings or caught exceptions are rejected until the
+  VM can preserve their semantics.
 
 - **Unsupported `range` forms.** Use one to three integer bounds directly in a loop, assignment, or return. A literal zero step is rejected.
 
@@ -383,7 +390,9 @@ rejected. The rejected patterns:
   attributes and all instance writes are rejected. Pass runtime state through
   `run()` arguments.
 
-These checks cover the compiler-side failures tracked in
+The accepted-but-wrong patterns in the following reports are now rejected
+at compilation, or lowered correctly for the supported cases described above:
+[#575](https://github.com/piercefreeman/waymark/issues/575),
 [#579](https://github.com/piercefreeman/waymark/issues/579),
 [#580](https://github.com/piercefreeman/waymark/issues/580),
 [#581](https://github.com/piercefreeman/waymark/issues/581),
@@ -394,9 +403,10 @@ These checks cover the compiler-side failures tracked in
 [#586](https://github.com/piercefreeman/waymark/issues/586),
 [#587](https://github.com/piercefreeman/waymark/issues/587),
 [#590](https://github.com/piercefreeman/waymark/issues/590),
-[#602](https://github.com/piercefreeman/waymark/issues/602),
 [#770](https://github.com/piercefreeman/waymark/issues/770), and
 [#829](https://github.com/piercefreeman/waymark/issues/829).
+Rejecting a construct prevents its silent miscompilation; it does not add
+runtime support for it.
 
 ## Known issues {{ id: 'known-issues' }}
 
@@ -410,8 +420,9 @@ caught exception ([#594](https://github.com/piercefreeman/waymark/issues/594)).
 Literal string lengths use Python's character count. Passing a caught exception
 to an action remains supported.
 
-These checks use local source facts, not a complete runtime type system. Values
-returned by actions or reached through dynamic containers can still expose the
+These reports remain open: the checks use local source facts, not a complete
+runtime type system. Values returned by actions or reached through dynamic
+containers can still expose the
 underlying VM bugs. A compilation success does not yet establish full Python
 semantics for those values. Follow
 [#772](https://github.com/piercefreeman/waymark/issues/772) for the remaining work.
@@ -431,5 +442,6 @@ Value transport also still needs runtime fixes:
   type without a receiving annotation
   ([#599](https://github.com/piercefreeman/waymark/issues/599)).
 - A subclass passed under a base-class annotation can lose its fields. Open
-  generic annotations are rejected, but preserving subclass identity needs a
-  transport change ([#771](https://github.com/piercefreeman/waymark/issues/771)).
+  generic workflow and action annotations are rejected during compilation,
+  but preserving subclass identity needs a transport change
+  ([#771](https://github.com/piercefreeman/waymark/issues/771)).

@@ -22,6 +22,8 @@ from waymark.compiler.errors import UnsupportedPatternError
         ("return 1 < 2 < 3", "Chained comparisons"),
         ("return False and (1 / 0)", "Short-circuit"),
         ("return 3 or 4", "Short-circuit"),
+        ("return True or await task()", "Short-circuit"),
+        ("return False and await task()", "Short-circuit"),
         ("values = [1]\nvalues[0] = 2", "subscript writes"),
         ("values = [1]\nvalues[0] += 2", "subscript and attribute writes"),
         ("self.value = 1", "attribute and subscript writes"),

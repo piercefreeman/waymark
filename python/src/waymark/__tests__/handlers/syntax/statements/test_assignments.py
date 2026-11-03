@@ -34,6 +34,8 @@ def test_assignments_preserve_results_and_comprehension_scope() -> None:
         "self.value = 1",
         "values = [1]\nvalues[0] = 2",
         "values = [1]\nvalues[0] += 2",
+        "values = {'key': 1}\nvalues['key'] = 2",
+        "values = {'key': 1}\nvalues['key'] += 2",
     ],
 )
 def test_assignments_reject_unsupported_targets(source: str) -> None:

@@ -1,11 +1,14 @@
 """Data-constructor contracts must never discard Python initialization behavior."""
 
+import asyncio
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Annotated, Generic, TypeVar
 
 import pytest
 from pydantic import AfterValidator, BaseModel, Field, computed_field
 
+from waymark import Workflow, workflow
 from waymark.__tests__.compiler_test_helpers import compile_source
 from waymark.compiler.errors import UnsupportedPatternError
 
@@ -168,3 +171,49 @@ def test_model_keyword_evaluation_order_matches_the_source() -> None:
     entries = function.body.statements[0].return_stmt.value.dict.entries
     assert [entry.key.literal.string_value for entry in entries] == ["enabled", "count"]
     assert [entry.value.index.index.literal.int_value for entry in entries] == [0, 1]
+
+
+class CollectionDefaultsModel(BaseModel):
+    values: list[int] = []
+    mapping: dict[str, int] = {"key": 2}
+    pair: tuple[int, int] = (3, 4)
+
+
+@workflow
+class CollectionDefaultsWorkflow(Workflow):
+    async def run(self) -> list[int]:
+        model = CollectionDefaultsModel()
+        return [len(model.values), model.mapping["key"], model.pair[0], model.pair[1]]
+
+
+def test_collection_defaults_are_available_at_runtime() -> None:
+    """Regression #829: omitted collection defaults must populate readable fields."""
+    assert asyncio.run(CollectionDefaultsWorkflow().run()) == [0, 2, 3, 4]
+
+
+class DefaultStatus(Enum):
+    READY = "ready"
+
+
+class EnumDefaultModel(BaseModel):
+    state: DefaultStatus = DefaultStatus.READY
+
+
+def test_unsupported_default_must_be_supplied_explicitly() -> None:
+    """Regression #829: an enum default cannot silently disappear from the lowered dictionary."""
+    with pytest.raises(UnsupportedPatternError, match="Unsupported default"):
+        compile_source("return Constructor()", namespace={"Constructor": EnumDefaultModel})
+    function = compile_source(
+        "return Constructor(state=Status.READY)",
+        namespace={"Constructor": EnumDefaultModel, "Status": DefaultStatus},
+    )
+    entry = function.body.statements[0].return_stmt.value.dict.entries[0]
+    assert entry.key.literal.string_value == "state"
+    assert entry.value.literal.string_value == "ready"
+
+
+@pytest.mark.parametrize("model", [FactoryData, FactoryModel])
+def test_explicit_fields_do_not_enable_factory_models(model: type) -> None:
+    """Regression #829: factories remain unsupported even when a call supplies their fields."""
+    with pytest.raises(UnsupportedPatternError, match="factor"):
+        compile_source("return Constructor(values=[])", namespace={"Constructor": model})

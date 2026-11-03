@@ -1,5 +1,8 @@
+import asyncio
+
 import pytest
 
+from waymark import Workflow, workflow
 from waymark.__tests__.compiler_test_helpers import compile_source
 from waymark.compiler.errors import UnsupportedPatternError
 
@@ -85,3 +88,17 @@ def test_ownership_rejection_comes_from_the_append_handler() -> None:
     """Known lists resolve to append even when its ownership policy rejects them."""
     with pytest.raises(UnsupportedPatternError, match="list.append.*fresh, unaliased"):
         compile_source("values = []\nalias = values\nvalues.append(1)")
+
+
+@workflow
+class LocalListMutationWorkflow(Workflow):
+    async def run(self) -> list[int]:
+        values = [1]
+        values.append(2)
+        values += [3]
+        return values
+
+
+def test_unaliased_mutation_preserves_values() -> None:
+    """Regression #770: rejecting shared mutation must retain ordinary local-list behavior."""
+    assert asyncio.run(LocalListMutationWorkflow().run()) == [1, 2, 3]
