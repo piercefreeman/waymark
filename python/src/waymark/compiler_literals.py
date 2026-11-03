@@ -1,6 +1,7 @@
 """Convert supported constant defaults without executing constructors or factories."""
 
 import ast
+import math
 from typing import Any
 
 from waymark.compiler_errors import UnsupportedPatternError
@@ -27,3 +28,16 @@ def literal_expression(value: Any, location: ast.expr) -> ast.expr:
             col=location.col_offset,
         )
     return ast.fix_missing_locations(ast.copy_location(expression, location))
+
+
+def validate_literal(value: Any) -> None:
+    """Wire literals must fit the VM's finite, signed 64-bit value representation."""
+    if type(value) is int and not -(2**63) <= value < 2**63:
+        raise UnsupportedPatternError(
+            "Integer literal is outside the signed 64-bit range",
+            "Use a string for larger integers, and compute inside an action.",
+        )
+    if type(value) is float and not math.isfinite(value):
+        raise UnsupportedPatternError(
+            "Non-finite float literals are unsupported", "Use finite numbers."
+        )

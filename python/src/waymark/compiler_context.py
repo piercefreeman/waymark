@@ -1,13 +1,15 @@
 """Shared compiler operations available to language-call handlers."""
 
 import ast
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from waymark.language_calls import LanguageCallHandler
 
+from waymark.compiler_analysis import SourceAnalysis
+from waymark.compiler_ast import make_span
 from waymark.proto import ast_pb2 as ir
 
 
@@ -23,8 +25,18 @@ class CompilerContext:
     function_names: Collection[str]
     resolve: Callable[[ast.expr], "LanguageCallHandler[Any] | None"]
     namespace: Mapping[str, Any]
+    synchronous_call: Callable[[ast.Call], ir.Expr | None]
+    validate_syntax: Callable[[ast.AST], None]
+    analysis: SourceAnalysis = field(default_factory=SourceAnalysis)
     instance_attrs: Mapping[str, ast.expr] = field(default_factory=dict)
     ambiguous_instance_attrs: set[str] = field(default_factory=set)
+
+    def block(self, nodes: Iterable[ast.stmt], location: ast.AST) -> ir.Block:
+        """Compile a statement sequence while retaining the enclosing source span."""
+        return ir.Block(
+            statements=[statement for node in nodes for statement in self.statement(node)],
+            span=make_span(location),
+        )
 
     def call(self, node: ast.Call) -> ir.Call | None:
         """Lower a registered action or workflow helper, including run_action policies."""
