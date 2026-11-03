@@ -65,6 +65,7 @@ The SPA's tokens, type scale, screen anatomy, and data-honesty rules live in [js
 This section is used for the scratch updates, driven by our Agents.
 
 <code_feedback>
+<rule>Preserve presence for optional protobuf fields: pass None or omit an absent value instead of replacing it with an empty string or another scalar default. Test HasField when downstream code distinguishes absence from a recorded value.</rule>
 <rule>Keep importing and compiling workflow definitions free of transport initialization. Import gRPC and generated service stubs inside RPC functions, with type-only imports under TYPE_CHECKING, so native import-time threads cannot contaminate a hot-reloader's parent before fork. Cover this boundary in a fresh-process test; counting live threads after import misses threads that have already exited.</rule>
 <rule>Update the Rust Python-compiler AST and bytecode snapshots in the same PR that changes compiler output, including source spans and temporary names. Review regenerated snapshots against the intended semantics, verify them without update mode, and keep every intermediate PR in a compiler stack independently testable. When a fixture becomes intentionally unsupported, retain an explicit rejection test and remove its obsolete success snapshots.</rule>
 <rule>When a separate dependency update has merged into the base branch, rebase onto that branch and drop the superseded lockfile changes from the feature PR. Verify that the lockfile matches the base unless the feature itself requires dependency changes.</rule>

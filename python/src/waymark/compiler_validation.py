@@ -31,11 +31,6 @@ class SourceValidator(ast.NodeVisitor):
         else:
             super().visit(node)
 
-    def visit_Try(self, node: ast.Try) -> None:
-        if node.finalbody or node.orelse:
-            reject(node, "try/finally and try/else are unsupported")
-        self.generic_visit(node)
-
     def visit_For(self, node: ast.For) -> None:
         if node.orelse:
             reject(node, "for/else is unsupported")

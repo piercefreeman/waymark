@@ -31,15 +31,12 @@ def resolve_reference(function: ast.expr, namespace: Mapping[str, Any]) -> Any:
         owner = resolve_reference(function.value, namespace)
         if type(owner) is ModuleType:
             return vars(owner).get(function.attr)
-        if type(owner) is type:
-            return next(
-                (
-                    vars(base)[function.attr]
-                    for base in owner.__mro__
-                    if function.attr in vars(base)
-                ),
-                None,
-            )
+        if isinstance(owner, type):
+            # Use type's builtin descriptors so custom metaclasses cannot intercept these reads.
+            for base in type.__dict__["__mro__"].__get__(owner):
+                attributes = type.__dict__["__dict__"].__get__(base)
+                if function.attr in attributes:
+                    return attributes[function.attr]
     return None
 
 
