@@ -44,7 +44,7 @@ class TryHandler(StatementHandler[ast.Try]):
                     exception_types=exception_types,
                     block_body=context.block(handler.body, handler),
                     span=make_span(handler),
-                    exception_var=handler.name or "",
+                    exception_var=handler.name,
                 )
             )
         return [

@@ -8,9 +8,11 @@ fn main(input: [value], output: []):
         x = @if_with_accumulator.if_accum_process_high(value=value)
         y = @if_with_accumulator.if_accum_finalize(result=x)
         results = results + [y]
+        None
     else:
         z = @if_with_accumulator.if_accum_process_low(value=value)
         results = results + [z]
+        None
     if results:
         return results[0]
     return "empty"
@@ -32,6 +34,7 @@ f0: [7 registers]
   s4:
     PureSet(MakeList { dst: r3, items: [r4] })
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r3 } })
+    PureSet(LoadConst { dst: r3, value: None })
     CoreSet(Jump { target_state: s1 })
   s5:
     CoreSet(Await { dst: r5, src: r5, resume: s6 })
@@ -42,6 +45,7 @@ f0: [7 registers]
   s8:
     PureSet(MakeList { dst: r3, items: [r6] })
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r3 } })
+    PureSet(LoadConst { dst: r3, value: None })
     CoreSet(Jump { target_state: s1 })
   s9:
     PureSet(LoadConst { dst: r2, value: String("empty") })
