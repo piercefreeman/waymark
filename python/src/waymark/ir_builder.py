@@ -394,11 +394,7 @@ class IRBuilder(ast.NodeVisitor):
         analysis.analyze(node)
         self._compiler_context.analysis = analysis
         self._language_call_namespace.update(
-            {
-                name: list
-                for name in analysis.fresh_lists - analysis.aliased
-                if analysis.types.get(name) == "list"
-            }
+            {name: list for name in analysis.types if analysis.types.get(name) == "list"}
         )
         SourceValidator(self._compiler_context, SYNTAX_HANDLERS).validate(node)
         inputs = self._collect_function_inputs(node)

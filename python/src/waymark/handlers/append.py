@@ -32,6 +32,8 @@ class AppendHandler(LanguageCallHandler[AppendArguments]):
         value = context.expression(arguments.object)
         assert value is not None
         name = node.func.value.id
+        if name not in context.analysis.fresh_lists - context.analysis.aliased:
+            raise self.error(node, "requires a fresh, unaliased local list")
         assignment = ir.Statement(
             assignment=ir.Assignment(
                 targets=[name],
