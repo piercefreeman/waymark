@@ -13,6 +13,7 @@ from typing import Any, ClassVar, Generic, Literal, TypeVar, get_args, get_origi
 
 from pydantic import ConfigDict, TypeAdapter, ValidationError
 
+from waymark.call_binding import bind_arguments
 from waymark.compiler.ast import resolve_reference
 from waymark.compiler.context import CompilerContext, LoweredCall
 from waymark.compiler.errors import UnsupportedPatternError
@@ -108,18 +109,7 @@ class LanguageCallHandler(ABC, Generic[Arguments]):
             for argument in node.args:
                 if isinstance(argument, ast.Starred):
                     raise self.error(argument, "positional unpacking (*args) is unsupported")
-        keywords: dict[str, ast.expr] = {}
-        for keyword in node.keywords:
-            if keyword.arg is None:
-                raise self.error(keyword.value, "keyword unpacking (**kwargs) is unsupported")
-            if keyword.arg in keywords:
-                raise self.error(keyword.value, f"duplicate argument {keyword.arg!r}")
-            keywords[keyword.arg] = keyword.value
-
-        try:
-            bound = self._signature.bind(*node.args, **keywords)
-        except TypeError as error:
-            raise self.error(node, str(error)) from error
+        bound = bind_arguments(node, self._signature, self.error)
         bound.apply_defaults()
 
         values: dict[str, Any] = {}
