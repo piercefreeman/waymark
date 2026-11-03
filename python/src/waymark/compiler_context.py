@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from waymark.language_calls import LanguageCallHandler
 
-from waymark.compiler_errors import UnsupportedPatternError
 from waymark.proto import ast_pb2 as ir
 
 GLOBAL_FUNCTIONS = {
@@ -49,14 +48,6 @@ class CompilerContext:
                     return ir.Call(function=lowered.value.function_call)
             return None
 
-        if is_run_action_call(node) and (not node.args or not isinstance(node.args[0], ast.Call)):
-            raise UnsupportedPatternError(
-                "run_action() requires an action call",
-                "Use self.run_action(action(...), retry=..., timeout=...).",
-                line=node.lineno,
-                col=node.col_offset,
-            )
-
         awaited = ast.copy_location(ast.Await(value=node), node)
         action = self.action(awaited)
         if action is not None:
@@ -72,8 +63,3 @@ class CompilerContext:
             if function is not None:
                 return ir.Call(function=function)
         return None
-
-
-def is_run_action_call(node: ast.Call) -> bool:
-    """Recognize the action-policy wrapper shared by awaited calls and handlers."""
-    return isinstance(node.func, ast.Attribute) and node.func.attr == "run_action"

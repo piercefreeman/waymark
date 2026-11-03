@@ -21,11 +21,9 @@ import ast
 import builtins
 import copy
 import inspect
-import math
 import textwrap
 import types
 from dataclasses import dataclass
-from datetime import timedelta
 from enum import EnumMeta
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Set
 
@@ -33,51 +31,12 @@ from waymark.compiler_context import (
     ALLOWED_SYNC_FUNCTIONS,
     GLOBAL_FUNCTIONS,
     CompilerContext,
-    is_run_action_call,
 )
 from waymark.compiler_errors import UnsupportedPatternError
 from waymark.compiler_recommendations import RECOMMENDATIONS
 from waymark.global_handlers import GLOBAL_HANDLERS
 from waymark.proto import ast_pb2 as ir
 from waymark.registry import registry
-
-DEFAULT_RETRY_POLICY_MAX_RETRIES = 100
-DEFAULT_RETRY_POLICY_EXCEPTION_TYPE = "Exception"
-# `attempts` minus one is the IR's `max_retries`, a uint32.
-MAX_RETRY_POLICY_ATTEMPTS = 2**32
-
-
-def _is_none_literal(node: ast.AST) -> bool:
-    """Whether `node` is the literal `None`."""
-    return isinstance(node, ast.Constant) and node.value is None
-
-
-def _number_literal(node: ast.AST) -> Optional[int | float]:
-    """The number `node` is a literal of, if it is one; a bool is not, a negated one is."""
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        operand = _number_literal(node.operand)
-        return None if operand is None else -operand
-    if isinstance(node, ast.Constant) and not isinstance(node.value, bool):
-        if isinstance(node.value, (int, float)):
-            return node.value
-    return None
-
-
-# A sleep's wake time must fit the runtime's clock, which the sleep handlers
-# add the duration to. A literal past that range would compile and then
-# fail every run; the cap is a round figure far inside it.
-_MAX_DURATION_YEARS = 100
-_MAX_DURATION_SECONDS = _MAX_DURATION_YEARS * 365 * 24 * 60 * 60
-
-
-def _call_name(node: ast.Call) -> Optional[str]:
-    """The name a call is spelled with: `f(...)` or `m.f(...)` give `f`."""
-    if isinstance(node.func, ast.Name):
-        return node.func.id
-    if isinstance(node.func, ast.Attribute):
-        return node.func.attr
-    return None
-
 
 _CURRENT_ACTION_NAMES: set[str] = set()
 
@@ -269,12 +228,11 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     pending = _collect_self_method_calls(run_tree)
     pending_index = 0
     visited: Set[str] = set()
-    skip_methods = {"run_action"}
 
     while pending_index < len(pending):
         method_name = pending[pending_index]
         pending_index += 1
-        if method_name in visited or method_name == "run" or method_name in skip_methods:
+        if method_name in visited or method_name == "run":
             continue
         visited.add(method_name)
 
@@ -282,6 +240,11 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
         if method is None:
             continue
 
+        reference = ast.Attribute(
+            value=ast.Name(id="self", ctx=ast.Load()), attr=method_name, ctx=ast.Load()
+        )
+        if GLOBAL_HANDLERS.resolve(reference, {"self": workflow_cls}) is not None:
+            continue
         method_tree, method_filename, method_start_line = parse_function(method)
         methods_to_process.append((method, method_tree, method_filename, method_start_line, None))
         pending.extend(_collect_self_method_calls(method_tree))
@@ -2504,8 +2467,6 @@ class IRBuilder(ast.NodeVisitor):
             return
 
         # Skip special cases that are handled elsewhere
-        if is_run_action_call(awaited):
-            return
         if self._is_asyncio_sleep_call(awaited):
             return
         if self._language_calls.resolve(awaited.func, self._language_call_namespace) is not None:
@@ -2550,14 +2511,14 @@ class IRBuilder(ast.NodeVisitor):
         awaited = node.value
         # Handle self.run_action(...) wrapper
         if isinstance(awaited, ast.Call):
-            if is_run_action_call(awaited):
-                # Extract the actual action call from run_action
-                if awaited.args:
-                    action_call = self._extract_action_call_from_awaitable(awaited.args[0])
-                    if action_call:
-                        # Extract policies from run_action kwargs (retry, timeout)
-                        self._extract_policies_from_run_action(awaited, action_call)
-                    return action_call
+            handler = self._language_calls.resolve(awaited.func, self._language_call_namespace)
+            if handler is not None:
+                if not handler.requires_await:
+                    raise handler.error(awaited, "this call cannot be awaited")
+                lowered = handler.compile(awaited, self._compiler_context)
+                if not lowered.statements and lowered.value.HasField("action_call"):
+                    return lowered.value.action_call
+                return None
             # Try to extract as action call
             action_call = self._extract_action_call_from_call(awaited)
             if action_call:
@@ -2568,290 +2529,6 @@ class IRBuilder(ast.NodeVisitor):
             return None
 
         return None
-
-    def _extract_policies_from_run_action(
-        self, run_action_call: ast.Call, action_call: ir.ActionCall
-    ) -> None:
-        """Extract retry and timeout policies from run_action kwargs.
-
-        Parses patterns like:
-        - self.run_action(action(), retry=RetryPolicy(attempts=3))
-        - self.run_action(action(), timeout=timedelta(seconds=30))
-        - self.run_action(action(), timeout=60)
-
-        Every field must be a literal: the compiler reads them from the
-        source, so anything it cannot read is rejected rather than ignored.
-        A policy passed positionally is rejected too: `run_action` takes it
-        by keyword, and the body never runs as Python to say so.
-        """
-        if len(run_action_call.args) > 1:
-            raise self._policy_error(
-                "run_action() takes one positional argument, the awaitable; "
-                "pass retry= and timeout= by keyword",
-                "run_action_keywords",
-                run_action_call.args[1],
-            )
-        for kw in run_action_call.keywords:
-            if kw.arg not in ("retry", "timeout"):
-                what = "**kwargs" if kw.arg is None else f"a {kw.arg!r} keyword"
-                raise self._policy_error(
-                    f"run_action() does not take {what}", "run_action_keywords", kw.value
-                )
-            literal = self._policy_literal(kw.value, kw.arg)
-            if _is_none_literal(literal):
-                # An explicit None, inline or through a self attribute, is the
-                # parameter's default: no policy.
-                continue
-            policy_bracket = ir.PolicyBracket()
-            if kw.arg == "retry":
-                policy_bracket.retry.CopyFrom(self._parse_retry_policy(literal))
-            else:
-                policy_bracket.timeout.CopyFrom(self._parse_timeout_policy(literal))
-            action_call.policies.append(policy_bracket)
-
-    def _policy_error(
-        self, message: str, recommendation: str, node: ast.AST
-    ) -> UnsupportedPatternError:
-        """An error for a policy the compiler cannot read, located at `node`."""
-        return UnsupportedPatternError(
-            message,
-            RECOMMENDATIONS[recommendation],
-            line=getattr(node, "lineno", None),
-            col=getattr(node, "col_offset", None),
-        )
-
-    def _policy_literal(self, node: ast.expr, keyword: str) -> ast.expr:
-        """The literal a policy keyword carries.
-
-        A `self.<attribute>` resolves to the literal assigned to it once, at
-        the top level of `__init__`; one without such an assignment, or one
-        assigned more than once or under a branch, is rejected. Anything
-        else is returned as is for the caller to read.
-        """
-        if (
-            isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "self"
-        ):
-            if node.attr in self._ambiguous_instance_attrs:
-                raise self._policy_error(
-                    f"{keyword}=self.{node.attr} is assigned more than once or under a "
-                    "branch in __init__",
-                    "policy_literal",
-                    node,
-                )
-            literal = self._instance_attrs.get(node.attr)
-            if literal is None:
-                raise self._policy_error(
-                    f"{keyword}=self.{node.attr} is not assigned a literal in __init__",
-                    "policy_literal",
-                    node,
-                )
-            return literal
-        return node
-
-    def _seconds_literal(self, node: ast.expr, what: str, positive: bool) -> float:
-        """A number literal read as seconds, fractions included.
-
-        A negative is rejected, and so is a zero where `positive` says the
-        value must be more than that. So is a value the runtime cannot sleep:
-        one that is not finite, or a positive one that rounds to zero at
-        nanosecond precision. So is a value above the 100-year cap, a round
-        figure far inside what the runtime can sleep.
-        """
-        seconds = _number_literal(node)
-        if seconds is None:
-            raise self._policy_error(f"{what} must be a number literal", "policy_literal", node)
-        if seconds < 0 or (positive and seconds == 0):
-            bound = "more than zero seconds" if positive else "zero or more seconds"
-            raise self._policy_error(f"{what} must be {bound}", "duration_range", node)
-        return self._runnable_seconds(seconds, what, node)
-
-    def _runnable_seconds(self, seconds: int | float, what: str, node: ast.expr) -> float:
-        """`seconds` as the runtime can sleep it, or the error that says why not."""
-        try:
-            seconds = float(seconds)
-        except OverflowError:
-            # An integer literal too large for a float is too large for a sleep.
-            seconds = math.inf
-        if not math.isfinite(seconds) or seconds > _MAX_DURATION_SECONDS:
-            raise self._policy_error(
-                f"{what} must be at most {_MAX_DURATION_YEARS} years", "duration_range", node
-            )
-        if seconds > 0 and round(seconds * 1e9) == 0:
-            raise self._policy_error(
-                f"{what} must be at least one nanosecond", "duration_range", node
-            )
-        return seconds
-
-    def _parse_retry_policy(self, node: ast.expr) -> ir.RetryPolicy:
-        """Parse a RetryPolicy(...) literal into IR.
-
-        Supports:
-        - RetryPolicy(attempts=3)
-        - RetryPolicy(attempts=3, exception_types=["ValueError"])
-        - RetryPolicy(attempts=3, backoff_seconds=5)
-
-        `node` is the literal itself: a `self.` attribute is resolved by the
-        caller. Anything else is rejected: a field the compiler cannot read
-        would otherwise silently take its default.
-        """
-        if not (isinstance(node, ast.Call) and _call_name(node) == "RetryPolicy"):
-            raise self._policy_error(
-                "retry= must be a RetryPolicy(...) literal", "policy_literal", node
-            )
-        if node.args:
-            raise self._policy_error(
-                "RetryPolicy takes keyword arguments only", "policy_literal", node
-            )
-
-        # RetryPolicy() defaults to a high retry cap when attempts is omitted.
-        policy = ir.RetryPolicy(max_retries=DEFAULT_RETRY_POLICY_MAX_RETRIES)
-        exception_types_listed = False
-
-        for kw in node.keywords:
-            if kw.arg is None:
-                raise self._policy_error(
-                    "RetryPolicy does not take **kwargs", "policy_literal", kw.value
-                )
-            if _is_none_literal(kw.value):
-                # An explicit None is the field's default.
-                continue
-            if kw.arg == "attempts":
-                attempts = _number_literal(kw.value)
-                if not isinstance(attempts, int):
-                    raise self._policy_error(
-                        "RetryPolicy attempts must be an integer literal",
-                        "policy_literal",
-                        kw.value,
-                    )
-                if attempts < 1:
-                    raise self._policy_error(
-                        "RetryPolicy attempts must be at least 1", "policy_literal", kw.value
-                    )
-                if attempts > MAX_RETRY_POLICY_ATTEMPTS:
-                    raise self._policy_error(
-                        f"RetryPolicy attempts must be at most {MAX_RETRY_POLICY_ATTEMPTS}",
-                        "policy_literal",
-                        kw.value,
-                    )
-                # attempts means total executions, max_retries means retries after first attempt
-                # So attempts=1 -> max_retries=0 (no retries), attempts=3 -> max_retries=2
-                policy.max_retries = attempts - 1
-            elif kw.arg == "exception_types":
-                if not isinstance(kw.value, ast.List):
-                    raise self._policy_error(
-                        "RetryPolicy exception_types must be a list literal of class names",
-                        "policy_literal",
-                        kw.value,
-                    )
-                exception_types_listed = True
-                for elt in kw.value.elts:
-                    policy.exception_types.append(self._retry_exception_type_name(elt))
-            elif kw.arg == "backoff_seconds":
-                seconds = self._seconds_literal(
-                    kw.value, "RetryPolicy backoff_seconds", positive=False
-                )
-                # A zero backoff is no backoff: the runtime has no zero sleep.
-                if seconds > 0:
-                    policy.backoff.seconds = seconds
-            else:
-                raise self._policy_error(
-                    f"RetryPolicy has no field {kw.arg!r}", "policy_literal", kw.value
-                )
-
-        # An omitted filter retries on `Exception`, the policy's documented
-        # default. A listed one is kept as written: empty retries nothing.
-        if not exception_types_listed:
-            policy.exception_types.append(DEFAULT_RETRY_POLICY_EXCEPTION_TYPE)
-
-        return policy
-
-    def _retry_exception_type_name(self, node: ast.expr) -> str:
-        """One `exception_types` entry: a bare class name as a string literal.
-
-        The VM matches exceptions by bare class name, so a dotted string,
-        or anything else that is not an identifier, would never match; it
-        is rejected rather than ignored, as is any entry that is not a
-        string literal, such as the class itself.
-        """
-        if (
-            isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and node.value.isidentifier()
-        ):
-            return node.value
-        raise UnsupportedPatternError(
-            "RetryPolicy exception_types entries must be bare class names as strings",
-            RECOMMENDATIONS["retry_exception_types"],
-            line=getattr(node, "lineno", None),
-            col=getattr(node, "col_offset", None),
-        )
-
-    def _parse_timeout_policy(self, node: ast.expr) -> ir.TimeoutPolicy:
-        """Parse a timeout literal into IR.
-
-        `node` is the literal itself: a `self.` attribute is resolved by the
-        caller.
-
-        Supports:
-        - timeout=60 (seconds, fractions included)
-        - timeout=timedelta(seconds=30)
-        - timeout=timedelta(minutes=2)
-
-        Anything else is rejected, as is a duration of zero or less.
-        """
-        policy = ir.TimeoutPolicy()
-
-        if _number_literal(node) is not None:
-            policy.timeout.seconds = self._seconds_literal(node, "timeout", positive=True)
-            return policy
-
-        if isinstance(node, ast.Call) and _call_name(node) == "timedelta":
-            if node.args:
-                raise self._policy_error(
-                    "timedelta(...) in timeout= takes keyword arguments only",
-                    "policy_literal",
-                    node,
-                )
-            keywords: dict[str, int | float] = {}
-            for kw in node.keywords:
-                if kw.arg not in ("seconds", "minutes", "hours", "days"):
-                    what = "**kwargs" if kw.arg is None else f"a {kw.arg!r} keyword"
-                    raise self._policy_error(
-                        f"timedelta(...) in timeout= does not take {what}: "
-                        "use seconds, minutes, hours or days",
-                        "policy_literal",
-                        kw.value,
-                    )
-                value = _number_literal(kw.value)
-                if value is None:
-                    raise self._policy_error(
-                        f"timedelta(...) in timeout= takes a number literal for {kw.arg}",
-                        "policy_literal",
-                        kw.value,
-                    )
-                keywords[kw.arg] = value
-            # Python's own timedelta arithmetic over the accepted keywords:
-            # minutes=4.1 is 246 seconds, as timedelta says.
-            try:
-                seconds = timedelta(**keywords).total_seconds()
-            except OverflowError:
-                raise self._policy_error(
-                    "timeout is outside the range timedelta can hold", "duration_range", node
-                ) from None
-            if seconds <= 0:
-                raise self._policy_error(
-                    "timeout must be more than zero seconds", "duration_range", node
-                )
-            policy.timeout.seconds = self._runnable_seconds(seconds, "timeout", node)
-            return policy
-
-        raise self._policy_error(
-            "timeout= must be a number literal or a timedelta(...) literal",
-            "policy_literal",
-            node,
-        )
 
     def _is_asyncio_sleep_call(self, node: ast.Call) -> bool:
         """Check if this is an asyncio.sleep(...) call.
@@ -3187,12 +2864,6 @@ class IRBuilder(ast.NodeVisitor):
                 expr = ir.Expr()
                 expr.literal.CopyFrom(literal)
                 fn_call.kwargs.append(ir.Kwarg(name=param.name, value=expr))
-
-    def _extract_action_call_from_awaitable(self, node: ast.expr) -> Optional[ir.ActionCall]:
-        """Extract action call from an awaitable expression."""
-        if isinstance(node, ast.Call):
-            return self._extract_action_call_from_call(node)
-        return None
 
     def _extract_action_call_from_call(self, node: ast.Call) -> Optional[ir.ActionCall]:
         """Extract action call info from a Call node.

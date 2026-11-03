@@ -71,7 +71,7 @@ Program {
                                         },
                                         span: Span {
                                             start_line: 3,
-                                            start_col: 8,
+                                            start_col: 18,
                                             end_line: 3,
                                             end_col: 99,
                                         },
@@ -125,7 +125,7 @@ Program {
                                         },
                                         span: Span {
                                             start_line: 6,
-                                            start_col: 8,
+                                            start_col: 18,
                                             end_line: 6,
                                             end_col: 100,
                                         },
@@ -188,7 +188,7 @@ Program {
                                         },
                                         span: Span {
                                             start_line: 9,
-                                            start_col: 8,
+                                            start_col: 18,
                                             end_line: 13,
                                             end_col: 9,
                                         },

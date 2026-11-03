@@ -20,7 +20,11 @@ REJECTED = [
         "not assigned a literal in __init__",
     ),
     ("policy_retry_positional", "PolicyRetryPositionalWorkflow", "keyword arguments only"),
-    ("policy_retry_unknown_field", "PolicyRetryUnknownFieldWorkflow", "no field 'max_retries'"),
+    (
+        "policy_retry_unknown_field",
+        "PolicyRetryUnknownFieldWorkflow",
+        "unexpected keyword argument 'max_retries'",
+    ),
     (
         "policy_retry_attempts_variable",
         "PolicyRetryAttemptsVariableWorkflow",
@@ -69,7 +73,7 @@ REJECTED = [
     (
         "policy_timeout_timedelta_milliseconds",
         "PolicyTimeoutTimedeltaMillisecondsWorkflow",
-        "does not take a 'milliseconds' keyword",
+        "unexpected keyword argument 'milliseconds'",
     ),
     (
         "policy_timeout_timedelta_variable",
@@ -79,12 +83,12 @@ REJECTED = [
     (
         "policy_run_action_keyword",
         "PolicyRunActionKeywordWorkflow",
-        "does not take a 'retries' keyword",
+        "unexpected keyword argument 'retries'",
     ),
     (
         "policy_retry_positional_arg",
         "PolicyRetryPositionalArgWorkflow",
-        "takes one positional argument",
+        "too many positional arguments",
     ),
     (
         "policy_retry_self_assigned_twice",
@@ -111,3 +115,19 @@ def test_unreadable_policy_fields_are_rejected(
 
     error = cast(UnsupportedPatternError, exc_info.value)
     assert fragment in error.message, error.message
+
+
+def test_run_action_accepts_the_named_awaitable_and_policy_aliases() -> None:
+    from datetime import timedelta
+
+    from waymark.__tests__.compiler_test_helpers import compile_source
+    from waymark.workflow import RetryPolicy
+
+    function = compile_source(
+        "return await self.run_action(awaitable=task(4), retry=Retry(attempts=2), timeout=Duration(seconds=0.5))",
+        namespace={"Retry": RetryPolicy, "Duration": timedelta},
+    )
+    action = function.body.statements[0].assignment.value.action_call
+    assert action.kwargs[0].value.literal.int_value == 4
+    assert action.policies[0].retry.max_retries == 1
+    assert action.policies[1].timeout.timeout.seconds == 0.5
