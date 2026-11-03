@@ -5,6 +5,10 @@ use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
 const SKIP_TESTS: &[&str] = &[
     "fixtures/test_actions.py",
     "fixtures_actions/soak_actions.py",
+    // Rejection is covered by TestUnsupportedPatternDetection in test_ir_builder.py.
+    "fixtures_comprehension/dict_comprehension_assignment.py",
+    "fixtures_comprehension/dict_comprehension_tuple.py",
+    "fixtures_for_loop/for_dict_accumulator.py",
     "fixtures_gather/gather_run_action_static.py",
     "fixtures_gather/gather_unsupported_variable.py",
     "fixtures_models/pydantic_ast_variants.py",
