@@ -12,15 +12,20 @@ from waymark.proto import ast_pb2 as ir
 
 
 def probe(value: bool) -> bool:
+    """Supply a unique callable identity for the test registry."""
     return value
 
 
 @dataclass
 class ProbeArguments:
+    """Accept one expression so the probe exercises normal argument binding."""
+
     value: ast.expr
 
 
 class ProbeHandler(LanguageCallHandler[ProbeArguments]):
+    """Count lowering invocations and emit observable setup before its value."""
+
     target = probe
     name = "probe"
     arguments_type = ProbeArguments
@@ -33,6 +38,7 @@ class ProbeHandler(LanguageCallHandler[ProbeArguments]):
     def lower(
         self, arguments: ProbeArguments, node: ast.Call, context: CompilerContext
     ) -> LoweredCall:
+        """A discarded compilation would consume a name and lose this assignment."""
         self.lowerings += 1
         temporary = context.next_name("probe")
         return LoweredCall(

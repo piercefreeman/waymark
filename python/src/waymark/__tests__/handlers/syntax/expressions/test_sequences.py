@@ -12,16 +12,19 @@ from waymark.compiler.errors import UnsupportedPatternError
 @workflow
 class SequenceWorkflow(Workflow):
     async def run(self, values: list[int]) -> list[int]:
+        """Interleave fixed elements and empty or populated spread segments."""
         pair = (3, 4)
         return [0, *values, *[], 2, *pair, 5]
 
 
 @pytest.mark.parametrize("values", [[], [1], [6, 7]])
 def test_sequence_segments_keep_their_order(values: list[int]) -> None:
+    """Check the VM preserves sequence order across every spread boundary."""
     assert asyncio.run(SequenceWorkflow().run(values)) == [0, *values, 2, 3, 4, 5]
 
 
 @pytest.mark.parametrize("source", ["return [lambda: 1]", "return (value for value in [])"])
 def test_unsupported_sequence_elements_are_rejected(source: str) -> None:
+    """Unsupported elements must fail compilation rather than disappear."""
     with pytest.raises(UnsupportedPatternError):
         compile_source(source)
