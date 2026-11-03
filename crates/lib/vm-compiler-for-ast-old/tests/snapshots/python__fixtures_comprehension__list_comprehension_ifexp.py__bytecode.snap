@@ -3,44 +3,48 @@ source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_comprehension/list_comprehension_ifexp.py
 ---
 fn main(input: [users], output: []):
-    statuses = []
-    for user in users:
-        if user.active:
-            statuses = statuses + [user.name]
+    __comprehension_input_2__ = users
+    __comprehension_result_3__ = []
+    for __comprehension_item_1__ in __comprehension_input_2__:
+        if __comprehension_item_1__.active:
+            __comprehension_result_3__ = __comprehension_result_3__ + [__comprehension_item_1__.name]
         else:
-            statuses = statuses + ["inactive"]
+            __comprehension_result_3__ = __comprehension_result_3__ + ["inactive"]
+    statuses = __comprehension_result_3__
     return statuses
 ---
-f0: [8 registers]
+f0: [10 registers]
   s0:
-    PureSet(MakeList { dst: r1, items: [] })
-    PureSet(Copy { dst: r2, src: r0 })
-    PureSet(LoadConst { dst: r3, value: Int(0) })
-    PureSet(Length { dst: r4, src: r2 })
+    PureSet(Copy { dst: r1, src: r0 })
+    PureSet(MakeList { dst: r2, items: [] })
+    PureSet(Copy { dst: r3, src: r1 })
+    PureSet(LoadConst { dst: r4, value: Int(0) })
+    PureSet(Length { dst: r5, src: r3 })
     CoreSet(Jump { target_state: s1 })
   s1:
-    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r5, a: r3, b: r4 } })
-    CoreSet(JumpIf { target_state: s2, cond: r5 })
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r4, b: r5 } })
+    CoreSet(JumpIf { target_state: s2, cond: r6 })
     CoreSet(Jump { target_state: s4 })
   s2:
-    PureSet(Index { dst: r5, object: r2, index: r3 })
-    PureSet(Copy { dst: r6, src: r5 })
-    PureSet(Dot { dst: r5, object: r6, attribute: "active" })
-    CoreSet(JumpIf { target_state: s6, cond: r5 })
-    PureSet(LoadConst { dst: r5, value: String("inactive") })
-    PureSet(MakeList { dst: r7, items: [r5] })
-    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r7 } })
+    PureSet(Index { dst: r6, object: r3, index: r4 })
+    PureSet(Copy { dst: r7, src: r6 })
+    PureSet(Dot { dst: r6, object: r7, attribute: "active" })
+    CoreSet(JumpIf { target_state: s6, cond: r6 })
+    PureSet(LoadConst { dst: r6, value: String("inactive") })
+    PureSet(MakeList { dst: r8, items: [r6] })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r2, a: r2, b: r8 } })
     CoreSet(Jump { target_state: s5 })
   s3:
-    PureSet(LoadConst { dst: r5, value: Int(1) })
-    PureSet(Binary { kind: Add, op: BinaryOp { dst: r3, a: r3, b: r5 } })
+    PureSet(LoadConst { dst: r6, value: Int(1) })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r4, a: r4, b: r6 } })
     CoreSet(Jump { target_state: s1 })
   s4:
-    CoreSet(Return { src: r1 })
+    PureSet(Copy { dst: r9, src: r2 })
+    CoreSet(Return { src: r9 })
   s5:
     CoreSet(Jump { target_state: s3 })
   s6:
-    PureSet(Dot { dst: r7, object: r6, attribute: "name" })
-    PureSet(MakeList { dst: r5, items: [r7] })
-    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r5 } })
+    PureSet(Dot { dst: r8, object: r7, attribute: "name" })
+    PureSet(MakeList { dst: r6, items: [r8] })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r2, a: r2, b: r6 } })
     CoreSet(Jump { target_state: s5 })
