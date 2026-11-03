@@ -27,7 +27,31 @@ Program {
                             Spanned {
                                 value: Assignment {
                                     targets: [
-                                        "active_users",
+                                        "__comprehension_input_2__",
+                                    ],
+                                    value: Spanned {
+                                        value: Variable {
+                                            name: "users",
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 41,
+                                            end_line: 2,
+                                            end_col: 46,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 8,
+                                    end_line: 2,
+                                    end_col: 62,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "__comprehension_result_3__",
                                     ],
                                     value: Spanned {
                                         value: List {
@@ -35,33 +59,33 @@ Program {
                                         },
                                         span: Span {
                                             start_line: 2,
-                                            start_col: 4,
+                                            start_col: 8,
                                             end_line: 2,
-                                            end_col: 58,
+                                            end_col: 62,
                                         },
                                     },
                                 },
                                 span: Span {
                                     start_line: 2,
-                                    start_col: 4,
+                                    start_col: 8,
                                     end_line: 2,
-                                    end_col: 58,
+                                    end_col: 62,
                                 },
                             },
                             Spanned {
                                 value: ForLoop {
                                     loop_vars: [
-                                        "user",
+                                        "__comprehension_item_1__",
                                     ],
                                     iterable: Spanned {
                                         value: Variable {
-                                            name: "users",
+                                            name: "__comprehension_input_2__",
                                         },
                                         span: Span {
                                             start_line: 2,
-                                            start_col: 37,
+                                            start_col: 41,
                                             end_line: 2,
-                                            end_col: 42,
+                                            end_col: 46,
                                         },
                                     },
                                     body: Spanned {
@@ -75,22 +99,22 @@ Program {
                                                                     value: Dot {
                                                                         object: Spanned {
                                                                             value: Variable {
-                                                                                name: "user",
+                                                                                name: "__comprehension_item_1__",
                                                                             },
                                                                             span: Span {
                                                                                 start_line: 2,
-                                                                                start_col: 46,
+                                                                                start_col: 50,
                                                                                 end_line: 2,
-                                                                                end_col: 50,
+                                                                                end_col: 54,
                                                                             },
                                                                         },
                                                                         attribute: "active",
                                                                     },
                                                                     span: Span {
                                                                         start_line: 2,
-                                                                        start_col: 46,
+                                                                        start_col: 50,
                                                                         end_line: 2,
-                                                                        end_col: 57,
+                                                                        end_col: 61,
                                                                     },
                                                                 },
                                                                 body: Spanned {
@@ -99,19 +123,19 @@ Program {
                                                                             Spanned {
                                                                                 value: Assignment {
                                                                                     targets: [
-                                                                                        "active_users",
+                                                                                        "__comprehension_result_3__",
                                                                                     ],
                                                                                     value: Spanned {
                                                                                         value: BinaryOp {
                                                                                             left: Spanned {
                                                                                                 value: Variable {
-                                                                                                    name: "active_users",
+                                                                                                    name: "__comprehension_result_3__",
                                                                                                 },
                                                                                                 span: Span {
                                                                                                     start_line: 2,
-                                                                                                    start_col: 19,
+                                                                                                    start_col: 23,
                                                                                                     end_line: 2,
-                                                                                                    end_col: 58,
+                                                                                                    end_col: 62,
                                                                                                 },
                                                                                             },
                                                                                             op: Add,
@@ -120,55 +144,55 @@ Program {
                                                                                                     elements: [
                                                                                                         Spanned {
                                                                                                             value: Variable {
-                                                                                                                name: "user",
+                                                                                                                name: "__comprehension_item_1__",
                                                                                                             },
                                                                                                             span: Span {
                                                                                                                 start_line: 2,
-                                                                                                                start_col: 20,
+                                                                                                                start_col: 24,
                                                                                                                 end_line: 2,
-                                                                                                                end_col: 24,
+                                                                                                                end_col: 28,
                                                                                                             },
                                                                                                         },
                                                                                                     ],
                                                                                                 },
                                                                                                 span: Span {
                                                                                                     start_line: 2,
-                                                                                                    start_col: 19,
+                                                                                                    start_col: 23,
                                                                                                     end_line: 2,
-                                                                                                    end_col: 58,
+                                                                                                    end_col: 62,
                                                                                                 },
                                                                                             },
                                                                                         },
                                                                                         span: Span {
                                                                                             start_line: 2,
-                                                                                            start_col: 19,
+                                                                                            start_col: 23,
                                                                                             end_line: 2,
-                                                                                            end_col: 58,
+                                                                                            end_col: 62,
                                                                                         },
                                                                                     },
                                                                                 },
                                                                                 span: Span {
                                                                                     start_line: 2,
-                                                                                    start_col: 19,
+                                                                                    start_col: 23,
                                                                                     end_line: 2,
-                                                                                    end_col: 58,
+                                                                                    end_col: 62,
                                                                                 },
                                                                             },
                                                                         ],
                                                                     },
                                                                     span: Span {
                                                                         start_line: 2,
-                                                                        start_col: 46,
+                                                                        start_col: 50,
                                                                         end_line: 2,
-                                                                        end_col: 57,
+                                                                        end_col: 61,
                                                                     },
                                                                 },
                                                             },
                                                             span: Span {
                                                                 start_line: 2,
-                                                                start_col: 46,
+                                                                start_col: 50,
                                                                 end_line: 2,
-                                                                end_col: 57,
+                                                                end_col: 61,
                                                             },
                                                         },
                                                         elif_branches: [],
@@ -176,26 +200,50 @@ Program {
                                                     },
                                                     span: Span {
                                                         start_line: 2,
-                                                        start_col: 46,
+                                                        start_col: 50,
                                                         end_line: 2,
-                                                        end_col: 57,
+                                                        end_col: 61,
                                                     },
                                                 },
                                             ],
                                         },
                                         span: Span {
                                             start_line: 2,
-                                            start_col: 4,
+                                            start_col: 8,
                                             end_line: 2,
-                                            end_col: 58,
+                                            end_col: 62,
                                         },
                                     },
                                 },
                                 span: Span {
                                     start_line: 2,
-                                    start_col: 4,
+                                    start_col: 8,
                                     end_line: 2,
-                                    end_col: 58,
+                                    end_col: 62,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "active_users",
+                                    ],
+                                    value: Spanned {
+                                        value: Variable {
+                                            name: "__comprehension_result_3__",
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 8,
+                                            end_line: 2,
+                                            end_col: 62,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 8,
+                                    end_line: 2,
+                                    end_col: 62,
                                 },
                             },
                             Spanned {
@@ -207,18 +255,18 @@ Program {
                                             },
                                             span: Span {
                                                 start_line: 3,
-                                                start_col: 11,
+                                                start_col: 15,
                                                 end_line: 3,
-                                                end_col: 23,
+                                                end_col: 27,
                                             },
                                         },
                                     ),
                                 },
                                 span: Span {
                                     start_line: 3,
-                                    start_col: 4,
+                                    start_col: 8,
                                     end_line: 3,
-                                    end_col: 23,
+                                    end_col: 27,
                                 },
                             },
                         ],
@@ -233,9 +281,9 @@ Program {
             },
             span: Span {
                 start_line: 1,
-                start_col: 0,
+                start_col: 4,
                 end_line: 3,
-                end_col: 23,
+                end_col: 27,
             },
         },
     ],
