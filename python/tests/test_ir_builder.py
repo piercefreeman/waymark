@@ -1554,8 +1554,8 @@ class TestUnsupportedPatternDetection:
             for stmt in iter_all_statements(program)
         ), "Expected accumulator updates for statuses"
 
-    def test_dict_comprehension_assignment_is_supported(self) -> None:
-        """Test: dict comprehension assignments expand into for loop IR."""
+    def test_dict_comprehension_assignment_is_rejected(self) -> None:
+        """Dict comprehensions cannot preserve Python dictionary semantics."""
         import pytest
 
         from tests.fixtures_comprehension.dict_comprehension_assignment import (
@@ -1566,8 +1566,8 @@ class TestUnsupportedPatternDetection:
         with pytest.raises(UnsupportedPatternError, match="Dict comprehensions"):
             DictComprehensionAssignmentWorkflow.workflow_ir()
 
-    def test_dict_comprehension_tuple_assignment_is_supported(self) -> None:
-        """Test: dict comprehension assignments with tuple unpacking expand to IR."""
+    def test_dict_comprehension_tuple_assignment_is_rejected(self) -> None:
+        """Tuple unpacking does not make dictionary comprehensions supported."""
         import pytest
 
         from tests.fixtures_comprehension.dict_comprehension_tuple import (
@@ -1577,6 +1577,16 @@ class TestUnsupportedPatternDetection:
 
         with pytest.raises(UnsupportedPatternError, match="Dict comprehensions"):
             DictComprehensionTupleWorkflow.workflow_ir()
+
+    def test_dict_accumulator_assignment_is_rejected(self) -> None:
+        """Dictionary writes cannot be represented by assignment targets in the IR."""
+        import pytest
+
+        from tests.fixtures_for_loop.for_dict_accumulator import ForDictAccumulatorWorkflow
+        from waymark.compiler.errors import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError, match="subscript writes"):
+            ForDictAccumulatorWorkflow.workflow_ir()
 
     def test_delete_statement_raises_error(self) -> None:
         """Test: del statements raise error with recommendation."""
