@@ -4,8 +4,8 @@ expression: bytecode for python/tests/fixtures_policy/instance_attr_none.py
 ---
 fn main(input: [value], output: []):
     a = @instance_attr_none.action_with_none_retry(value=value)
-    _return_tmp = @instance_attr_none.action_with_none_timeout(value=a)
-    return _return_tmp
+    __return_tmp_1__ = @instance_attr_none.action_with_none_timeout(value=a)
+    return __return_tmp_1__
 ---
 f0: [3 registers]
   s0:
