@@ -178,7 +178,7 @@ async fn divergence_fails_the_whole_batch() {
 
     // ...but the innocent record was still durably recorded (the backend
     // inserts everything the divergence error does not refer to), so
-    // adoption redelivers it once the batch lock lapses.
+    // adoption reports it as lost once the batch lock lapses.
     assert!(backend.rows.lock().unwrap().contains_key(&TestKey {
         vm_id: 2,
         promise_state_id: PromiseStateId(20),

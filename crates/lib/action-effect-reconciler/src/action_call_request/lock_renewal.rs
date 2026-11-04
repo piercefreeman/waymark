@@ -50,8 +50,8 @@ pub enum Error<VmId> {
     Relocked(NEVec<ActionCallRequestLockId<VmId>>),
 
     /// The shutdown future resolved while these locks were still tracked,
-    /// not confirmed gone; they lapse by their time-to-live and are
-    /// redelivered, unless their row is already gone.
+    /// not confirmed gone; they lapse by their time-to-live and adoption
+    /// reports their calls as lost, unless their row is already gone.
     #[error("stopped with locks not confirmed gone, left to lapse by their time-to-live: {0:?}")]
     Abandoned(NEVec<ActionCallRequestLockId<VmId>>),
 }

@@ -41,8 +41,8 @@ pub enum Error<EncodeError, DeliverError> {
 /// (which persists it born-locked, coalesced with other VMs' requests)
 /// and then delivered to the local worker pool through the held
 /// requester; a replayed effect is recognized by its key and not
-/// delivered again — its delivery was already decided (by adoption, or
-/// by the owner still running it).  A recording whose statement committed
+/// delivered again — its fate was already decided (by adoption, or by
+/// the owner still running it).  A recording whose statement committed
 /// but reported failure gets the same answer on its retry, so an effect
 /// found already recorded also requests a
 /// [`recheck`](crate::adopting_action_settler::recheck) from the VM's

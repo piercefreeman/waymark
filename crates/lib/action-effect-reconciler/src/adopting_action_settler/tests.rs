@@ -692,7 +692,7 @@ async fn corrupt_stored_payload_fails_the_wait_and_unlocks() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn redelivery_failure_fails_the_wait_and_unlocks() {
+async fn a_rejected_call_fails_the_wait_and_unlocks() {
     let mut h = harness_with(FailingRequester);
     seed_row(
         &h.backend,
@@ -710,9 +710,9 @@ async fn redelivery_failure_fails_the_wait_and_unlocks() {
         .poll_action_settlements(NESlice::try_from_slice(&[PromiseStateId(11)]).unwrap())
         .await;
     let Err(error) = polled else {
-        panic!("a failed redelivery must fail the wait");
+        panic!("a rejected call must fail the wait");
     };
-    assert!(matches!(error, Error::Deliver(_)));
+    assert!(matches!(error, Error::Request(_)));
     assert!(h.polls.lock().unwrap().is_empty());
 
     let tracker = h.tracker.lock().unwrap();

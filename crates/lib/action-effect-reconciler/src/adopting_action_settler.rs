@@ -22,7 +22,7 @@ use crate::action_call_request::payload;
 /// Error returned when polling an [`AdoptingActionSettler`] for settlements
 /// fails.
 #[derive(Debug, thiserror::Error)]
-pub enum Error<SettleError, DecodeError, DeliverError> {
+pub enum Error<SettleError, DecodeError, RequestError> {
     /// The decorated settler failed.
     #[error("polling action settlements: {0}")]
     Settle(#[source] SettleError),
@@ -35,9 +35,9 @@ pub enum Error<SettleError, DecodeError, DeliverError> {
     #[error("unable to decode a stored action-call request payload: {0}")]
     Decode(#[source] DecodeError),
 
-    /// The local pool rejected a redelivery.
-    #[error("redelivering an action call: {0}")]
-    Deliver(#[source] DeliverError),
+    /// The requester rejected an adopted call.
+    #[error("requesting an adopted action call: {0}")]
+    Request(#[source] RequestError),
 }
 
 /// Where the VM stands with the requests whose calls this process has
@@ -62,8 +62,8 @@ enum Adoption {
 ///
 /// A VM resident here owns the liveness of its action-call requests: a
 /// request whose lock lapsed (its owner died, or its call never went
-/// through) is adopted — locked through the shared lock batcher,
-/// redelivered to the local pool, its lock handed to the tracker — while
+/// through) is adopted — locked through the shared lock batcher, its
+/// call requested, its lock handed to the tracker — while
 /// a request another live owner holds is left alone, an attempt is
 /// presumed running in that owner's pool.  A request this process holds
 /// is backed by an attempt only if its lock is tracked; one held here
@@ -129,8 +129,8 @@ where
     /// The adopter of the VM `vm_id`.
     ///
     /// `locker` is the shared lock batcher the passes go through; `codec`
-    /// decodes the stored request payloads; `requester` redelivers the
-    /// adopted calls to the local pool; `action_call_request_locks_tracker`
+    /// decodes the stored request payloads; `requester` requests the
+    /// adopted calls; `action_call_request_locks_tracker`
     /// is the tracker of this process's action-call request locks;
     /// `recheck` listens for the VM's effect handler finding a fresh
     /// emission already recorded; `heartbeat` paces the passes while a
@@ -165,7 +165,7 @@ where
         waymark_action_runtime_core::ActionCallRequester<Metadata = ActionCallCorrelation>,
     ActionCallRequester::Argument: serde::de::DeserializeOwned,
 {
-    /// Lock the VM's eligible requests and redeliver their calls; then
+    /// Lock the VM's eligible requests and request their calls; then
     /// settle where the VM stands.
     async fn pass<SettleError>(
         &mut self,
@@ -216,7 +216,7 @@ where
                     },
                 })
                 .await
-                .map_err(Error::Deliver)?;
+                .map_err(Error::Request)?;
 
             pending_call_request.confirm_requested();
         }

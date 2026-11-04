@@ -291,8 +291,12 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
     // as they arrive from the worker pool and removed only once their
     // promise settlements have been durably applied.  Three background loops
     // carry them.
-    let writer_params = waymark_action_completions_reconciler::writer::Params {
-        provider: waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::<
+    // The adopters' lost-execution reports take the same road to the
+    // store as the worker pool's completions.
+    let (lost_execution_requester, lost_execution_completions_provider) =
+        waymark_action_effect_reconciler::lost_execution::new_with_ignored_payload();
+    let worker_pool_completions_provider =
+        waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider::<
             _,
             waymark_action_runtime_metadata::WithVmId<
                 waymark_ids::InstanceId,
@@ -301,7 +305,13 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
             waymark_vm_value_python::ReadyValue,
             waymark_system_vm::RaisedException,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
-        >::new(worker_pool_completions),
+        >::new(worker_pool_completions);
+    let writer_params = waymark_action_completions_reconciler::writer::Params {
+        provider:
+            waymark_action_runtime_completions_aggregation::AggregateActionCallCompletionsProvider::new(
+                worker_pool_completions_provider,
+                lost_execution_completions_provider,
+            ),
         backend: Arc::clone(&backend),
         codec: Arc::clone(&codec),
     };
@@ -411,8 +421,8 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
     );
 
     // Pending request rows whose locks lapsed are relocked and their calls
-    // redelivered to the local pool: a resident VM owns the liveness of
-    // its action-call requests, whoever issued them.
+    // reported as lost executions: a resident VM owns the liveness of its
+    // action-call requests, whoever issued them.
     let (action_call_request_locker, action_effect_reconciler_lock_batcher_loop) =
         waymark_action_effect_reconciler::action_call_request::lock_batcher::run(
             Arc::clone(&backend),
@@ -454,20 +464,26 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
         let outcome_recorder = outcome_recorder.clone();
         let action_call_request_locks_tracker = Arc::clone(&action_call_request_locks_tracker);
         let action_call_request_locker = action_call_request_locker.clone();
+        let lost_execution_requester = lost_execution_requester.clone();
         move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
-            let action_call_requester = || {
-                let action_call_requester =
-                    waymark_action_runtime_worker_pool::WorkerPoolActionRequester::<
-                        _,
-                        _,
-                        waymark_vm_value_python::ReadyValue,
-                        waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
-                    >::new(worker_pool_requests.clone());
+            let action_call_requester =
+                waymark_action_runtime_worker_pool::WorkerPoolActionRequester::<
+                    _,
+                    _,
+                    waymark_vm_value_python::ReadyValue,
+                    waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
+                >::new(worker_pool_requests.clone());
+            let action_call_requester =
                 waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester {
                     vm_id: *vm_id,
                     action_call_requester,
-                }
-            };
+                };
+
+            let lost_execution_requester =
+                waymark_action_runtime_metadata_compat::WithVmIdActionCallRequester {
+                    vm_id: *vm_id,
+                    action_call_requester: lost_execution_requester.clone(),
+                };
 
             let (action_call_request_recheck_tx, action_call_request_recheck_rx) =
                 waymark_action_effect_reconciler::adopting_action_settler::recheck::new();
@@ -475,7 +491,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
                 recorder: request_recorder.clone(),
                 codec: Arc::clone(&codec),
                 vm_id: *vm_id,
-                requester: action_call_requester(),
+                requester: action_call_requester,
                 recheck: action_call_request_recheck_tx,
             };
             let action_settler = waymark_action_effect_reconciler::AdoptingActionSettler {
@@ -484,7 +500,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
                     *vm_id,
                     action_call_request_locker.clone(),
                     Arc::clone(&codec),
-                    action_call_requester(),
+                    lost_execution_requester,
                     Arc::clone(&action_call_request_locks_tracker),
                     action_call_request_recheck_rx,
                     action_effect_reconciler_lock_heartbeat,
