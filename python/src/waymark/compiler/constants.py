@@ -6,17 +6,23 @@ read is replaced by the literal itself, so `MAX = 5 * 6` and `MAX` used in a
 workflow compile exactly as `30` would: in expressions, in policies, and in
 every argument a handler requires to be a literal. The value is the one the
 global holds when the workflow compiles; how it was computed does not matter.
+Only immutable values are inlined: a list, dict or set is rejected, since
+each inlined read is its own copy and would not share mutations.
 """
 
 import ast
 import copy
 from collections.abc import Mapping, Set
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, overload
 
-from waymark.compiler.literals import is_literal_value, literal_expression
-
-Node = TypeVar("Node", bound=ast.AST)
+from waymark.compiler.diagnostics import reject
+from waymark.compiler.literals import (
+    has_interior_mutability,
+    is_literal_value,
+    literal_expression,
+)
+from waymark.compiler.recommendations import RECOMMENDATIONS
 
 
 def bound_names(function: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
@@ -48,21 +54,35 @@ def bound_names(function: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
 
 
 def static_value(value: Any) -> Any:
-    """The literal a global's value compiles to, or `NotImplemented` when it has none.
-
-    An enum member compiles to its value, as `Color.RED` does in workflow code.
-    """
-    if isinstance(value, Enum):
-        value = value.value
-    return value if is_literal_value(value) else NotImplemented
+    """The value a global compiles as: an enum member compiles to its value, as `Color.RED` does."""
+    return value.value if isinstance(value, Enum) else value
 
 
-def inline_static_globals(node: Node, namespace: Mapping[str, Any], bound: Set[str]) -> Node:
+FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
+
+
+@overload
+def inline_static_globals(
+    node: FunctionNode, namespace: Mapping[str, Any], bound: Set[str]
+) -> FunctionNode: ...
+
+
+@overload
+def inline_static_globals(
+    node: ast.expr, namespace: Mapping[str, Any], bound: Set[str]
+) -> ast.expr: ...
+
+
+def inline_static_globals(
+    node: FunctionNode | ast.expr, namespace: Mapping[str, Any], bound: Set[str]
+) -> FunctionNode | ast.expr:
     """Copy `node`, replacing each read of a static global with its literal.
 
     Names in `bound` are the function's own and are left alone, as are
     globals with no literal form, such as functions, classes and modules,
-    which handlers resolve by identity.
+    which handlers resolve by identity. A global holding a list, dict or set
+    is rejected: each inlined read would be a separate copy, so a mutation
+    through one would not show through the next.
     """
 
     class StaticGlobals(ast.NodeTransformer):
@@ -74,10 +94,17 @@ def inline_static_globals(node: Node, namespace: Mapping[str, Any], bound: Set[s
             ):
                 return current
             value = static_value(namespace[current.id])
-            if value is NotImplemented:
+            if has_interior_mutability(value):
+                reject(
+                    current,
+                    f"Module-level '{current.id}' holds a mutable {type(value).__name__}",
+                    RECOMMENDATIONS["mutable_global"],
+                )
+            if not is_literal_value(value):
                 return current
             return literal_expression(value, current)
 
     rewritten = StaticGlobals().visit(copy.deepcopy(node))
-    assert isinstance(rewritten, type(node))
+    # A bare name is itself replaced, by a literal of another expression type.
+    assert isinstance(rewritten, ast.expr if isinstance(node, ast.expr) else type(node))
     return rewritten

@@ -9,14 +9,24 @@ from waymark.proto import ast_pb2 as ir
 
 
 def is_literal_value(value: Any) -> bool:
-    """Whether `literal_expression` can write `value` as source literals."""
+    """Whether `value` is immutable and `literal_expression` can write it: a scalar or a tuple of them.
+
+    Lists and dicts are excluded even though they have a literal form: each
+    inlined copy is a fresh value, so a mutation through one read would not
+    show in the next, as it would in Python.
+    """
     if value is None or type(value) in (str, int, float, bool):
         return True
-    if type(value) in (list, tuple):
+    if type(value) is tuple:
         return all(is_literal_value(item) for item in value)
-    if type(value) is dict:
-        return all(type(key) is str and is_literal_value(item) for key, item in value.items())
     return False
+
+
+def has_interior_mutability(value: Any) -> bool:
+    """Whether `value` is, or a tuple holding, a list, dict or set."""
+    if type(value) in (list, dict, set):
+        return True
+    return type(value) is tuple and any(has_interior_mutability(item) for item in value)
 
 
 def literal_expression(value: Any, location: ast.expr) -> ast.expr:

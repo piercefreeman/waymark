@@ -21,7 +21,7 @@ BATCH_SIZE = 5 * 6
 PREFIX = "batch" + "-"
 DEFAULT_TIER = Tier.PAID
 ENABLED = True
-LIMITS = {"free": 10, "paid": BATCH_SIZE}
+TIER_LIMITS = (("free", 10), ("paid", BATCH_SIZE))
 STAGES = ("fetch", "score")
 limit = 999
 
@@ -38,7 +38,10 @@ class WorkflowModuleConstantsWorkflow(Workflow):
 
     async def run(self, count: int) -> list[str]:
         results = []
-        limit = LIMITS[DEFAULT_TIER]
+        limit = 0
+        for tier, tier_limit in TIER_LIMITS:
+            if tier == DEFAULT_TIER:
+                limit = tier_limit
         if ENABLED:
             for stage in STAGES:
                 label = PREFIX + stage

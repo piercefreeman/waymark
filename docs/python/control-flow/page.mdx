@@ -407,12 +407,14 @@ behavior is supported.
   as the value it holds when the workflow compiles, however that value was
   computed: `BATCH_SIZE = 5 * 6` reads as `30`, and an imported constant works
   the same way. That covers `None`, booleans, numbers, strings, enum members
-  (as their value), and lists, tuples and string-keyed dicts of these; a
-  `RetryPolicy` or `timedelta` global also works as a whole `retry=` or
-  `timeout=`. Exception classes resolve at compilation too. Pass other values
-  through workflow inputs or fetch them inside an action. A global rebound or
-  mutated after the workflow compiles keeps its compiled value, and one read
-  from the environment at import compiles per process.
+  (as their value), and tuples of these; a `RetryPolicy` or `timedelta` global
+  also works as a whole `retry=` or `timeout=`. Exception classes resolve at
+  compilation too. A global holding a list, dict or set raises a compilation
+  error: each read compiles to its own copy, so mutations would not be shared
+  as in Python. Use a tuple instead. Pass other values through workflow
+  inputs or fetch them inside an action. A global rebound after the workflow
+  compiles keeps its compiled value, and one read from the environment at
+  import compiles per process.
 
 ### Policies and exception handlers
 

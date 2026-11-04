@@ -8,6 +8,7 @@ RecommendationKey = Literal[
     "non_action_call",
     "sync_function_call",
     "policy_literal",
+    "mutable_global",
     "run_action_keywords",
     "duration_range",
     "except_type",
@@ -86,6 +87,13 @@ RECOMMENDATIONS: dict[RecommendationKey, str] = {
         "    timeout=timedelta(minutes=2)\n\n"
         "or define the policy as a module-level constant, or assign a literal to a self\n"
         "attribute once, at the top level of __init__, and pass self.<attribute>."
+    ),
+    "mutable_global": (
+        "A module-level value compiles as a copy at each read, so a list, dict or set\n"
+        "would not share mutations the way Python does. Use a tuple for a fixed\n"
+        "sequence, or pass the value through run() arguments.\n\n"
+        "Use:\n\n"
+        '    STAGES = ("fetch", "score")'
     ),
     "run_action_keywords": (
         "run_action() takes the awaitable plus retry= and timeout= only.\n\n"

@@ -3,7 +3,8 @@
 Regression: `RetryPolicy(attempts=AGENT_ATTEMPTS)` was rejected as "attempts
 must be an integer literal", forcing every call site to repeat the literal.
 Each global here compiles as the value it holds at compile time, however
-that value was computed.
+that value was computed. `RETRY_ON` is a list, which a workflow cannot read
+directly, but a `RetryPolicy` global built from it is a whole policy.
 """
 
 from datetime import timedelta
@@ -39,7 +40,6 @@ class ModuleConstantPoliciesWorkflow(Workflow):
             call_agent(value=value),
             retry=RetryPolicy(
                 attempts=AGENT_ATTEMPTS,
-                exception_types=RETRY_ON,
                 backoff_seconds=BACKOFF_SECONDS,
             ),
             timeout=TIMEOUT_SECONDS,

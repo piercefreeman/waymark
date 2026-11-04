@@ -14,8 +14,12 @@ import pytest
 
 from waymark.__tests__.compiler_test_helpers import compile_source
 from waymark.compiler.errors import UnsupportedPatternError
+from waymark.ir_builder import build_workflow_ir
 from waymark.proto import ast_pb2 as ir
-from waymark.workflow import RetryPolicy
+from waymark.workflow import RetryPolicy, Workflow
+
+MUTABLE_DEFAULTS = ["fetch"]
+MODULE_ATTEMPTS = 3
 
 
 class Tier(Enum):
@@ -61,19 +65,65 @@ def test_scalar_globals_compile_to_literals(value: object, expected: ir.Expr) ->
     assert expression == expected
 
 
-def test_container_globals_compile_to_container_literals() -> None:
-    function = compile_source(
-        "return [STAGES, LIMITS]",
-        namespace={"STAGES": ("fetch", "score"), "LIMITS": {"paid": 30}},
-    )
-    stages, limits = returned(function).list.elements
-    assert [element.literal.string_value for element in stages.list.elements] == [
-        "fetch",
-        "score",
+def test_tuple_globals_compile_to_sequence_literals() -> None:
+    function = compile_source("return STAGES", namespace={"STAGES": ("fetch", ("score", 2))})
+    stages = returned(function).list.elements
+    assert stages[0].literal.string_value == "fetch"
+    assert [element.literal for element in stages[1].list.elements] == [
+        ir.Literal(string_value="score"),
+        ir.Literal(int_value=2),
     ]
-    (entry,) = limits.dict.entries
-    assert entry.key.literal.string_value == "paid"
-    assert entry.value.literal.int_value == 30
+
+
+class Defaults(Enum):
+    STAGES = ["fetch"]
+
+
+@pytest.mark.parametrize(
+    ("value", "kind"),
+    [
+        (["fetch"], "list"),
+        ({"paid": 30}, "dict"),
+        ({"fetch"}, "set"),
+        (("fetch", ["score"]), "tuple"),
+        (Defaults.STAGES, "list"),
+    ],
+)
+def test_mutable_globals_are_rejected(value: object, kind: str) -> None:
+    """Regression: an inlined list was a fresh copy at each read.
+
+    `items = ITEMS; items.append(x); return ITEMS` returns the mutated list in
+    Python but the original in the VM, so a mutable global is rejected at its
+    read instead of compiling to diverging behavior.
+    """
+    with pytest.raises(UnsupportedPatternError, match=f"'ITEMS' holds a mutable {kind}") as error:
+        compile_source("items = ITEMS\nreturn items", namespace={"ITEMS": value})
+    assert isinstance(error.value, UnsupportedPatternError)
+    assert error.value.line == 2
+
+
+def test_unread_initializer_attributes_may_hold_mutable_globals() -> None:
+    """Only the attributes a workflow reads are inlined, so unrelated state still compiles."""
+
+    class Initialized(Workflow):
+        def __init__(self) -> None:
+            super().__init__()
+            self.cache = MUTABLE_DEFAULTS
+            self.attempts = MODULE_ATTEMPTS
+
+    class Example(Initialized):
+        async def run(self) -> int:
+            return self.attempts
+
+    (function,) = build_workflow_ir(Example).functions
+    assert function.body.statements[-1].return_stmt.value.literal.int_value == 3
+
+    class ReadsCache(Initialized):
+        async def run(self) -> list[str]:
+            return self.cache
+
+    with pytest.raises(UnsupportedPatternError, match="'MUTABLE_DEFAULTS' holds a mutable list"):
+        build_workflow_ir(ReadsCache)
 
 
 @pytest.mark.parametrize(
@@ -109,7 +159,7 @@ def test_policy_fields_read_globals() -> None:
         """,
         namespace={
             "ATTEMPTS": 1 + 2,
-            "RETRY_ON": ["ConnectionError"],
+            "RETRY_ON": ("ConnectionError",),
             "WAIT": 2.5,
             "TIMEOUT": 60 * 2,
         },

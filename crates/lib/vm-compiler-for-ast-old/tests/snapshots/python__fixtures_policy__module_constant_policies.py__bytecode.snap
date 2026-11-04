@@ -3,7 +3,7 @@ source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_policy/module_constant_policies.py
 ---
 fn main(input: [value], output: []):
-    a = @module_constant_policies.call_agent(value=value) [ConnectionError, TimeoutError -> retry: 2, backoff: 2.5s] [timeout: 2m]
+    a = @module_constant_policies.call_agent(value=value) [Exception -> retry: 2, backoff: 2.5s] [timeout: 2m]
     b = @module_constant_policies.call_agent(value=a) [ConnectionError, TimeoutError -> retry: 2] [timeout: 10m]
     __return_tmp_1__ = @module_constant_policies.call_agent(value=b) [Exception -> retry: 2, backoff: 2.5s] [timeout: 10m]
     return __return_tmp_1__
@@ -26,7 +26,7 @@ f1: [14 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     CoreSet(Jump { target_state: s1 })
   s1:
-    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["ConnectionError", "TimeoutError"]), exception_dst: Some(r3) }] })
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("call_agent"), args: [r0], resume: s4 })
   s2:
     PureSet(LoadConst { dst: r9, value: Int(2) })
