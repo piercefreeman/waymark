@@ -23,6 +23,7 @@ Python:
 - [Control Flow](https://waymark.sh/python/control-flow) - what a workflow body can contain, and its [known issues](https://waymark.sh/python/control-flow#known-issues)
 - [Retries & Timeouts](https://waymark.sh/python/retries) - per-call retry policies and timeouts
 - [Scheduled Workflows](https://waymark.sh/python/scheduling) - cron and interval schedules
+- [AI Agents](https://github.com/piercefreeman/waymark-ai) - wrapper around pydantic-ai for native agent declaration
 
 ## Usage with Python
 
