@@ -127,9 +127,9 @@ pub mod classes {
         mro_type_ids: &["Exception", "BaseException"],
     };
 
-    /// `ActionExecutionLost`: an action call the worker had when its
-    /// execution was lost - how far it got is unknown, it may have run to
-    /// completion.
+    /// `ActionExecutionLost`: an action call whose execution was lost,
+    /// with the worker running it or with the node that issued it - how
+    /// far it got is unknown, it may have run to completion.
     ///
     /// Derives from `BaseException` directly, like [`ACTION_TIMEOUT`] and
     /// for the same reason: retrying it is an explicit opt-in.

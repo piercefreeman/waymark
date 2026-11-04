@@ -39,10 +39,11 @@ class ActionTimeout(BaseException):
 class ActionExecutionLost(BaseException):
     """Proxy for the VM's ``ActionExecutionLost``; the real exception is defined in Rust.
 
-    The VM raises it when a worker had an action attempt and its execution
-    was lost. How far it got is unknown, it may have run to completion, so it
-    derives from ``BaseException`` directly like :class:`ActionTimeout` and
-    for the same reason: retrying it is an explicit opt-in.
+    The VM raises it when an action attempt's execution was lost, with the
+    worker running it or with the node that issued it. How far it got is
+    unknown, it may have run to completion, so it derives from
+    ``BaseException`` directly like :class:`ActionTimeout` and for the same
+    reason: retrying it is an explicit opt-in.
 
     Mirrors ``classes::ACTION_EXECUTION_LOST``.
     """
