@@ -14,11 +14,9 @@ export const sections = [
 
 # Why Waymark
 
-Background jobs in webapps are common enough that they deserve to be a
-primitive of your full-stack toolkit: next to the database, the
-backend, and the frontend. Without a first-class background-job primitive,
-you're stuck either making blocking requests to your API or spinning up
-ephemeral tasks that die during an unlucky container crash.
+An API request shouldn't have to wait for a long import, a batch of emails, or
+an agent run. Moving that work into a background task frees the request, but
+then you need to track what finished and recover when a process crashes.
 
 After a few years of running almost all of the available job libraries and
 services in production, I came away with a short list of things a
@@ -29,18 +27,17 @@ background-job library should provide:
 - Reasonable defaults that get you to product-market fit before you have to
   performance-tune anything.
 
-Nothing on the market quite balances these priorities. Waymark is built to.
+Waymark is built around those priorities.
 Today that language is Python; JavaScript is
 [planned](/javascript/nextjs).
 
 ## The pitch {{ id: 'pitch' }}
 
-A workflow is a durable definition: it defines how units of work
-relate to one another - what runs first, what runs in parallel, what
-happens when something fails. An action is a unit of distributed work: it
-runs in isolation with just its own context, so it can execute on any
-worker and be repeated safely on retry. You write both as ordinary code
-in a supported language; here they are in Python, the first one:
+A workflow defines what runs first, what runs in parallel, and what happens
+when something fails. An action does the work on a worker process. Its inputs
+and result are serialized so the workflow can save progress between calls.
+Actions may run again after a failure; you make their side effects safe to
+repeat. Write both in a supported language; this example uses Python:
 
 <CodeGroup>
 
@@ -71,10 +68,10 @@ class WelcomeEmailWorkflow(Workflow):
 
 </CodeGroup>
 
-Waymark compiles the workflow like you would a program in a language like
-Rust or C++ - in Python, from the AST of `run()`:
+Waymark compiles the workflow's control flow. For Python, it parses the syntax
+tree of `run()`:
 
-- each `await` on an action dispatches it to another machine
+- each `await` on an action dispatches it to a worker
 - the comprehension becomes a filter
 - the `asyncio.gather` a parallel fan-out
 
@@ -85,20 +82,18 @@ to workers, and records progress.
 
 ## Compile-once vs replay {{ id: 'compile-once-vs-replay' }}
 
-Replay-based engines like Temporal and Vercel Workflows treat your workflow
-function as the source of truth. To make recovery work, they re-run your code
-from the top on each step, returning cached results for already-completed
-activities. The price is determinism: you're not allowed to have any `random()`, `datetime.now()`, or
-side effects in the workflow body or call any functions that do. Get any of that wrong and your bug shows
-up at recovery time instead of registration time. If you have large workflows, this replay can
-also be slow to resume state.
+Replay-based engines recover by running workflow code again and using recorded
+results for completed work. That requires replayed code to make the same
+decisions as before; time, randomness, and side effects need special handling.
 
-Waymark inverts the tradeoff. Your code is compiled *once* - the first time the workflow
-is run or scheduled - into a program the runtime executes directly. We'll tell you the supported
-patterns and violations up front. Want
-non-determinism? That's exactly what an action is for. If it compiles with Waymark, it's guaranteed
-to work as you expect in production. The few patterns that still slip past the compiler are
-listed under [Known issues](/python/control-flow#known-issues) and are being closed.
+Waymark compiles a workflow the first time it is run or scheduled, then the
+runtime executes that program and saves its state directly. The tradeoff is a
+restricted set of supported language patterns. Network calls, randomness, and
+other work outside that set belong in actions.
+
+The compiler rejects unsupported patterns during registration, but it doesn't
+catch every case yet. [Known issues](/python/control-flow#known-issues) lists
+Python patterns that compile and then behave differently from Python.
 
 ## When to reach for Waymark {{ id: 'when-to-reach-for-waymark' }}
 
@@ -125,10 +120,9 @@ where a more specialized system is worth the operational cost.
 - You've already outgrown another task coordinator and you need the next 10×
   of headroom.
 
-Open-source brokers like RabbitMQ have decades of battle-testing, and hosted
-products like Temporal bundle SLA guarantees with their cloud packages.
-Both are great choices for those scopes. But they can bring significant setup,
-operational, and per-event-billing costs.
+For those workloads, compare systems built around a dedicated broker or a
+hosted workflow service. The extra operational work or service cost may be
+worth the capacity and support you need.
 
 ## Status {{ id: 'status' }}
 

@@ -1,7 +1,7 @@
 export const metadata = {
   title: 'Quickstart with Python',
   description:
-    'Install Waymark for Python, define your first workflow, and run it against a local Postgres in under five minutes.',
+    'Install Waymark for Python, define your first workflow, and run it against a local Postgres database.',
 }
 
 export const sections = [
@@ -16,13 +16,11 @@ export const sections = [
 
 # Quickstart with Python
 
-The best way to get a sense for Waymark is just to jump in. This quickstart uses the Python SDK
-and covers writing
-a super simple fibonacci calculator; obviously there's not a ton of practicality in making this
-a background job - but it's standalone and shows all of the key parts of the library.
+Run two calculations in parallel, then combine their results. The calculations
+are deliberately small: you can try a workflow without API keys or an existing
+application. You'll need Python, a package manager, and Docker for local Postgres.
 
-When you're ready to ship, [Production Deployment](/guides/production) covers the full
-instructions of what you'll need. With our simple runtime requirements it's not much else.
+For an existing deployment, see [Production Deployment](/guides/production).
 
 ## Install {{ id: 'install' }}
 
@@ -33,16 +31,15 @@ whichever package manager you prefer:
 uv add waymark
 ```
 
-This wheel ships with our Python library, which lets you write your workflows. It also ships with
-our rust backend which allows you to run your code: you can call this with `uv run waymark-executor`.
+The package includes the Python SDK for writing workflows and the Rust runtime
+that executes them. Start the runtime with `uv run waymark-executor`.
 
 ## Define a workflow {{ id: 'define-a-workflow' }}
 
-It's helpful to think of workflows as the coordination layer of your code, orchestrating
-from the top down. You connect the data flow of how you want the more atomic bits of code
-to run. We'll create the full workflow first here: run two computations in parallel, then merge their
-results into a summary. Save it, and the actions after it, in one file,
-`workflows.py`, at the root of your project.
+A workflow decides when actions run and how their results feed the next step.
+Here, it starts factorial and Fibonacci calculations together, then passes both
+results to a summary action. Save the workflow and the actions below in
+`workflows.py` at the root of your project.
 
 ```python
 import asyncio
@@ -65,14 +62,12 @@ class ParallelMathWorkflow(Workflow):
         )
 ```
 
-As with all workflows, this is fully native Python code that Waymark will later compile
-into its internal language. But you don't have to concern yourself with that translation.
-Just write the code as you normally do: flesh out the run() definitions and any helper
-methods with your logic in a `Workflow` class with its decorator, and the compiler tells
-you when something belongs in an action instead.
+Waymark compiles `run()` into a durable program. `asyncio.gather` starts the
+two actions in parallel; the next action waits for both results. The compiler
+requires `return_exceptions=True` here.
 
-The two computations are similarly plain async functions, each doing one isolated piece
-of work. Note the similar action decorator.
+The calculations themselves are ordinary async Python functions marked with
+`@action`. Each one runs in a worker.
 
 ```python
 from waymark import action
@@ -92,7 +87,7 @@ async def compute_fibonacci(n: int) -> int:
     return previous
 ```
 
-And the fan-in, which formats both results into the final summary:
+The summary action formats the two results:
 
 ```python
 @action
@@ -100,18 +95,14 @@ async def summarize(*, n: int, factorial_value: int, fibonacci_value: int) -> st
     return f"{n}! = {factorial_value}; fib({n}) = {fibonacci_value}"
 ```
 
-In practice, developing workflows is more organic than writing a workflow definition once
-and filling in all the actions. It's often a back and forth: sketch the workflow,
-stub the action signatures, fill in the implementations, reshape the
-workflow as the contracts firm up. The compiler keeps you honest the
-whole way - every time a process first runs or schedules the workflow,
-it re-verifies the workflow against what it can actually execute.
+You can change the workflow and actions together as you develop. The first
+time a process runs or schedules the workflow, Waymark compiles it and reports
+unsupported patterns.
 
 ## Setting up your env {{ id: 'setting-up-your-env' }}
 
-Before we run this fully we'll need a Postgres database and the variables that
-tell Waymark where to find it. For the sake of this quickstart guide you can use
-a throwaway Docker container with default credentials:
+Waymark stores queued work and progress in Postgres. Start a local database
+with these development credentials:
 
 ```bash
 docker run -d --name waymark-postgres \
@@ -130,13 +121,11 @@ export WAYMARK_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/waymar
 export WAYMARK_USER_MODULE=workflows  # or "yourpkg.workflows"
 ```
 
-Each worker imports an action's module itself when it first runs one of
-its actions, so `workflows.py` only has to be importable by the workers:
-from the directory you start `waymark-executor` in, as here, or installed in
-its environment. `WAYMARK_USER_MODULE` makes each worker import it at
-startup instead: an import error then stops `waymark-executor` from starting,
-after its 15 second worker attach timeout, rather than failing the first
-action.
+Start `waymark-executor` from the project root so its workers can import
+`workflows.py`. For an installed package, the module can live anywhere in that
+environment. `WAYMARK_USER_MODULE` loads it at worker startup; an import error
+then stops startup after the 15-second worker attach timeout. Without this
+setting, the worker imports the module on its first action call.
 
 ## Boot the node {{ id: 'boot-the-node' }}
 
@@ -201,10 +190,9 @@ async def compute(number: int) -> str:
 
 ## Conclusion {{ id: 'conclusion' }}
 
-And that's basically it! You can play around with adding `asyncio.sleep()`, stopping
-`waymark-executor` while it's still processing a job, and seeing everything resume when you
-start it again. Just like what you want in production when you're running longer jobs, agents, or
-long duration sleeps.
+To see recovery, add a positive `asyncio.sleep()` between workflow steps. Stop
+`waymark-executor` during the sleep and start it again. The workflow resumes
+from its saved state, including the original wake-up time.
 
 ## Where to look next {{ id: 'where-to-look-next' }}
 
@@ -219,8 +207,8 @@ long duration sleeps.
 - [Control Flow](/python/control-flow) covers what AST patterns the
   compiler supports - loops, conditionals, parallel fan-out, durable
   sleep, `try/except`.
-- [Retries & Timeouts](/python/retries) covers how to configure
-  resilience when actions flake.
+- [Retries & Timeouts](/python/retries) covers retry policies for failed calls
+  and deadlines for slow ones.
 - [Configuration](/guides/configuration) is the full reference for the
   `WAYMARK_*` environment variables you can set.
 - [Webapp](/guides/webapp) shows your runs as they happen; set

@@ -17,25 +17,20 @@ export const sections = [
 
 # Production Deployment
 
-A production Waymark deployment is three pieces: your application, one or
-more nodes, and Postgres. It should be basically plug and play with any stack: self-hosted
-or in the cloud. There's no broker to host, no scheduler service, no replay servers. Postgres
-holds every piece of shared state, and everything else is a stateless container you can
-kill and restart at will, outside an [upgrade](#upgrades).
+A production deployment needs your application, one or more Waymark nodes,
+and Postgres. The nodes run workflows and the scheduler; Postgres holds shared
+state. You can restart app and node containers independently, but version
+[upgrades](#upgrades) require downtime and a specific startup order.
 
 ## Topology {{ id: 'topology' }}
 
-- **Your app** is whatever serves traffic today - a web service, a
-  script, a cron job. It queues workflows when it wants to delegate processing to the job cluster. Its
-  language-specific SDK starts a `waymark-bridge` for it (the Python SDK
-  boots a singleton inside the container on first use), so the app needs
-  nothing beyond what the nodes have: a connection to the main database
-  and to the observability store, with the nodes' database and
-  observability-store settings, apart from the migrations URLs, which it
-  never reads, and the pool sizes, which each process budgets on its own (see
-  [Database connections](#database-connections)). The bridge never changes
-  the database schema, so its database role only needs to read and write
-  rows.
+- **Your app** queues workflows from a web service, script, or cron job.
+  Its language-specific SDK starts `waymark-bridge`; the Python SDK starts a
+  singleton on first use. Give it the same main database and observability-store
+  settings as the nodes. The bridge doesn't read migration URLs or change the
+  schema; its database role only needs to read and write rows. Budget its pool
+  sizes separately from the nodes' pools (see
+  [Database connections](#database-connections)).
 - **The node** is one container running `waymark-executor`. It runs your
   workflows, dispatches their actions to a pool of worker processes, and
   persists every step in Postgres. It also runs the
@@ -49,14 +44,14 @@ independently; only an [upgrade](#upgrades) needs an order.
 
 ## Migrations and upgrades {{ id: 'upgrades' }}
 
-The nodes migrate the database schema at startup and, with the HTTP
-server enabled, serve `/healthz` only once that is done. The bridge only
-checks the schema, and only when it starts: it waits for a migration in
-progress to finish, for up to `WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS`,
-then refuses to start unless the schema matches its own migrations
-exactly, neither older nor newer. A node with older migrations refuses
-the same way. The bridge's check of the observability store's schema
-works likewise, for up to
+Nodes migrate the database schema at startup. With HTTP enabled, `/healthz`
+becomes available after migration finishes.
+
+The bridge checks the schema only at startup. It waits up to
+`WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS` for an in-progress migration, then
+refuses to start unless the schema exactly matches its own migrations. An
+older node also refuses a newer schema. The bridge checks the observability
+store in the same way, using
 `WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_STATEMENT_TIMEOUT_MS`.
 
 On a new database, start the app once a node is healthy. Until then,
@@ -71,23 +66,22 @@ starts keeps no logs, so the error does not say why the bridge did not start
 ([#820](https://github.com/piercefreeman/waymark/issues/820)); to see
 the reason, run `waymark-bridge` by hand with the app's environment.
 
-To upgrade, stop every container that runs the app, every
-`waymark-bridge` wherever it runs (the SDK starts it as a process of its
-own, which outlives the app's), and every node, all at once rather than
-in a rolling update: neither a bridge nor a node that is already running
-checks the schema again. Then start the nodes on the new version, and
-start the app on the new version once a node is healthy. Your app is
-down for the whole upgrade. There is no going back: the old version
-refuses the migrated schema, so snapshot the database before you
-upgrade.
+Plan downtime for the whole upgrade. Running bridges and nodes don't recheck
+the schema, so a rolling update is not supported.
+
+1. Snapshot the database. The old version refuses the migrated schema, so you
+   cannot roll back by restarting the old containers.
+2. Stop every app container, bridge, and node. The SDK starts the bridge as a
+   separate process that can outlive the app; stop those processes too.
+3. Start the nodes on the new version and wait for a healthy node.
+4. Start the app on the same version.
 
 ## Share an image {{ id: 'one-image' }}
 
-Build a single image that contains your application code and Waymark's
-support for its language (in Python, the waymark package). They're both
-referencing the same underlying workflow and action code, so it makes sense
-for the image to have parity. The app and `waymark-executor` only need
-different commands in the entrypoint.
+Build one image containing your application and Waymark's support for its
+language (the `waymark` package for Python). Both the app and the node need the
+same workflow and action definitions; use a different startup command for
+each service.
 
 Run the node as a second container from your app's image, with
 `waymark-executor` as its command. If you don't have a Dockerfile yet, use
@@ -170,12 +164,13 @@ volumes:
 
 ## Production settings {{ id: 'production-settings' }}
 
-The defaults are tuned for a single host. Tuning in production is usually governed by:
+Start with the single-host defaults. Adjust these settings as you measure
+worker utilization and queued work:
 
 | Variable | What it controls |
 | --- | --- |
 | `WAYMARK_WORKER_COUNT` | Worker processes per node. Defaults to the CPUs available to the node, container CPU limits included, so the workers can saturate each core. |
-| `WAYMARK_CONCURRENT_PER_WORKER` | Concurrent actions per worker. Raise it for IO-bound actions like api requests. |
+| `WAYMARK_CONCURRENT_PER_WORKER` | Concurrent actions per worker. Raise it for I/O-bound actions such as API requests. |
 | `WAYMARK_MAX_CONCURRENT_INSTANCES` | Workflow instances one node holds at once. |
 | `RUST_LOG` | The node's log filter, e.g. `info` or `warn`. |
 
@@ -226,13 +221,14 @@ where nothing reads. See
 
 ## Logs, metrics and the webapp {{ id: 'observability' }}
 
-The node logs to standard output, filtered by `RUST_LOG`. It always
-serves a metrics endpoint on port `9118` (`METRICS_ADDR`): `/metrics` in
-the Prometheus format, and `/health`, which answers once the endpoint is
-up, before the migrations run, so it tells you the process is alive, not
-that the node is ready; readiness is `/healthz`. Setting
-`WAYMARK_HTTP_ENABLED=true` also serves the HTTP API, the
-[webapp](/guides/webapp) and `/healthz` on port `24119`.
+The node logs to standard output, filtered by `RUST_LOG`. It always serves
+`/metrics` in Prometheus format on port `9118` (`METRICS_ADDR`). That port's
+`/health` endpoint responds before migrations run: it checks liveness, not
+readiness.
+
+Set `WAYMARK_HTTP_ENABLED=true` to serve the HTTP API,
+[webapp](/guides/webapp), and `/healthz` on port `24119`. Use `/healthz` for
+readiness checks.
 
 <Note>
 Neither port has authentication, and both bind to `0.0.0.0` by default.
@@ -244,18 +240,15 @@ externally accessible.
 
 ## Scaling out {{ id: 'scaling-out' }}
 
-The first approach to scale is to run another node on a fresh box. Each
-node claims workflow instances through a lease in Postgres that it keeps
-refreshing, and a crashed node's leases expire (15 seconds by default)
-for another node to pick its instances up from their last persisted
-state. Your app tier
-scales the same way it always has - queueing a workflow is just a
-database write.
+To add capacity, run another node. Each node claims workflow instances through
+leases in Postgres and refreshes those leases while it works. After a crashed
+node's lease expires (15 seconds by default), another node can resume its
+instances from their last saved state. The app tier can scale independently;
+it queues workflows through Postgres.
 
-The same mechanism is what makes deploys safe, outside an
-[upgrade](#upgrades). When a node container is
-killed mid-run, its instances resume on another node from where they
-were. An action call that was in flight on the killed node is
+When a node container is killed mid-run, its instances resume on another node.
+Version [upgrades](#upgrades) still require the shutdown order above.
+An action call that was in flight on the killed node is
 redelivered by the node that resumes the workflow, so the action may run
 twice: make actions idempotent. A worker process dying or being recycled
 on a live node is the other case: the calls it was running fail with
@@ -286,9 +279,6 @@ closing its console, logging off or shutting Windows down terminates it
 after the system's own timeout, or at once during a shutdown already
 under way.
 
-When Postgres is the bottleneck, you'll see it in queue latency long
-before correctness suffers. Until then, one database is all the
-infrastructure Waymark asks for. On very large deployments, we've seen some users
-benefit from adding another separate Postgres service that just owns Waymark jobs.
-Either way you should also make sure that you've tuned Postgres properly, which
-we can also [help with](https://www.autopg.sh/).
+If queue latency grows, check Postgres load as well as worker capacity. A
+dedicated Postgres instance can separate Waymark's writes from application
+queries. For Postgres configuration help, see [Autopg](https://www.autopg.sh/).

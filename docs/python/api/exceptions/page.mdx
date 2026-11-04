@@ -48,13 +48,11 @@ as the unexpected case.
 
 ## VM runtime exceptions
 
-Proxies for the three exceptions the VM raises inside a workflow when an
-action attempt times out, is lost, or never starts. Nothing in this
-module matters at runtime: the real exceptions are defined in Rust and
-exist only in the VM, which matches them against `except` clauses by
-class name and bases. The classes exist so a workflow body can spell
-them in an `except` clause and so type hints have something to point at;
-Waymark never raises them in Python. The retry consequences are in
+These Python classes let you name the VM's timeout, lost-action, and
+never-started exceptions in workflow `except` clauses and type hints. The
+exceptions themselves are defined in Rust and raised inside the VM, which
+matches class names and base-class names. Waymark never raises these proxy
+classes in Python. For retry behavior, see
 [Retries & Timeouts](/python/retries#filtering-by-exception).
 
 ::: waymark.vm_exceptions.ActionTimeout

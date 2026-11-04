@@ -14,8 +14,8 @@ export const sections = [
 
 # Workflows & Actions
 
-Waymark has exactly two primitives for user code. Once you have a feel for
-the line between them, the rest of the system mostly falls out.
+Put work in actions and coordinate it in workflows. This split lets Waymark
+save progress between calls and retry an individual action when you ask it to.
 
 ## Two primitives {{ id: 'two-primitives' }}
 
@@ -31,7 +31,8 @@ themselves. A workflow is a class that subclasses `Workflow` and is
 decorated with `@workflow`. The class body has one method that matters,
 `run()`, and that body is what Waymark compiles into a durable program.
 
-A real example:
+The quickstart's math example uses three actions. Their implementations are
+omitted here so you can see how the workflow connects them:
 
 ```python
 import asyncio
@@ -64,9 +65,9 @@ class ParallelMathWorkflow(Workflow):
         )
 ```
 
-The `@workflow` body is the durable thing. The three `@action` calls are
-the distributed work. `gather` propagates failures; `return_exceptions=False`
-is optional. Collecting exceptions with `return_exceptions=True` is unsupported
+The runtime saves the workflow's progress between action calls. Workers execute
+the three actions. `gather` propagates failures; `return_exceptions=False` is
+optional. Collecting exceptions with `return_exceptions=True` is unsupported
 and rejected when the workflow is compiled.
 
 Running one looks like calling any other async function:
@@ -120,12 +121,11 @@ to IR - loops, conditionals, parallel `gather`, `try/except`, durable
 `sleep`, returns. Anything outside that vocabulary is rejected the first
 time the workflow is run or scheduled.
 
-The workflow body isn't replayed. Its state is persisted as it runs, and
-a workflow that resumes on another node continues from its last
-persisted state - nothing is re-run from the start. So unlike
-replay-based engines, there's no determinism rule to keep: the compiler
-accepts only instructions it can run safely, and side effects and I/O go
-into actions.
+The runtime persists state as the workflow runs. When another node resumes it,
+execution continues from the last saved state without replaying `run()` from
+the beginning. Side effects and I/O belong in actions, outside the compiled
+control flow. An action that was in flight during a node failure may run again;
+see [Production Deployment](/guides/production#scaling-out).
 
 Workflows can run on a cron or a fixed interval with
 [`schedule_workflow`](/python/scheduling), and can pause indefinitely

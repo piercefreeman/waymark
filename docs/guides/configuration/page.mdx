@@ -18,9 +18,9 @@ export const sections = [
 
 # Configuration
 
-Waymark is designed to run with almost no configuration: most deployments
-set `WAYMARK_DATABASE_URL` and never touch another variable. Everything
-else has a default tuned for a single-host deployment.
+Set `WAYMARK_DATABASE_URL` to connect Waymark to Postgres. The other variables
+have defaults for a single-host deployment; change them when your workload or
+network setup requires it.
 
 Configuration is entirely through environment variables. The runtime
 reads them directly from the process environment - there's no auto-loading
@@ -64,15 +64,14 @@ that needs it.
 
 ## Node advanced {{ id: 'node-advanced' }}
 
-These tune the node's worker bridge bind, its database timeouts and
-migrations connection, its leases and its polling. Every
-`*_STATEMENT_TIMEOUT_MS` is sent with each connection, so it wins over a
-`statement_timeout` set on the role, the database or in the DSN. Behind
-a connection pooler such as PgBouncer it arrives only if the pooler lets
-startup options through; otherwise the role's or the database's own
-setting applies. The defaults are well-chosen for a single-host deployment; you usually only
-reach for them once you're running multiple hosts and have a measured
-reason.
+These settings control worker connections, database timeouts, migrations,
+leases, and polling. Start with the defaults and adjust them for a measured
+bottleneck or a specific deployment requirement.
+
+Every `*_STATEMENT_TIMEOUT_MS` is sent with each connection and overrides
+`statement_timeout` on the role, database, or DSN. A pooler such as PgBouncer
+must pass those startup options through; otherwise the role or database
+setting applies.
 
 | Variable | Description | Default |
 | --- | --- | --- |
@@ -122,13 +121,12 @@ anything from the database.
 
 ## Observability {{ id: 'observability' }}
 
-The node records what it does into an observability store: events for
-every workflow instance, which the webapp's Workflows views read, and
-periodic samples of each node's load, which its Fleet view reads. With
-a database, the [bridge](#bridge) records there the workflows registered
-through it. The
-store gets its own schema and pools even when it shares the main
-database; the observability API reads from it over a separate read pool.
+The observability store holds workflow events for the webapp's Workflows view
+and node load samples for its Fleet view. When connected to a database, the
+[bridge](#bridge) also records workflow registrations there.
+
+The store has its own schema and connection pools even when it shares the main
+database. The observability API uses a separate read pool.
 
 | Variable | Description | Default |
 | --- | --- | --- |
@@ -155,12 +153,12 @@ deletes anything older; nothing else in the observability store expires.
 | `WAYMARK_ESSENTIAL_METRICS_RETENTION_MS` | How long node samples are kept. | `604800000` (7 days) |
 | `WAYMARK_ESSENTIAL_METRICS_RETENTION_SWEEP_INTERVAL_MS` | How often the samples retention sweep runs. | `600000` |
 
-Events and samples reach the store through two sinks. A sink fills one
-buffer while the others wait or are being written, and swaps a buffer out
-when it is full or its oldest item has waited for the max delay. The
-sinks are lossy: a batch that fails to write is dropped and counted,
-never retried. Buffers must be at least 2, and flushers at most one
-fewer than buffers.
+Events and samples use separate buffered writers, called sinks. Each sink
+fills one buffer while others wait or are written. It swaps out the buffer
+when full or when the oldest item reaches the maximum delay.
+
+Failed writes are counted and dropped, not retried. Configure at least two
+buffers and no more than one fewer flusher than buffers.
 
 | Variable | Description | Default |
 | --- | --- | --- |
@@ -175,31 +173,31 @@ fewer than buffers.
 
 ## Bridge {{ id: 'bridge' }}
 
-`waymark-bridge` is the gRPC server between your app and the Rust
-runtime; like the rest of the Rust code, it holds the support for every
-supported language. Most users never run this binary directly - a
-language-specific SDK starts it (the Python SDK boots a singleton bridge
-automatically on first workflow invocation) - but it can run as its own
-service (e.g., a sidecar container). The variables below apply to the
-bridge however it runs; when the nodes' values differ from the defaults,
-the app's environment carries them too. It needs a database the nodes have
-[migrated](/guides/production#upgrades), and a role that reads and
-writes rows. It reads the node's `WAYMARK_DATABASE_*` variables with
-defaults of its own, so in an environment both share, one setting
-applies to both.
+`waymark-bridge` connects your app to the Rust runtime over gRPC and serves
+the SDKs for all supported languages. The SDK starts the bridge; in Python,
+it starts a singleton on the first workflow invocation. You can also run it
+as a separate service, such as a sidecar container. The settings below apply
+in either case.
 
-With a database, the bridge also opens a write pool of its own to the
-[observability store](#observability), for its observability events: it
-records the executables registered through it. It never migrates the
-store: it checks the store's schema at startup the way it checks the
-main one, and refuses to start unless the nodes have migrated it exactly
-to the bridge's own migrations. With a separate store, every host that
-boots the bridge carries `WAYMARK_OBSERVABILITY_DATABASE_URL`; without
-it the bridge looks for the store in the main database and refuses to
-start. It reads every `WAYMARK_OBSERVABILITY_EVENTS_*` variable the
-nodes read and validates them at boot; only the sink ones take effect in
-it. Of the observability variables, the ones below apply to it, with the
-node's defaults.
+The bridge needs a database the nodes have
+[migrated](/guides/production#upgrades) and a role that can read and write rows.
+Put shared configuration overrides in both the app's and the nodes'
+environments. The bridge reads the same `WAYMARK_DATABASE_*` variables as the
+node, but some defaults differ. When they share an environment, an explicit
+value applies to both processes.
+
+With a database, the bridge records registered executables through its own
+write pool to the [observability store](#observability). It checks both schemas
+at startup and never migrates either one. The nodes must have migrated both
+to the exact version the bridge expects.
+
+For a separate observability store, set `WAYMARK_OBSERVABILITY_DATABASE_URL`
+on every host that starts a bridge. Without it, the bridge looks for the
+store in the main database and refuses to start.
+
+The bridge validates every `WAYMARK_OBSERVABILITY_EVENTS_*` variable the
+node reads, but only the `SINK_*` settings take effect. Its observability
+settings use the same defaults as the node.
 
 | Variable | Description | Default |
 | --- | --- | --- |

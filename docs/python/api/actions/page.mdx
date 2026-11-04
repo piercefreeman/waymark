@@ -1,13 +1,12 @@
 # Actions
 
-Actions are the distributed work primitive. An `@action`-decorated
-async function is registered in its process's action registry, under its
-module and its name - the function name, or `name=` if you pass one to
-the decorator - and gets dispatched to a worker each time a workflow
-calls it. Action arguments and results
-round-trip through Postgres, so anything you pass needs to survive
-Waymark's serializer - pydantic models, dataclasses, primitives,
-containers, and common stdlib types. See
+An `@action`-decorated async function runs on a worker when a workflow calls it.
+The decorator registers the function by module and name; `name=` overrides the
+function name.
+
+Arguments and results pass through Postgres, so use values Waymark can
+serialize: Pydantic models, dataclasses, primitives, containers, and common
+stdlib types. See
 [Inputs and outputs](/python/authoring) for the full list.
 
 ## Decorator
@@ -31,8 +30,8 @@ module and name, each time it's asked to run an action.
 Actions can declare dependencies the same way Mountaineer and FastAPI
 controllers do - via `Annotated[T, Depends(...)]` parameters. `Depends`
 is re-exported from `mountaineer-di`; the `Depend` documented below is
-its backward-compatible alias with the identical signature, so import
-`Depends` and read on.
+its backward-compatible alias with the identical signature. Use `Depends` in
+new code.
 
 ::: waymark.dependencies.Depend
 

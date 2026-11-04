@@ -17,12 +17,9 @@ export const sections = [
 
 # Scheduled Workflows
 
-Waymark workflows can run on a recurring cadence - a cron expression or a
-fixed interval - without any extra infrastructure. The scheduler is part
-of `waymark-executor`, which you already run. Schedules live in Postgres, so a
-schedule survives restarts of every component. They need the Postgres
-backend: a bridge running with `WAYMARK_BRIDGE_IN_MEMORY` refuses the
-schedule calls.
+Run a workflow on a cron expression or a fixed interval. The scheduler runs
+inside `waymark-executor`, and Postgres stores the schedules across restarts.
+A bridge running with `WAYMARK_BRIDGE_IN_MEMORY` refuses schedule calls.
 
 ## Schedule names {{ id: 'schedule-names' }}
 
@@ -190,6 +187,6 @@ check runs in Postgres, under a lock on the schedule's row, so two nodes
 racing to fire the same schedule are serialized and only one of them
 fires it.
 
-If you genuinely want concurrent runs (e.g., scrape multiple sources
+If you want concurrent runs (e.g., scrape multiple sources
 independently), set `allow_duplicate=True` when calling
 `schedule_workflow(...)`.

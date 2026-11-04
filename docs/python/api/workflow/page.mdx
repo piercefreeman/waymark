@@ -1,11 +1,11 @@
 # Workflow
 
 The `Workflow` base class is the durable control-flow primitive in
-Waymark. You subclass it and decorate the subclass with @workflow, which
+Waymark. Subclass it and decorate the subclass with `@workflow`, which
 registers it. The definition is compiled to Waymark's intermediate
 representation the first time the workflow is run or scheduled.
 
-Calling run(...) on an instance accepts two keyword arguments beyond
+Calling `run(...)` on an instance accepts two keyword arguments beyond
 your own inputs:
 
 - `_blocking=False` queues the workflow and returns its instance id
@@ -19,17 +19,17 @@ are filled in, and a missing required argument, an extra positional one
 or an unknown keyword raises `TypeError` before anything is queued. The
 `arguments` of `schedule_workflow(...)` bind the same way.
 
-A blocking run(...) raises `WorkflowFailedError` (whose `exception_value`
+A blocking `run(...)` raises `WorkflowFailedError` (whose `exception_value`
 is the exception the workflow raised) if the workflow fails. It waits as
 long as the workflow takes; it raises `TimeoutError` only if the server
 no longer knows the instance. Outside pytest, if the bridge shuts down
-while run(...) waits, run(...) raises `RuntimeError` (`wait_for_instance failed: …`,
+while `run(...)` waits, `run(...)` raises `RuntimeError` (`wait_for_instance failed: …`,
 carrying `the bridge is shutting down`); the workflow itself keeps
 running on the nodes. With `WAYMARK_SKIP_WAIT_FOR_INSTANCE` set,
-a blocking run(...) queues the workflow and returns `None` without
+a blocking `run(...)` queues the workflow and returns `None` without
 waiting.
 
-Under pytest, run(...) doesn't queue anything: it executes the workflow
+Under pytest, `run(...)` doesn't queue anything: it executes the workflow
 through a bridge started without Postgres, runs its actions in the test
 process, skips durable sleeps, and returns the result - so tests need no
 database or `waymark-executor`. `_blocking` and `WAYMARK_SKIP_WAIT_FOR_INSTANCE`

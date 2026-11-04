@@ -15,11 +15,10 @@ export const sections = [
 
 # Introduction to Python
 
-Waymark's conceptual model is the same in every language we target.
-Workflows are durable control flow, and actions are distributed work. This
-page covers the Python-specific bits: how arguments and return
-values get serialized, how dependency injection works, how the worker
-discovers your handlers.
+Python actions receive serialized inputs in a worker process. Their type hints
+tell the worker how to restore those inputs, and `Depends` supplies resources
+such as database sessions. The workflow coordinates those calls and keeps
+their results as durable state.
 
 If you haven't read it yet, the [Quickstart](/python/quickstart) is the fastest
 way to get a working setup, and
@@ -28,8 +27,9 @@ workflows and actions in more depth.
 
 ## Inputs and outputs {{ id: 'inputs-and-outputs' }}
 
-Actions and workflows might be run on different servers. So any values that you pass outside
-of a boundary need to be _serialized_ in a way that's safe to pass through Postgres.
+Actions and workflows can run on different servers. Waymark serializes the
+values passed between them so it can store those values in Postgres and send
+them to another process.
 
 Waymark's Python serializer handles most of the objects you'll use day to day: pydantic
 models, dataclasses, primitives, lists, tuples, sets and frozensets, dicts, enums,
@@ -66,10 +66,9 @@ async def fetch_users(request: FetchUsersRequest) -> FetchUsersResult:
     return FetchUsersResult(users=users, fetched_at=datetime.now(timezone.utc))
 ```
 
-This is the same shape FastAPI uses for request/response models. Pydantic helps both during
-development because it typehints the nested object, but also helps during production because
-Waymark will run its validators against your data to ensure that you're passing things
-as you intend them to be.
+These models work like FastAPI request and response models. Type checkers can
+inspect their fields during development, and the worker validates incoming
+data before passing it to the action.
 
 For tiny actions, plain types are fine:
 
@@ -81,15 +80,16 @@ async def compute_factorial(n: int) -> int:
 
 ## Type hints and validation {{ id: 'type-hints' }}
 
-Action signatures are type-hinted Python. Typehinters like ty, mypy, and pyright understand
-them as you'd expect. At runtime, the worker coerces incoming arguments
-toward the declared types before the handler runs: pydantic models are
-validated with `model_validate` (a malformed payload raises during the
-action attempt, not in your handler body), dataclasses are rebuilt
-field by field, containers are coerced element by element, and values
-like `datetime`, `UUID`, `Decimal` or `bytes` are restored from their
-serialized form. An argument without an annotation is passed through as
-received.
+Type checkers such as ty, mypy, and pyright can check action signatures.
+At runtime, the worker also uses those annotations to restore incoming values:
+
+- Pydantic models are validated with `model_validate`. A malformed payload
+  fails the action attempt before the handler body runs.
+- Dataclasses are rebuilt field by field; containers are coerced element by
+  element.
+- Types such as `datetime`, `UUID`, `Decimal`, and `bytes` are restored from
+  their serialized form.
+- An argument without an annotation is passed through as received.
 
 Workflow `run()` inputs are bound to the `run()` signature when you
 queue the workflow, and its defaults are filled in there. A misnamed or
@@ -114,9 +114,8 @@ async def send_email(
     return await emailer.send(to=to, subject=subject)
 ```
 
-`Depends` is smart enough to use functions that use nested dependencies, and allows you to
-recycle dependency injectors that you've already written for your FastAPI app. This includes
-database integrations, processors, caches layers, etc.
+Dependency providers can have dependencies of their own. You can reuse the
+providers from a FastAPI app, including database sessions and cached clients.
 
 A dependency is resolved per action invocation by the worker that
 runs it. That means the lifecycle of any per-request resource
@@ -131,20 +130,18 @@ inside an action and pass the result through.
 
 ## Async / await {{ id: 'async-await' }}
 
-Both actions and workflow `run()` methods are async. Waymark only
-dispatches async handlers: synchronous functions aren't supported as
-actions. They encourage implicit parallelism via threading (which itself is not truly
-parallel because of the GIL) and we would rather be explicit about when our functions yield.
+Both actions and workflow `run()` methods must be async. Waymark doesn't
+dispatch synchronous functions as actions.
 
 <Note>
-Async functions in Python are not "fair" in the conventional systems design sense. If you launch 100 asyncio tasks where each has a function that
-has no awaits, your interpreter will happily run each in sequence until completion. This is why Waymark has parallelism at the interpreter level where
-we bind things to each core. But still: you should use asyncio await maximally where you can.
+Declaring a function `async` doesn't make blocking work yield. A long
+calculation with no `await` can hold up other actions on the same worker's
+event loop. Use async I/O when available; Waymark also runs separate worker
+processes for parallel execution.
 </Note>
 
-If you have legacy sync code, wrap it inside an async action
-that calls `asyncio.to_thread(...)` to push the blocking work off the
-event loop. You control this logic to make it explicit in your architecture:
+For a blocking synchronous library, call `asyncio.to_thread(...)` inside the
+action to move that work off the event loop:
 
 ```python
 import asyncio
@@ -154,10 +151,9 @@ async def render_pdf(report: Report) -> bytes:
     return await asyncio.to_thread(_render_pdf_sync, report)
 ```
 
-Inside a workflow body, `await` on an action call is what tells the
-compiler to lower it to a dispatch instruction. Synchronous actions aren't recognized. We do support adding helper functions
-within the workflow class definition that let you factor a long run()
-into named steps.
+Inside a workflow, awaiting an action compiles to a dispatch instruction. You
+can also split a long `run()` into async helper methods on the workflow class.
+Their bodies follow the same compiler rules as `run()`.
 
 ```python
 @workflow
@@ -176,10 +172,8 @@ class OnboardUserWorkflow(Workflow):
         await enqueue_drip_campaign(profile.id)
 ```
 
-In addition to the conditional (if), loop (for and while) logic that makes up most
-logical flow, we also support asyncio primitives for dealing with asynchronous systems.
-`asyncio.gather(...)` and `asyncio.sleep(...)` are the two primary calls recognized as
-control-flow primitives by the compiler. See
+Use `asyncio.gather(...)` for parallel calls and `asyncio.sleep(...)` for durable
+waits. See
 [Control Flow](/python/control-flow) for the full list of supported
 patterns.
 
