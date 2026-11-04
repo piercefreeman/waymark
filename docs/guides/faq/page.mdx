@@ -22,19 +22,20 @@ questions that come after it.
 
 **Why compile the workflow instead of replaying it?**
 Replay-based engines - Temporal, DBOS, Restate, Inngest, Vercel
-Workflows - re-run your workflow function from the top on each step and
-return memoized results for the steps already done, so the body must be
-deterministic. Waymark compiles the body once into a program for its
-runtime, persists the program's state as it runs, and never executes the
-body again: a crashed workflow resumes from its last persisted instruction.
-See [Compile-once vs replay](/guides/motivation#compile-once-vs-replay).
+Workflow - re-run your workflow function from the top when it resumes
+or recovers and return memoized results for the steps already done, so
+the body must be deterministic. Waymark compiles the body once into a
+program for its runtime, persists the program's state as it runs, and
+never executes the body again: a crashed workflow resumes from its last
+persisted instruction. See
+[Compile-once vs replay](/guides/motivation#compile-once-vs-replay).
 
 **Isn't a compiled workflow body just a worse Python?**
 Yes, on purpose. The body is control flow: loops, branches, `gather`,
 `try/except`, durable sleep, returns. Formatting, clocks, randomness, and
 every library call belong in an action, which is ordinary Python. The
 compiler rejects what it cannot lower the first time the workflow is run
-or scheduled, so you find out at your desk. See
+or scheduled, typically locally, so you find out at your desk. See
 [Control Flow](/python/control-flow).
 
 **You say "if it compiles, it runs as written", but there is a list of
@@ -49,10 +50,11 @@ limitations](/python/control-flow#known-issues). Read both before
 writing a workflow.
 
 **What happens to running workflows when I change the workflow code?**
-A workflow version is, by default, the hash of its compiled body. An instance keeps
+A workflow version is the hash of its compiled body. An instance keeps
 the version it started on until it finishes; a new run compiles and uses
 the new body. Actions are different: they run whatever code the worker
-that picks them up has deployed. A schedule pins the version it was
+that picks them up has deployed, so keep action signatures compatible
+while old instances are in flight. A schedule pins the version it was
 registered with, so call `schedule_workflow(...)` again on deploy. See
 [What a schedule runs](/python/scheduling#what-a-schedule-runs).
 
@@ -72,7 +74,8 @@ Timeouts](/python/retries) and [Scaling out](/guides/production#scaling-out).
 **Does a timeout cancel the action?**
 No. The workflow moves on with an `ActionTimeout`, but nothing is sent
 to the worker, so the attempt may still be running there. That is why
-timeouts are retried only when a policy lists them by name, and why a
+timeouts are retried only when a policy lists them by name, or lists
+`"BaseException"`, and why a
 retried call must tolerate an earlier attempt still running. See
 [Timeouts](/python/retries#timeouts).
 
@@ -84,14 +87,13 @@ with no `attempts` budgets 100 retries. See
 [Retries & Timeouts](/python/retries).
 
 **Do my values arrive unchanged?**
-Between an action and the workflow, mostly: pydantic models and
-dataclasses become plain dicts inside the workflow body, tuples become
-lists, and some stdlib types lose their type, with a receiving
-parameter's annotation restoring only some of them. The list is at the
-bottom of [Runtime limitations](/python/control-flow#known-issues).
-Between actions, the
-serializer round-trips models, dataclasses and the common stdlib types;
-see [Introduction to Python](/python/authoring).
+Mostly. Every value an action returns passes through the workflow, and
+there pydantic models and dataclasses become plain dicts, tuples become
+lists, and some stdlib types lose their type; a receiving action's
+parameter annotation restores only some of them. The list is at the
+bottom of [Runtime limitations](/python/control-flow#known-issues), and
+[Introduction to Python](/python/authoring) lists the types the
+serializer handles.
 
 **How are exceptions matched?**
 By class name, along the exception's base classes, without the module:
@@ -115,18 +117,20 @@ cannot roll back, so snapshot the database first. See [Migrations and
 upgrades](/guides/production#upgrades).
 
 **Are the HTTP ports authenticated?**
-No. The metrics endpoint and the webapp both bind to `0.0.0.0` with no
-authentication. Keep them on a private network or firewall the nodes.
+No. The metrics port and, when enabled, the HTTP API and webapp port
+bind to `0.0.0.0` by default with no authentication. Keep them on a
+private network or firewall the nodes.
 See [Logs, metrics and the webapp](/guides/production#observability).
 
 **Why does my app start a `waymark-bridge` process?**
 The bridge is the gRPC server between an app and the runtime; the Python
-SDK boots one singleton per host on the first workflow call, shared by
-the app's processes, and it outlives them. It checks the schema and reads
-and writes rows, nothing more. Today it keeps no logs
+SDK boots one singleton per container, pod or host, whatever shares one
+localhost, on the first workflow call, shared by the app's processes,
+and it outlives them. It checks the schema and reads and writes rows,
+nothing more. Today it keeps no logs
 ([#820](https://github.com/piercefreeman/waymark/issues/820)); run
-`waymark-bridge` by hand with the app's environment to see why it did not
-start. See [Topology](/guides/production#topology).
+`waymark-bridge` by hand with the app's environment to see why it did
+not start. See [Topology](/guides/production#topology).
 
 **How many Postgres connections does it open?**
 Up to 33 per node and up to 14 per app host that queues workflows, with
@@ -144,8 +148,9 @@ retries. See [Scaling out](/guides/production#scaling-out).
 ## Scope and languages {{ id: 'scope' }}
 
 **How far does it scale?**
-To most applications well past product-market fit, on one Postgres. Out
-of scope: jobs that need sub-100 ms acknowledgement, tens of thousands of
+To product-market fit and beyond for most applications, up to what one
+Postgres can write. Out of scope: jobs that need sub-100 ms
+acknowledgement, tens of thousands of
 concurrent actions, and the next 10× after outgrowing another
 coordinator. See [When not to](/guides/motivation#when-not-to).
 
@@ -157,22 +162,23 @@ parts; the runtime and the Postgres persistence stay the same. See
 
 **Why a Rust runtime with language workers?**
 The runtime executes compiled programs, snapshots their state, and
-drives Postgres; none of that is language-specific, so it is written
-once in Rust. Each supported language contributes a compiler to Waymark
-IR and a worker that runs the actions. Adding a language touches those
-two parts only.
+drives Postgres; most of that is language-neutral, so it is written once
+in Rust. Each supported language contributes a compiler to Waymark IR, a
+worker that runs the actions, and the client side that registers and
+runs workflows, plus its value encoding. See the
+[Next.js Spec](/javascript/nextjs) for what the second language adds.
 
 **Can I use it in production?**
 Waymark is in early alpha and makes no backward-compatibility promise
-before 1.0.0, and every upgrade today is a stop-everything migration. Try it on a
-side project, and file an issue for any workflow that should compile but
-does not. See [Status](/guides/motivation#status).
+before 1.0.0, and every upgrade today is a stop-everything migration.
+Try it on a side project, and file an issue for any workflow that
+should compile but does not. See [Status](/guides/motivation#status).
 
 ## Numbers people ask about {{ id: 'numbers' }}
 
-| Question | Default |
+| Question | Value |
 | --- | --- |
-| How long until a crashed node's workflows are picked up? | 15 s (`WAYMARK_LOCK_TTL_MS`) |
+| How long until a crashed node's workflows are picked up? | Up to 15 s (`WAYMARK_LOCK_TTL_MS`) |
 | How late can a durable sleep, timeout or backoff wake? | Up to 250 ms (`WAYMARK_SLEEP_POLL_INTERVAL_MS`) |
 | Retry budget of a `RetryPolicy()` with no `attempts` | 100 retries |
 | Postgres connections per node / per app host | up to 33 / up to 14 |
