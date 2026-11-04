@@ -15,11 +15,9 @@ export const sections = [
 
 # Webapp
 
-Waymark ships a webapp inside `waymark-executor`. There's nothing to install
-and nothing to wire up: the same process that runs your workflows serves
-it, next to the HTTP API it reads from. Use it to see which workflow
-instances are running, waiting or stuck, follow one instance call by
-call, and watch how loaded your nodes are.
+The webapp bundled with `waymark-executor` shows workflow progress and node
+load. Use it to find a stuck run, inspect its action calls, or check whether
+workers are keeping up with queued work.
 
 ## Enable it {{ id: 'enable-it' }}
 
@@ -42,33 +40,32 @@ proxy.
 
 ## What it shows {{ id: 'what-it-shows' }}
 
-The webapp is a read-only view of what the nodes record: an event for
-every step of every workflow instance, and a periodic load sample from
-every node. It shows those facts and nothing it would have to guess:
+The webapp reads recorded workflow events and node load samples. Some details
+are unavailable or inferred:
 
 - **No arguments, results or exception messages.** They aren't recorded,
   so the webapp says "Not recorded" rather than showing an empty value.
   An exception appears by its type only.
-- **No workflow names.** They aren't recorded either. An instance is
-  shown by a short id and, as a hint, the first action it called.
+- **Workflow names come from registration.** When a name wasn't recorded,
+  the workflow is identified by its id.
 - **Retries are inferred.** Attempt numbers aren't recorded; a call that
   repeats an earlier one is marked as an inferred retry.
 - **No controls.** There's no requeue, cancel or schedule management.
   Manage schedules with the [scheduling API](/python/scheduling).
 
-Everything live is polled every few seconds, and every view shows how
-fresh its data is. The global bar picks the time window (15 minutes to
-24 hours) and pauses live updates.
+Views refresh every few seconds and show how fresh their data is. Workflow
+time and state filters are in the search dropdown. The Fleet view has its own
+time window control.
 
 ## Instances {{ id: 'instances' }}
 
-The home view lists the workflow instances active in the time window,
-trouble first. Each row shows the instance's state, the first action it
-called, its short id, a one-line summary of what it's doing right now
-(running an action, sleeping until a time, or the exception it stopped
-on), the node running it, a small timeline of its life, and how long it
-has been going. Filter by state, or search by instance id, node id or
-state; selecting a row opens a summary panel beside the list.
+The Workflows view lists instances in the selected time window, with problems
+first. Each row shows the state, workflow name and id, current activity,
+timeline, and elapsed time.
+
+Search by workflow name, instance id, node id, or state. Select a row to open a
+preview. Pausing the list holds its rows in place while their workflow details
+continue to update.
 
 An instance's state is derived from its events, and the rule behind each
 state is shown when you hover it:
@@ -89,20 +86,19 @@ to the state instead.
 
 ## Instance detail {{ id: 'instance-detail' }}
 
-Open an instance for its whole story. A waterfall shows every action
-call and sleep as a bar from the moment it was issued to the moment it
-settled - so a bar includes the time spent queued - grouped by the runs
-that drove the instance, with persisted snapshots and inferred retries
-marked. Select a call to see its own events. Alongside are the raw event
-log, where any gap in the recorded events is shown as one, and the list
-of runs with the reason each one stopped.
+The detail view shows action calls and sleeps on a timeline, grouped by run.
+Each bar spans the time from dispatch to completion, including time queued
+for a worker. Saved snapshots and inferred retries are marked.
+
+Select a call to inspect its events. The page also includes the raw event log,
+gaps in that log, and the reason each run stopped.
 
 ## Fleet {{ id: 'fleet' }}
 
 The Fleet view shows load across your nodes: action calls in flight
 against total worker capacity, calls queued for a worker slot (with the
 95th percentile wait), completions per second, and action handling time.
-Below are one row per node boot and charts of in-flight and queued calls
+Below are rows for each node boot and charts of in-flight and queued calls
 over the time window. When you're deciding whether to add nodes or raise
 `WAYMARK_CONCURRENT_PER_WORKER`, these are the numbers to look at.
 

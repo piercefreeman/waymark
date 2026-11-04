@@ -15,14 +15,13 @@ export const sections = [
 
 # Retries & Timeouts
 
-Background tasks fail. Sometimes they raise; sometimes they hang. Waymark
-gives you a single place to express how each action should respond to
-either failure mode, applied per call.
+Use a retry policy when an action may succeed on another attempt. Add a timeout
+when a slow or stuck call should stop holding up the workflow. Both settings
+apply to an individual action call.
 
 ## Default behavior {{ id: 'default-behavior' }}
 
-If you don't configure anything, you get conservative defaults that
-mirror how a regular program would execute:
+Without a retry policy or timeout:
 
 - A bare `await some_action(...)` runs the action **once**. If it raises,
   the failure propagates out of the workflow. No automatic retries.
@@ -53,8 +52,8 @@ class FlakyApiWorkflow(Workflow):
 
 `RetryPolicy(attempts=N)` is total executions - five attempts means up to
 four retries after the initial try. `RetryPolicy()` with no `attempts`
-defaults to a generous budget of 100 retries (101 attempts in all),
-suitable for external calls that you really expect to succeed eventually.
+defaults to 100 retries (101 attempts in all). Set `attempts` explicitly when
+you need a smaller budget.
 
 ## Filtering by exception {{ id: 'filtering-by-exception' }}
 
@@ -161,8 +160,8 @@ await self.run_action(
 )
 ```
 
-This keeps a hung downstream system from silently consuming your whole
-retry budget unless you've decided that's what you want.
+Because a timeout doesn't cancel the original attempt, this policy can create
+overlapping attempts. The action must tolerate being called more than once.
 
 ## How retries and timeouts combine {{ id: 'what-is-enforced-today' }}
 

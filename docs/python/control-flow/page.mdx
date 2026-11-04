@@ -83,8 +83,8 @@ The comprehension element can be an `@action` call or a workflow helper
 method - `*[self.process(item) for item in items]` fans out one helper
 call per item, and each helper can await actions internally.
 
-Empty spreads are handled correctly - a `gather` over an empty list
-produces an empty result without dispatching any action invocations.
+A `gather` over an empty list returns an empty result without dispatching any
+actions.
 
 ## Conditionals {{ id: 'conditionals' }}
 
@@ -120,8 +120,7 @@ class GuardFallbackWorkflow(Workflow):
 
 ## Loops {{ id: 'loops' }}
 
-`for` loops process items one at a time and accumulate results. The
-accumulator pattern works as expected:
+Use a `for` loop to process items one at a time and append each result:
 
 ```python
 @workflow
@@ -134,8 +133,8 @@ class LoopProcessingWorkflow(Workflow):
         return await build_loop_result(items, processed)
 ```
 
-`while` loops compile too, with `break` and `continue` working the way
-you'd expect:
+Use a `while` loop when the next action depends on a condition. `break` and
+`continue` are also supported.
 
 ```python
 @workflow

@@ -1,9 +1,8 @@
 # Retry Policy
 
 `RetryPolicy` configures how Waymark responds when an action raises an
-exception. It's passed to `Workflow.run_action(...)` per call. See the
-[Retries & Timeouts guide](/python/retries) for the conceptual
-walk-through; this page is the precise API surface.
+exception. Pass it to `Workflow.run_action(...)` for each call that needs
+retries. The [Retries & Timeouts guide](/python/retries) shows examples.
 
 Semantics to know:
 

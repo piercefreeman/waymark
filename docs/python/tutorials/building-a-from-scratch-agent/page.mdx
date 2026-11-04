@@ -16,37 +16,29 @@ export const sections = [
 
 # Building an Agent From Scratch
 
-You can't go two minutes online without hearing about agents or agentic workflows.
+A support agent needs to answer questions it can't resolve from a prompt alone:
+where is this order, and can it be refunded? Give the model functions it can ask
+to call, run those functions, and send their results back. Keep going until the
+model has an answer. That's the agent loop.
 
-Agents are actually dead simple conceptually. You give it a first message,
-the model returns either a message or a request to call a function. When it
-asks for a function, you execute that function and return the
-results. The loop continues and now you have a (potentially) infinite
-loop where your system can learn from past mistakes, adjust its
-approaches, ask for more data, etc.
+The interesting decisions are which tools you expose and what their results tell
+the model. We'll build that loop directly, using small, fake order tools so we
+can focus on the conversation and the workflow.
 
-That's literally it. But because of how they're trained and how generic you can
-make these functions, they can be incredibly powerful. The magic is in which
-tools you expose and how cleanly you format the results.
-
-This tutorial builds the smallest useful agent with Waymark. By the end of it you'll
-have a complete agent from scratch. And because you're building it with Waymark, you'll inherit Waymark's
-guarantees: every model call and tool call is persisted, so if a node crashes mid-run the agent
-resumes from its last step on another node, and the calls you give a retry policy are retried
-instead of failing your job. This is exactly what billion-dollar companies are doing today. Let's jump into it!
+Waymark persists the workflow's progress between model and tool calls. If a
+node crashes, another node resumes from the last saved state. A call that was
+in flight may run again, so real tools with side effects need to be safe to
+repeat (idempotent).
 
 ## Setting up your environment {{ id: 'setting-up-your-environment' }}
 
-If you haven't already set up Waymark locally, you might want to check out our [Quickstart guide](/python/quickstart)
-to get you running asap. This tutorial assumes you'll be writing this workflow into a new workflow file.
+Start with the [Quickstart guide](/python/quickstart) if you haven't run Waymark
+locally yet. Put this tutorial's workflow and actions in a new Python module.
 
 ## Stub the workflow {{ id: 'stub-the-workflow' }}
 
-In practice, sketching out your workflow is usually the best place to start. The puzzle
-pieces of your individual actions are intended to work together, so it's easier to
-think top down about how data will need to pass around your workflow.
-
-Start with the smallest possible workflow shell:
+Start with the workflow: it will own the conversation and decide when to call
+the model or a tool. The actions and data types will follow from what it needs.
 
 ```python
 from waymark import Workflow, workflow
@@ -57,13 +49,9 @@ class SupportAgentWorkflow(Workflow):
         pass
 ```
 
-This looks almost too small to be useful, but it gives us the right
-question: what does `run()` need to remember between model calls? For an
-agent, the answer is a message list.
-
-Now replace `pass` with the first model call. We'll start with a single loop
-of this conversation: sending a message to the server, getting back new model
-items, and keeping track of those items as part of the overall conversation.
+The model needs the conversation so far on every call. Keep that history in
+`run()` so it becomes part of the durable workflow state. For now, send the
+user's message once, append the returned items, and return any text answer.
 
 ```python diff
 @workflow
@@ -83,13 +71,9 @@ list and assign it, rather than handing the list to a helper method that mutates
 it - a mutation in one function doesn't reach a list held by another (see
 [Known issues](/python/control-flow#known-issues)).
 
-So far we're just keeping track of the conversation history. We're not actually _doing_
-anything as part of the conversation. Which is pretty boring! Let's look at building
-some functions (officially called tool calls) that will help.
-
-Let's add a helper for that next. If one of those items asks for a tool, the
-workflow dispatches the matching Waymark action and turns the result into the
-next tool result item.
+The model can also return a tool request. The workflow needs to dispatch it to
+the matching action and attach the call id to the result, so the model knows
+which request it answers.
 
 ```python diff
 @workflow
@@ -124,9 +108,9 @@ The tool's arguments go to the action as the plain dict the model produced; the
 worker validates it against the action's input model before the action runs - see
 [Type hints and validation](/python/authoring#type-hints).
 
-Now `run()` can become the actual agent loop. It's usually bad form to have a generic
-while True loop, but that's exactly what we want here. The model should keep looping forever
-until it decides it's done (or we break because we've exceeded some total calls or something).
+After a tool runs, send its result back to the model. A `while True` loop keeps
+the conversation going until the model returns a text answer. This example has
+no turn limit; add one before using it for open-ended requests.
 
 ```python diff
 @workflow
@@ -172,27 +156,20 @@ class SupportAgentWorkflow(Workflow):
         return tool_result
 ```
 
-Workflows often read like the English description of an agent. We ask the model what
-to do next. If it asks for a tool, run the tool, append the tool result item,
-and ask again. When the model returns a message instead of a tool request,
-return its content.
-
-At this point it's a good time to pause. You've just architected a workflow! But we'll keep on chugging
-and jump into the implementation of the models that we just assumed we had.
+`run()` owns the history. The model action returns new items, and the tool helper
+returns a result for `run()` to append. Neither needs to mutate a shared list.
+Now we can define the three kinds of item that pass between them.
 
 ## Messages and turns {{ id: 'messages-and-turns' }}
 
-The line we have in `run()` is this:
+The initial history contains the user's message:
 
 ```python
 messages: list[ModelItem] = [Message(role="user", content=message)]
 ```
 
-That line tells us the first type we need. Messages can be produced either
-by users or by the agents outputting some text.
-
-We try to keep these contracts boring. We emphasize type hints to make the state obvious when
-you inspect a run later. Start with the conversation message itself:
+A message records who spoke and what they said. The `kind` field lets the
+workflow distinguish text from tool requests and results.
 
 ```python
 from typing import Any, Literal
@@ -204,9 +181,8 @@ class Message(BaseModel):
     content: str
 ```
 
-A tool request is a separate typed object that requests to run one named
-tool with one set of arguments. It has more detailed parameters that define
-how to actually call the tool.
+A tool request names the function, supplies its arguments, and carries an id
+that we'll copy onto the result.
 
 ```python
 class ToolRequest(BaseModel):
@@ -216,8 +192,7 @@ class ToolRequest(BaseModel):
     arguments: dict[str, Any]
 ```
 
-Once a tool call is in-flight, we need to prepare the result values. These mostly
-just correlate the input requests with the output via a `tool_call_id` identifier.
+A tool result pairs that id with the text returned by the action.
 
 ```python
 class ToolResult(BaseModel):
@@ -230,22 +205,18 @@ class ToolResult(BaseModel):
 detail from the order system or billing system. Tool results often work
 well as JSON strings, but they can be normal text too.
 
-
-Now we can name the union that the workflow keeps in memory. A model-visible item
-is a normal message, a tool request, or a tool result.
+The durable history can contain any of these three item types:
 
 ```python
 ModelItem = Message | ToolRequest | ToolResult
 ```
 
-Any time we interact with the remote model we'll want it to be one of these three types.
-
 ## Tool actions {{ id: 'tool-actions' }}
 
-Tools are regular functions. They're basically the capabilities the model can ask for. Here we implement
-them as
-ordinary Waymark actions, so each invocation is persisted, visible to the
-runtime, and retried when you ask for it with a `RetryPolicy`.
+Each tool is a Waymark action with one Pydantic input model and a string result.
+The two order tools below return fixed responses; they don't query an order
+system or issue a refund. That keeps billing credentials and provider setup out
+of the agent loop we're building.
 
 ```python
 from waymark import action
@@ -277,26 +248,19 @@ async def unknown_tool(params: UnknownToolInput) -> str:
     return f"The tool {params.tool_name!r} is not available."
 ```
 
-Each exposed tool takes exactly one Pydantic model so we can reuse
-that model for validation and schema generation. At this point we have the key
-pieces of our _own_ business logic. Now we just need to wire up the scaffolding
-code to let you talk to a remote LLM.
-
-Note that you'll only have to prepare this next bit a single time across your project. What
-we just did is what makes the individual agent unique.
+The input models serve two purposes: the worker validates arguments against
+them, and we'll use them to tell the model what arguments each tool accepts.
+Changing the tools is how you adapt this agent to another job.
 
 ## Round trip the model {{ id: 'round-trip-the-model' }}
 
-We implement the model call lives in a separate action because it can fail in a myriad
-of ways: the API might be down, it might timeout, you might hit token pressure, etc. That's
-why the agent loop calls it through
-`self.run_action(..., retry=RetryPolicy(attempts=5, backoff_seconds=10))`: a failed call is
-retried after a ten-second wait instead of failing the run.
+The model request belongs in an action because it makes a network call.
+The loop gives it five attempts, with ten seconds between retries, to recover
+from failures such as a dropped connection.
 
-We first need to translate our local items into the message dictionaries the
-OpenAI client expects. This is provider-specific, so we waited until now to add
-it. Each item already knows what it represents, so give each one a small
-`to_remote_message()` method.
+The OpenAI client expects message dictionaries. Add a `to_remote_message()`
+method to each local item to translate its role, content, or tool call into
+that format.
 
 ```python diff
 +import json
@@ -345,18 +309,12 @@ class ToolRequest(BaseModel):
 +        }
 ```
 
-OpenAI's tool calling relies on JSON Schema to describe the arguments the model
-is allowed to produce for each tool. That is useful because it nudges the model's
-tool requests into the shape our code expects. But writing those schemas by hand
-is annoying, and worse, it creates duplicate bookkeeping: if you change a
-function's input model, you also have to remember to change the hand-written
-schema.
+The API also needs a JSON Schema for each tool's arguments. Writing a second
+description by hand would let it drift from the input model. Use Pydantic's
+`model_json_schema()` so the schema and validation share one definition.
 
-Instead, we can write a small `function_to_schema(...)` helper that finds the
-function's single type-hinted argument, then piggybacks on
-Pydantic's output. As long as each exposed tool takes one
-Pydantic value, the schema and runtime validation stay in sync. Let's enforce
-that in this parser code for now.
+`function_to_schema(...)` checks that the function takes exactly one Pydantic
+model, then uses that model's schema and the function's docstring.
 
 ```python
 import inspect
@@ -383,8 +341,9 @@ def function_to_schema(fn: Callable[..., Any]) -> dict[str, Any]:
     }
 ```
 
-Now we can implement the actual round trip logic. This will bundle up our messages, send them
-to the API, and wait for the tokens to finish generating so we get our next round of tool calls.
+`call_model(...)` sends the history and tool schemas, then translates the reply
+back into local items. `roundtrip_agent(...)` exposes that call as a Waymark
+action and returns only the new items.
 
 ```python
 from openai import AsyncOpenAI
@@ -427,10 +386,8 @@ async def roundtrip_agent(messages: list[ModelItem]) -> list[ModelItem]:
     return await call_model(messages, SUPPORT_TOOLS)
 ```
 
-The OpenAI Python
-client defaults to OpenAI (obviously), but most model providers expose an OpenAI-compatible
-API now, so the same client can point at them with `base_url` and `api_key`.
-Pays to be the first one to market.
+For a provider with an OpenAI-compatible API, configure the client with its
+`base_url` and `api_key`.
 
 ## Run it {{ id: 'run-it' }}
 
@@ -443,18 +400,17 @@ answer = await SupportAgentWorkflow().run(
 print(answer)
 ```
 
-That is the whole agent: model items, tool requests, tool result messages, next
-model call. Waymark makes the loop resumable; your tool design makes it useful.
+The model can now request the order lookup, read its result, and request a
+refund. Both tools still return fake data; the example makes no changes to an
+order system.
 
 ## Where to go next {{ id: 'where-to-go-next' }}
 
-There's a lot of power to building your loops like this. They're super inspectable and
-they keep the representation of agents as what they actually are: strings of messages that sometimes
-call tools. It's best to not abstract them too far away from the underlying language models that
-are generating tokens. Personally, we usually build agents with exactly this convention until they
-really grow unwieldy: at which point we'll refactor.
+Keep the loop explicit while you're changing tools and learning what the agent
+needs. You can see where every message comes from and which action produced
+each result.
 
-But sometimes it's helpful to add some additional abstractions on top to support more complex
-graph modeling or logging.
+If you already use Pydantic AI,
 [Durable Agents with Pydantic AI](/python/tutorials/durable-agents-with-pydantic-ai)
-builds the same pattern with Pydantic AI's `Agent`.
+explores the same pattern with its `Agent` abstraction. That tutorial currently
+has runtime blockers, noted at the top of the page.
