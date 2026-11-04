@@ -178,10 +178,13 @@ poller, so each one can wake up to one poll interval late -
 matters for short timeouts or backoffs.
 
 Every `RetryPolicy` field and every `timeout=` must be a literal in the
-workflow body, or the whole policy or the timeout a `self.` attribute
-assigned a literal once, at the top level of `__init__`: the
-compiler reads them from the source and rejects anything it cannot read
-at compile time with `UnsupportedPatternError`. The
+workflow body, a module-level constant, or the whole policy or the timeout
+a `self.` attribute assigned a literal once, at the top level of
+`__init__`. A constant compiles as the value it holds when the workflow
+compiles, so `AGENT_ATTEMPTS = 3` shared across call sites, or a
+`DEFAULT_RETRY = RetryPolicy(...)` passed as `retry=DEFAULT_RETRY`, both
+work. The compiler rejects anything it cannot read at compile time with
+`UnsupportedPatternError`. The
 [Control Flow guide](/python/control-flow#limitations) names the
 rejected forms.
 

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from types import FunctionType
 from typing import TYPE_CHECKING, Any, TypeVar
 
+from waymark.compiler.constants import bound_names, inline_static_globals
 from waymark.compiler.errors import UnsupportedPatternError
 from waymark.compiler.types import specialize, type_parameter_bindings
 from waymark.global_handlers import GLOBAL_HANDLERS
@@ -185,14 +186,15 @@ def extract_instance_attrs(workflow_cls: type["Workflow"]) -> InstanceAttrs:
                 literals.pop(nested_assignment[0], None)
                 ambiguous.add(nested_assignment[0])
 
+    lexical = {**init_method.__globals__, **inspect.getclosurevars(init_method).nonlocals}
+    init_locals = bound_names(function_def) | set(init_method.__code__.co_varnames)
     return InstanceAttrs(
-        literals,
-        ambiguous,
         {
-            **vars(builtins),
-            **init_method.__globals__,
-            **inspect.getclosurevars(init_method).nonlocals,
+            name: inline_static_globals(value, lexical, init_locals)
+            for name, value in literals.items()
         },
+        ambiguous,
+        {**vars(builtins), **lexical},
     )
 
 

@@ -79,13 +79,13 @@ RECOMMENDATIONS: dict[RecommendationKey, str] = {
         "        return some_function(x)"
     ),
     "policy_literal": (
-        "Every retry and timeout field must be a literal in the workflow body: the\n"
-        "compiler reads them from the source, not at runtime.\n\n"
+        "Every retry and timeout field must be a literal or a module-level constant:\n"
+        "the compiler reads them when the workflow compiles, not at runtime.\n\n"
         "Use:\n\n"
         '    retry=RetryPolicy(attempts=3, exception_types=["ConnectionError"], backoff_seconds=5)\n'
         "    timeout=timedelta(minutes=2)\n\n"
-        "or assign a literal to a self attribute once, at the top level of __init__, and\n"
-        "pass self.<attribute>."
+        "or define the policy as a module-level constant, or assign a literal to a self\n"
+        "attribute once, at the top level of __init__, and pass self.<attribute>."
     ),
     "run_action_keywords": (
         "run_action() takes the awaitable plus retry= and timeout= only.\n\n"

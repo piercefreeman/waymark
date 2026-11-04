@@ -287,3 +287,43 @@ class SpecializedLabelingWorkflow(LabelingWorkflow[str]):
 def test_specialized_generic_helpers_run() -> None:
     """Regression: helpers typed by a generic base's parameter were rejected as open generics."""
     assert asyncio.run(SpecializedLabelingWorkflow().run(labels=["a", "b"])) == ["a", "b"]
+
+
+BATCH_SIZE = 5 * 6
+LABEL_PREFIX = "batch-"
+STAGES = ("fetch", "score")
+STAGE_ATTEMPTS = 1 + 2
+STAGE_TIMEOUT = timedelta(minutes=1) * 2
+
+
+@workflow
+class ModuleConstantsWorkflow(Workflow):
+    async def run(self, count: int) -> list[str]:
+        labels = []
+        for stage in STAGES:
+            label = await self.run_action(
+                instant(LABEL_PREFIX + stage),
+                retry=RetryPolicy(attempts=STAGE_ATTEMPTS),
+                timeout=STAGE_TIMEOUT,
+            )
+            labels.append(label)
+        if count < BATCH_SIZE:
+            labels.append(LABEL_PREFIX + "size")
+        return labels
+
+
+def test_module_constants_run_as_their_values() -> None:
+    """Regression: module constants were rejected in policies and unbound at runtime.
+
+    Each global must reach the runtime as the value it held at compile time,
+    in expressions, loop iterables, conditions and policy fields alike.
+    """
+    assert asyncio.run(ModuleConstantsWorkflow().run(count=2)) == [
+        "batch-fetch",
+        "batch-score",
+        "batch-size",
+    ]
+    assert asyncio.run(ModuleConstantsWorkflow().run(count=BATCH_SIZE)) == [
+        "batch-fetch",
+        "batch-score",
+    ]

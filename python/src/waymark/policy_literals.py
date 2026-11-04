@@ -3,13 +3,16 @@
 import ast
 import inspect
 import math
+from collections.abc import Mapping
+from dataclasses import asdict
 from datetime import timedelta
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from waymark.call_binding import bind_call
 from waymark.compiler.ast import resolve_reference
 from waymark.compiler.context import CompilerContext
 from waymark.compiler.errors import UnsupportedPatternError
+from waymark.compiler.literals import literal_expression
 from waymark.compiler.recommendations import RECOMMENDATIONS, RecommendationKey
 from waymark.proto import ast_pb2 as ir
 from waymark.workflow import RetryPolicy
@@ -38,6 +41,15 @@ def _number_literal(node: ast.AST) -> Optional[int | float]:
     return None
 
 
+def _static_global(node: ast.expr, namespace: Mapping[str, Any]) -> Any:
+    """The value a bare name reads from the namespace the policy was written in, if any.
+
+    Globals with a literal form are already inlined; this reaches the policy
+    objects themselves, a `RetryPolicy` or a `timedelta`, which have none.
+    """
+    return namespace.get(node.id) if isinstance(node, ast.Name) else None
+
+
 # A sleep's wake time must fit the runtime's clock, which the sleep handlers
 # add the duration to. A literal past that range would compile and then
 # fail every run; the cap is a round figure far inside it.
@@ -56,16 +68,16 @@ class PolicyCompiler:
         for name, value in (("retry", retry), ("timeout", timeout)):
             if value is None:
                 continue
-            literal = self._policy_literal(value, name)
+            literal, namespace = self._policy_literal(value, name)
             if _is_none_literal(literal):
                 # An explicit None, inline or through a self attribute, is the
                 # parameter's default: no policy.
                 continue
             policy_bracket = ir.PolicyBracket()
             if name == "retry":
-                policy_bracket.retry.CopyFrom(self._parse_retry_policy(literal))
+                policy_bracket.retry.CopyFrom(self._parse_retry_policy(literal, namespace))
             else:
-                policy_bracket.timeout.CopyFrom(self._parse_timeout_policy(literal))
+                policy_bracket.timeout.CopyFrom(self._parse_timeout_policy(literal, namespace))
             action_call.policies.append(policy_bracket)
 
     def _policy_error(
@@ -79,8 +91,10 @@ class PolicyCompiler:
             col=node.col_offset,
         )
 
-    def _policy_literal(self, node: ast.expr, keyword: PolicyKeyword) -> ast.expr:
-        """The literal a policy keyword carries.
+    def _policy_literal(
+        self, node: ast.expr, keyword: PolicyKeyword
+    ) -> tuple[ast.expr, Mapping[str, Any]]:
+        """The literal a policy keyword carries, with the namespace it was written in.
 
         A `self.<attribute>` resolves to the literal assigned to it once, at
         the top level of `__init__`; one without such an assignment, or one
@@ -106,8 +120,8 @@ class PolicyCompiler:
                     "policy_literal",
                     node,
                 )
-            return literal
-        return node
+            return literal, self.context.instance_namespace
+        return node, self.context.namespace
 
     def _seconds_literal(self, node: ast.expr, what: str, positive: bool) -> float:
         """A number literal read as seconds, fractions included.
@@ -143,21 +157,26 @@ class PolicyCompiler:
             )
         return seconds
 
-    def _parse_retry_policy(self, node: ast.expr) -> ir.RetryPolicy:
+    def _parse_retry_policy(self, node: ast.expr, namespace: Mapping[str, Any]) -> ir.RetryPolicy:
         """Parse a RetryPolicy(...) literal into IR.
 
         Supports:
         - RetryPolicy(attempts=3)
         - RetryPolicy(attempts=3, exception_types=["ValueError"])
         - RetryPolicy(attempts=3, backoff_seconds=5)
+        - a global holding a RetryPolicy, read as the literal of its fields
 
         `node` is the literal itself: a `self.` attribute is resolved by the
         caller. Anything else is rejected: a field the compiler cannot read
         would otherwise silently take its default.
         """
+        static = _static_global(node, namespace)
+        if isinstance(static, RetryPolicy):
+            return self._retry_policy_fields(
+                {name: literal_expression(value, node) for name, value in asdict(static).items()}
+            )
         if not (
-            isinstance(node, ast.Call)
-            and resolve_reference(node.func, self.context.namespace) is RetryPolicy
+            isinstance(node, ast.Call) and resolve_reference(node.func, namespace) is RetryPolicy
         ):
             raise self._policy_error(
                 "retry= must be a RetryPolicy(...) literal", "policy_literal", node
@@ -177,11 +196,15 @@ class PolicyCompiler:
             ),
         )
 
+        return self._retry_policy_fields(bound.arguments)
+
+    def _retry_policy_fields(self, fields: Mapping[str, ast.expr]) -> ir.RetryPolicy:
+        """Read each RetryPolicy field from its literal; omitted ones take their defaults."""
         # RetryPolicy() defaults to a high retry cap when attempts is omitted.
         policy = ir.RetryPolicy(max_retries=DEFAULT_RETRY_POLICY_MAX_RETRIES)
         exception_types_listed = False
 
-        for name, value in bound.arguments.items():
+        for name, value in fields.items():
             if _is_none_literal(value):
                 # An explicit None is the field's default.
                 continue
@@ -252,7 +275,9 @@ class PolicyCompiler:
             col=node.col_offset,
         )
 
-    def _parse_timeout_policy(self, node: ast.expr) -> ir.TimeoutPolicy:
+    def _parse_timeout_policy(
+        self, node: ast.expr, namespace: Mapping[str, Any]
+    ) -> ir.TimeoutPolicy:
         """Parse a timeout literal into IR.
 
         `node` is the literal itself: a `self.` attribute is resolved by the
@@ -262,6 +287,7 @@ class PolicyCompiler:
         - timeout=60 (seconds, fractions included)
         - timeout=timedelta(seconds=30)
         - timeout=timedelta(minutes=2)
+        - a global holding a timedelta
 
         Anything else is rejected, as is a duration of zero or less.
         """
@@ -271,10 +297,11 @@ class PolicyCompiler:
             policy.timeout.seconds = self._seconds_literal(node, "timeout", positive=True)
             return policy
 
-        if (
-            isinstance(node, ast.Call)
-            and resolve_reference(node.func, self.context.namespace) is timedelta
-        ):
+        static = _static_global(node, namespace)
+        if isinstance(static, timedelta):
+            return self._timeout_seconds(static.total_seconds(), node)
+
+        if isinstance(node, ast.Call) and resolve_reference(node.func, namespace) is timedelta:
             if node.args:
                 raise self._policy_error(
                     "timedelta(...) in timeout= takes keyword arguments only",
@@ -308,15 +335,20 @@ class PolicyCompiler:
                 raise self._policy_error(
                     "timeout is outside the range timedelta can hold", "duration_range", node
                 ) from None
-            if seconds <= 0:
-                raise self._policy_error(
-                    "timeout must be more than zero seconds", "duration_range", node
-                )
-            policy.timeout.seconds = self._runnable_seconds(seconds, "timeout", node)
-            return policy
+            return self._timeout_seconds(seconds, node)
 
         raise self._policy_error(
             "timeout= must be a number literal or a timedelta(...) literal",
             "policy_literal",
             node,
         )
+
+    def _timeout_seconds(self, seconds: float, node: ast.expr) -> ir.TimeoutPolicy:
+        """A timedelta's duration as a timeout, rejecting one the runtime cannot sleep."""
+        if seconds <= 0:
+            raise self._policy_error(
+                "timeout must be more than zero seconds", "duration_range", node
+            )
+        policy = ir.TimeoutPolicy()
+        policy.timeout.seconds = self._runnable_seconds(seconds, "timeout", node)
+        return policy

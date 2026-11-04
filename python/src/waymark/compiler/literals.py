@@ -8,6 +8,17 @@ from waymark.compiler.errors import UnsupportedPatternError
 from waymark.proto import ast_pb2 as ir
 
 
+def is_literal_value(value: Any) -> bool:
+    """Whether `literal_expression` can write `value` as source literals."""
+    if value is None or type(value) in (str, int, float, bool):
+        return True
+    if type(value) in (list, tuple):
+        return all(is_literal_value(item) for item in value)
+    if type(value) is dict:
+        return all(type(key) is str and is_literal_value(item) for key, item in value.items())
+    return False
+
+
 def literal_expression(value: Any, location: ast.expr) -> ast.expr:
     """Build AST for primitive/container defaults; never invoke user factories or hooks."""
     if value is None or type(value) in (str, int, float, bool):

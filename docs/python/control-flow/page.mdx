@@ -403,16 +403,25 @@ behavior is supported.
   `class Base(Workflow, Generic[T])` reads `T` as `Prompt`, through
   intermediate bases too. A parameter no subclass specializes, or one declared
   only by the method itself, still raises a compilation error.
-- **Module-level values.** Enum members and exception classes resolve at
-  compilation. Pass other values through workflow inputs or fetch them inside
-  an action; arbitrary globals currently raise compilation errors.
+- **Module-level values.** A global the workflow never binds itself compiles
+  as the value it holds when the workflow compiles, however that value was
+  computed: `BATCH_SIZE = 5 * 6` reads as `30`, and an imported constant works
+  the same way. That covers `None`, booleans, numbers, strings, enum members
+  (as their value), and lists, tuples and string-keyed dicts of these; a
+  `RetryPolicy` or `timedelta` global also works as a whole `retry=` or
+  `timeout=`. Exception classes resolve at compilation too. Pass other values
+  through workflow inputs or fetch them inside an action. A global rebound or
+  mutated after the workflow compiles keeps its compiled value, and one read
+  from the environment at import compiles per process.
 
 ### Policies and exception handlers
 
 - **Retry and timeout policies.** Use `RetryPolicy(...)` with keyword
   literals for `retry`, and a number or `timedelta(...)` with literal
-  `seconds`, `minutes`, `hours` or `days` for `timeout`. A `self.` attribute
-  assigned one of these once at the top level of `__init__` also works.
+  `seconds`, `minutes`, `hours` or `days` for `timeout`. A module-level
+  constant counts as the literal it holds, in a single field or as the whole
+  policy. A `self.` attribute assigned one of these once at the top level of
+  `__init__` also works.
   Pass policies by keyword. Compilation errors include a variable, a call result,
   positional `RetryPolicy` arguments, a policy passed to `run_action`
   positionally, a `self.` attribute assigned more than once or under a

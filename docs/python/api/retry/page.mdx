@@ -23,8 +23,9 @@ Semantics to know:
 - Backoff and timeouts are woken by the node's sleep poller, so each
   can wake up to one `WAYMARK_SLEEP_POLL_INTERVAL_MS` (250 ms by
   default) late.
-- Field values must be literals in the workflow body, read from the AST
-  the first time the workflow is run or scheduled; the docstring below
+- Field values must be literals in the workflow body or module-level
+  constants, read the first time the workflow is run or scheduled; a
+  module-level `RetryPolicy` may also be passed whole. The docstring below
   states the rule, and the
   [Control Flow guide](/python/control-flow#limitations) names the forms
   the compiler rejects.

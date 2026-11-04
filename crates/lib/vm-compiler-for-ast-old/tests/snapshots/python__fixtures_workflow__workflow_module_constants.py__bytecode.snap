@@ -1,0 +1,76 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_workflow/workflow_module_constants.py
+---
+fn main(input: [count], output: []):
+    results = []
+    limit = {"free": 10, "paid": 30}["paid"]
+    if True:
+        for stage in ["fetch", "score"]:
+            label = "batch-" + stage
+            result = @workflow_module_constants.process(label=label, size=limit + count)
+            results = results + [result]
+            None
+    total = @workflow_module_constants.process(label="batch-" + "total", size=30 + count)
+    results = results + [total]
+    None
+    return results
+---
+f0: [15 registers]
+  s0:
+    PureSet(MakeList { dst: r1, items: [] })
+    PureSet(LoadConst { dst: r3, value: String("free") })
+    PureSet(LoadConst { dst: r4, value: Int(10) })
+    PureSet(LoadConst { dst: r5, value: String("paid") })
+    PureSet(LoadConst { dst: r6, value: Int(30) })
+    PureSet(MakeDict { dst: r7, entries: [DictEntry { key: r3, value: r4 }, DictEntry { key: r5, value: r6 }] })
+    PureSet(LoadConst { dst: r6, value: String("paid") })
+    PureSet(Index { dst: r2, object: r7, index: r6 })
+    PureSet(LoadConst { dst: r7, value: Bool(true) })
+    CoreSet(JumpIf { target_state: s2, cond: r7 })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    PureSet(LoadConst { dst: r6, value: String("batch-") })
+    PureSet(LoadConst { dst: r7, value: String("total") })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r5, a: r6, b: r7 } })
+    PureSet(LoadConst { dst: r6, value: Int(30) })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r7, a: r6, b: r0 } })
+    ExtCallSet(ActionCall { dst: r14, action_ref: TestActionRef("process"), args: [r5, r7], resume: s9 })
+  s2:
+    PureSet(LoadConst { dst: r7, value: String("fetch") })
+    PureSet(LoadConst { dst: r6, value: String("score") })
+    PureSet(MakeList { dst: r8, items: [r7, r6] })
+    PureSet(LoadConst { dst: r9, value: Int(0) })
+    PureSet(Length { dst: r10, src: r8 })
+    CoreSet(Jump { target_state: s3 })
+  s3:
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r6, a: r9, b: r10 } })
+    CoreSet(JumpIf { target_state: s4, cond: r6 })
+    CoreSet(Jump { target_state: s6 })
+  s4:
+    PureSet(Index { dst: r6, object: r8, index: r9 })
+    PureSet(Copy { dst: r11, src: r6 })
+    PureSet(LoadConst { dst: r6, value: String("batch-") })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r12, a: r6, b: r11 } })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r6, a: r2, b: r0 } })
+    ExtCallSet(ActionCall { dst: r13, action_ref: TestActionRef("process"), args: [r12, r6], resume: s7 })
+  s5:
+    PureSet(LoadConst { dst: r6, value: Int(1) })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r9, a: r9, b: r6 } })
+    CoreSet(Jump { target_state: s3 })
+  s6:
+    CoreSet(Jump { target_state: s1 })
+  s7:
+    CoreSet(Await { dst: r13, src: r13, resume: s8 })
+  s8:
+    PureSet(MakeList { dst: r6, items: [r13] })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r6 } })
+    PureSet(LoadConst { dst: r6, value: None })
+    CoreSet(Jump { target_state: s5 })
+  s9:
+    CoreSet(Await { dst: r14, src: r14, resume: s10 })
+  s10:
+    PureSet(MakeList { dst: r7, items: [r14] })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r7 } })
+    PureSet(LoadConst { dst: r7, value: None })
+    CoreSet(Return { src: r1 })

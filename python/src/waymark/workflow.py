@@ -68,11 +68,12 @@ class RetryPolicy:
             included; zero means no backoff, and a negative or one above 100
             years is rejected at compile time.
 
-    Every field must be a literal in the workflow body: the workflow compiler reads
-    them from the AST at registration and rejects anything it cannot read. The
-    whole policy may instead be a ``self.`` attribute assigned a literal
-    ``RetryPolicy(...)`` once, at the top level of ``__init__``; one assigned more
-    than once or under a branch is rejected too. Pass it by keyword: a policy
+    Every field must be a literal in the workflow body or a module-level constant,
+    read as the value it holds when the workflow compiles: the workflow compiler
+    reads them at registration and rejects anything it cannot read. The whole
+    policy may instead be a module-level ``RetryPolicy``, or a ``self.`` attribute
+    assigned a literal ``RetryPolicy(...)`` once, at the top level of ``__init__``;
+    one assigned more than once or under a branch is rejected too. Pass it by keyword: a policy
     passed to ``run_action`` positionally is rejected as well.
     """
 
