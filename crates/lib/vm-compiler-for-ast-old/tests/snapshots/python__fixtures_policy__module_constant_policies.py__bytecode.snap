@@ -1,0 +1,110 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_policy/module_constant_policies.py
+---
+fn main(input: [value], output: []):
+    a = @module_constant_policies.call_agent(value=value) [Exception -> retry: 2, backoff: 2.5s] [timeout: 2m]
+    b = @module_constant_policies.call_agent(value=a) [ConnectionError, TimeoutError -> retry: 2] [timeout: 10m]
+    __return_tmp_1__ = @module_constant_policies.call_agent(value=b) [Exception -> retry: 2, backoff: 2.5s] [timeout: 10m]
+    return __return_tmp_1__
+---
+f0: [4 registers]
+  s0:
+    CoreSet(Call { dst: r1, function_id: f1, args: [r0] })
+    CoreSet(Await { dst: r1, src: r1, resume: s1 })
+  s1:
+    CoreSet(Call { dst: r2, function_id: f2, args: [r1] })
+    CoreSet(Await { dst: r2, src: r2, resume: s2 })
+  s2:
+    CoreSet(Call { dst: r3, function_id: f3, args: [r2] })
+    CoreSet(Await { dst: r3, src: r3, resume: s3 })
+  s3:
+    CoreSet(Return { src: r3 })
+f1: [14 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: Int(0) })
+    PureSet(LoadConst { dst: r2, value: Int(1) })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("call_agent"), args: [r0], resume: s4 })
+  s2:
+    PureSet(LoadConst { dst: r9, value: Int(2) })
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r10, a: r1, b: r9 } })
+    CoreSet(JumpIf { target_state: s3, cond: r10 })
+    ExcSet(Raise { src: r3 })
+  s3:
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
+    PureSet(LoadConst { dst: r11, value: Float(NonNaNFinite(2.5)) })
+    ExtCallSet(Sleep { dst: r12, duration: r11, resume: s8, unskippable: false })
+  s4:
+    PureSet(LoadConst { dst: r5, value: Int(120) })
+    ExtCallSet(Sleep { dst: r6, duration: r5, resume: s6, unskippable: true })
+  s5:
+    ExcSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Return { src: r7 })
+  s6:
+    CoreSet(Select { arms: [SelectArm { src: r4, dst: r7, resume: s5 }, SelectArm { src: r6, dst: r8, resume: s7 }] })
+  s7:
+    ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
+  s8:
+    CoreSet(Await { dst: r13, src: r12, resume: s9 })
+  s9:
+    CoreSet(Jump { target_state: s1 })
+f2: [11 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: Int(0) })
+    PureSet(LoadConst { dst: r2, value: Int(1) })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["ConnectionError", "TimeoutError"]), exception_dst: Some(r3) }] })
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("call_agent"), args: [r0], resume: s4 })
+  s2:
+    PureSet(LoadConst { dst: r9, value: Int(2) })
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r10, a: r1, b: r9 } })
+    CoreSet(JumpIf { target_state: s3, cond: r10 })
+    ExcSet(Raise { src: r3 })
+  s3:
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
+    CoreSet(Jump { target_state: s1 })
+  s4:
+    PureSet(LoadConst { dst: r5, value: Int(600) })
+    ExtCallSet(Sleep { dst: r6, duration: r5, resume: s6, unskippable: true })
+  s5:
+    ExcSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Return { src: r7 })
+  s6:
+    CoreSet(Select { arms: [SelectArm { src: r4, dst: r7, resume: s5 }, SelectArm { src: r6, dst: r8, resume: s7 }] })
+  s7:
+    ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
+f3: [14 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: Int(0) })
+    PureSet(LoadConst { dst: r2, value: Int(1) })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    ExcSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, pattern: Classes(["Exception"]), exception_dst: Some(r3) }] })
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("call_agent"), args: [r0], resume: s4 })
+  s2:
+    PureSet(LoadConst { dst: r9, value: Int(2) })
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r10, a: r1, b: r9 } })
+    CoreSet(JumpIf { target_state: s3, cond: r10 })
+    ExcSet(Raise { src: r3 })
+  s3:
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r2 } })
+    PureSet(LoadConst { dst: r11, value: Float(NonNaNFinite(2.5)) })
+    ExtCallSet(Sleep { dst: r12, duration: r11, resume: s8, unskippable: false })
+  s4:
+    PureSet(LoadConst { dst: r5, value: Int(600) })
+    ExtCallSet(Sleep { dst: r6, duration: r5, resume: s6, unskippable: true })
+  s5:
+    ExcSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Return { src: r7 })
+  s6:
+    CoreSet(Select { arms: [SelectArm { src: r4, dst: r7, resume: s5 }, SelectArm { src: r6, dst: r8, resume: s7 }] })
+  s7:
+    ExcSet(RaiseConst { exception: ConstException { type_id: "ActionTimeout", mro_type_ids: ["BaseException"], details: None } })
+  s8:
+    CoreSet(Await { dst: r13, src: r12, resume: s9 })
+  s9:
+    CoreSet(Jump { target_state: s1 })

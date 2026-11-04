@@ -1,0 +1,833 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_workflow/workflow_module_constants.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [
+                            "count",
+                        ],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "results",
+                                    ],
+                                    value: Spanned {
+                                        value: List {
+                                            elements: [],
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 18,
+                                            end_line: 2,
+                                            end_col: 20,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 8,
+                                    end_line: 2,
+                                    end_col: 20,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "limit",
+                                    ],
+                                    value: Spanned {
+                                        value: Literal {
+                                            value: Int(
+                                                0,
+                                            ),
+                                        },
+                                        span: Span {
+                                            start_line: 3,
+                                            start_col: 16,
+                                            end_line: 3,
+                                            end_col: 17,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 3,
+                                    start_col: 8,
+                                    end_line: 3,
+                                    end_col: 17,
+                                },
+                            },
+                            Spanned {
+                                value: ForLoop {
+                                    loop_vars: [
+                                        "tier",
+                                        "tier_limit",
+                                    ],
+                                    iterable: Spanned {
+                                        value: List {
+                                            elements: [
+                                                Spanned {
+                                                    value: List {
+                                                        elements: [
+                                                            Spanned {
+                                                                value: Literal {
+                                                                    value: String(
+                                                                        "free",
+                                                                    ),
+                                                                },
+                                                                span: Span {
+                                                                    start_line: 4,
+                                                                    start_col: 32,
+                                                                    end_line: 4,
+                                                                    end_col: 43,
+                                                                },
+                                                            },
+                                                            Spanned {
+                                                                value: Literal {
+                                                                    value: Int(
+                                                                        10,
+                                                                    ),
+                                                                },
+                                                                span: Span {
+                                                                    start_line: 4,
+                                                                    start_col: 32,
+                                                                    end_line: 4,
+                                                                    end_col: 43,
+                                                                },
+                                                            },
+                                                        ],
+                                                    },
+                                                    span: Span {
+                                                        start_line: 4,
+                                                        start_col: 32,
+                                                        end_line: 4,
+                                                        end_col: 43,
+                                                    },
+                                                },
+                                                Spanned {
+                                                    value: List {
+                                                        elements: [
+                                                            Spanned {
+                                                                value: Literal {
+                                                                    value: String(
+                                                                        "paid",
+                                                                    ),
+                                                                },
+                                                                span: Span {
+                                                                    start_line: 4,
+                                                                    start_col: 32,
+                                                                    end_line: 4,
+                                                                    end_col: 43,
+                                                                },
+                                                            },
+                                                            Spanned {
+                                                                value: Literal {
+                                                                    value: Int(
+                                                                        30,
+                                                                    ),
+                                                                },
+                                                                span: Span {
+                                                                    start_line: 4,
+                                                                    start_col: 32,
+                                                                    end_line: 4,
+                                                                    end_col: 43,
+                                                                },
+                                                            },
+                                                        ],
+                                                    },
+                                                    span: Span {
+                                                        start_line: 4,
+                                                        start_col: 32,
+                                                        end_line: 4,
+                                                        end_col: 43,
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                        span: Span {
+                                            start_line: 4,
+                                            start_col: 32,
+                                            end_line: 4,
+                                            end_col: 43,
+                                        },
+                                    },
+                                    body: Spanned {
+                                        value: Block {
+                                            statements: [
+                                                Spanned {
+                                                    value: Conditional {
+                                                        if_branch: Spanned {
+                                                            value: IfBranch {
+                                                                condition: Spanned {
+                                                                    value: BinaryOp {
+                                                                        left: Spanned {
+                                                                            value: Variable {
+                                                                                name: "tier",
+                                                                            },
+                                                                            span: Span {
+                                                                                start_line: 5,
+                                                                                start_col: 15,
+                                                                                end_line: 5,
+                                                                                end_col: 19,
+                                                                            },
+                                                                        },
+                                                                        op: Eq,
+                                                                        right: Spanned {
+                                                                            value: Literal {
+                                                                                value: String(
+                                                                                    "paid",
+                                                                                ),
+                                                                            },
+                                                                            span: Span {
+                                                                                start_line: 5,
+                                                                                start_col: 23,
+                                                                                end_line: 5,
+                                                                                end_col: 35,
+                                                                            },
+                                                                        },
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 5,
+                                                                        start_col: 15,
+                                                                        end_line: 5,
+                                                                        end_col: 35,
+                                                                    },
+                                                                },
+                                                                body: Spanned {
+                                                                    value: Block {
+                                                                        statements: [
+                                                                            Spanned {
+                                                                                value: Assignment {
+                                                                                    targets: [
+                                                                                        "limit",
+                                                                                    ],
+                                                                                    value: Spanned {
+                                                                                        value: Variable {
+                                                                                            name: "tier_limit",
+                                                                                        },
+                                                                                        span: Span {
+                                                                                            start_line: 6,
+                                                                                            start_col: 24,
+                                                                                            end_line: 6,
+                                                                                            end_col: 34,
+                                                                                        },
+                                                                                    },
+                                                                                },
+                                                                                span: Span {
+                                                                                    start_line: 6,
+                                                                                    start_col: 16,
+                                                                                    end_line: 6,
+                                                                                    end_col: 34,
+                                                                                },
+                                                                            },
+                                                                        ],
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 5,
+                                                                        start_col: 12,
+                                                                        end_line: 6,
+                                                                        end_col: 34,
+                                                                    },
+                                                                },
+                                                            },
+                                                            span: Span {
+                                                                start_line: 5,
+                                                                start_col: 12,
+                                                                end_line: 6,
+                                                                end_col: 34,
+                                                            },
+                                                        },
+                                                        elif_branches: [],
+                                                        else_branch: None,
+                                                    },
+                                                    span: Span {
+                                                        start_line: 5,
+                                                        start_col: 12,
+                                                        end_line: 6,
+                                                        end_col: 34,
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                        span: Span {
+                                            start_line: 4,
+                                            start_col: 8,
+                                            end_line: 6,
+                                            end_col: 34,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 4,
+                                    start_col: 8,
+                                    end_line: 6,
+                                    end_col: 34,
+                                },
+                            },
+                            Spanned {
+                                value: Conditional {
+                                    if_branch: Spanned {
+                                        value: IfBranch {
+                                            condition: Spanned {
+                                                value: Literal {
+                                                    value: Bool(
+                                                        true,
+                                                    ),
+                                                },
+                                                span: Span {
+                                                    start_line: 7,
+                                                    start_col: 11,
+                                                    end_line: 7,
+                                                    end_col: 18,
+                                                },
+                                            },
+                                            body: Spanned {
+                                                value: Block {
+                                                    statements: [
+                                                        Spanned {
+                                                            value: ForLoop {
+                                                                loop_vars: [
+                                                                    "stage",
+                                                                ],
+                                                                iterable: Spanned {
+                                                                    value: List {
+                                                                        elements: [
+                                                                            Spanned {
+                                                                                value: Literal {
+                                                                                    value: String(
+                                                                                        "fetch",
+                                                                                    ),
+                                                                                },
+                                                                                span: Span {
+                                                                                    start_line: 8,
+                                                                                    start_col: 25,
+                                                                                    end_line: 8,
+                                                                                    end_col: 31,
+                                                                                },
+                                                                            },
+                                                                            Spanned {
+                                                                                value: Literal {
+                                                                                    value: String(
+                                                                                        "score",
+                                                                                    ),
+                                                                                },
+                                                                                span: Span {
+                                                                                    start_line: 8,
+                                                                                    start_col: 25,
+                                                                                    end_line: 8,
+                                                                                    end_col: 31,
+                                                                                },
+                                                                            },
+                                                                        ],
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 8,
+                                                                        start_col: 25,
+                                                                        end_line: 8,
+                                                                        end_col: 31,
+                                                                    },
+                                                                },
+                                                                body: Spanned {
+                                                                    value: Block {
+                                                                        statements: [
+                                                                            Spanned {
+                                                                                value: Assignment {
+                                                                                    targets: [
+                                                                                        "label",
+                                                                                    ],
+                                                                                    value: Spanned {
+                                                                                        value: BinaryOp {
+                                                                                            left: Spanned {
+                                                                                                value: Literal {
+                                                                                                    value: String(
+                                                                                                        "batch-",
+                                                                                                    ),
+                                                                                                },
+                                                                                                span: Span {
+                                                                                                    start_line: 9,
+                                                                                                    start_col: 24,
+                                                                                                    end_line: 9,
+                                                                                                    end_col: 30,
+                                                                                                },
+                                                                                            },
+                                                                                            op: Add,
+                                                                                            right: Spanned {
+                                                                                                value: Variable {
+                                                                                                    name: "stage",
+                                                                                                },
+                                                                                                span: Span {
+                                                                                                    start_line: 9,
+                                                                                                    start_col: 33,
+                                                                                                    end_line: 9,
+                                                                                                    end_col: 38,
+                                                                                                },
+                                                                                            },
+                                                                                        },
+                                                                                        span: Span {
+                                                                                            start_line: 9,
+                                                                                            start_col: 24,
+                                                                                            end_line: 9,
+                                                                                            end_col: 38,
+                                                                                        },
+                                                                                    },
+                                                                                },
+                                                                                span: Span {
+                                                                                    start_line: 9,
+                                                                                    start_col: 16,
+                                                                                    end_line: 9,
+                                                                                    end_col: 38,
+                                                                                },
+                                                                            },
+                                                                            Spanned {
+                                                                                value: Assignment {
+                                                                                    targets: [
+                                                                                        "result",
+                                                                                    ],
+                                                                                    value: Spanned {
+                                                                                        value: ActionCall {
+                                                                                            call: ActionCall {
+                                                                                                action_name: "process",
+                                                                                                kwargs: [
+                                                                                                    Kwarg {
+                                                                                                        name: "label",
+                                                                                                        value: Spanned {
+                                                                                                            value: Variable {
+                                                                                                                name: "label",
+                                                                                                            },
+                                                                                                            span: Span {
+                                                                                                                start_line: 10,
+                                                                                                                start_col: 45,
+                                                                                                                end_line: 10,
+                                                                                                                end_col: 50,
+                                                                                                            },
+                                                                                                        },
+                                                                                                    },
+                                                                                                    Kwarg {
+                                                                                                        name: "size",
+                                                                                                        value: Spanned {
+                                                                                                            value: BinaryOp {
+                                                                                                                left: Spanned {
+                                                                                                                    value: Variable {
+                                                                                                                        name: "limit",
+                                                                                                                    },
+                                                                                                                    span: Span {
+                                                                                                                        start_line: 10,
+                                                                                                                        start_col: 57,
+                                                                                                                        end_line: 10,
+                                                                                                                        end_col: 62,
+                                                                                                                    },
+                                                                                                                },
+                                                                                                                op: Add,
+                                                                                                                right: Spanned {
+                                                                                                                    value: Variable {
+                                                                                                                        name: "count",
+                                                                                                                    },
+                                                                                                                    span: Span {
+                                                                                                                        start_line: 10,
+                                                                                                                        start_col: 65,
+                                                                                                                        end_line: 10,
+                                                                                                                        end_col: 70,
+                                                                                                                    },
+                                                                                                                },
+                                                                                                            },
+                                                                                                            span: Span {
+                                                                                                                start_line: 10,
+                                                                                                                start_col: 57,
+                                                                                                                end_line: 10,
+                                                                                                                end_col: 70,
+                                                                                                            },
+                                                                                                        },
+                                                                                                    },
+                                                                                                ],
+                                                                                                policies: [],
+                                                                                                module_name: Some(
+                                                                                                    "workflow_module_constants",
+                                                                                                ),
+                                                                                            },
+                                                                                        },
+                                                                                        span: Span {
+                                                                                            start_line: 10,
+                                                                                            start_col: 31,
+                                                                                            end_line: 10,
+                                                                                            end_col: 71,
+                                                                                        },
+                                                                                    },
+                                                                                },
+                                                                                span: Span {
+                                                                                    start_line: 10,
+                                                                                    start_col: 16,
+                                                                                    end_line: 10,
+                                                                                    end_col: 71,
+                                                                                },
+                                                                            },
+                                                                            Spanned {
+                                                                                value: Assignment {
+                                                                                    targets: [
+                                                                                        "results",
+                                                                                    ],
+                                                                                    value: Spanned {
+                                                                                        value: BinaryOp {
+                                                                                            left: Spanned {
+                                                                                                value: Variable {
+                                                                                                    name: "results",
+                                                                                                },
+                                                                                                span: Span {
+                                                                                                    start_line: 0,
+                                                                                                    start_col: 0,
+                                                                                                    end_line: 0,
+                                                                                                    end_col: 0,
+                                                                                                },
+                                                                                            },
+                                                                                            op: Add,
+                                                                                            right: Spanned {
+                                                                                                value: List {
+                                                                                                    elements: [
+                                                                                                        Spanned {
+                                                                                                            value: Variable {
+                                                                                                                name: "result",
+                                                                                                            },
+                                                                                                            span: Span {
+                                                                                                                start_line: 11,
+                                                                                                                start_col: 31,
+                                                                                                                end_line: 11,
+                                                                                                                end_col: 37,
+                                                                                                            },
+                                                                                                        },
+                                                                                                    ],
+                                                                                                },
+                                                                                                span: Span {
+                                                                                                    start_line: 0,
+                                                                                                    start_col: 0,
+                                                                                                    end_line: 0,
+                                                                                                    end_col: 0,
+                                                                                                },
+                                                                                            },
+                                                                                        },
+                                                                                        span: Span {
+                                                                                            start_line: 0,
+                                                                                            start_col: 0,
+                                                                                            end_line: 0,
+                                                                                            end_col: 0,
+                                                                                        },
+                                                                                    },
+                                                                                },
+                                                                                span: Span {
+                                                                                    start_line: 0,
+                                                                                    start_col: 0,
+                                                                                    end_line: 0,
+                                                                                    end_col: 0,
+                                                                                },
+                                                                            },
+                                                                            Spanned {
+                                                                                value: ExprStmt {
+                                                                                    expr: Spanned {
+                                                                                        value: Literal {
+                                                                                            value: None,
+                                                                                        },
+                                                                                        span: Span {
+                                                                                            start_line: 11,
+                                                                                            start_col: 16,
+                                                                                            end_line: 11,
+                                                                                            end_col: 38,
+                                                                                        },
+                                                                                    },
+                                                                                },
+                                                                                span: Span {
+                                                                                    start_line: 11,
+                                                                                    start_col: 16,
+                                                                                    end_line: 11,
+                                                                                    end_col: 38,
+                                                                                },
+                                                                            },
+                                                                        ],
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 8,
+                                                                        start_col: 12,
+                                                                        end_line: 11,
+                                                                        end_col: 38,
+                                                                    },
+                                                                },
+                                                            },
+                                                            span: Span {
+                                                                start_line: 8,
+                                                                start_col: 12,
+                                                                end_line: 11,
+                                                                end_col: 38,
+                                                            },
+                                                        },
+                                                    ],
+                                                },
+                                                span: Span {
+                                                    start_line: 7,
+                                                    start_col: 8,
+                                                    end_line: 11,
+                                                    end_col: 38,
+                                                },
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 7,
+                                            start_col: 8,
+                                            end_line: 11,
+                                            end_col: 38,
+                                        },
+                                    },
+                                    elif_branches: [],
+                                    else_branch: None,
+                                },
+                                span: Span {
+                                    start_line: 7,
+                                    start_col: 8,
+                                    end_line: 11,
+                                    end_col: 38,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "total",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "process",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "label",
+                                                        value: Spanned {
+                                                            value: BinaryOp {
+                                                                left: Spanned {
+                                                                    value: Literal {
+                                                                        value: String(
+                                                                            "batch-",
+                                                                        ),
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 12,
+                                                                        start_col: 36,
+                                                                        end_line: 12,
+                                                                        end_col: 42,
+                                                                    },
+                                                                },
+                                                                op: Add,
+                                                                right: Spanned {
+                                                                    value: Literal {
+                                                                        value: String(
+                                                                            "total",
+                                                                        ),
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 12,
+                                                                        start_col: 45,
+                                                                        end_line: 12,
+                                                                        end_col: 52,
+                                                                    },
+                                                                },
+                                                            },
+                                                            span: Span {
+                                                                start_line: 12,
+                                                                start_col: 36,
+                                                                end_line: 12,
+                                                                end_col: 52,
+                                                            },
+                                                        },
+                                                    },
+                                                    Kwarg {
+                                                        name: "size",
+                                                        value: Spanned {
+                                                            value: BinaryOp {
+                                                                left: Spanned {
+                                                                    value: Literal {
+                                                                        value: Int(
+                                                                            30,
+                                                                        ),
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 12,
+                                                                        start_col: 59,
+                                                                        end_line: 12,
+                                                                        end_col: 69,
+                                                                    },
+                                                                },
+                                                                op: Add,
+                                                                right: Spanned {
+                                                                    value: Variable {
+                                                                        name: "count",
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 12,
+                                                                        start_col: 72,
+                                                                        end_line: 12,
+                                                                        end_col: 77,
+                                                                    },
+                                                                },
+                                                            },
+                                                            span: Span {
+                                                                start_line: 12,
+                                                                start_col: 59,
+                                                                end_line: 12,
+                                                                end_col: 77,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "workflow_module_constants",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 12,
+                                            start_col: 22,
+                                            end_line: 12,
+                                            end_col: 78,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 12,
+                                    start_col: 8,
+                                    end_line: 12,
+                                    end_col: 78,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "results",
+                                    ],
+                                    value: Spanned {
+                                        value: BinaryOp {
+                                            left: Spanned {
+                                                value: Variable {
+                                                    name: "results",
+                                                },
+                                                span: Span {
+                                                    start_line: 0,
+                                                    start_col: 0,
+                                                    end_line: 0,
+                                                    end_col: 0,
+                                                },
+                                            },
+                                            op: Add,
+                                            right: Spanned {
+                                                value: List {
+                                                    elements: [
+                                                        Spanned {
+                                                            value: Variable {
+                                                                name: "total",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 13,
+                                                                start_col: 23,
+                                                                end_line: 13,
+                                                                end_col: 28,
+                                                            },
+                                                        },
+                                                    ],
+                                                },
+                                                span: Span {
+                                                    start_line: 0,
+                                                    start_col: 0,
+                                                    end_line: 0,
+                                                    end_col: 0,
+                                                },
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 0,
+                                            start_col: 0,
+                                            end_line: 0,
+                                            end_col: 0,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 0,
+                                    start_col: 0,
+                                    end_line: 0,
+                                    end_col: 0,
+                                },
+                            },
+                            Spanned {
+                                value: ExprStmt {
+                                    expr: Spanned {
+                                        value: Literal {
+                                            value: None,
+                                        },
+                                        span: Span {
+                                            start_line: 13,
+                                            start_col: 8,
+                                            end_line: 13,
+                                            end_col: 29,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 13,
+                                    start_col: 8,
+                                    end_line: 13,
+                                    end_col: 29,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "results",
+                                            },
+                                            span: Span {
+                                                start_line: 14,
+                                                start_col: 15,
+                                                end_line: 14,
+                                                end_col: 22,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 14,
+                                    start_col: 8,
+                                    end_line: 14,
+                                    end_col: 22,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 4,
+                end_line: 14,
+                end_col: 22,
+            },
+        },
+    ],
+}

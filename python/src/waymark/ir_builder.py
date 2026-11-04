@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from waymark.compiler.analysis import SourceAnalysis
 from waymark.compiler.ast import make_span
+from waymark.compiler.constants import bound_names, inline_static_globals
 from waymark.compiler.context import CompilerContext
 from waymark.compiler.diagnostics import reject_unsupported
 from waymark.compiler.errors import UnsupportedPatternError
@@ -77,6 +78,8 @@ class IRBuilder(ast.NodeVisitor):
         receiver_type: type | None = None,
     ):
         module_namespace = module_globals or {}
+        self._module_namespace = module_namespace
+        self._function_locals = function_locals
         self._language_call_namespace = {
             name: value
             for name, value in {**vars(builtins), **module_namespace}.items()
@@ -105,6 +108,9 @@ class IRBuilder(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> Any:
         """Validate and lower one workflow method."""
+        node = inline_static_globals(
+            node, self._module_namespace, bound_names(node) | set(self._function_locals)
+        )
         annotations = [
             argument.annotation
             for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)

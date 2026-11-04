@@ -66,6 +66,7 @@ expression: python_test_files
     "fixtures_policy/instance_attr_policies.py",
     "fixtures_policy/integration_crash_recovery.py",
     "fixtures_policy/integration_exception_custom.py",
+    "fixtures_policy/module_constant_policies.py",
     "fixtures_policy/policy_variations.py",
     "fixtures_side_effects/side_effect_action.py",
     "fixtures_sleep/sleep_aliased_import.py",
@@ -77,4 +78,5 @@ expression: python_test_files
     "fixtures_workflow/workflow_helper_async.py",
     "fixtures_workflow/workflow_helper_methods.py",
     "fixtures_workflow/workflow_helper_positional.py",
+    "fixtures_workflow/workflow_module_constants.py",
 ]

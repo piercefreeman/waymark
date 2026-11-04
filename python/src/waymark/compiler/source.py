@@ -4,11 +4,13 @@ import ast
 import builtins
 import inspect
 import textwrap
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from types import FunctionType
 from typing import TYPE_CHECKING, Any, TypeVar
 
+from waymark.compiler.constants import bound_names, inline_static_globals
 from waymark.compiler.errors import UnsupportedPatternError
 from waymark.compiler.types import specialize, type_parameter_bindings
 from waymark.global_handlers import GLOBAL_HANDLERS
@@ -44,7 +46,7 @@ class ParsedFunction:
 class InstanceAttrs:
     """What `__init__` assigns to `self`, as far as the compiler can read it."""
 
-    literals: dict[str, ast.expr]
+    literals: Mapping[str, ast.expr]
     """Attributes assigned exactly once, at the top level of `__init__`, with the value."""
 
     ambiguous: set[str]
@@ -52,6 +54,28 @@ class InstanceAttrs:
 
     namespace: Mapping[str, Any] = field(default_factory=dict)
     """Globals and closure bindings where the initializer expressions were defined."""
+
+
+@dataclass(frozen=True)
+class InlinedLiterals(Mapping[str, ast.expr]):
+    """Initializer literals with their static globals inlined when the workflow reads them.
+
+    Inlining on read keeps an attribute the workflow never uses, such as one
+    holding a mutable global, from failing the compile.
+    """
+
+    literals: Mapping[str, ast.expr]
+    namespace: Mapping[str, Any]
+    bound: AbstractSet[str]
+
+    def __getitem__(self, name: str) -> ast.expr:
+        return inline_static_globals(self.literals[name], self.namespace, self.bound)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.literals)
+
+    def __len__(self) -> int:
+        return len(self.literals)
 
 
 def load_workflow_source(workflow_cls: type["Workflow"]) -> list[ParsedFunction]:
@@ -185,14 +209,12 @@ def extract_instance_attrs(workflow_cls: type["Workflow"]) -> InstanceAttrs:
                 literals.pop(nested_assignment[0], None)
                 ambiguous.add(nested_assignment[0])
 
+    lexical = {**init_method.__globals__, **inspect.getclosurevars(init_method).nonlocals}
+    init_locals = bound_names(function_def) | set(init_method.__code__.co_varnames)
     return InstanceAttrs(
-        literals,
+        InlinedLiterals(literals, lexical, init_locals),
         ambiguous,
-        {
-            **vars(builtins),
-            **init_method.__globals__,
-            **inspect.getclosurevars(init_method).nonlocals,
-        },
+        {**vars(builtins), **lexical},
     )
 
 
