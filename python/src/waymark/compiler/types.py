@@ -2,8 +2,11 @@
 
 import ast
 import dataclasses
+import operator
 from collections.abc import Mapping
-from typing import Any, ForwardRef, Literal, TypeVar, get_args, get_origin
+from functools import reduce
+from types import UnionType
+from typing import Any, ForwardRef, Generic, Literal, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -74,3 +77,69 @@ def has_open_type_parameters(
     return any(
         has_open_type_parameters(argument, namespace, seen) for argument in get_args(annotation)
     )
+
+
+def type_parameter_bindings(cls: type) -> dict[TypeVar, Any]:
+    """What each type parameter of `cls`'s generic bases is specialized to.
+
+    `class Base(Generic[T])` and `class Concrete(Base[int])` bind `T` to `int`;
+    a chain such as `class Middle(Base[list[U]], Generic[U])` and
+    `class Concrete(Middle[int])` binds `U` to `int` and `T` to `list[int]`.
+    A parameter no subclass specializes stays unbound, and so stays open.
+    """
+    bindings: dict[TypeVar, Any] = {}
+
+    def visit(current: type, scope: Mapping[TypeVar, Any]) -> None:
+        for base in current.__dict__.get("__orig_bases__", current.__bases__):
+            origin = get_origin(base)
+            if origin is None:
+                if isinstance(base, type):
+                    visit(base, {})
+                continue
+            if not isinstance(origin, type) or origin is Generic:
+                continue
+            parameters = origin.__dict__.get("__parameters__", ())
+            arguments = get_args(base)
+            if len(parameters) != len(arguments):
+                continue
+            resolved = {
+                parameter: specialize(argument, scope)
+                for parameter, argument in zip(parameters, arguments, strict=True)
+                if isinstance(parameter, TypeVar)
+            }
+            for parameter, argument in resolved.items():
+                bindings.setdefault(parameter, argument)
+            visit(origin, resolved)
+
+    visit(cls, {})
+    return bindings
+
+
+def specialize(annotation: Any, bindings: Mapping[TypeVar, Any]) -> Any:
+    """`annotation` with each bound type parameter replaced, however deeply it is nested."""
+    if not bindings:
+        return annotation
+    if isinstance(annotation, TypeVar):
+        return bindings.get(annotation, annotation)
+    parameters = _type_parameters(annotation)
+    if not any(parameter in bindings for parameter in parameters):
+        return annotation
+    if get_origin(annotation) in (Union, UnionType):
+        # `list[T] | None` is not subscriptable on every supported Python; rebuild it.
+        return reduce(
+            operator.or_, (specialize(member, bindings) for member in get_args(annotation))
+        )
+    return annotation[tuple(bindings.get(parameter, parameter) for parameter in parameters)]
+
+
+def _type_parameters(annotation: Any) -> tuple[Any, ...]:
+    """The open parameters of a subscriptable alias such as `list[T]`, `T | None` or `Model[T]`."""
+    if isinstance(annotation, type):
+        metadata = annotation.__dict__.get("__pydantic_generic_metadata__", {})
+        return tuple(metadata.get("parameters", ()))
+    if get_origin(annotation) is None:
+        return ()
+    try:
+        return tuple(annotation.__parameters__)
+    except AttributeError:
+        return ()

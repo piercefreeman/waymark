@@ -1,6 +1,7 @@
 import asyncio
 import time
 from datetime import timedelta
+from typing import Generic, TypeVar
 
 import pytest
 
@@ -263,3 +264,26 @@ class AccumulateThenDispatchWorkflow(Workflow):
 def test_local_list_can_escape_after_its_last_mutation() -> None:
     """Regression: returning an accumulated list through an action needs no alias mutation."""
     assert asyncio.run(AccumulateThenDispatchWorkflow().run()) == [1, 2]
+
+
+Label = TypeVar("Label", bound=str)
+
+
+class LabelingWorkflow(Workflow, Generic[Label]):
+    async def label_all(self, labels: list[Label]) -> list[str]:
+        results = []
+        for label in labels:
+            result = await instant(label)
+            results.append(result)
+        return results
+
+
+@workflow
+class SpecializedLabelingWorkflow(LabelingWorkflow[str]):
+    async def run(self, labels: list[str]) -> list[str]:
+        return await self.label_all(labels)
+
+
+def test_specialized_generic_helpers_run() -> None:
+    """Regression: helpers typed by a generic base's parameter were rejected as open generics."""
+    assert asyncio.run(SpecializedLabelingWorkflow().run(labels=["a", "b"])) == ["a", "b"]
