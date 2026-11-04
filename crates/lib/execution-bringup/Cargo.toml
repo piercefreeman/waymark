@@ -9,6 +9,7 @@ waymark-action-completions-reconciler = { workspace = true }
 waymark-action-completions-reconciler-backend = { workspace = true }
 waymark-action-effect-reconciler = { workspace = true }
 waymark-action-effect-reconciler-backend = { workspace = true }
+waymark-action-runtime-completions-aggregation = { workspace = true }
 waymark-action-runtime-metadata = { workspace = true }
 waymark-action-runtime-metadata-compat = { workspace = true }
 waymark-action-runtime-worker-pool = { workspace = true }

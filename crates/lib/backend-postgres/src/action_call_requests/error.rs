@@ -35,7 +35,7 @@ impl waymark_action_effect_reconciler_backend::record_action_call_requests::Erro
 }
 
 /// Error returned by [`super::super::PostgresBackend`] when locking a VM's
-/// requests for delivery.
+/// requests.
 #[derive(Debug, thiserror::Error)]
 pub enum LockError {
     /// The underlying database operation failed.

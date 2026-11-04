@@ -4378,6 +4378,7 @@ dependencies = [
  "waymark-action-completions-reconciler-backend",
  "waymark-action-effect-reconciler",
  "waymark-action-effect-reconciler-backend",
+ "waymark-action-runtime-completions-aggregation",
  "waymark-action-runtime-metadata",
  "waymark-action-runtime-metadata-compat",
  "waymark-action-runtime-worker-pool",

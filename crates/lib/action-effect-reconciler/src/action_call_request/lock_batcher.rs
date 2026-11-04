@@ -67,7 +67,7 @@ pub struct LockedRequest<VmId>
 where
     VmId: Eq + Hash,
 {
-    /// The stored request — deliver this call.
+    /// The stored request.
     pub record: ActionCallRequestRecord<VmId>,
 
     /// The call not yet requested; confirm it once it is.
@@ -84,7 +84,7 @@ where
     /// The VM this outcome is for.
     pub vm_id: VmId,
 
-    /// Rows now locked by this process — deliver these calls.
+    /// Rows now locked by this process.
     pub locked: Vec<LockedRequest<VmId>>,
 
     /// Rows not locked by this call and not held by this process.

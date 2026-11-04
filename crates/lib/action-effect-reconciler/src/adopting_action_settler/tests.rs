@@ -3,7 +3,6 @@ use std::sync::Arc;
 use chrono::{Duration, Utc};
 use nonempty_collections::{NESlice, NEVec, nev};
 use waymark_extcall_reconciler_core::ActionPromiseSettler as _;
-use waymark_vm_codec_rmp::RmpCodec;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
@@ -11,9 +10,10 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 use crate::AdoptingActionSettler;
 use crate::action_call_request::locks::Tracker;
 use crate::adopting_action_settler::{Adopter, Error, recheck};
+use crate::lost_execution;
 use crate::test_support::{
-    CapturingRequester, FailingRequester, LOCK_OWNER, LOCK_TIME_TO_LIVE, MockBackend, MockRow,
-    TestKey, action_ref, lock_id, seed_row, shared_tracker, spawn_locker, tracks_request,
+    LOCK_OWNER, LOCK_TIME_TO_LIVE, MockBackend, MockRow, TestKey, lock_id, seed_row,
+    shared_tracker, spawn_locker, tracks_request,
 };
 
 const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -81,23 +81,28 @@ fn settlement(promise: usize) -> NEVec<TestSettlement> {
     }]
 }
 
-struct Harness<ActionCallRequester> {
+type TestReport = lost_execution::Completion<u64, i64, String>;
+
+type TestReportsProvider = lost_execution::CompletionsProvider<u64, i64, String>;
+
+struct Harness {
     backend: Arc<MockBackend>,
     tracker: Arc<std::sync::Mutex<Tracker<u64>>>,
-    settler: AdoptingActionSettler<ChannelSettler, u64, RmpCodec, ActionCallRequester>,
+    settler: AdoptingActionSettler<ChannelSettler, u64, i64, String>,
     settlements_tx: tokio::sync::mpsc::UnboundedSender<NEVec<TestSettlement>>,
     polls: Arc<std::sync::Mutex<Vec<Vec<PromiseStateId>>>>,
     recheck: recheck::Tx,
+    /// `None` once dropped by a test, to see a report fail.
+    reports_provider: Option<TestReportsProvider>,
 }
 
-fn harness_with<ActionCallRequester>(
-    requester: ActionCallRequester,
-) -> Harness<ActionCallRequester> {
+fn harness() -> Harness {
     let backend = Arc::new(MockBackend::default());
     let tracker = shared_tracker();
     let (settlements_tx, settlements_rx) = tokio::sync::mpsc::unbounded_channel();
     let polls: Arc<std::sync::Mutex<Vec<Vec<PromiseStateId>>>> = Arc::default();
     let (recheck, recheck_rx) = recheck::new();
+    let (reporter, reports_provider) = lost_execution::new();
     let settler = AdoptingActionSettler {
         inner: ChannelSettler {
             settlements_rx,
@@ -106,8 +111,7 @@ fn harness_with<ActionCallRequester>(
         adopter: Adopter::new(
             42u64,
             spawn_locker(&backend, &tracker),
-            RmpCodec,
-            requester,
+            reporter,
             Arc::clone(&tracker),
             recheck_rx,
             HEARTBEAT.try_into().unwrap(),
@@ -120,12 +124,36 @@ fn harness_with<ActionCallRequester>(
         settlements_tx,
         polls,
         recheck,
+        reports_provider: Some(reports_provider),
     }
 }
 
-fn harness() -> (Harness<CapturingRequester>, CapturingRequester) {
-    let requester = CapturingRequester::default();
-    (harness_with(requester.clone()), requester)
+/// What each report says is known about how far its call got.
+fn stages_of(reports: Vec<TestReport>) -> Vec<waymark_action_runtime_core::ActionCallStage> {
+    reports
+        .into_iter()
+        .map(|report| {
+            let Err(loss) = report.execution_result else {
+                panic!("a lost execution carries no outcome");
+            };
+
+            loss.stage
+        })
+        .collect()
+}
+
+/// The reports made so far, in order.
+fn reports(reports_provider: &mut Option<TestReportsProvider>) -> Vec<TestReport> {
+    let provider = reports_provider
+        .as_mut()
+        .expect("the reports provider is still there");
+
+    let mut reports = Vec::new();
+    while let Ok(report) = provider.completions_rx.try_recv() {
+        reports.push(report);
+    }
+
+    reports
 }
 
 fn key(promise: usize) -> TestKey {
@@ -137,18 +165,11 @@ fn key(promise: usize) -> TestKey {
 
 /// Poll the settler for the given promises, with a settlement already
 /// available so the wait returns.
-async fn poll_settled<ActionCallRequester>(
-    h: &mut Harness<ActionCallRequester>,
+async fn poll_settled(
+    h: &mut Harness,
     waiting: &[PromiseStateId],
     settled: usize,
-) -> NEVec<TestSettlement>
-where
-    ActionCallRequester: waymark_action_runtime_core::ActionCallRequester<
-            Metadata = waymark_action_runtime_metadata::ActionCallCorrelation,
-            Argument = i64,
-        >,
-    ActionCallRequester: Send + Sync,
-{
+) -> NEVec<TestSettlement> {
     h.settlements_tx.send(settlement(settled)).unwrap();
     h.settler
         .poll_action_settlements(NESlice::try_from_slice(waiting).unwrap())
@@ -171,7 +192,7 @@ fn expire_lock(backend: &MockBackend, promise: usize) {
 
 #[tokio::test(start_paused = true)]
 async fn first_wait_adopts_lapsed_rows() {
-    let (mut h, requester) = harness();
+    let mut h = harness();
     // Two lapsed locks (dead process) — eligible for adoption.
     seed_row(
         &h.backend,
@@ -195,18 +216,30 @@ async fn first_wait_adopts_lapsed_rows() {
     let settlements = poll_settled(&mut h, &[PromiseStateId(11), PromiseStateId(12)], 11).await;
     assert_eq!(settlements.len().get(), 1);
 
-    // The stored payloads round-tripped into deliveries with the rows'
+    // The rows were reported as lost, of unknown stage, under their
     // correlation, before the decorated settler was polled.
     {
-        let mut requests = requester.requests.lock().unwrap();
-        requests.sort_by_key(|request| request.metadata.promise_state_id);
-        assert_eq!(requests.len(), 2);
-        assert_eq!(requests[0].action_ref, action_ref("greet"));
-        assert_eq!(requests[0].arguments, vec![5, 6]);
-        assert_eq!(requests[0].metadata.effect_number, EffectNumber(3));
-        assert_eq!(requests[0].metadata.promise_state_id, PromiseStateId(11));
-        assert_eq!(requests[1].arguments, vec![7]);
-        assert_eq!(requests[1].metadata.promise_state_id, PromiseStateId(12));
+        let mut reports = reports(&mut h.reports_provider);
+        reports.sort_by_key(|report| report.metadata.inner.promise_state_id);
+        assert_eq!(reports.len(), 2);
+        assert_eq!(reports[0].metadata.vm_id, 42);
+        assert_eq!(reports[0].metadata.inner.effect_number, EffectNumber(3));
+        assert_eq!(
+            reports[0].metadata.inner.promise_state_id,
+            PromiseStateId(11)
+        );
+        assert_eq!(reports[1].metadata.inner.effect_number, EffectNumber(4));
+        assert_eq!(
+            reports[1].metadata.inner.promise_state_id,
+            PromiseStateId(12)
+        );
+        assert_eq!(
+            stages_of(reports),
+            vec![
+                waymark_action_runtime_core::ActionCallStage::Unknown,
+                waymark_action_runtime_core::ActionCallStage::Unknown,
+            ]
+        );
     }
     assert_eq!(
         *h.polls.lock().unwrap(),
@@ -227,7 +260,7 @@ async fn first_wait_adopts_lapsed_rows() {
 
 #[tokio::test(start_paused = true)]
 async fn rows_held_by_a_live_owner_are_left_alone() {
-    let (mut h, requester) = harness();
+    let mut h = harness();
     seed_row(
         &h.backend,
         42,
@@ -240,7 +273,7 @@ async fn rows_held_by_a_live_owner_are_left_alone() {
 
     poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
 
-    assert!(requester.requests.lock().unwrap().is_empty());
+    assert!(reports(&mut h.reports_provider).is_empty());
     assert!(!tracks_request(&h.tracker.lock().unwrap(), &key(11)));
     assert_eq!(h.backend.rows.lock().unwrap()[&key(11)].locked_by, Some(99));
 }
@@ -248,7 +281,7 @@ async fn rows_held_by_a_live_owner_are_left_alone() {
 /// The passes of one wait share one poll of the decorated settler.
 #[tokio::test(start_paused = true)]
 async fn the_passes_of_a_wait_share_one_poll() {
-    let (mut h, _requester) = harness();
+    let mut h = harness();
     seed_row(
         &h.backend,
         42,
@@ -288,7 +321,7 @@ async fn the_passes_of_a_wait_share_one_poll() {
 /// holds an action's lock; the owner dies without completing it.
 #[tokio::test(start_paused = true)]
 async fn adopts_a_row_whose_lock_lapses_during_the_wait() {
-    let (mut h, requester) = harness();
+    let mut h = harness();
     seed_row(
         &h.backend,
         42,
@@ -306,7 +339,7 @@ async fn adopts_a_row_whose_lock_lapses_during_the_wait() {
         .poll_action_settlements(NESlice::try_from_slice(&waiting).unwrap());
     let mut wait = std::pin::pin!(wait);
     assert!(poll_once_is_pending(&mut wait).await);
-    assert!(requester.requests.lock().unwrap().is_empty());
+    assert!(reports(&mut h.reports_provider).is_empty());
 
     // Owner 99 dies without completing or unlocking: its lock lapses.
     expire_lock(&h.backend, 11);
@@ -315,10 +348,12 @@ async fn adopts_a_row_whose_lock_lapses_during_the_wait() {
     tokio::time::sleep(HEARTBEAT).await;
     assert!(poll_once_is_pending(&mut wait).await);
     {
-        let requests = requester.requests.lock().unwrap();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].arguments, vec![5]);
-        assert_eq!(requests[0].metadata.promise_state_id, PromiseStateId(11));
+        let reports = reports(&mut h.reports_provider);
+        assert_eq!(reports.len(), 1);
+        assert_eq!(
+            reports[0].metadata.inner.promise_state_id,
+            PromiseStateId(11)
+        );
     }
     assert_eq!(
         h.backend.rows.lock().unwrap()[&key(11)].locked_by,
@@ -326,7 +361,7 @@ async fn adopts_a_row_whose_lock_lapses_during_the_wait() {
     );
     assert!(tracks_request(&h.tracker.lock().unwrap(), &key(11)));
 
-    // The adopted attempt's completion settles the wait.
+    // The adopted call's settlement settles the wait.
     h.settlements_tx.send(settlement(11)).unwrap();
     let settlements = wait.await.expect("the wait settles");
     assert_eq!(settlements.len().get(), 1);
@@ -338,7 +373,7 @@ async fn adopts_a_row_whose_lock_lapses_during_the_wait() {
 /// pass.
 #[tokio::test(start_paused = true)]
 async fn a_recheck_reopens_a_covered_vm_and_adopts_the_untracked_row() {
-    let (mut h, requester) = harness();
+    let mut h = harness();
 
     // No rows: the first wait covers the VM.
     poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
@@ -367,7 +402,7 @@ async fn a_recheck_reopens_a_covered_vm_and_adopts_the_untracked_row() {
     assert!(poll_once_is_pending(&mut wait).await);
     assert!(poll_once_is_pending(&mut wait).await);
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 2);
-    assert!(requester.requests.lock().unwrap().is_empty());
+    assert!(reports(&mut h.reports_provider).is_empty());
 
     // Once the untracked lock lapses, the pass adopts the row.
     expire_lock(&h.backend, 12);
@@ -375,9 +410,16 @@ async fn a_recheck_reopens_a_covered_vm_and_adopts_the_untracked_row() {
     assert!(poll_once_is_pending(&mut wait).await);
     assert!(poll_once_is_pending(&mut wait).await);
     {
-        let requests = requester.requests.lock().unwrap();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].metadata.promise_state_id, PromiseStateId(12));
+        let reports = reports(&mut h.reports_provider);
+        assert_eq!(reports.len(), 1);
+        assert_eq!(
+            reports[0].metadata.inner.promise_state_id,
+            PromiseStateId(12)
+        );
+        assert_eq!(
+            stages_of(reports),
+            vec![waymark_action_runtime_core::ActionCallStage::Unknown]
+        );
     }
     assert!(tracks_request(&h.tracker.lock().unwrap(), &key(12)));
 
@@ -390,7 +432,7 @@ async fn a_recheck_reopens_a_covered_vm_and_adopts_the_untracked_row() {
 /// runs a pass inside that wait.
 #[tokio::test(start_paused = true)]
 async fn a_recheck_during_a_covered_wait_runs_a_pass_in_it() {
-    let (mut h, _requester) = harness();
+    let mut h = harness();
 
     poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 1);
@@ -415,7 +457,7 @@ async fn a_recheck_during_a_covered_wait_runs_a_pass_in_it() {
 
 #[tokio::test(start_paused = true)]
 async fn a_recheck_on_a_covered_vm_costs_one_pass() {
-    let (mut h, _requester) = harness();
+    let mut h = harness();
 
     poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 1);
@@ -431,7 +473,7 @@ async fn a_recheck_on_a_covered_vm_costs_one_pass() {
 
 #[tokio::test(start_paused = true)]
 async fn stops_watching_once_the_row_is_gone() {
-    let (mut h, requester) = harness();
+    let mut h = harness();
     seed_row(
         &h.backend,
         42,
@@ -456,12 +498,12 @@ async fn stops_watching_once_the_row_is_gone() {
     tokio::time::sleep(3 * HEARTBEAT).await;
     poll_settled(&mut h, &[PromiseStateId(13)], 13).await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 2);
-    assert!(requester.requests.lock().unwrap().is_empty());
+    assert!(reports(&mut h.reports_provider).is_empty());
 }
 
 #[tokio::test(start_paused = true)]
 async fn covered_waits_issue_no_lock_call() {
-    let (mut h, _requester) = harness();
+    let mut h = harness();
 
     poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 1);
@@ -472,11 +514,11 @@ async fn covered_waits_issue_no_lock_call() {
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 1);
 }
 
-/// A row this process holds and tracks is an attempt running here: the
-/// VM is covered.
+/// A row this process holds and tracks was requested here: the VM is
+/// covered.
 #[tokio::test(start_paused = true)]
 async fn a_tracked_row_held_here_is_covered() {
-    let (mut h, requester) = harness();
+    let mut h = harness();
     seed_row(
         &h.backend,
         42,
@@ -498,14 +540,14 @@ async fn a_tracked_row_held_here_is_covered() {
     poll_settled(&mut h, &[PromiseStateId(12)], 12).await;
 
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 1);
-    assert!(requester.requests.lock().unwrap().is_empty());
+    assert!(reports(&mut h.reports_provider).is_empty());
 }
 
 /// A row this process holds without tracking it is a call that never went
 /// through: watched, and adopted once its lock is gone.
 #[tokio::test(start_paused = true)]
 async fn an_untracked_row_held_here_is_adopted_once_unlocked() {
-    let (mut h, requester) = harness();
+    let mut h = harness();
     seed_row(
         &h.backend,
         42,
@@ -522,7 +564,7 @@ async fn an_untracked_row_held_here_is_adopted_once_unlocked() {
         .poll_action_settlements(NESlice::try_from_slice(&waiting).unwrap());
     let mut wait = std::pin::pin!(wait);
     assert!(poll_once_is_pending(&mut wait).await);
-    assert!(requester.requests.lock().unwrap().is_empty());
+    assert!(reports(&mut h.reports_provider).is_empty());
 
     // The renewal loop unlocks the row (here: by hand).
     {
@@ -534,7 +576,12 @@ async fn an_untracked_row_held_here_is_adopted_once_unlocked() {
 
     tokio::time::sleep(HEARTBEAT).await;
     assert!(poll_once_is_pending(&mut wait).await);
-    assert_eq!(requester.requests.lock().unwrap().len(), 1);
+    // Reported of unknown stage like any adopted row: the adopter keeps
+    // no memory of which locks it took without requesting the call.
+    assert_eq!(
+        stages_of(reports(&mut h.reports_provider)),
+        vec![waymark_action_runtime_core::ActionCallStage::Unknown]
+    );
     assert!(tracks_request(&h.tracker.lock().unwrap(), &key(11)));
 }
 
@@ -543,7 +590,7 @@ async fn an_untracked_row_held_here_is_adopted_once_unlocked() {
 /// as it was, and the next pass adopts the row once it is unlocked.
 #[tokio::test(start_paused = true)]
 async fn a_wait_dropped_mid_pass_leaves_the_lock_up_for_unlocking() {
-    let (mut h, requester) = harness();
+    let mut h = harness();
     seed_row(
         &h.backend,
         42,
@@ -570,7 +617,7 @@ async fn a_wait_dropped_mid_pass_leaves_the_lock_up_for_unlocking() {
         tokio::time::sleep(std::time::Duration::from_millis(2)).await;
     }
     // The wait is gone; the row is locked here, the call never requested.
-    assert!(requester.requests.lock().unwrap().is_empty());
+    assert!(reports(&mut h.reports_provider).is_empty());
     assert_eq!(
         h.backend.rows.lock().unwrap()[&key(11)].locked_by,
         Some(LOCK_OWNER)
@@ -600,13 +647,13 @@ async fn a_wait_dropped_mid_pass_leaves_the_lock_up_for_unlocking() {
         row.lock_expires_at = None;
     }
     poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
-    assert_eq!(requester.requests.lock().unwrap().len(), 1);
+    assert_eq!(reports(&mut h.reports_provider).len(), 1);
     assert!(tracks_request(&h.tracker.lock().unwrap(), &key(11)));
 }
 
 #[tokio::test(start_paused = true)]
 async fn frequent_short_waits_do_not_postpone_the_pass() {
-    let (mut h, requester) = harness();
+    let mut h = harness();
     seed_row(
         &h.backend,
         42,
@@ -634,7 +681,7 @@ async fn frequent_short_waits_do_not_postpone_the_pass() {
     }
 
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 2);
-    assert_eq!(requester.requests.lock().unwrap().len(), 1);
+    assert_eq!(reports(&mut h.reports_provider).len(), 1);
     assert_eq!(
         h.backend.rows.lock().unwrap()[&key(11)].locked_by,
         Some(LOCK_OWNER)
@@ -643,7 +690,7 @@ async fn frequent_short_waits_do_not_postpone_the_pass() {
 
 #[tokio::test(start_paused = true)]
 async fn lock_failure_fails_the_wait() {
-    let (mut h, _requester) = harness();
+    let mut h = harness();
     *h.backend.fail_locks.lock().unwrap() = true;
     h.settlements_tx.send(settlement(11)).unwrap();
 
@@ -658,9 +705,11 @@ async fn lock_failure_fails_the_wait() {
     assert!(h.polls.lock().unwrap().is_empty());
 }
 
+/// The stored payload is never read: a row whose payload is corrupt is
+/// reported lost like any other.
 #[tokio::test(start_paused = true)]
-async fn corrupt_stored_payload_fails_the_wait_and_unlocks() {
-    let (mut h, requester) = harness();
+async fn a_corrupt_stored_payload_is_reported_lost_like_any_other_row() {
+    let mut h = harness();
     h.backend.rows.lock().unwrap().insert(
         key(11),
         MockRow {
@@ -671,29 +720,62 @@ async fn corrupt_stored_payload_fails_the_wait_and_unlocks() {
             lock_nonce: None,
         },
     );
-    h.settlements_tx.send(settlement(11)).unwrap();
 
-    let polled = h
-        .settler
-        .poll_action_settlements(NESlice::try_from_slice(&[PromiseStateId(11)]).unwrap())
-        .await;
-    let Err(error) = polled else {
-        panic!("a corrupt payload must fail the wait");
-    };
-    assert!(matches!(error, Error::Decode(_)));
-    assert!(requester.requests.lock().unwrap().is_empty());
-    assert!(h.polls.lock().unwrap().is_empty());
+    poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
 
-    // The lock taken for the call that never went through is up for
-    // unlocking.
-    let tracker = h.tracker.lock().unwrap();
-    assert!(!tracks_request(&tracker, &key(11)));
-    assert!(tracker.pending_unlocks().is_some());
+    let reports = reports(&mut h.reports_provider);
+    assert_eq!(reports.len(), 1);
+    assert_eq!(
+        reports[0].metadata.inner.promise_state_id,
+        PromiseStateId(11)
+    );
+    assert!(tracks_request(&h.tracker.lock().unwrap(), &key(11)));
 }
 
 #[tokio::test(start_paused = true)]
-async fn redelivery_failure_fails_the_wait_and_unlocks() {
-    let mut h = harness_with(FailingRequester);
+async fn an_adopted_row_is_reported_as_one_lost_execution_under_its_correlation() {
+    let mut h = harness();
+    seed_row(
+        &h.backend,
+        42,
+        11,
+        3,
+        vec![1i64],
+        Some(99),
+        Duration::minutes(-5),
+    );
+
+    poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
+
+    let mut reports = reports(&mut h.reports_provider);
+    assert_eq!(reports.len(), 1);
+    let report = reports.pop().unwrap();
+    assert_eq!(
+        report.metadata,
+        waymark_action_runtime_metadata::WithVmId {
+            vm_id: 42u64,
+            inner: waymark_action_runtime_metadata::ActionCallCorrelation {
+                effect_number: EffectNumber(3),
+                promise_state_id: PromiseStateId(11),
+            },
+        }
+    );
+    let Err(loss) = report.execution_result else {
+        panic!("a lost execution carries no outcome");
+    };
+    assert_eq!(
+        loss,
+        waymark_action_runtime_core::ActionCallLossError {
+            stage: waymark_action_runtime_core::ActionCallStage::Unknown,
+        },
+    );
+    assert!(tracks_request(&h.tracker.lock().unwrap(), &key(11)));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_report_with_the_provider_gone_fails_the_wait_and_unlocks() {
+    let mut h = harness();
+    h.reports_provider = None;
     seed_row(
         &h.backend,
         42,
@@ -710,9 +792,9 @@ async fn redelivery_failure_fails_the_wait_and_unlocks() {
         .poll_action_settlements(NESlice::try_from_slice(&[PromiseStateId(11)]).unwrap())
         .await;
     let Err(error) = polled else {
-        panic!("a failed redelivery must fail the wait");
+        panic!("a failed report must fail the wait");
     };
-    assert!(matches!(error, Error::Deliver(_)));
+    assert!(matches!(error, Error::Report(_)));
     assert!(h.polls.lock().unwrap().is_empty());
 
     let tracker = h.tracker.lock().unwrap();

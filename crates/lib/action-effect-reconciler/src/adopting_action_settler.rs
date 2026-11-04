@@ -8,8 +8,8 @@ mod tests;
 use std::sync::Arc;
 
 use nonempty_collections::NESlice;
-use waymark_action_runtime_core::ActionCallRequest;
-use waymark_action_runtime_metadata::ActionCallCorrelation;
+use waymark_action_runtime_core::ActionCallStage;
+use waymark_action_runtime_metadata::{ActionCallCorrelation, WithVmId};
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
@@ -17,12 +17,12 @@ use crate::action_call_request::lock_batcher::{
     LockedRequest, PerVmLockerHandle, PerVmLockingError, PerVmLocks,
 };
 use crate::action_call_request::locks::Tracker;
-use crate::action_call_request::payload;
+use crate::lost_execution;
 
 /// Error returned when polling an [`AdoptingActionSettler`] for settlements
 /// fails.
 #[derive(Debug, thiserror::Error)]
-pub enum Error<SettleError, DecodeError, DeliverError> {
+pub enum Error<SettleError> {
     /// The decorated settler failed.
     #[error("polling action settlements: {0}")]
     Settle(#[source] SettleError),
@@ -31,13 +31,9 @@ pub enum Error<SettleError, DecodeError, DeliverError> {
     #[error("locking pending action-call requests: {0}")]
     Lock(#[source] PerVmLockingError),
 
-    /// A stored request payload could not be decoded.
-    #[error("unable to decode a stored action-call request payload: {0}")]
-    Decode(#[source] DecodeError),
-
-    /// The local pool rejected a redelivery.
-    #[error("redelivering an action call: {0}")]
-    Deliver(#[source] DeliverError),
+    /// An adopted call could not be reported as lost.
+    #[error("reporting an adopted action call as lost: {0}")]
+    Report(#[source] lost_execution::ProviderGoneError),
 }
 
 /// Where the VM stands with the requests whose calls this process has
@@ -62,11 +58,11 @@ enum Adoption {
 ///
 /// A VM resident here owns the liveness of its action-call requests: a
 /// request whose lock lapsed (its owner died, or its call never went
-/// through) is adopted — locked through the shared lock batcher,
-/// redelivered to the local pool, its lock handed to the tracker — while
+/// through) is adopted — locked through the shared lock batcher, its
+/// call reported as a lost execution, its lock handed to the tracker — while
 /// a request another live owner holds is left alone, an attempt is
 /// presumed running in that owner's pool.  A request this process holds
-/// is backed by an attempt only if its lock is tracked; one held here
+/// was requested only if its lock is tracked; one held here
 /// and untracked is a call that never went through, unlocked by the
 /// renewal loop and adopted once it is — or a lock taken by a statement
 /// that committed but reported failure, never tracked, left to lapse by
@@ -88,7 +84,7 @@ enum Adoption {
 /// request are reported by their pending call requests as never gone
 /// through, and the pass's state is left as it was, so the next pass
 /// adopts them again.
-pub struct AdoptingActionSettler<Inner, VmId, Codec, ActionCallRequester>
+pub struct AdoptingActionSettler<Inner, VmId, Value, RaisedException>
 where
     VmId: Eq + std::hash::Hash,
 {
@@ -96,11 +92,11 @@ where
     pub inner: Inner,
 
     /// The adopting side.
-    pub adopter: Adopter<VmId, Codec, ActionCallRequester>,
+    pub adopter: Adopter<VmId, Value, RaisedException>,
 }
 
 /// The adopting side of an [`AdoptingActionSettler`].
-pub struct Adopter<VmId, Codec, ActionCallRequester>
+pub struct Adopter<VmId, Value, RaisedException>
 where
     VmId: Eq + std::hash::Hash,
 {
@@ -108,9 +104,7 @@ where
 
     locker: PerVmLockerHandle<VmId>,
 
-    codec: Codec,
-
-    requester: ActionCallRequester,
+    reporter: lost_execution::Reporter<VmId, Value, RaisedException>,
 
     action_call_request_locks_tracker: Arc<std::sync::Mutex<Tracker<VmId>>>,
 
@@ -122,24 +116,23 @@ where
     adoption: Adoption,
 }
 
-impl<VmId, Codec, ActionCallRequester> Adopter<VmId, Codec, ActionCallRequester>
+impl<VmId, Value, RaisedException> Adopter<VmId, Value, RaisedException>
 where
     VmId: Eq + std::hash::Hash,
 {
     /// The adopter of the VM `vm_id`.
     ///
-    /// `locker` is the shared lock batcher the passes go through; `codec`
-    /// decodes the stored request payloads; `requester` redelivers the
-    /// adopted calls to the local pool; `action_call_request_locks_tracker`
-    /// is the tracker of this process's action-call request locks;
-    /// `recheck` listens for the VM's effect handler finding a fresh
-    /// emission already recorded; `heartbeat` paces the passes while a
-    /// request of the VM is not tracked here.
+    /// `locker` is the shared lock batcher the passes go through;
+    /// `reporter` reports the adopted calls as lost executions;
+    /// `action_call_request_locks_tracker` is the tracker of this
+    /// process's action-call request locks; `recheck` listens for the
+    /// VM's effect handler finding a fresh emission already recorded;
+    /// `heartbeat` paces the passes while a request of the VM is not
+    /// tracked here.
     pub fn new(
         vm_id: VmId,
         locker: PerVmLockerHandle<VmId>,
-        codec: Codec,
-        requester: ActionCallRequester,
+        reporter: lost_execution::Reporter<VmId, Value, RaisedException>,
         action_call_request_locks_tracker: Arc<std::sync::Mutex<Tracker<VmId>>>,
         recheck: recheck::Rx,
         heartbeat: NonZeroDuration,
@@ -147,8 +140,7 @@ where
         Self {
             vm_id,
             locker,
-            codec,
-            requester,
+            reporter,
             action_call_request_locks_tracker,
             recheck: Some(recheck),
             heartbeat,
@@ -157,26 +149,13 @@ where
     }
 }
 
-impl<VmId, Codec, ActionCallRequester> Adopter<VmId, Codec, ActionCallRequester>
+impl<VmId, Value, RaisedException> Adopter<VmId, Value, RaisedException>
 where
     VmId: Clone + Eq + std::hash::Hash + core::fmt::Debug,
-    Codec: waymark_vm_codec_core::DeserializerProvider,
-    ActionCallRequester:
-        waymark_action_runtime_core::ActionCallRequester<Metadata = ActionCallCorrelation>,
-    ActionCallRequester::Argument: serde::de::DeserializeOwned,
 {
-    /// Lock the VM's eligible requests and redeliver their calls; then
-    /// settle where the VM stands.
-    async fn pass<SettleError>(
-        &mut self,
-    ) -> Result<
-        (),
-        Error<
-            SettleError,
-            <Codec as waymark_vm_codec_core::DeserializerProvider>::Error,
-            ActionCallRequester::Error,
-        >,
-    > {
+    /// Lock the VM's eligible requests and report their calls as lost;
+    /// then settle where the VM stands.
+    async fn pass<SettleError>(&mut self) -> Result<(), Error<SettleError>> {
         // Requests up to here are answered by this pass; a request during
         // it buys another.
         if let Some(recheck) = &mut self.recheck {
@@ -199,24 +178,20 @@ where
             pending_call_request,
         } in locked
         {
-            let payload: payload::Payload<ActionCallRequester::Argument> = self
-                .codec
-                .with_deserializer(&record.request, |deserializer| {
-                    serde::Deserialize::deserialize(deserializer)
-                })
-                .map_err(Error::Decode)?;
-
-            self.requester
-                .request_action_call(ActionCallRequest {
-                    action_ref: payload.action_ref,
-                    arguments: payload.arguments,
-                    metadata: ActionCallCorrelation {
-                        effect_number: record.effect_number,
-                        promise_state_id: record.promise_state_id,
+            // Whether the lapsed owner's attempt ran at all is unknown
+            // here, even for a lock this process took itself.
+            self.reporter
+                .report_loss(
+                    WithVmId {
+                        vm_id: self.vm_id.clone(),
+                        inner: ActionCallCorrelation {
+                            effect_number: record.effect_number,
+                            promise_state_id: record.promise_state_id,
+                        },
                     },
-                })
-                .await
-                .map_err(Error::Deliver)?;
+                    ActionCallStage::Unknown,
+                )
+                .map_err(Error::Report)?;
 
             pending_call_request.confirm_requested();
         }
@@ -249,8 +224,8 @@ where
     }
 }
 
-impl<Inner, VmId, Codec, ActionCallRequester> waymark_extcall_reconciler_core::SettlerAck
-    for AdoptingActionSettler<Inner, VmId, Codec, ActionCallRequester>
+impl<Inner, VmId, Value, RaisedException> waymark_extcall_reconciler_core::SettlerAck
+    for AdoptingActionSettler<Inner, VmId, Value, RaisedException>
 where
     Inner: waymark_extcall_reconciler_core::SettlerAck,
     VmId: Eq + std::hash::Hash,
@@ -258,8 +233,8 @@ where
     type Ack = Inner::Ack;
 }
 
-impl<Inner, VmId, Codec, ActionCallRequester> waymark_extcall_reconciler_core::HasValue
-    for AdoptingActionSettler<Inner, VmId, Codec, ActionCallRequester>
+impl<Inner, VmId, Value, RaisedException> waymark_extcall_reconciler_core::HasValue
+    for AdoptingActionSettler<Inner, VmId, Value, RaisedException>
 where
     Inner: waymark_extcall_reconciler_core::HasValue,
     VmId: Eq + std::hash::Hash,
@@ -267,8 +242,8 @@ where
     type Value = Inner::Value;
 }
 
-impl<Inner, VmId, Codec, ActionCallRequester> waymark_extcall_reconciler_core::HasRaisedException
-    for AdoptingActionSettler<Inner, VmId, Codec, ActionCallRequester>
+impl<Inner, VmId, Value, RaisedException> waymark_extcall_reconciler_core::HasRaisedException
+    for AdoptingActionSettler<Inner, VmId, Value, RaisedException>
 where
     Inner: waymark_extcall_reconciler_core::HasRaisedException,
     VmId: Eq + std::hash::Hash,
@@ -276,25 +251,18 @@ where
     type RaisedException = Inner::RaisedException;
 }
 
-impl<Inner, VmId, Codec, ActionCallRequester, UnifiedAck>
+impl<Inner, VmId, Value, RaisedException, UnifiedAck>
     waymark_extcall_reconciler_core::ActionPromiseSettler<UnifiedAck>
-    for AdoptingActionSettler<Inner, VmId, Codec, ActionCallRequester>
+    for AdoptingActionSettler<Inner, VmId, Value, RaisedException>
 where
     Inner: waymark_extcall_reconciler_core::ActionPromiseSettler<UnifiedAck> + Send,
     VmId: Clone + Eq + std::hash::Hash + Send + Sync + core::fmt::Debug,
-    Codec: waymark_vm_codec_core::DeserializerProvider + Send + Sync,
-    <Codec as waymark_vm_codec_core::DeserializerProvider>::Error: Send,
-    ActionCallRequester:
-        waymark_action_runtime_core::ActionCallRequester<Metadata = ActionCallCorrelation>,
-    ActionCallRequester: Send + Sync,
-    ActionCallRequester::Argument: serde::de::DeserializeOwned + Send + Sync,
+    Value: Send,
+    RaisedException: Send,
     UnifiedAck: From<Inner::Ack>,
 {
-    type Error = Error<
-        <Inner as waymark_extcall_reconciler_core::ActionPromiseSettler<UnifiedAck>>::Error,
-        <Codec as waymark_vm_codec_core::DeserializerProvider>::Error,
-        ActionCallRequester::Error,
-    >;
+    type Error =
+        Error<<Inner as waymark_extcall_reconciler_core::ActionPromiseSettler<UnifiedAck>>::Error>;
 
     async fn poll_action_settlements<'a>(
         &'a mut self,
