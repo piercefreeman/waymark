@@ -33,7 +33,6 @@ fn harness() -> Harness {
     let handler = EffectHandler {
         recorder: spawn_recorder(&backend, &tracker),
         codec: RmpCodec,
-        action_call_request_locks_tracker: Arc::clone(&tracker),
         vm_id: 42u64,
         requester: requester.clone(),
         recheck: recheck_tx,
@@ -222,7 +221,6 @@ async fn delivery_failure_leaves_the_row_recorded_and_up_for_unlocking() {
     let mut handler: TestEffectHandler<FailingRequester> = EffectHandler {
         recorder: spawn_recorder(&backend, &tracker),
         codec: RmpCodec,
-        action_call_request_locks_tracker: Arc::clone(&tracker),
         vm_id: 42u64,
         requester: FailingRequester,
         recheck: recheck::new().0,

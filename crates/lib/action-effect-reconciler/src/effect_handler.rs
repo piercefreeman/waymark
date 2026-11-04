@@ -3,8 +3,6 @@
 #[cfg(test)]
 mod tests;
 
-use std::sync::Arc;
-
 use waymark_action_core::ActionRef;
 use waymark_action_effect_reconciler_backend::ActionCallRequestRecord;
 use waymark_action_runtime_core::ActionCallRequest;
@@ -13,7 +11,6 @@ use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use crate::action_call_request::batcher::{RecorderHandle, RecordingError, RecordingOutcome};
-use crate::action_call_request::locks::Tracker;
 use crate::action_call_request::payload;
 
 /// Error returned when handling an action-call effect fails.
@@ -59,10 +56,6 @@ where
 
     /// The codec used to encode request payloads.
     pub codec: Codec,
-
-    /// The tracker of this process's action-call request locks, given
-    /// each requested call's lock.
-    pub action_call_request_locks_tracker: Arc<std::sync::Mutex<Tracker<VmId>>>,
 
     /// The VM this handler serves.
     pub vm_id: VmId,

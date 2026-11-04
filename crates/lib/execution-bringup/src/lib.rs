@@ -474,7 +474,6 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
             let action_handler = waymark_action_effect_reconciler::EffectHandler {
                 recorder: request_recorder.clone(),
                 codec: Arc::clone(&codec),
-                action_call_request_locks_tracker: Arc::clone(&action_call_request_locks_tracker),
                 vm_id: *vm_id,
                 requester: action_call_requester(),
                 recheck: action_call_request_recheck_tx,
