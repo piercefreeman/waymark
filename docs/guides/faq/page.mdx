@@ -86,9 +86,15 @@ can break compatibility, and upgrades require downtime.
 
 **Can an action run more than once?**
 
-Yes. [After a node crashes](/guides/production#scaling-out), another node can
-send its in-flight action calls again, even without a retry policy. An action
-may already have charged a customer or made another change outside Waymark.
+Normally only when a retry runs it again. A call whose attempt is lost with
+its worker or [its node](/guides/production#scaling-out), or times out,
+fails with `ActionExecutionLost` or `ActionTimeout`; nothing reruns it
+unless a retry policy lists those, or a `try/except` in the workflow calls
+it again. The lost or timed-out attempt may already have charged a customer
+or made another change outside Waymark, and may still be running when the
+retry starts. One gap remains today: a call that completed just before its
+node crashed, before the workflow saved that progress, runs again when the
+workflow resumes, without a retry.
 
 Make those effects safe to repeat. For a payment API, send the same
 idempotency key on each attempt.
@@ -180,17 +186,20 @@ opens up to 14. Those totals include the observability pools. You can
 
 After a node crashes and its leases expire, another node can
 [resume its workflows](/guides/production#scaling-out) from their last saved
-state. Calls that were in flight can run again.
+state. Calls that were in flight on the crashed node fail with
+`ActionExecutionLost` after their locks lapse, reported by the node that
+resumed the workflow.
 
 On `SIGTERM`, the node waits for in-flight actions to finish, releases its
 workflows, and exits. It has no internal shutdown deadline. If your
 orchestrator kills it when the grace period ends, recovery works as it would
 after a crash.
 
-A worker dying or being recycled on a live node is different. Its calls fail
-with `ActionExecutionLost`, or `ActionExecutionNotStarted` if they provably
-never started. A retry policy on `Exception` covers the latter; to retry a
-lost attempt, the policy must include `ActionExecutionLost` or `BaseException`.
+A worker dying or being recycled on a live node fails its calls the same
+way, with `ActionExecutionLost`, or `ActionExecutionNotStarted` if they
+provably never started. A retry policy on `Exception` covers the latter; to
+retry a lost attempt, the policy must include `ActionExecutionLost` or
+`BaseException`.
 
 ## Defaults {{ id: 'numbers' }}
 

@@ -27,8 +27,9 @@ can focus on the conversation and the workflow.
 
 Waymark persists the workflow's progress between model and tool calls. If a
 node crashes, another node resumes from the last saved state. A call that was
-in flight may run again, so real tools with side effects need to be safe to
-repeat (idempotent).
+in flight fails with `ActionExecutionLost`; a retry policy that lists it runs
+the call again, so real tools with side effects need to be safe to repeat
+(idempotent).
 
 ## Setting up your environment {{ id: 'setting-up-your-environment' }}
 
