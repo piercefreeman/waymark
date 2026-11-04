@@ -1,5 +1,4 @@
-//! Per-VM request locking trait — relocks a VM's lapsed requests for
-//! delivery.
+//! Per-VM request locking trait — relocks a VM's lapsed requests.
 
 use nonempty_collections::{NESlice, NEVec};
 
@@ -8,8 +7,7 @@ use super::common::{
     ActionCallRequestRecord, HasLockOwnerId, HasTimestamp, HasVmId,
 };
 
-/// Backend capability for locking VMs' pending requests for delivery, in a
-/// batch.
+/// Backend capability for locking VMs' pending requests, in a batch.
 pub trait LockActionCallRequests: HasVmId + HasLockOwnerId + HasTimestamp {
     /// The error type for lock operations.
     type Error: core::fmt::Debug;
@@ -29,10 +27,9 @@ pub trait LockActionCallRequests: HasVmId + HasLockOwnerId + HasTimestamp {
     /// other via [`PerVmActionCallRequestLockingOutcome::held_elsewhere`]
     /// — an attempt is presumed running in that owner's pool.
     ///
-    /// The caller must deliver exactly the returned
-    /// [`PerVmActionCallRequestLockingOutcome::locked`] rows to its local
-    /// worker pool.  A VM with no request rows yields an empty outcome — a
-    /// no-op.
+    /// The returned [`PerVmActionCallRequestLockingOutcome::locked`] rows
+    /// are the caller's to act on.  A VM with no request rows yields an
+    /// empty outcome — a no-op.
     fn lock_action_call_requests<'a>(
         &'a self,
         now: Self::Timestamp,
@@ -50,7 +47,7 @@ pub struct PerVmActionCallRequestLockingOutcome<VmId> {
     /// The VM this outcome is for.
     pub vm_id: VmId,
 
-    /// Rows now locked by the caller — deliver these calls.
+    /// Rows now locked by the caller.
     pub locked: Vec<ActionCallRequestRecord<VmId>>,
 
     /// Rows not locked by this call and not held by the caller — left
