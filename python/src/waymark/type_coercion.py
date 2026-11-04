@@ -2,6 +2,7 @@ import dataclasses
 from base64 import b64decode
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from enum import Enum
 from pathlib import PurePath
 from types import UnionType
 from typing import Any, Union, cast, get_args, get_origin, get_type_hints
@@ -56,6 +57,12 @@ def coerce_value(value: Any, target_type: type) -> Any:
 
     if isinstance(target_type, type) and issubclass(target_type, COERCIBLE_TYPES):
         return _coerce_primitive(value, target_type)
+
+    if isinstance(target_type, type) and issubclass(target_type, Enum):
+        # Enums serialize as their `.value`; look the member back up by value.
+        if isinstance(value, target_type):
+            return value
+        return target_type(value)
 
     if isinstance(value, dict) and (
         is_pydantic_model_type(target_type) or is_dataclass_type(target_type)
