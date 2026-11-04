@@ -31,6 +31,7 @@
 pub mod action_call_request;
 pub mod adopting_action_settler;
 pub mod effect_handler;
+pub mod lost_execution;
 
 #[cfg(test)]
 mod test_support;
