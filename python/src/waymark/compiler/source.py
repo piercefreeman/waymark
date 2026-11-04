@@ -7,9 +7,10 @@ import textwrap
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import FunctionType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from waymark.compiler.errors import UnsupportedPatternError
+from waymark.compiler.types import specialize, type_parameter_bindings
 from waymark.global_handlers import GLOBAL_HANDLERS
 
 if TYPE_CHECKING:
@@ -60,7 +61,8 @@ def load_workflow_source(workflow_cls: type["Workflow"]) -> list[ParsedFunction]
         original_run = workflow_cls.__dict__.get("run")
     if not inspect.isfunction(original_run):
         raise ValueError(f"workflow {workflow_cls!r} missing run implementation")
-    run = parse_function(original_run, "main")
+    bindings = type_parameter_bindings(workflow_cls)
+    run = parse_function(original_run, "main", bindings)
     methods = [run]
     pending = _collect_self_method_calls(run.node)
     visited: set[str] = set()
@@ -81,14 +83,24 @@ def load_workflow_source(workflow_cls: type["Workflow"]) -> list[ParsedFunction]
         method = _find_workflow_method(workflow_cls, name)
         if method is None:
             continue
-        parsed = parse_function(method)
+        parsed = parse_function(method, bindings=bindings)
         methods.append(parsed)
         pending.extend(_collect_self_method_calls(parsed.node))
     return methods
 
 
-def parse_function(function: FunctionType, name: str | None = None) -> ParsedFunction:
-    """Parse a method once while retaining its lexical scope and original indentation."""
+def parse_function(
+    function: FunctionType,
+    name: str | None = None,
+    bindings: Mapping[TypeVar, Any] | None = None,
+) -> ParsedFunction:
+    """Parse a method once while retaining its lexical scope and original indentation.
+
+    `bindings` specializes the type parameters of the workflow's generic bases,
+    so a helper written on `Base(Generic[T])` compiles for `Concrete(Base[int])`
+    with `T` read as `int`, in its signature and in its annotations' names.
+    """
+    bindings = bindings or {}
     source_lines, start_line = inspect.getsourcelines(function)
     source = textwrap.dedent("".join(source_lines))
     filename = inspect.getsourcefile(function) or inspect.getfile(function)
@@ -106,14 +118,21 @@ def parse_function(function: FunctionType, name: str | None = None) -> ParsedFun
     function_node = tree.body[0]
     assert isinstance(function_node, (ast.FunctionDef, ast.AsyncFunctionDef))
     signature = inspect.signature(function)
+    namespace = {**function.__globals__, **inspect.getclosurevars(function).nonlocals}
     return ParsedFunction(
         name=name if name is not None else function.__name__,
         node=function_node,
-        namespace={**function.__globals__, **inspect.getclosurevars(function).nonlocals},
+        namespace={
+            key: specialize(value, bindings) if isinstance(value, TypeVar) else value
+            for key, value in namespace.items()
+        },
         signature=signature.replace(
             parameters=[
-                parameter for key, parameter in signature.parameters.items() if key != "self"
-            ]
+                parameter.replace(annotation=specialize(parameter.annotation, bindings))
+                for key, parameter in signature.parameters.items()
+                if key != "self"
+            ],
+            return_annotation=specialize(signature.return_annotation, bindings),
         ),
         local_names=function.__code__.co_varnames + function.__code__.co_cellvars,
         filename=filename,

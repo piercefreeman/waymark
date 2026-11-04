@@ -397,7 +397,12 @@ behavior is supported.
 - **Numeric literals.** Use finite floats and integers within signed 64-bit
   range; other numeric literals raise compilation errors.
 - **Generic annotations.** Specialize open type parameters in workflow inputs
-  and returns before compilation.
+  and returns before compilation. Helpers on a generic workflow base compile
+  for each subclass that specializes it: on `class Agent(Base[Prompt])`, a
+  helper written as `async def handle(self, request: T)` on
+  `class Base(Workflow, Generic[T])` reads `T` as `Prompt`, through
+  intermediate bases too. A parameter no subclass specializes, or one declared
+  only by the method itself, still raises a compilation error.
 - **Module-level values.** Enum members and exception classes resolve at
   compilation. Pass other values through workflow inputs or fetch them inside
   an action; arbitrary globals currently raise compilation errors.
