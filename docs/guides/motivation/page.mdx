@@ -36,7 +36,7 @@ Today that language is Python; JavaScript is
 A workflow defines what runs first, what runs in parallel, and what happens
 when something fails. An action does the work on a worker process. Its inputs
 and result are serialized so the workflow can save progress between calls.
-Actions may run again after a failure; you make their side effects safe to
+Actions may run again, by retry policy; you make their side effects safe to
 repeat. Write both in a supported language; this example uses Python:
 
 <CodeGroup>

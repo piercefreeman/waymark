@@ -58,16 +58,18 @@ registered with, so call `schedule_workflow(...)` again on deploy. See
 
 ## Semantics {{ id: 'semantics' }}
 
-**Exactly-once or at-least-once?**
-At-least-once for actions, and you decide how often. A `RetryPolicy`
-with `attempts` bounds how many times a failed call is run again, and
-only the exceptions it lists, so a lost or timed-out attempt is rerun
-only when you say so. A `try/except` around the call lets the workflow
-notice the failure and clean up or take another path instead. When a
-node dies mid-call, the node that resumes the workflow redelivers that
-call once more, so an action that may have got halfway through should
-either be idempotent or be guarded by that handler. See [Retries &
-Timeouts](/python/retries) and [Scaling out](/guides/production#scaling-out).
+**Exactly-once, at-least-once, or at-most-once?**
+Per call, your choice. A bare `await` runs the action once: if the
+attempt raises, is lost with its worker or its node, or times out,
+nothing reruns it unless a `RetryPolicy` says so, so by default a call
+is at-most-once. Listing failures in `exception_types` makes the call
+at-least-once for exactly those, bounded by `attempts`; a `RetryPolicy`
+is the compiled form of a `try/except` loop around the call, and a
+`try/except` you write yourself can clean up or take another path
+instead. An action retried after a loss or a timeout may run twice, so
+make such actions safe to repeat. Exactly-once is not offered. See
+[Retries & Timeouts](/python/retries) and [Scaling
+out](/guides/production#scaling-out).
 
 **Does a timeout cancel the action?**
 No; a timeout is best effort. The workflow moves on with an
@@ -138,9 +140,10 @@ connections](/guides/production#database-connections).
 A crashed node's leases expire and another node resumes its workflows
 from their last persisted state. On `SIGTERM` a node lets in-flight
 actions finish, releases its workflows, and exits, bounded only by your
-orchestrator's grace period. A worker process dying on a live node fails
-its calls with `ActionExecutionLost`, which only a policy that lists it
-retries. See [Scaling out](/guides/production#scaling-out).
+orchestrator's grace period. A call in flight on a crashed node, or on a
+worker process that dies on a live node, fails with `ActionExecutionLost`,
+which only a policy that lists it retries. See [Scaling
+out](/guides/production#scaling-out).
 
 ## Scope and languages {{ id: 'scope' }}
 

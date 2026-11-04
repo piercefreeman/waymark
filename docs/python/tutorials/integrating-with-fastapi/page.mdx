@@ -211,6 +211,6 @@ the workflow, and dispatches each action to one of its workers, which import
 - Use `_blocking=False` when a client does not need the final answer in the same
   request.
 
-Before sending real receipts, make the email action idempotent: a node failure
-can cause an in-flight action to run again. See
+Before sending real receipts, make the email action idempotent if you retry
+it: a retry after a timeout or a node failure runs the action again. See
 [Production Deployment](/guides/production#scaling-out) for recovery behavior.

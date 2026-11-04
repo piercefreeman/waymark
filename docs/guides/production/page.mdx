@@ -248,16 +248,19 @@ it queues workflows through Postgres.
 
 When a node container is killed mid-run, its instances resume on another node.
 Version [upgrades](#upgrades) still require the shutdown order above.
-An action call that was in flight on the killed node is
-redelivered by the node that resumes the workflow, so the action may run
-twice: make actions idempotent. A worker process dying or being recycled
-on a live node is the other case: the calls it was running fail with
-`ActionExecutionLost`,
-or `ActionExecutionNotStarted` if it provably never started.
-`ActionExecutionLost` derives from `BaseException`, so only a
-[retry policy](/python/retries) that lists it retries the call;
-`ActionExecutionNotStarted` is retried like any other exception. Without
-a matching policy, the exception propagates like any other.
+An action call that was in flight on the killed node fails with
+`ActionExecutionLost` once the node's lock on it lapses
+(`WAYMARK_ACTION_EFFECT_RECONCILER_LOCK_TTL_MS`, 15 seconds by default),
+reported to the workflow by the node that resumed it. A worker process
+dying or being recycled on a live node is the other case: the calls it
+was running fail with `ActionExecutionLost` too, or
+`ActionExecutionNotStarted` if it provably never started.
+`ActionExecutionLost` derives from `BaseException`, because the attempt
+may have run partway, so only a [retry policy](/python/retries) that
+lists it retries the call, and an action retried that way must be safe
+to run again; `ActionExecutionNotStarted` is retried like any other
+exception. Without a matching policy, the exception propagates like any
+other, for a `try/except` in the workflow to handle.
 
 On a termination request to the node process (`SIGTERM`, what `docker
 stop` and Kubernetes send, or `SIGINT`), a node shuts down gracefully:
