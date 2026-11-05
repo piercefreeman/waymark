@@ -1,5 +1,6 @@
-[advisories]
-ignore = []
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0441"
+reason = "pin-utils is unmaintained; only hyper pulls it in and hyper has no release without it yet"
 
 [licenses]
 allow = ["Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "BSL-1.0", "ISC", "MIT", "MPL-2.0", "Unicode-3.0", "Zlib"]
