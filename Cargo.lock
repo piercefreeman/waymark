@@ -3868,6 +3868,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-action-runtime-completions-aggregation"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "waymark-action-runtime-core",
+]
+
+[[package]]
 name = "waymark-action-runtime-convert"
 version = "0.1.0"
 dependencies = [
@@ -4367,6 +4378,7 @@ dependencies = [
  "waymark-action-completions-reconciler-backend",
  "waymark-action-effect-reconciler",
  "waymark-action-effect-reconciler-backend",
+ "waymark-action-runtime-completions-aggregation",
  "waymark-action-runtime-metadata",
  "waymark-action-runtime-metadata-compat",
  "waymark-action-runtime-worker-pool",

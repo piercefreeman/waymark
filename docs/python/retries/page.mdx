@@ -105,9 +105,9 @@ policy on `Exception` does not retry them; list them by name, or
 a lost worker process provably never started the call, derives from
 `Exception` and is retried like any other. The three are spelled out as
 classes in `waymark.vm_exceptions` for `except` clauses; see
-[Exceptions](/python/api/exceptions). A node dying is a different case:
-the calls in flight on it are redelivered by the node that resumes the
-workflow, as [Production Deployment](/guides/production#scaling-out)
+[Exceptions](/python/api/exceptions). A node dying is no different: the
+calls in flight on it fail with `ActionExecutionLost` once their locks
+lapse, as [Production Deployment](/guides/production#scaling-out)
 explains.
 
 Besides a policy, the workflow can catch `ActionTimeout`,

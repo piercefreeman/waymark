@@ -4,15 +4,15 @@
 //! Emitted action-call effects are recorded as durable request rows
 //! (born locked by this process) before the call is delivered to the
 //! local worker pool; pending rows whose locks lapsed are relocked and
-//! their calls redelivered.  A request row is removed by the store
-//! itself the moment its completion is durably recorded, so the
-//! subsystem never observes outcomes — it is purely an at-least-once
-//! delivery machine.
+//! their calls reported as lost executions ([`lost_execution`]), for the
+//! program to decide what the loss means.  A request row is removed by
+//! the store itself the moment its completion is durably recorded, so
+//! the subsystem never observes outcomes.
 //!
-//! Issuance is VM-residency-scoped: calls are only ever (re)issued from
-//! the VM execution flow — at effect emission ([`EffectHandler`]) and
-//! while the VM waits for settlements ([`AdoptingActionSettler`], a settler
-//! decorator adopting the requests whose locks lapsed).  There is no
+//! Issuance is VM-residency-scoped: calls are only ever issued from the
+//! VM execution flow, at effect emission ([`EffectHandler`]); while the
+//! VM waits for settlements, [`AdoptingActionSettler`], a settler
+//! decorator, adopts the requests whose locks lapsed.  There is no
 //! background issuance of any kind.  Attempt execution and lock
 //! ownership are process-scoped: evicting a VM neither cancels its
 //! in-flight attempts nor releases their locks — the
@@ -31,6 +31,7 @@
 pub mod action_call_request;
 pub mod adopting_action_settler;
 pub mod effect_handler;
+pub mod lost_execution;
 
 #[cfg(test)]
 mod test_support;

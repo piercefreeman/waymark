@@ -29,7 +29,7 @@
 //! awaiting drive loops.
 //! Rows of innocent same-batch VMs were still durably recorded (the
 //! backend inserts everything the divergence error does not refer to),
-//! so their calls are redelivered by adoption once the batch lock lapses.
+//! so adoption reports their calls as lost once the batch lock lapses.
 
 use std::collections::HashSet;
 use std::hash::Hash;

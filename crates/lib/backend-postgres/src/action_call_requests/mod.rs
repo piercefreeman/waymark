@@ -1,8 +1,8 @@
 //! Postgres backend for durably-stored action-call requests.
 //!
 //! Implements the `waymark_action_effect_reconciler_backend` traits:
-//! requests are recorded born-locked at effect emission, relocked for
-//! delivery once their locks lapsed, kept alive by lock renewal, unlocked
+//! requests are recorded born-locked at effect emission, relocked once
+//! their locks lapsed, kept alive by lock renewal, unlocked
 //! by the renewal heartbeat when their calls never went through (or left
 //! to lapse when the statement that took their locks reported failure).
 //! Rows of a deleted VM are swept by the snapshot-deletion cleanup
@@ -550,7 +550,7 @@ impl waymark_action_effect_reconciler_backend::RenewActionCallRequestLocks for P
                             }
                         }
                         // A row we no longer own — relocked by another
-                        // owner, or unlocked and up for redelivery by
+                        // owner, or unlocked and up for relocking by
                         // anyone. Either way our authorization is gone.
                         Some(_) | None => ActionCallRequestLockRenewalStatus::HeldElsewhere,
                     }

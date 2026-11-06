@@ -26,8 +26,7 @@ pub trait RenewActionCallRequestLocks: HasVmId + HasLockOwnerId + HasTimestamp {
     /// [`ActionCallRequestLockRenewalStatus::Relocked`] means the row holds
     /// another lock of the same owner;
     /// [`ActionCallRequestLockRenewalStatus::HeldElsewhere`] means the lock
-    /// expired and another owner took it — the attempt may now run
-    /// duplicated there (accepted at-least-once semantics).
+    /// expired and another owner took it.
     ///
     /// [`ActionCallRequestLockRenewalStatus::Relocked`] and
     /// [`ActionCallRequestLockRenewalStatus::HeldElsewhere`] must be
@@ -74,8 +73,7 @@ pub enum ActionCallRequestLockRenewalStatus {
     /// without authorization.
     Relocked,
 
-    /// The row is locked by a different owner.  Prune local tracking; the
-    /// attempt may run duplicated there.
+    /// The row is locked by a different owner.  Prune local tracking.
     HeldElsewhere,
 
     /// The row still holds the lock, but this pass could not confirm the
