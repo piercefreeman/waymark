@@ -9,6 +9,7 @@ export const navigation = [
         aliasOf: '/python/quickstart',
       },
       { title: 'Why Waymark', href: '/guides/motivation' },
+      { title: 'FAQ', href: '/guides/faq' },
     ],
   },
   {
