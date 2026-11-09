@@ -476,9 +476,9 @@ Values crossing between workflows and actions have these current limitations:
 - Non-finite numbers and out-of-range integers produced at runtime still require
   validation at the action/wire boundary
   ([#597](https://github.com/piercefreeman/waymark/issues/597)).
-- `datetime`, `Decimal`, `UUID`, `bytes`, `set`, and `Enum` values can lose their
-  type. Receiving annotations restore only some types: enum annotations do not
-  restore enum members, and `bytes | str` can reinterpret strings as bytes
+- `datetime`, `Decimal`, `UUID`, `bytes`, `set`, and `Enum` values lose their
+  type unless the receiving parameter's annotation restores it. A union such as
+  `bytes | str` can reinterpret strings as bytes
   ([#599](https://github.com/piercefreeman/waymark/issues/599)).
 - A subclass passed under a base-class annotation can lose its fields. Open
   generic workflow and action annotations are rejected during compilation,
