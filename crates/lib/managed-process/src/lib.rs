@@ -1,6 +1,14 @@
 //! Managed wrapper around `tokio::process::Child` with graceful shutdown helpers.
 
 #![warn(missing_docs)]
+// `allow`, not `expect`: whether an `ErrorWithChild` crosses the lint's size
+// threshold depends on the size of tokio's `Child`, which differs by target
+// and by the tokio features a build unifies in, and which is not measured on
+// every supported target.
+#![allow(
+    clippy::result_large_err,
+    reason = "every step that consumes the `Child` hands it back on its error by design; see `ErrorWithChild`"
+)]
 
 #[cfg(unix)]
 mod platform_unix;
@@ -224,15 +232,6 @@ impl Child {
     /// Hands the handle back while the process is still running, and the
     /// exit status once it has exited; a failed wait hands it back in the
     /// error.
-    //
-    // `allow`, not `expect`: the lint fires only when tokio's `rt` feature is
-    // enabled, which this crate does not ask for but any build alongside a
-    // crate that does unifies in (tokio's `Child` is larger with it), so an
-    // `expect` is unfulfilled in the builds without it.
-    #[allow(
-        clippy::result_large_err,
-        reason = "the error carries the handle back by design"
-    )]
     pub fn try_wait(mut self) -> Result<Observed, ErrorWithChild<std::io::Error>> {
         match self.child.try_wait() {
             Ok(Some(exit_status)) => Ok(Observed::Exited(exit_status)),
