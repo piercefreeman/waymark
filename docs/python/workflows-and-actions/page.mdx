@@ -124,8 +124,9 @@ time the workflow is run or scheduled.
 The runtime persists state as the workflow runs. When another node resumes it,
 execution continues from the last saved state without replaying `run()` from
 the beginning. Side effects and I/O belong in actions, outside the compiled
-control flow. An action that was in flight during a node failure may run again;
-see [Production Deployment](/guides/production#scaling-out).
+control flow. An action that was in flight during a node failure fails with
+`ActionExecutionLost`, for the workflow's retry policy or `try/except` to
+handle; see [Production Deployment](/guides/production#scaling-out).
 
 Workflows can run on a cron or a fixed interval with
 [`schedule_workflow`](/python/scheduling), and can pause indefinitely

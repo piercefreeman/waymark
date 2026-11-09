@@ -29,7 +29,7 @@ pub trait RecordActionCallRequests: HasVmId + HasLockOwnerId + HasTimestamp {
     /// **untouched** (including its lock), and the key is reported via
     /// [`RecordingSuccess::SomeAlreadyRecorded`] — the caller must NOT
     /// deliver those calls (an existing row means the VM is replaying a
-    /// previously emitted effect, and delivery of the existing row was
+    /// previously emitted effect, and what becomes of the existing row was
     /// already decided when it was recorded or relocked).
     ///
     /// A record whose key exists with a **different payload** violates
