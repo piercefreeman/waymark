@@ -121,7 +121,7 @@ async fn run_case_transient(
                 "case '{}' timed out after {}s",
                 prepared.case.id,
                 timeout.as_secs()
-            )
+            );
         }
     };
 

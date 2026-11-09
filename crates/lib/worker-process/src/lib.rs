@@ -229,6 +229,10 @@ impl Handle {
 }
 
 impl ShutdownParams {
+    #[allow(
+        clippy::result_large_err,
+        reason = "the managed process hands the `Child` back on its error by design"
+    )]
     async fn shutdown_child_process(
         &self,
         child: waymark_managed_process::Child,

@@ -1,6 +1,10 @@
 //! Managed wrapper around `tokio::process::Child` with graceful shutdown helpers.
 
 #![warn(missing_docs)]
+#![allow(
+    clippy::result_large_err,
+    reason = "every fallible step hands the `Child` back on its error by design; see `ErrorWithChild`"
+)]
 
 #[cfg(unix)]
 mod platform_unix;

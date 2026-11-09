@@ -170,7 +170,7 @@ async fn spawn_server(host: &str, port: u16) -> Result<u16, color_eyre::eyre::Re
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
-    bail!("server failed to start within {STARTUP_WAIT:?}")
+    bail!("server failed to start within {STARTUP_WAIT:?}");
 }
 
 fn find_server_binary() -> Result<PathBuf, color_eyre::eyre::Report> {
@@ -208,7 +208,7 @@ fn find_server_binary() -> Result<PathBuf, color_eyre::eyre::Report> {
         }
     }
 
-    bail!("could not find waymark-bridge binary")
+    bail!("could not find waymark-bridge binary");
 }
 
 fn write_port_file(port_file: &Option<PathBuf>, port: u16) -> Result<(), color_eyre::eyre::Report> {

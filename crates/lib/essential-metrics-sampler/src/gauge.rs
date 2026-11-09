@@ -18,7 +18,7 @@ impl metrics::GaugeFn for Cell {
     fn increment(&self, value: f64) {
         let _ = self
             .0
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |bits| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |bits| {
                 Some((f64::from_bits(bits) + value).to_bits())
             });
     }

@@ -159,7 +159,7 @@ pub fn select_cases(filters: &[String]) -> Result<Vec<FixtureCase>, color_eyre::
     let mut selected = Vec::new();
     for filter in filters {
         let Some(case) = CASES.iter().find(|candidate| candidate.id == filter) else {
-            bail!("unknown fixture case '{filter}'")
+            bail!("unknown fixture case '{filter}'");
         };
         selected.push(case.clone());
     }

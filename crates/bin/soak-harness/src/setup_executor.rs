@@ -183,7 +183,9 @@ pub async fn shutdown_executor(
     let shutdown_result = abort_token.run_until_cancelled(shutdown).await;
     let outcome = match shutdown_result {
         Some(outcome) => outcome?,
-        None => bail!("aborted while stopping the executor process; it was killed"),
+        None => {
+            bail!("aborted while stopping the executor process; it was killed");
+        }
     };
 
     match outcome {
@@ -262,5 +264,5 @@ pub async fn wait_for_node_sample(
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    bail!("timed out waiting for node samples; executor may not have started successfully")
+    bail!("timed out waiting for node samples; executor may not have started successfully");
 }

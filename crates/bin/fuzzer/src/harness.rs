@@ -109,7 +109,7 @@ pub async fn run_case(
                     bail!(
                         "case {case_index} timed out\n--- program ---\n{}",
                         case.source
-                    )
+                    );
                 }
             };
 
@@ -134,10 +134,12 @@ pub async fn run_case(
 
         match workflow_outcome {
             waymark_workflow_completion_core::Outcome::Completion(_value) => Ok(()),
-            waymark_workflow_completion_core::Outcome::Exception(exception) => bail!(
-                "case {case_index} completed with an exception: {exception:?}\n--- program ---\n{}",
-                case.source
-            ),
+            waymark_workflow_completion_core::Outcome::Exception(exception) => {
+                bail!(
+                    "case {case_index} completed with an exception: {exception:?}\n--- program ---\n{}",
+                    case.source
+                );
+            }
         }
     }
     .await;
