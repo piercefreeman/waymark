@@ -1,0 +1,209 @@
+export const metadata = {
+  title: 'FAQ',
+  description:
+    'How Waymark runs workflows, handles failures, and fits into your deployment.',
+}
+
+export const sections = [
+  { title: 'Writing workflows', id: 'model' },
+  { title: 'Failures and values', id: 'semantics' },
+  { title: 'Deployment', id: 'operations' },
+  { title: 'Support and limits', id: 'scope' },
+  { title: 'Defaults', id: 'numbers' },
+]
+
+# FAQ
+
+## Writing workflows {{ id: 'model' }}
+
+**Why does Waymark compile workflows?**
+
+Waymark [compiles each workflow](/guides/motivation#compile-once-vs-replay)
+into a program whose state it can save in Postgres. After a crash, the runtime
+resumes from that saved state without replaying the Python function.
+
+The tradeoff is that the compiler supports only Python control flow. Work outside
+that subset belongs in actions, which run in ordinary Python workers.
+
+**Which Python features can I use in a workflow?**
+
+The workflow body handles [control flow](/python/control-flow): loops,
+branches, parallel actions, `try/except`, and durable sleep. Put network
+requests, string formatting, and calls to clocks or random-number generators
+in actions.
+
+The compiler checks the body when you first run or schedule the workflow.
+If it finds an unsupported form, it reports the source location and suggests
+an alternative.
+
+**Can a workflow compile and still behave differently from Python?**
+
+Yes. Some operations [behave differently in the runtime](/python/control-flow#known-issues),
+and some values change type when passed between workflows and actions. The
+compiler rejects many [unsupported forms](/python/control-flow#limitations),
+but it doesn't catch every difference yet.
+[#772](https://github.com/piercefreeman/waymark/issues/772) tracks the remaining work.
+
+**What happens when I deploy changed code?**
+
+Running workflows keep the compiled version they started with. New runs use
+the updated body; by default, the version is a hash of the compiled body.
+Actions use the code on whichever worker receives them, so upgrading an action
+can affect workflows already in flight. Keep action signatures compatible
+while those workflows are running.
+
+Schedules similarly keep the version registered with them. Call `schedule_workflow(...)`
+again to [update a schedule](/python/scheduling#re-registering). This also
+resets its next run time and makes a paused schedule active again.
+
+## Support and limits {{ id: 'scope' }}
+
+**How much work can it handle?**
+
+Capacity depends on your action workload and how often workflows save state
+in Postgres; measure it with your workload. Waymark
+[isn't intended](/guides/motivation#when-not-to) for jobs that need sub-100 ms
+acknowledgement and dispatch, or for tens of thousands of concurrent actions.
+
+**Which languages are supported?**
+
+Python. JavaScript support is [planned](/javascript/nextjs).
+
+**What runs in Rust, and what runs in Python?**
+
+The Rust runtime executes compiled programs, saves their state, and dispatches
+actions to workers. It doesn't run Python itself. Python support consists
+of a compiler that produces Waymark IR and a worker that runs actions.
+The plan for other languages is to add their own compiler, worker, client,
+and value encoding, sharing the runtime and Postgres storage.
+
+**Is Waymark ready for production?**
+
+Waymark is in [early alpha](/guides/motivation#status). Releases before 1.0.0
+can break compatibility, and upgrades require downtime.
+
+## Failures and values {{ id: 'semantics' }}
+
+**Can an action run more than once?**
+
+Yes. [After a node crashes](/guides/production#scaling-out), another node can
+send its in-flight action calls again, even without a retry policy. An action
+may already have charged a customer or made another change outside Waymark.
+
+Make those effects safe to repeat. For a payment API, send the same
+idempotency key on each attempt.
+
+**What happens when an action fails?**
+
+With a bare `await some_action(...)`, the exception propagates to the workflow
+just like you'd expect in normal Python.
+You can catch it with `try/except`; otherwise the workflow fails. There's no
+retry policy or timeout by default.
+
+Use `self.run_action(...)` to configure [retries and timeouts](/python/retries).
+`RetryPolicy(attempts=3)` allows three attempts in total. `RetryPolicy()` with
+no `attempts` allows 100 retries after the first attempt, so set the count
+explicitly if you want fewer.
+
+**Does a timeout stop the action?**
+
+No. The workflow receives `ActionTimeout`, but the action isn't cancelled
+and may still be running. Retrying it can leave two attempts running at once.
+A retry policy must list `ActionTimeout` or `BaseException` to retry a
+[timed-out call](/python/retries#timeouts).
+
+**Do values keep their Python types?**
+
+Not always. Every value an action returns passes through the workflow, where
+Pydantic models and dataclasses become dictionaries, and tuples become lists.
+Some [standard-library types](/python/control-flow#known-issues) also lose their
+type. A receiving action's parameter annotations restore only some of them.
+[Introduction to Python](/python/authoring) lists the types the serializer handles.
+
+**How are exceptions matched?**
+
+We match based on class name, including base classes. The module is ignored, so two unrelated
+exceptions named `ConnectError` match the same filter. This applies to both
+workflow `except` clauses and
+[`RetryPolicy.exception_types`](/python/retries#filtering-by-exception).
+
+## Deployment {{ id: 'operations' }}
+
+**What do I need to deploy?**
+
+1. Your app
+2. One or more nodes running `waymark-executor`
+3. Postgres
+
+We suggest building the app and nodes from the same image so they have the same workflow and
+action definitions. The scheduler runs on the nodes. There's no separate
+message broker to run. [Production Deployment](/guides/production) has a
+Docker Compose example and startup instructions.
+
+**Can I do a rolling upgrade?**
+
+Not at the moment. Take a database snapshot, then stop the app containers, bridges, and
+nodes. Start the new nodes first so they can migrate the database, then start
+the app on the same version.
+
+The old version refuses the migrated schema, so restarting the old containers
+won't roll back the upgrade.
+Follow the [upgrade procedure](/guides/production#upgrades).
+
+**Are the HTTP ports authenticated?**
+
+No. The [metrics endpoint, HTTP API, and webapp](/guides/production#observability)
+have no authentication. The API and webapp are optional; metrics are always
+served. Both ports bind to `0.0.0.0` by default. Keep them on a private network
+or restrict access with a firewall.
+
+**Why does my app start a `waymark-bridge` process?**
+
+The Python SDK uses the [bridge](/guides/production#topology) to submit
+workflows and read results through gRPC. By default, it starts one on the
+first workflow call, shared by app processes that use the same `localhost`. This
+allows your app to better scale - and share one local connection pool - even if you're
+running multiple versions of your webapp via uvicorn.
+The bridge reads and writes Postgres and can outlive the app that started it.
+
+The SDK-started bridge currently keeps no logs
+([#820](https://github.com/piercefreeman/waymark/issues/820)). If it won't start,
+run `waymark-bridge` by hand with the app's environment to see the error.
+
+**How many Postgres connections should I allow?**
+
+Each node opens up to 33 Postgres connections by default, and each bridge
+opens up to 14. Those totals include the observability pools. You can
+[adjust the pool sizes](/guides/production#database-connections).
+
+**What happens when a node or worker stops?**
+
+After a node crashes and its leases expire, another node can
+[resume its workflows](/guides/production#scaling-out) from their last saved
+state. Calls that were in flight can run again.
+
+On `SIGTERM`, the node waits for in-flight actions to finish, releases its
+workflows, and exits. It has no internal shutdown deadline. If your
+orchestrator kills it when the grace period ends, recovery works as it would
+after a crash.
+
+A worker dying or being recycled on a live node is different. Its calls fail
+with `ActionExecutionLost`, or `ActionExecutionNotStarted` if they provably
+never started. A retry policy on `Exception` covers the latter; to retry a
+lost attempt, the policy must include `ActionExecutionLost` or `BaseException`.
+
+## Defaults {{ id: 'numbers' }}
+
+| Setting | Default |
+| --- | --- |
+| Workflow lease duration (`WAYMARK_LOCK_TTL_MS`) | 15 s |
+| Durable sleep polling interval (`WAYMARK_SLEEP_POLL_INTERVAL_MS`) | 250 ms |
+| Retry count when `RetryPolicy.attempts` is omitted | 100 retries after the first attempt |
+| Maximum Postgres connections per node / per bridge | 33 / 14 |
+| Event and node-sample retention | 7 days |
+
+The lease duration and polling interval aren't recovery or wake-up deadlines.
+Database load and available workers also affect when work resumes.
+[Configuration](/guides/configuration) documents the settings.
+
+Waymark requires Postgres 14 or later and Python 3.10 or later.
