@@ -4686,6 +4686,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-id-map"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "indexmap",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "waymark-ids"
 version = "0.1.0"
 dependencies = [
