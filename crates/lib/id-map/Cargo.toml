@@ -1,0 +1,18 @@
+[package]
+name = "waymark-id-map"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+index_type = { workspace = true }
+indexmap = { workspace = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
+
+[features]
+default = []
+
+serde = ["dep:serde", "serde/derive", "indexmap/serde"]
+
+[dev-dependencies]
+serde_json = { workspace = true }
