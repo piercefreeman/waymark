@@ -102,28 +102,41 @@ impl Encode for ActionCallCorrelation {
     }
 }
 
-/// Error returned when decoding an [`ActionCallCorrelation`] fails because
-/// the input bytes are too short.
+/// Error returned when decoding an [`ActionCallCorrelation`] fails.
 #[derive(Debug, thiserror::Error)]
-#[error("not enough bytes to decode ActionCallCorrelation")]
-pub struct ActionCallCorrelationDecodeError;
+pub enum ActionCallCorrelationDecodeError {
+    /// The input bytes are too short.
+    #[error("not enough bytes to decode ActionCallCorrelation")]
+    TooShort,
+
+    /// The encoded effect number does not fit the platform's `usize`.
+    #[error("effect number out of range: {0}")]
+    EffectNumberOutOfRange(std::num::TryFromIntError),
+
+    /// The encoded promise state id does not fit the platform's `usize`.
+    #[error("promise state id out of range: {0}")]
+    PromiseStateIdOutOfRange(std::num::TryFromIntError),
+}
 
 impl Decode for ActionCallCorrelation {
     type Error = ActionCallCorrelationDecodeError;
 
     fn decode(input: &mut &[u8]) -> Result<Self, Self::Error> {
         if input.len() < 16 {
-            return Err(ActionCallCorrelationDecodeError);
+            return Err(ActionCallCorrelationDecodeError::TooShort);
         }
         let effect_number_bytes: [u8; 8] = input[..8].try_into().unwrap();
         let promise_state_id_bytes: [u8; 8] = input[8..16].try_into().unwrap();
         *input = &input[16..];
-        let effect_number = EffectNumber(u64::from_be_bytes(effect_number_bytes) as usize);
-        let promise_state_id =
-            PromiseStateId::from_persisted(u64::from_be_bytes(promise_state_id_bytes) as usize);
+
+        let effect_number = usize::try_from(u64::from_be_bytes(effect_number_bytes))
+            .map_err(ActionCallCorrelationDecodeError::EffectNumberOutOfRange)?;
+        let promise_state_id = usize::try_from(u64::from_be_bytes(promise_state_id_bytes))
+            .map_err(ActionCallCorrelationDecodeError::PromiseStateIdOutOfRange)?;
+
         Ok(ActionCallCorrelation {
-            effect_number,
-            promise_state_id,
+            effect_number: EffectNumber(effect_number),
+            promise_state_id: PromiseStateId::from_persisted(promise_state_id),
         })
     }
 }
