@@ -120,7 +120,7 @@ async fn flushed(
 fn action_call() -> <TestHooks as waymark_vm_driver_hooks::effect_emitted::HasEffect>::Effect {
     waymark_vm_interpreter_fullset::Effect::ExtCallSet(
         waymark_vm_interpreter_extcallset::Effect::ActionCall {
-            promise_state_id: PromiseStateId(3),
+            promise_state_id: PromiseStateId::from_raw(3),
             action_ref: waymark_action_core::ActionRef {
                 action_name: "fetch".to_owned(),
                 module_name: Some("app.tasks".to_owned()),
@@ -157,20 +157,23 @@ async fn every_hook_becomes_one_summarized_event_in_run_order() {
 
     hooks.vm_started();
     hooks.effect_emitted(EffectNumber(0), &action_call());
-    hooks.promise_settled(PromiseStateId(3), &PromiseResolution::Resolved(200));
+    hooks.promise_settled(
+        PromiseStateId::from_raw(3),
+        &PromiseResolution::Resolved(200),
+    );
     hooks.snapshot_persisted(4096);
     hooks.effect_emitted(
         EffectNumber(1),
         &waymark_vm_interpreter_fullset::Effect::ExtCallSet(
             waymark_vm_interpreter_extcallset::Effect::Sleep {
-                promise_state_id: PromiseStateId(4),
+                promise_state_id: PromiseStateId::from_raw(4),
                 duration: NonZeroDuration::new(Duration::from_millis(1500)).expect("non-zero"),
                 skip_allowed: false,
             },
         ),
     );
     hooks.promise_settled(
-        PromiseStateId(4),
+        PromiseStateId::from_raw(4),
         &PromiseResolution::Rejected(TestException("TimeoutError")),
     );
     hooks.effect_emitted(

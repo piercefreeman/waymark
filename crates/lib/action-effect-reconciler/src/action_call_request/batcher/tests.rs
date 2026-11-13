@@ -16,7 +16,7 @@ use crate::test_support::{LOCK_OWNER, LOCK_TIME_TO_LIVE, MockBackend, TestKey, s
 fn record(vm_id: u64, promise: usize, request: &[u8]) -> ActionCallRequestRecord<u64> {
     ActionCallRequestRecord {
         vm_id,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: PromiseStateId::from_raw(promise),
         effect_number: EffectNumber(1),
         request: request.to_vec(),
     }
@@ -92,7 +92,7 @@ async fn coalesces_submissions_into_one_statement() {
         let row = rows
             .get(&TestKey {
                 vm_id,
-                promise_state_id: PromiseStateId(promise),
+                promise_state_id: PromiseStateId::from_raw(promise),
             })
             .expect("row recorded");
         assert_eq!(
@@ -181,6 +181,6 @@ async fn divergence_fails_the_whole_batch() {
     // adoption reports it as lost once the batch lock lapses.
     assert!(backend.rows.lock().unwrap().contains_key(&TestKey {
         vm_id: 2,
-        promise_state_id: PromiseStateId(20),
+        promise_state_id: PromiseStateId::from_raw(20),
     }));
 }

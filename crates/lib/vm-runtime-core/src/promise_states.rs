@@ -228,8 +228,8 @@ mod tests {
         let first = states.prepare();
         let second = states.prepare();
 
-        assert_eq!(first, PromiseStateId(0));
-        assert_eq!(second, PromiseStateId(1));
+        assert_eq!(first, PromiseStateId::from_raw(0));
+        assert_eq!(second, PromiseStateId::from_raw(1));
         assert!(matches!(
             states.get(first).expect("promise state exists"),
             PromiseState::Waiting(continuations) if continuations.is_empty()
@@ -266,12 +266,12 @@ mod tests {
 
         let Err(SettlePromiseError::PromiseStateNotFound(PromiseStateNotFoundError {
             promise_state_id,
-        })) = states.resolve(PromiseStateId(4), 23)
+        })) = states.resolve(PromiseStateId::from_raw(4), 23)
         else {
             panic!("unknown promise state IDs should be rejected");
         };
 
-        assert_eq!(promise_state_id, PromiseStateId(4));
+        assert_eq!(promise_state_id, PromiseStateId::from_raw(4));
     }
 
     #[test]
