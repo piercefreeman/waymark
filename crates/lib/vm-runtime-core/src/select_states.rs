@@ -1,8 +1,11 @@
-use std::collections::BTreeMap;
-
 use derive_where::derive_where;
 
 use crate::{Continuation, RegisterId, ResumeSelectArm, ResumeWithValue, SelectArm};
+
+/// Error returned when a raw index cannot be represented as a [`SelectStateId`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, index_type::IndexTooBigError)]
+#[index_too_big_error(msg = "select state id")]
+pub struct SelectStateIdTooBigError;
 
 /// An opaque identifier of a select state.
 ///
@@ -13,9 +16,10 @@ use crate::{Continuation, RegisterId, ResumeSelectArm, ResumeWithValue, SelectAr
 /// handling of losing select arms rests on exactly this property: a stale
 /// arm entry finding its id absent means its select was already claimed.
 /// A reused id would let such a stale arm claim an unrelated select.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, index_type::IndexType)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct SelectStateId(pub usize);
+#[index_type(error = SelectStateIdTooBigError)]
+pub struct SelectStateId(usize);
 
 /// A handle to an inserted select: the capability to mint its arms'
 /// claims.
@@ -89,16 +93,8 @@ pub struct SelectStates<FunctionId, StateId, Value, RaisedException>
 where
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
 {
-    /// The id to assign to the next select state.
-    ///
-    /// Monotonically increasing and never rewound - upholding the
-    /// unique-per-VM invariant documented on [`SelectStateId`].
-    next_select_state_id: usize,
-
     /// The select continuations by their ids.
-    //
-    // A `BTreeMap` keeps the serialized snapshot form deterministic.
-    continuations: BTreeMap<
+    continuations: waymark_id_map::IdMap<
         SelectStateId,
         Continuation<FunctionId, StateId, Value, RaisedException, ResumeSelectArm>,
     >,
@@ -111,8 +107,7 @@ where
 {
     fn default() -> Self {
         Self {
-            next_select_state_id: 0,
-            continuations: BTreeMap::new(),
+            continuations: waymark_id_map::IdMap::new(),
         }
     }
 }
@@ -133,10 +128,7 @@ where
         &mut self,
         continuation: Continuation<FunctionId, StateId, Value, RaisedException, ResumeSelectArm>,
     ) -> SelectStateHandle {
-        let select_state_id = SelectStateId(self.next_select_state_id);
-        self.next_select_state_id += 1;
-
-        self.continuations.insert(select_state_id, continuation);
+        let select_state_id = self.continuations.insert(continuation);
 
         SelectStateHandle { select_state_id }
     }
@@ -155,7 +147,7 @@ where
             arm,
         } = select_state_claim;
 
-        let continuation = self.continuations.remove(&select_state_id)?;
+        let continuation = self.continuations.remove(select_state_id)?;
         Some(continuation.into_arm(arm))
     }
 }

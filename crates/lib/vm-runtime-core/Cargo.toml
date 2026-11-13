@@ -5,6 +5,7 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+waymark-id-map = { workspace = true }
 waymark-typed-vec-serde = { workspace = true, optional = true }
 waymark-vm-exception-handler = { workspace = true }
 waymark-vm-interpreter-composite-core = { workspace = true }
@@ -25,6 +26,7 @@ default = []
 serde = [
   "dep:serde",
   "dep:waymark-typed-vec-serde",
+  "waymark-id-map/serde",
   "waymark-vm-exception-handler/serde",
   "waymark-vm-runtime-effect/serde",
   "waymark-vm-runtime-promise-core/serde",
