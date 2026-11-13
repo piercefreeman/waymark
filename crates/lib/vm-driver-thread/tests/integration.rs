@@ -90,7 +90,7 @@ async fn resolves_promise_and_forwards_effect() {
 
     settlements_tx
         .send(PromiseSettlement {
-            promise_state_id: PromiseStateId(0),
+            promise_state_id: PromiseStateId::from_raw(0),
             resolution: PromiseResolution::Resolved(TestReadyValue::Int(41)),
             ack: (),
         })

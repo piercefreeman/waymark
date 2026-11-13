@@ -23,10 +23,28 @@ pub struct PromiseStateIdTooBigError;
 ///
 /// How ids are allocated and stored is an implementation concern of the
 /// promise states store, free to change as long as the invariant holds.
+///
+/// Every id is meant to originate in the promise states store, which mints
+/// each one. [`PromiseStateId::from_raw`] and deserialization rebuild an id
+/// from its number: one a store minted and stored earlier, or one a test
+/// fabricates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IndexType, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[index_type(error = PromiseStateIdTooBigError)]
-pub struct PromiseStateId(pub usize);
+pub struct PromiseStateId(usize);
+
+impl PromiseStateId {
+    /// The id with the number `raw`: one read back from where it was
+    /// stored, or one a test fabricates. It does not mint an id.
+    pub const fn from_raw(raw: usize) -> Self {
+        Self(raw)
+    }
+
+    /// The id's number, for storing it.
+    pub const fn to_raw(self) -> usize {
+        self.0
+    }
+}
 
 /// A value for a runtime that supports suspending.
 pub trait Suspendable {

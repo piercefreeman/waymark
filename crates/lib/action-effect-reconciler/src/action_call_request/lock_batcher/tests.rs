@@ -40,7 +40,7 @@ fn seed_unlocked_row(backend: &MockBackend, vm_id: u64, promise: usize) {
     backend.rows.lock().unwrap().insert(
         TestKey {
             vm_id,
-            promise_state_id: PromiseStateId(promise),
+            promise_state_id: PromiseStateId::from_raw(promise),
         },
         MockRow {
             effect_number: EffectNumber(1),
@@ -77,7 +77,10 @@ async fn each_vm_gets_its_own_outcome_from_one_batch() {
         .expect("locked");
     assert_eq!(seeded.vm_id, 1);
     assert_eq!(seeded.locked.len(), 1);
-    assert_eq!(seeded.locked[0].record.promise_state_id, PromiseStateId(10));
+    assert_eq!(
+        seeded.locked[0].record.promise_state_id,
+        PromiseStateId::from_raw(10)
+    );
 
     let empty = empty
         .await
@@ -96,7 +99,7 @@ async fn each_vm_gets_its_own_outcome_from_one_batch() {
         &tracker.lock().unwrap(),
         &TestKey {
             vm_id: 1,
-            promise_state_id: PromiseStateId(10),
+            promise_state_id: PromiseStateId::from_raw(10),
         }
     ));
     drop(seeded);
@@ -113,7 +116,7 @@ async fn each_vm_gets_its_own_outcome_from_one_batch() {
             .collect::<Vec<_>>(),
         vec![TestKey {
             vm_id: 1,
-            promise_state_id: PromiseStateId(10),
+            promise_state_id: PromiseStateId::from_raw(10),
         }]
     );
 }
@@ -137,7 +140,10 @@ async fn a_duplicate_vm_submission_routes_to_the_live_waiter() {
     let live = live.expect("not closed").expect("locked");
     assert_eq!(live.vm_id, 1);
     assert_eq!(live.locked.len(), 1);
-    assert_eq!(live.locked[0].record.promise_state_id, PromiseStateId(10));
+    assert_eq!(
+        live.locked[0].record.promise_state_id,
+        PromiseStateId::from_raw(10)
+    );
 }
 
 #[tokio::test]
