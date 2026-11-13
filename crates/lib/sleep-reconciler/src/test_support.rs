@@ -124,6 +124,6 @@ impl waymark_sleep_reconciler_backend::AckSleeps for MockBackend {
 pub(crate) fn key(vm_id: InstanceId, promise: usize) -> SleepKey<InstanceId> {
     SleepKey {
         vm_id,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: <PromiseStateId as index_type::IndexType>::from_raw_index(promise),
     }
 }

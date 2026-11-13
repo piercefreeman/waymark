@@ -127,7 +127,7 @@ async fn events_round_trip_through_the_store() {
                         effect_number: waymark_vm_runtime_effect::EffectNumber(0),
                         effect:
                             waymark_observability_events_payload::vm_driver::EffectSummary::ActionCall {
-                                promise_state_id: waymark_vm_runtime_promise_core::PromiseStateId(0),
+                                promise_state_id: <waymark_vm_runtime_promise_core::PromiseStateId as index_type::IndexType>::from_raw_index(0),
                                 action_name: "fetch".to_owned(),
                                 module_name: Some("app.tasks".to_owned()),
                             },
@@ -197,7 +197,9 @@ async fn events_round_trip_through_the_store() {
     };
     assert_eq!(
         *promise_state_id,
-        waymark_vm_runtime_promise_core::PromiseStateId(0)
+        <waymark_vm_runtime_promise_core::PromiseStateId as index_type::IndexType>::from_raw_index(
+            0
+        )
     );
     assert_eq!(action_name, "fetch");
     assert_eq!(module_name.as_deref(), Some("app.tasks"));

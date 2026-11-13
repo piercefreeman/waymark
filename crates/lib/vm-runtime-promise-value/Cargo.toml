@@ -20,3 +20,6 @@ thiserror = { workspace = true }
 default = []
 
 serde = ["dep:serde", "waymark-vm-runtime-promise-core/serde"]
+
+[dev-dependencies]
+index_type = { workspace = true }

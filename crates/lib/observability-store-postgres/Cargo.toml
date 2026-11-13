@@ -38,4 +38,5 @@ waymark-support-test = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
+index_type = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

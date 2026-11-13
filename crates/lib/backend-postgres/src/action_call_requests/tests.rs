@@ -27,7 +27,7 @@ fn record(
 ) -> ActionCallRequestRecord<InstanceId> {
     ActionCallRequestRecord {
         vm_id,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: PromiseStateId::from_persisted(promise),
         effect_number: EffectNumber(effect),
         request: request.to_vec(),
     }
@@ -36,7 +36,7 @@ fn record(
 fn key(vm_id: InstanceId, promise: usize) -> ActionCallRequestKey<InstanceId> {
     ActionCallRequestKey {
         vm_id,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: PromiseStateId::from_persisted(promise),
     }
 }
 
@@ -421,7 +421,7 @@ async fn recording_a_completion_removes_the_request() {
     // row, atomically, via the schema trigger.
     let completions = nev![CompletionRecord {
         vm_id: vm,
-        promise_state_id: PromiseStateId(1),
+        promise_state_id: PromiseStateId::from_persisted(1),
         effect_number: EffectNumber(10),
         execution_result: b"outcome-1".to_vec(),
     }];
@@ -563,7 +563,7 @@ async fn complete_and_renew_across_a_staged_row(completion_order: [usize; 2]) {
                 .iter()
                 .map(|&promise| CompletionRecord {
                     vm_id: vm,
-                    promise_state_id: PromiseStateId(promise),
+                    promise_state_id: PromiseStateId::from_persisted(promise),
                     effect_number: EffectNumber(promise + 9),
                     execution_result: b"done".to_vec(),
                 })

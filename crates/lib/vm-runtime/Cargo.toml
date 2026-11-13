@@ -21,4 +21,5 @@ tracing = { workspace = true }
 [dev-dependencies]
 waymark-vm-runtime-test = { workspace = true }
 
+index_type = { workspace = true }
 rmp-serde = { workspace = true }

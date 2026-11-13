@@ -11,6 +11,10 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 use super::EffectHandler;
 use crate::test_support::{MockBackend, MockRecordError};
 
+fn promise_state_id_from_raw(raw: usize) -> PromiseStateId {
+    index_type::IndexType::from_raw_index(raw)
+}
+
 #[tokio::test]
 async fn records_the_absolute_wake_deadline() {
     let backend = MockBackend::default();
@@ -23,7 +27,12 @@ async fn records_the_absolute_wake_deadline() {
     let duration = NonZeroDuration::try_from(Duration::from_secs(60)).unwrap();
     let before = chrono::Utc::now();
     handler
-        .record_sleep(EffectNumber(7), PromiseStateId(3), duration, true)
+        .record_sleep(
+            EffectNumber(7),
+            promise_state_id_from_raw(3),
+            duration,
+            true,
+        )
         .await
         .expect("record");
     let after = chrono::Utc::now();
@@ -32,7 +41,7 @@ async fn records_the_absolute_wake_deadline() {
     assert_eq!(recorded.len(), 1);
     let record = &recorded[0];
     assert_eq!(record.vm_id, vm_id);
-    assert_eq!(record.promise_state_id, PromiseStateId(3));
+    assert_eq!(record.promise_state_id, promise_state_id_from_raw(3));
     assert_eq!(record.effect_number, EffectNumber(7));
     assert!(record.wake_at >= before + chrono::Duration::seconds(60));
     assert!(record.wake_at <= after + chrono::Duration::seconds(60));
@@ -56,7 +65,12 @@ async fn record_errors_propagate() {
 
     let duration = NonZeroDuration::try_from(Duration::from_secs(1)).unwrap();
     handler
-        .record_sleep(EffectNumber(0), PromiseStateId(0), duration, true)
+        .record_sleep(
+            EffectNumber(0),
+            promise_state_id_from_raw(0),
+            duration,
+            true,
+        )
         .await
         .expect_err("backend failure surfaces");
     assert!(backend.inner.recorded.lock().unwrap().is_empty());

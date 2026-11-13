@@ -21,7 +21,7 @@ fn record(
 ) -> SleepRecord<InstanceId, chrono::DateTime<Utc>> {
     SleepRecord {
         vm_id,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: PromiseStateId::from_persisted(promise),
         effect_number: EffectNumber(effect),
         wake_at,
     }
@@ -30,7 +30,7 @@ fn record(
 fn key(vm_id: InstanceId, promise: usize) -> SleepKey<InstanceId> {
     SleepKey {
         vm_id,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: PromiseStateId::from_persisted(promise),
     }
 }
 

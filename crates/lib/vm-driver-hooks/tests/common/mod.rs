@@ -57,7 +57,10 @@ where
 {
     hooks.vm_started();
     hooks.effect_emitted(EffectNumber(3), &"tick");
-    hooks.promise_settled(PromiseStateId(7), &PromiseResolution::Resolved(42));
+    hooks.promise_settled(
+        <PromiseStateId as index_type::IndexType>::from_raw_index(7),
+        &PromiseResolution::Resolved(42),
+    );
     hooks.snapshot_persisted(128);
     hooks.vm_stopped(&"done");
 }
@@ -80,7 +83,7 @@ pub fn expect_drive_all(hooks: &mut MockHooks) {
     hooks
         .expect_promise_settled()
         .withf(|promise_state_id, resolution| {
-            *promise_state_id == PromiseStateId(7)
+            *promise_state_id == <PromiseStateId as index_type::IndexType>::from_raw_index(7)
                 && matches!(resolution, PromiseResolution::Resolved(42))
         })
         .times(1)

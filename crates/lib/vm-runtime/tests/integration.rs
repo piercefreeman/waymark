@@ -8,6 +8,10 @@ use waymark_vm_runtime_test::{
     runtime_with_entrypoint, try_runtime,
 };
 
+fn promise_state_id_from_raw(raw: usize) -> PromiseStateId {
+    index_type::IndexType::from_raw_index(raw)
+}
+
 struct HookInterpreter {
     mode: HookMode,
 }
@@ -164,7 +168,7 @@ fn resolve_promise_resumes_a_suspended_frame_and_emits_the_resolved_value() {
     assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
 
     runtime
-        .resolve_promise(PromiseStateId(0), TestReadyValue::Int(41))
+        .resolve_promise(promise_state_id_from_raw(0), TestReadyValue::Int(41))
         .expect("prepared promise should resolve");
 
     let emitted_effect = runtime.run().expect("resumed frame should emit");
@@ -190,16 +194,16 @@ fn resolve_promise_rejects_unknown_promise_ids_without_disturbing_waiting_work()
     assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
 
     let err = runtime
-        .resolve_promise(PromiseStateId(9), TestReadyValue::Int(41))
+        .resolve_promise(promise_state_id_from_raw(9), TestReadyValue::Int(41))
         .expect_err("unknown promise IDs should be rejected");
 
     let SettlePromiseError::PromiseStateNotFound(err) = err else {
         panic!("invalid promise IDs should surface a not-found error");
     };
-    assert_eq!(err.promise_state_id, PromiseStateId(9));
+    assert_eq!(err.promise_state_id, promise_state_id_from_raw(9));
 
     runtime
-        .resolve_promise(PromiseStateId(0), TestReadyValue::Int(41))
+        .resolve_promise(promise_state_id_from_raw(0), TestReadyValue::Int(41))
         .expect("the waiting promise should still resolve cleanly");
 
     let emitted_effect = runtime.run().expect("resumed frame should still emit");
@@ -225,11 +229,11 @@ fn resolve_promise_preserves_the_first_value_when_duplicate_resolution_occurs() 
     assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
 
     runtime
-        .resolve_promise(PromiseStateId(0), TestReadyValue::Int(7))
+        .resolve_promise(promise_state_id_from_raw(0), TestReadyValue::Int(7))
         .expect("first promise resolution should succeed");
 
     let err = runtime
-        .resolve_promise(PromiseStateId(0), TestReadyValue::Int(11))
+        .resolve_promise(promise_state_id_from_raw(0), TestReadyValue::Int(11))
         .expect_err("already-settled promise should reject a new value");
 
     let SettlePromiseError::AlreadySettled(err) = err else {
@@ -263,7 +267,7 @@ fn reject_promise_bubbles_uncaught_exceptions() {
 
     runtime
         .reject_promise(
-            PromiseStateId(0),
+            promise_state_id_from_raw(0),
             TestException {
                 type_id: "ValueError".to_owned(),
                 details: TestReadyValue::Int(41),
@@ -334,7 +338,7 @@ fn state_entry_hook_can_redirect_exceptional_resumes_when_the_interpreter_wants(
 
     runtime
         .reject_promise(
-            PromiseStateId(0),
+            promise_state_id_from_raw(0),
             TestException {
                 type_id: "ValueError".to_owned(),
                 details: TestReadyValue::Int(41),
@@ -386,7 +390,7 @@ fn snapshot_suspended_and_from_snapshot_preserves_suspended_promises() {
 
     // Resolve the promise in the restored runtime.
     restored
-        .resolve_promise(PromiseStateId(0), TestReadyValue::Int(42))
+        .resolve_promise(promise_state_id_from_raw(0), TestReadyValue::Int(42))
         .expect("promise should resolve after restore");
 
     let emitted_effect = restored.run().expect("restored runtime should emit");
@@ -434,7 +438,7 @@ fn snapshot_suspended_and_from_snapshot_preserves_rejected_promises() {
     // Reject the promise.
     restored
         .reject_promise(
-            PromiseStateId(0),
+            promise_state_id_from_raw(0),
             TestException {
                 type_id: "ValueError".to_owned(),
                 details: TestReadyValue::Int(41),
@@ -614,7 +618,7 @@ fn effect_counter_survives_snapshot_roundtrip() {
             .expect("snapshot should restore");
 
     restored
-        .resolve_promise(PromiseStateId(0), TestReadyValue::Int(20))
+        .resolve_promise(promise_state_id_from_raw(0), TestReadyValue::Int(20))
         .expect("promise should resolve after restore");
     let emitted_effect = restored.run().expect("emit after restore");
     assert_eq!(emitted_effect.number, EffectNumber(2));

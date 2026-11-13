@@ -19,6 +19,10 @@ use waymark_action_runtime_core::{
 use waymark_action_runtime_metadata::ActionCallCorrelation;
 use waymark_sleep_compat_python::ReadyValueSleepProvider;
 
+fn promise_state_id_from_raw(raw: usize) -> PromiseStateId {
+    index_type::IndexType::from_raw_index(raw)
+}
+
 /// Error type for the mock action requester.
 #[derive(Debug, thiserror::Error)]
 #[error("mock requester error")]
@@ -120,7 +124,7 @@ impl ActionCallCompletionsProvider for LostCompletionsProvider {
             Some(stage) => Ok(Some(NEVec::new(ActionCallCompletion {
                 metadata: ActionCallCorrelation {
                     effect_number: EffectNumber(0),
-                    promise_state_id: PromiseStateId(0),
+                    promise_state_id: promise_state_id_from_raw(0),
                 },
                 execution_result: Err(ActionCallLossError { stage }),
             }))),
@@ -154,7 +158,7 @@ async fn effect_handler_dispatches_action_call() {
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
 
     let effect = Effect::ActionCall {
-        promise_state_id: PromiseStateId(0),
+        promise_state_id: promise_state_id_from_raw(0),
         action_ref: waymark_action_core::ActionRef {
             action_name: "test".into(),
             module_name: None,
@@ -196,7 +200,7 @@ async fn effect_handler_records_sleep() {
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
 
     let effect = Effect::Sleep {
-        promise_state_id: PromiseStateId(0),
+        promise_state_id: promise_state_id_from_raw(0),
         duration: NonZeroDuration::try_from(std::time::Duration::from_nanos(1)).unwrap(),
         skip_allowed: true,
     };
@@ -212,11 +216,14 @@ async fn effect_handler_records_sleep() {
         .unwrap();
 
     let settlements = settler
-        .get_promise_settlements(NEVec::new(PromiseStateId(0)))
+        .get_promise_settlements(NEVec::new(promise_state_id_from_raw(0)))
         .await
         .unwrap();
     assert_eq!(settlements.len().get(), 1);
-    assert_eq!(settlements[0].promise_state_id, PromiseStateId(0));
+    assert_eq!(
+        settlements[0].promise_state_id,
+        promise_state_id_from_raw(0)
+    );
 }
 
 #[tokio::test]
@@ -242,11 +249,14 @@ async fn action_settler_settles_a_lost_execution_raised() {
         crate::new(action_handler, sleep_handler, action_poller, sleep_poller);
 
     let settlements = settler
-        .get_promise_settlements(NEVec::new(PromiseStateId(0)))
+        .get_promise_settlements(NEVec::new(promise_state_id_from_raw(0)))
         .await
         .unwrap();
     assert_eq!(settlements.len().get(), 1);
-    assert_eq!(settlements[0].promise_state_id, PromiseStateId(0));
+    assert_eq!(
+        settlements[0].promise_state_id,
+        promise_state_id_from_raw(0)
+    );
     let waymark_vm_driver_core::PromiseResolution::Rejected(exception) = &settlements[0].resolution
     else {
         panic!("a lost execution settles its promise raised");
@@ -282,7 +292,7 @@ async fn action_settler_error_propagates() {
     // Action provider errors immediately — its error wins tokio::select!.
 
     let result = settler
-        .get_promise_settlements(NEVec::new(PromiseStateId(0)))
+        .get_promise_settlements(NEVec::new(promise_state_id_from_raw(0)))
         .await;
 
     assert!(
@@ -314,7 +324,7 @@ async fn a_shut_down_action_provider_is_an_action_settler_error() {
     // Action provider reports its shutdown at once — that wins tokio::select!.
 
     let result = settler
-        .get_promise_settlements(NEVec::new(PromiseStateId(0)))
+        .get_promise_settlements(NEVec::new(promise_state_id_from_raw(0)))
         .await;
 
     use waymark_extcall_reconciler_action_compat::promise_settler::PollActionSettlementsError;
@@ -353,7 +363,7 @@ async fn sleep_settler_error_propagates() {
     // Action provider never completes — sleep error wins tokio::select!.
 
     let result = settler
-        .get_promise_settlements(NEVec::new(PromiseStateId(0)))
+        .get_promise_settlements(NEVec::new(promise_state_id_from_raw(0)))
         .await;
 
     assert!(

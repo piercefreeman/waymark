@@ -25,6 +25,7 @@ waymark-ids = { workspace = true }
 waymark-sleep-compat-python = { workspace = true }
 waymark-vm-value-python = { workspace = true }
 
+index_type = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [lib]

@@ -21,7 +21,7 @@ fn record(
 ) -> CompletionRecord<InstanceId> {
     CompletionRecord {
         vm_id,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: PromiseStateId::from_persisted(promise),
         effect_number: EffectNumber(effect),
         execution_result: execution_result.to_vec(),
     }
@@ -30,7 +30,7 @@ fn record(
 fn key(vm_id: InstanceId, promise: usize) -> CompletionKey<InstanceId> {
     CompletionKey {
         vm_id,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: PromiseStateId::from_persisted(promise),
     }
 }
 

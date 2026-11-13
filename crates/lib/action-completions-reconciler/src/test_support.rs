@@ -136,6 +136,10 @@ fn encoded_execution_result(
     blob
 }
 
+fn promise_state_id_from_raw(raw: usize) -> PromiseStateId {
+    index_type::IndexType::from_raw_index(raw)
+}
+
 /// A record of a call that completed with `value`.
 pub(crate) fn record(
     vm_id: InstanceId,
@@ -145,7 +149,7 @@ pub(crate) fn record(
 ) -> CompletionRecord<InstanceId> {
     CompletionRecord {
         vm_id,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: promise_state_id_from_raw(promise),
         effect_number: EffectNumber(effect),
         execution_result: encoded_execution_result(&Ok(ActionCallOutcome::Value(
             ReadyValue::String(value.to_owned()),
@@ -162,7 +166,7 @@ pub(crate) fn lost_record(
 ) -> CompletionRecord<InstanceId> {
     CompletionRecord {
         vm_id,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: promise_state_id_from_raw(promise),
         effect_number: EffectNumber(effect),
         execution_result: encoded_execution_result(&Err(ActionCallLossError { stage })),
     }
@@ -171,6 +175,6 @@ pub(crate) fn lost_record(
 pub(crate) fn key(vm_id: InstanceId, promise: usize) -> CompletionKey<InstanceId> {
     CompletionKey {
         vm_id,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: promise_state_id_from_raw(promise),
     }
 }

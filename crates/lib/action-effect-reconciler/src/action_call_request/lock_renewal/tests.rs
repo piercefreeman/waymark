@@ -16,7 +16,7 @@ const HEARTBEAT: Duration = Duration::from_millis(5);
 fn key(promise: usize) -> TestKey {
     TestKey {
         vm_id: 42,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: <PromiseStateId as index_type::IndexType>::from_raw_index(promise),
     }
 }
 

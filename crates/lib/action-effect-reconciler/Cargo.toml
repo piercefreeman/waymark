@@ -28,6 +28,7 @@ tracing = { workspace = true }
 waymark-vm-codec-rmp = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
 
+index_type = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util", "time"] }
 
 [lib]

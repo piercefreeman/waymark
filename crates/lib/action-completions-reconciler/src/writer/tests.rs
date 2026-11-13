@@ -15,6 +15,10 @@ use waymark_vm_value_python::{RaisedException, ReadyValue};
 use super::{Error, Params};
 use crate::test_support::{MockBackend, MockRecordError, key};
 
+fn promise_state_id_from_raw(raw: usize) -> PromiseStateId {
+    index_type::IndexType::from_raw_index(raw)
+}
+
 type TestMetadata = WithVmId<InstanceId, ActionCallCorrelation>;
 type TestCompletion = ActionCallCompletion<
     TestMetadata,
@@ -66,7 +70,7 @@ fn completion(vm_id: InstanceId, promise: usize, effect: usize, value: &str) -> 
             vm_id,
             inner: ActionCallCorrelation {
                 effect_number: EffectNumber(effect),
-                promise_state_id: PromiseStateId(promise),
+                promise_state_id: promise_state_id_from_raw(promise),
             },
         },
         execution_result: Ok(ActionCallOutcome::Value(ReadyValue::String(
@@ -87,7 +91,7 @@ fn lost_completion(
             vm_id,
             inner: ActionCallCorrelation {
                 effect_number: EffectNumber(effect),
-                promise_state_id: PromiseStateId(promise),
+                promise_state_id: promise_state_id_from_raw(promise),
             },
         },
         execution_result: Err(waymark_action_runtime_core::ActionCallLossError { stage }),
@@ -124,7 +128,7 @@ async fn records_provider_completions_until_the_provider_fails() {
     let recorded = backend.inner.recorded.lock().unwrap();
     assert_eq!(recorded.len(), 1);
     assert_eq!(recorded[0].vm_id, vm_id);
-    assert_eq!(recorded[0].promise_state_id, PromiseStateId(3));
+    assert_eq!(recorded[0].promise_state_id, promise_state_id_from_raw(3));
     assert_eq!(recorded[0].effect_number, EffectNumber(7));
 
     // The stored blob round-trips back to how the call ended.

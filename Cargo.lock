@@ -3795,6 +3795,7 @@ dependencies = [
 name = "waymark-action-completions-reconciler"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "nonempty-collections",
  "serde",
  "thiserror",
@@ -3838,6 +3839,7 @@ name = "waymark-action-effect-reconciler"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "index_type",
  "nonempty-collections",
  "rand 0.9.3",
  "serde",
@@ -4473,6 +4475,7 @@ dependencies = [
 name = "waymark-extcall-reconciler"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "mockall",
  "nonempty-collections",
  "thiserror",
@@ -4941,6 +4944,7 @@ dependencies = [
 name = "waymark-observability-events-payload"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "schemars",
  "serde",
  "serde_json",
@@ -4981,6 +4985,7 @@ dependencies = [
 name = "waymark-observability-events-vm-driver-hooks"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "nonempty-collections",
  "serde_json",
  "tokio",
@@ -5012,6 +5017,7 @@ version = "0.1.0"
 name = "waymark-observability-events-vm-driver-hooks-fullset"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "serde_json",
  "waymark-action-core",
  "waymark-nonzero-duration",
@@ -5082,6 +5088,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "const_format",
+ "index_type",
  "nonempty-collections",
  "serde",
  "sqlx",
@@ -5330,6 +5337,7 @@ name = "waymark-sleep-reconciler"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "index_type",
  "nonempty-collections",
  "thiserror",
  "tokio",
@@ -5717,6 +5725,7 @@ dependencies = [
 name = "waymark-transient-sleep-reconciler"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "nonempty-collections",
  "tokio",
  "tracing",
@@ -5945,6 +5954,7 @@ dependencies = [
 name = "waymark-vm-driver"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "mockall",
  "nonempty-collections",
  "serde",
@@ -5981,6 +5991,7 @@ dependencies = [
 name = "waymark-vm-driver-hooks"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "mockall",
  "typle",
  "waymark-vm-driver-core",
@@ -6017,6 +6028,7 @@ dependencies = [
 name = "waymark-vm-driver-thread"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "serde",
  "tokio",
  "tokio-util",
@@ -6227,6 +6239,7 @@ dependencies = [
 name = "waymark-vm-interpreter-utils"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-promise-value",
@@ -6236,6 +6249,7 @@ dependencies = [
 name = "waymark-vm-runtime"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "rmp-serde",
  "serde",
  "thiserror",
@@ -6313,6 +6327,7 @@ dependencies = [
 name = "waymark-vm-runtime-promise-value"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "serde",
  "thiserror",
  "waymark-nonzero-duration",
@@ -6379,6 +6394,7 @@ dependencies = [
 name = "waymark-vm-value-python"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "indexmap",
  "serde",
  "static_assertions",
@@ -6408,6 +6424,7 @@ dependencies = [
 name = "waymark-vm-value-python-convert-proto"
 version = "0.1.0"
 dependencies = [
+ "index_type",
  "indexmap",
  "prost",
  "thiserror",

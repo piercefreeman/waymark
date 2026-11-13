@@ -6,6 +6,10 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use super::*;
 
+fn promise_state_id_from_raw(raw: usize) -> PromiseStateId {
+    index_type::IndexType::from_raw_index(raw)
+}
+
 /// The lookup is built from the table, so every kind reads back from
 /// its own tag — and no two kinds share one, or the lookup would have
 /// dropped one of them.
@@ -67,7 +71,7 @@ fn vm_driver_payloads() -> Vec<vm_driver::Payload> {
         vm_driver::Observation::EffectEmitted {
             effect_number: EffectNumber(2),
             effect: vm_driver::EffectSummary::ActionCall {
-                promise_state_id: PromiseStateId(4),
+                promise_state_id: promise_state_id_from_raw(4),
                 action_name: "fetch".to_owned(),
                 module_name: Some("app.tasks".to_owned()),
             },
@@ -75,17 +79,17 @@ fn vm_driver_payloads() -> Vec<vm_driver::Payload> {
         vm_driver::Observation::EffectEmitted {
             effect_number: EffectNumber(3),
             effect: vm_driver::EffectSummary::Sleep {
-                promise_state_id: PromiseStateId(5),
+                promise_state_id: promise_state_id_from_raw(5),
                 duration: core::time::Duration::from_millis(1500),
                 skip_allowed: true,
             },
         },
         vm_driver::Observation::PromiseSettled {
-            promise_state_id: PromiseStateId(4),
+            promise_state_id: promise_state_id_from_raw(4),
             settlement: vm_driver::Settlement::Resolved,
         },
         vm_driver::Observation::PromiseSettled {
-            promise_state_id: PromiseStateId(5),
+            promise_state_id: promise_state_id_from_raw(5),
             settlement: vm_driver::Settlement::Rejected {
                 exception: waymark_observability_vm_value_display::RaisedExceptionSummary {
                     exception_type: "TimeoutError".to_owned(),
@@ -220,7 +224,7 @@ fn json_shape() {
         observation: vm_driver::Observation::EffectEmitted {
             effect_number: EffectNumber(7),
             effect: vm_driver::EffectSummary::ActionCall {
-                promise_state_id: PromiseStateId(3),
+                promise_state_id: promise_state_id_from_raw(3),
                 action_name: "fetch".to_owned(),
                 module_name: None,
             },

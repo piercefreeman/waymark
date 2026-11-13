@@ -42,7 +42,7 @@ fn key_columns<'a>(
     let mut promise_state_ids = Vec::new();
     for key in keys {
         vm_ids.push(key.vm_id);
-        promise_state_ids.push(i64::try_from(key.promise_state_id.0)?);
+        promise_state_ids.push(i64::try_from(key.promise_state_id.to_persisted())?);
     }
     Ok(KeyColumns {
         vm_ids,
@@ -65,8 +65,10 @@ impl waymark_action_completions_reconciler_backend::RecordCompletions for Postgr
         let mut execution_results = Vec::with_capacity(records.len().get());
         for record in records.iter() {
             vm_ids.push(record.vm_id);
-            promise_state_ids
-                .push(i64::try_from(record.promise_state_id.0).map_err(Self::Error::OutOfRange)?);
+            promise_state_ids.push(
+                i64::try_from(record.promise_state_id.to_persisted())
+                    .map_err(Self::Error::OutOfRange)?,
+            );
             effect_numbers
                 .push(i64::try_from(record.effect_number.0).map_err(Self::Error::OutOfRange)?);
             execution_results.push(record.execution_result.clone());
@@ -172,7 +174,7 @@ impl waymark_action_completions_reconciler_backend::RecordCompletions for Postgr
             let promise_state_id: i64 = row.get("promise_state_id");
             let key = CompletionKey {
                 vm_id: row.get("vm_id"),
-                promise_state_id: PromiseStateId(
+                promise_state_id: PromiseStateId::from_persisted(
                     usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
                 ),
             };
@@ -235,7 +237,7 @@ impl waymark_action_completions_reconciler_backend::PollCompletions for Postgres
                 let effect_number: i64 = row.get("effect_number");
                 Ok(CompletionRecord {
                     vm_id: row.get("vm_id"),
-                    promise_state_id: PromiseStateId(
+                    promise_state_id: PromiseStateId::from_persisted(
                         usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
                     ),
                     effect_number: EffectNumber(

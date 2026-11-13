@@ -43,7 +43,7 @@ fn key_columns<'a>(
     let mut promise_state_ids = Vec::new();
     for key in keys {
         vm_ids.push(key.vm_id);
-        promise_state_ids.push(i64::try_from(key.promise_state_id.0)?);
+        promise_state_ids.push(i64::try_from(key.promise_state_id.to_persisted())?);
     }
     Ok(KeyColumns {
         vm_ids,
@@ -70,8 +70,10 @@ impl waymark_sleep_reconciler_backend::RecordSleeps for PostgresBackend {
         let now = chrono::Utc::now();
         for record in records.iter() {
             vm_ids.push(record.vm_id);
-            promise_state_ids
-                .push(i64::try_from(record.promise_state_id.0).map_err(Self::Error::OutOfRange)?);
+            promise_state_ids.push(
+                i64::try_from(record.promise_state_id.to_persisted())
+                    .map_err(Self::Error::OutOfRange)?,
+            );
             effect_numbers
                 .push(i64::try_from(record.effect_number.0).map_err(Self::Error::OutOfRange)?);
             wake_micros.push(crate::remaining_micros(now, record.wake_at));
@@ -166,7 +168,7 @@ impl waymark_sleep_reconciler_backend::RecordSleeps for PostgresBackend {
             let promise_state_id: i64 = row.get("promise_state_id");
             divergent_keys.push(SleepKey {
                 vm_id: row.get("vm_id"),
-                promise_state_id: PromiseStateId(
+                promise_state_id: PromiseStateId::from_persisted(
                     usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
                 ),
             });
@@ -220,7 +222,7 @@ impl waymark_sleep_reconciler_backend::PollDueSleeps for PostgresBackend {
                 let promise_state_id: i64 = row.get("promise_state_id");
                 Ok(SleepKey {
                     vm_id: row.get("vm_id"),
-                    promise_state_id: PromiseStateId(
+                    promise_state_id: PromiseStateId::from_persisted(
                         usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
                     ),
                 })

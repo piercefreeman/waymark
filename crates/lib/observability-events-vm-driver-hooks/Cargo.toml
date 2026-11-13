@@ -27,6 +27,7 @@ waymark-vm-interpreter-excset = { workspace = true }
 waymark-vm-interpreter-extcallset = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
 
+index_type = { workspace = true }
 nonempty-collections = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }

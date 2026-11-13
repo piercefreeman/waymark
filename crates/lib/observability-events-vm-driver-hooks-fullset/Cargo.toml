@@ -18,4 +18,5 @@ waymark-vm-interpreter-fullset = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
+index_type = { workspace = true }
 serde_json = { workspace = true }

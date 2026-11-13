@@ -47,7 +47,7 @@ fn effects_summarize_by_variant() {
     assert_eq!(
         summarize(&waymark_vm_interpreter_fullset::Effect::ExtCallSet(
             waymark_vm_interpreter_extcallset::Effect::ActionCall {
-                promise_state_id: PromiseStateId(3),
+                promise_state_id: <PromiseStateId as index_type::IndexType>::from_raw_index(3),
                 action_ref: waymark_action_core::ActionRef {
                     action_name: "fetch".to_owned(),
                     module_name: Some("app.tasks".to_owned()),
@@ -63,7 +63,7 @@ fn effects_summarize_by_variant() {
     assert_eq!(
         summarize(&waymark_vm_interpreter_fullset::Effect::ExtCallSet(
             waymark_vm_interpreter_extcallset::Effect::Sleep {
-                promise_state_id: PromiseStateId(4),
+                promise_state_id: <PromiseStateId as index_type::IndexType>::from_raw_index(4),
                 duration: waymark_nonzero_duration::NonZeroDuration::from_millis(1500)
                     .expect("non-zero"),
                 skip_allowed: false,

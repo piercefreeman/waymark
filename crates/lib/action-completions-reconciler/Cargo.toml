@@ -29,6 +29,7 @@ waymark-vm-codec-rmp = { workspace = true }
 waymark-vm-value-python = { workspace = true, features = ["serde"] }
 waymark-vm-value-python-convert-proto = { workspace = true }
 
+index_type = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
 
 [lib]

@@ -95,7 +95,7 @@ impl Encode for ActionCallCorrelation {
                 .to_be_bytes(),
         );
         writer.extend_from_slice(
-            &u64::try_from(self.promise_state_id.0)
+            &u64::try_from(self.promise_state_id.to_persisted())
                 .unwrap_or(u64::MAX)
                 .to_be_bytes(),
         );
@@ -119,7 +119,8 @@ impl Decode for ActionCallCorrelation {
         let promise_state_id_bytes: [u8; 8] = input[8..16].try_into().unwrap();
         *input = &input[16..];
         let effect_number = EffectNumber(u64::from_be_bytes(effect_number_bytes) as usize);
-        let promise_state_id = PromiseStateId(u64::from_be_bytes(promise_state_id_bytes) as usize);
+        let promise_state_id =
+            PromiseStateId::from_persisted(u64::from_be_bytes(promise_state_id_bytes) as usize);
         Ok(ActionCallCorrelation {
             effect_number,
             promise_state_id,

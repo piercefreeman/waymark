@@ -21,5 +21,7 @@ typed_floats = { workspace = true }
 [dev-dependencies]
 waymark-vm-runtime-promise-core = { workspace = true }
 
+index_type = { workspace = true }
+
 [lib]
 doctest = false

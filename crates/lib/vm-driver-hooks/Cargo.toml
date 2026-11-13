@@ -12,4 +12,5 @@ waymark-vm-runtime-promise-core = { workspace = true }
 typle = { workspace = true }
 
 [dev-dependencies]
+index_type = { workspace = true }
 mockall = { workspace = true }

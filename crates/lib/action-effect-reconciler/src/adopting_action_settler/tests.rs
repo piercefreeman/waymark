@@ -73,9 +73,13 @@ impl waymark_extcall_reconciler_core::ActionPromiseSettler<NoopAck> for ChannelS
     }
 }
 
+fn promise_state_id_from_raw(raw: usize) -> PromiseStateId {
+    index_type::IndexType::from_raw_index(raw)
+}
+
 fn settlement(promise: usize) -> NEVec<TestSettlement> {
     nev![PromiseSettlement {
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: promise_state_id_from_raw(promise),
         resolution: PromiseResolution::Resolved(1),
         ack: NoopAck,
     }]
@@ -159,7 +163,7 @@ fn reports(reports_provider: &mut Option<TestReportsProvider>) -> Vec<TestReport
 fn key(promise: usize) -> TestKey {
     TestKey {
         vm_id: 42,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: promise_state_id_from_raw(promise),
     }
 }
 
@@ -213,7 +217,12 @@ async fn first_wait_adopts_lapsed_rows() {
         Duration::minutes(-5),
     );
 
-    let settlements = poll_settled(&mut h, &[PromiseStateId(11), PromiseStateId(12)], 11).await;
+    let settlements = poll_settled(
+        &mut h,
+        &[promise_state_id_from_raw(11), promise_state_id_from_raw(12)],
+        11,
+    )
+    .await;
     assert_eq!(settlements.len().get(), 1);
 
     // The rows were reported as lost, of unknown stage, under their
@@ -226,12 +235,12 @@ async fn first_wait_adopts_lapsed_rows() {
         assert_eq!(reports[0].metadata.inner.effect_number, EffectNumber(3));
         assert_eq!(
             reports[0].metadata.inner.promise_state_id,
-            PromiseStateId(11)
+            promise_state_id_from_raw(11)
         );
         assert_eq!(reports[1].metadata.inner.effect_number, EffectNumber(4));
         assert_eq!(
             reports[1].metadata.inner.promise_state_id,
-            PromiseStateId(12)
+            promise_state_id_from_raw(12)
         );
         assert_eq!(
             stages_of(reports),
@@ -243,7 +252,10 @@ async fn first_wait_adopts_lapsed_rows() {
     }
     assert_eq!(
         *h.polls.lock().unwrap(),
-        vec![vec![PromiseStateId(11), PromiseStateId(12)]]
+        vec![vec![
+            promise_state_id_from_raw(11),
+            promise_state_id_from_raw(12)
+        ]]
     );
 
     // The rows are now locked by this process and tracked for renewal.
@@ -271,7 +283,7 @@ async fn rows_held_by_a_live_owner_are_left_alone() {
         Duration::minutes(5),
     );
 
-    poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(11)], 11).await;
 
     assert!(reports(&mut h.reports_provider).is_empty());
     assert!(!tracks_request(&h.tracker.lock().unwrap(), &key(11)));
@@ -291,7 +303,7 @@ async fn the_passes_of_a_wait_share_one_poll() {
         Some(99),
         Duration::minutes(5),
     );
-    let waiting = [PromiseStateId(11)];
+    let waiting = [promise_state_id_from_raw(11)];
 
     let wait = h
         .settler
@@ -310,7 +322,10 @@ async fn the_passes_of_a_wait_share_one_poll() {
         assert!(poll_once_is_pending(&mut wait).await);
         assert_eq!(*h.backend.lock_calls.lock().unwrap(), passes);
     }
-    assert_eq!(*h.polls.lock().unwrap(), vec![vec![PromiseStateId(11)]]);
+    assert_eq!(
+        *h.polls.lock().unwrap(),
+        vec![vec![promise_state_id_from_raw(11)]]
+    );
 
     h.settlements_tx.send(settlement(11)).unwrap();
     let settlements = wait.await.expect("the wait settles");
@@ -331,7 +346,7 @@ async fn adopts_a_row_whose_lock_lapses_during_the_wait() {
         Some(99),
         Duration::minutes(5),
     );
-    let waiting = [PromiseStateId(11)];
+    let waiting = [promise_state_id_from_raw(11)];
 
     // The first pass finds the row held by the live owner 99.
     let wait = h
@@ -352,7 +367,7 @@ async fn adopts_a_row_whose_lock_lapses_during_the_wait() {
         assert_eq!(reports.len(), 1);
         assert_eq!(
             reports[0].metadata.inner.promise_state_id,
-            PromiseStateId(11)
+            promise_state_id_from_raw(11)
         );
     }
     assert_eq!(
@@ -376,7 +391,7 @@ async fn a_recheck_reopens_a_covered_vm_and_adopts_the_untracked_row() {
     let mut h = harness();
 
     // No rows: the first wait covers the VM.
-    poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(11)], 11).await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 1);
 
     // A row locked by this process under a lock the tracker never saw;
@@ -394,7 +409,7 @@ async fn a_recheck_reopens_a_covered_vm_and_adopts_the_untracked_row() {
 
     // The next wait runs a pass again: the row is held here untracked, so
     // the VM watches it.
-    let waiting = [PromiseStateId(12)];
+    let waiting = [promise_state_id_from_raw(12)];
     let wait = h
         .settler
         .poll_action_settlements(NESlice::try_from_slice(&waiting).unwrap());
@@ -414,7 +429,7 @@ async fn a_recheck_reopens_a_covered_vm_and_adopts_the_untracked_row() {
         assert_eq!(reports.len(), 1);
         assert_eq!(
             reports[0].metadata.inner.promise_state_id,
-            PromiseStateId(12)
+            promise_state_id_from_raw(12)
         );
         assert_eq!(
             stages_of(reports),
@@ -434,10 +449,10 @@ async fn a_recheck_reopens_a_covered_vm_and_adopts_the_untracked_row() {
 async fn a_recheck_during_a_covered_wait_runs_a_pass_in_it() {
     let mut h = harness();
 
-    poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(11)], 11).await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 1);
 
-    let waiting = [PromiseStateId(12)];
+    let waiting = [promise_state_id_from_raw(12)];
     let wait = h
         .settler
         .poll_action_settlements(NESlice::try_from_slice(&waiting).unwrap());
@@ -459,15 +474,15 @@ async fn a_recheck_during_a_covered_wait_runs_a_pass_in_it() {
 async fn a_recheck_on_a_covered_vm_costs_one_pass() {
     let mut h = harness();
 
-    poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(11)], 11).await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 1);
 
     // A replayed effect requested a recheck; the pass finds nothing to
     // adopt and the VM is covered again.
     h.recheck.request_recheck();
-    poll_settled(&mut h, &[PromiseStateId(12)], 12).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(12)], 12).await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 2);
-    poll_settled(&mut h, &[PromiseStateId(13)], 13).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(13)], 13).await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 2);
 }
 
@@ -486,17 +501,17 @@ async fn stops_watching_once_the_row_is_gone() {
 
     // Owner 99 completes the attempt: the store removes the row and the
     // completion settles the wait.
-    poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(11)], 11).await;
     h.backend.rows.lock().unwrap().remove(&key(11));
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 1);
 
     // The pass due one heartbeat later finds nothing held elsewhere; no
     // wait after it issues a lock call.
     tokio::time::sleep(HEARTBEAT).await;
-    poll_settled(&mut h, &[PromiseStateId(12)], 12).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(12)], 12).await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 2);
     tokio::time::sleep(3 * HEARTBEAT).await;
-    poll_settled(&mut h, &[PromiseStateId(13)], 13).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(13)], 13).await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 2);
     assert!(reports(&mut h.reports_provider).is_empty());
 }
@@ -505,12 +520,12 @@ async fn stops_watching_once_the_row_is_gone() {
 async fn covered_waits_issue_no_lock_call() {
     let mut h = harness();
 
-    poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(11)], 11).await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 1);
 
-    poll_settled(&mut h, &[PromiseStateId(12)], 12).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(12)], 12).await;
     tokio::time::sleep(3 * HEARTBEAT).await;
-    poll_settled(&mut h, &[PromiseStateId(13)], 13).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(13)], 13).await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 1);
 }
 
@@ -535,9 +550,9 @@ async fn a_tracked_row_held_here_is_covered() {
     )
     .confirm_requested();
 
-    poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(11)], 11).await;
     tokio::time::sleep(3 * HEARTBEAT).await;
-    poll_settled(&mut h, &[PromiseStateId(12)], 12).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(12)], 12).await;
 
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 1);
     assert!(reports(&mut h.reports_provider).is_empty());
@@ -557,7 +572,7 @@ async fn an_untracked_row_held_here_is_adopted_once_unlocked() {
         Some(LOCK_OWNER),
         Duration::minutes(5),
     );
-    let waiting = [PromiseStateId(11)];
+    let waiting = [promise_state_id_from_raw(11)];
 
     let wait = h
         .settler
@@ -600,7 +615,7 @@ async fn a_wait_dropped_mid_pass_leaves_the_lock_up_for_unlocking() {
         Some(99),
         Duration::minutes(-5),
     );
-    let waiting = [PromiseStateId(11)];
+    let waiting = [promise_state_id_from_raw(11)];
 
     // Poll once: the pass submits to the lock batcher and is parked on
     // its answer, which the batcher's task delivers while the wait is
@@ -646,7 +661,7 @@ async fn a_wait_dropped_mid_pass_leaves_the_lock_up_for_unlocking() {
         row.locked_by = None;
         row.lock_expires_at = None;
     }
-    poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(11)], 11).await;
     assert_eq!(reports(&mut h.reports_provider).len(), 1);
     assert!(tracks_request(&h.tracker.lock().unwrap(), &key(11)));
 }
@@ -663,7 +678,12 @@ async fn frequent_short_waits_do_not_postpone_the_pass() {
         Some(99),
         Duration::minutes(5),
     );
-    poll_settled(&mut h, &[PromiseStateId(11), PromiseStateId(20)], 20).await;
+    poll_settled(
+        &mut h,
+        &[promise_state_id_from_raw(11), promise_state_id_from_raw(20)],
+        20,
+    )
+    .await;
     assert_eq!(*h.backend.lock_calls.lock().unwrap(), 1);
 
     expire_lock(&h.backend, 11);
@@ -674,7 +694,10 @@ async fn frequent_short_waits_do_not_postpone_the_pass() {
         tokio::time::sleep(HEARTBEAT / 4).await;
         poll_settled(
             &mut h,
-            &[PromiseStateId(11), PromiseStateId(settled)],
+            &[
+                promise_state_id_from_raw(11),
+                promise_state_id_from_raw(settled),
+            ],
             settled,
         )
         .await;
@@ -696,7 +719,7 @@ async fn lock_failure_fails_the_wait() {
 
     let polled = h
         .settler
-        .poll_action_settlements(NESlice::try_from_slice(&[PromiseStateId(11)]).unwrap())
+        .poll_action_settlements(NESlice::try_from_slice(&[promise_state_id_from_raw(11)]).unwrap())
         .await;
     let Err(error) = polled else {
         panic!("a failed pass must fail the wait");
@@ -721,13 +744,13 @@ async fn a_corrupt_stored_payload_is_reported_lost_like_any_other_row() {
         },
     );
 
-    poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(11)], 11).await;
 
     let reports = reports(&mut h.reports_provider);
     assert_eq!(reports.len(), 1);
     assert_eq!(
         reports[0].metadata.inner.promise_state_id,
-        PromiseStateId(11)
+        promise_state_id_from_raw(11)
     );
     assert!(tracks_request(&h.tracker.lock().unwrap(), &key(11)));
 }
@@ -745,7 +768,7 @@ async fn an_adopted_row_is_reported_as_one_lost_execution_under_its_correlation(
         Duration::minutes(-5),
     );
 
-    poll_settled(&mut h, &[PromiseStateId(11)], 11).await;
+    poll_settled(&mut h, &[promise_state_id_from_raw(11)], 11).await;
 
     let mut reports = reports(&mut h.reports_provider);
     assert_eq!(reports.len(), 1);
@@ -756,7 +779,7 @@ async fn an_adopted_row_is_reported_as_one_lost_execution_under_its_correlation(
             vm_id: 42u64,
             inner: waymark_action_runtime_metadata::ActionCallCorrelation {
                 effect_number: EffectNumber(3),
-                promise_state_id: PromiseStateId(11),
+                promise_state_id: promise_state_id_from_raw(11),
             },
         }
     );
@@ -789,7 +812,7 @@ async fn a_report_with_the_provider_gone_fails_the_wait_and_unlocks() {
 
     let polled = h
         .settler
-        .poll_action_settlements(NESlice::try_from_slice(&[PromiseStateId(11)]).unwrap())
+        .poll_action_settlements(NESlice::try_from_slice(&[promise_state_id_from_raw(11)]).unwrap())
         .await;
     let Err(error) = polled else {
         panic!("a failed report must fail the wait");

@@ -28,5 +28,6 @@ waymark-vm-driver-hooks-noop = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }
 
+index_type = { workspace = true }
 mockall = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }

@@ -7,11 +7,15 @@ use waymark_sleep_compat_python::ReadyValueSleepProvider;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_value_python::ReadyValue;
 
+fn promise_state_id_from_raw(raw: usize) -> PromiseStateId {
+    index_type::IndexType::from_raw_index(raw)
+}
+
 #[tokio::test]
 async fn record_and_collect_single_sleep() {
     let (handler, mut poller) =
         super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
-    let psid = PromiseStateId(0);
+    let psid = promise_state_id_from_raw(0);
 
     // A 1-nanosecond sleep elapses immediately.
     handler.record(
@@ -30,8 +34,8 @@ async fn record_and_collect_single_sleep() {
 async fn multiple_sleeps_collected_in_order() {
     let (handler, mut poller) =
         super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
-    let a = PromiseStateId(0);
-    let b = PromiseStateId(1);
+    let a = promise_state_id_from_raw(0);
+    let b = promise_state_id_from_raw(1);
 
     handler.record(
         a,
@@ -52,7 +56,7 @@ async fn multiple_sleeps_collected_in_order() {
 async fn poll_waits_for_new_sleep() {
     let (handler, mut poller) =
         super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
-    let psid = PromiseStateId(0);
+    let psid = promise_state_id_from_raw(0);
 
     // Spawn a task that records a sleep after a short delay.
     let h = handler;
@@ -90,7 +94,7 @@ async fn poll_returns_none_when_handler_dropped() {
 async fn sleep_resolution_is_null_value() {
     let (handler, mut poller) =
         super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
-    let psid = PromiseStateId(0);
+    let psid = promise_state_id_from_raw(0);
 
     handler.record(
         psid,
@@ -112,7 +116,7 @@ async fn sleep_resolution_is_null_value() {
 async fn skip_sleep_resolves_immediately() {
     let (handler, mut poller) =
         super::new::<ReadyValueSleepProvider, core::convert::Infallible>(true);
-    let psid = PromiseStateId(0);
+    let psid = promise_state_id_from_raw(0);
 
     // A 5-second sleep should resolve immediately when skip_sleep is true.
     handler.record(
@@ -130,8 +134,8 @@ async fn skip_sleep_resolves_immediately() {
 async fn skip_sleep_multiple_resolve_immediately() {
     let (handler, mut poller) =
         super::new::<ReadyValueSleepProvider, core::convert::Infallible>(true);
-    let a = PromiseStateId(0);
-    let b = PromiseStateId(1);
+    let a = promise_state_id_from_raw(0);
+    let b = promise_state_id_from_raw(1);
 
     handler.record(
         a,
@@ -152,7 +156,7 @@ async fn skip_sleep_multiple_resolve_immediately() {
 async fn skip_sleep_does_not_skip_when_skip_not_allowed() {
     let (handler, mut poller) =
         super::new::<ReadyValueSleepProvider, core::convert::Infallible>(true);
-    let psid = PromiseStateId(0);
+    let psid = promise_state_id_from_raw(0);
 
     // A 60-second sleep recorded with `skip_allowed: false` must keep its
     // full deadline even though skip_sleep is on.
@@ -178,7 +182,7 @@ async fn skip_sleep_flag_is_independent_per_handler() {
     let (normal_handler, mut normal_poller) =
         super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
 
-    let skip_psid = PromiseStateId(0);
+    let skip_psid = promise_state_id_from_raw(0);
     skip_handler.record(
         skip_psid,
         NonZeroDuration::try_from(Duration::from_secs(5)).unwrap(),
@@ -188,7 +192,7 @@ async fn skip_sleep_flag_is_independent_per_handler() {
     assert_eq!(skip_settlements[0].promise_state_id, skip_psid);
 
     // The normal handler should still work with actual durations.
-    let normal_psid = PromiseStateId(1);
+    let normal_psid = promise_state_id_from_raw(1);
     normal_handler.record(
         normal_psid,
         NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
@@ -202,7 +206,7 @@ async fn skip_sleep_flag_is_independent_per_handler() {
 async fn re_record_keeps_the_original_deadline() {
     let (handler, mut poller) =
         super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
-    let psid = PromiseStateId(0);
+    let psid = promise_state_id_from_raw(0);
 
     // First record wins; a re-record with a far-away deadline must not
     // walk the deadline forward.
@@ -235,7 +239,7 @@ async fn ack_makes_the_promise_recordable_again() {
 
     let (handler, mut poller) =
         super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
-    let psid = PromiseStateId(0);
+    let psid = promise_state_id_from_raw(0);
 
     handler.record(
         psid,
@@ -265,7 +269,7 @@ async fn ack_makes_the_promise_recordable_again() {
 async fn re_record_yields_a_single_settlement() {
     let (handler, mut poller) =
         super::new::<ReadyValueSleepProvider, core::convert::Infallible>(false);
-    let psid = PromiseStateId(0);
+    let psid = promise_state_id_from_raw(0);
 
     handler.record(
         psid,

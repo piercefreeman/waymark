@@ -659,7 +659,11 @@ fn exception_values_cross_to_and_from_the_raised_domain() {
     let not_an_exception: Result<RaisedException, _> =
         Value::Ready(ReadyValue::Int(1)).into_raised();
     assert!(not_an_exception.is_err());
-    let pending: Result<RaisedException, _> =
-        Value::Pending(waymark_vm_runtime_promise_core::PromiseStateId(3)).into_raised();
+    let pending: Result<RaisedException, _> = Value::Pending(
+        <waymark_vm_runtime_promise_core::PromiseStateId as index_type::IndexType>::from_raw_index(
+            3,
+        ),
+    )
+    .into_raised();
     assert!(pending.is_err());
 }

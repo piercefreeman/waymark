@@ -16,7 +16,7 @@ fn lock_id(promise: usize, nonce: u64) -> ActionCallRequestLockId<u64> {
     ActionCallRequestLockId {
         request: TestKey {
             vm_id: 42,
-            promise_state_id: PromiseStateId(promise),
+            promise_state_id: <PromiseStateId as index_type::IndexType>::from_raw_index(promise),
         },
         nonce,
     }

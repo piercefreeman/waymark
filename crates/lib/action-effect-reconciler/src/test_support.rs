@@ -477,7 +477,9 @@ pub(crate) fn seed_row(
     backend.rows.lock().unwrap().insert(
         TestKey {
             vm_id,
-            promise_state_id: waymark_vm_runtime_promise_core::PromiseStateId(promise),
+            promise_state_id: <waymark_vm_runtime_promise_core::PromiseStateId as index_type::IndexType>::from_raw_index(
+                promise,
+            ),
         },
         MockRow {
             effect_number: waymark_vm_runtime_effect::EffectNumber(effect),

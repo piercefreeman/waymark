@@ -396,14 +396,14 @@ mod tests {
     #[test]
     fn a_pending_promise_cannot_be_written() {
         let value = ReadyValue::List(vec![Value::Pending(
-            waymark_vm_runtime_promise_core::PromiseStateId(7),
+            <waymark_vm_runtime_promise_core::PromiseStateId as index_type::IndexType>::from_raw_index(7),
         )]);
 
         let written: Result<proto_value::Value, _> = Converter::try_convert(&value);
 
         assert_eq!(
             written.expect_err("a pending promise has no encoding"),
-            PendingPromiseError(waymark_vm_runtime_promise_core::PromiseStateId(7)),
+            PendingPromiseError(<waymark_vm_runtime_promise_core::PromiseStateId as index_type::IndexType>::from_raw_index(7)),
         );
     }
 }
