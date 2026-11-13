@@ -1,10 +1,9 @@
 use derive_where::derive_where;
-use index_type::typed_vec::TypedVec;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use crate::{PromiseState, SettlingAlreadySettledPromiseError, WaitersFor};
 
-/// A list of promise states.
+/// The promise states of a runtime, keyed by their promise state ids.
 #[derive_where(
     Debug;
     FunctionId, StateId, Value, RaisedException,
@@ -31,8 +30,10 @@ use crate::{PromiseState, SettlingAlreadySettledPromiseError, WaitersFor};
     ))
 )]
 pub struct PromiseStates<FunctionId, StateId, Value, RaisedException>(
-    #[cfg_attr(feature = "serde", serde(with = "waymark_typed_vec_serde"))]
-    TypedVec<PromiseStateId, PromiseState<FunctionId, StateId, Value, RaisedException>>,
+    waymark_id_map::IdMap<
+        PromiseStateId,
+        PromiseState<FunctionId, StateId, Value, RaisedException>,
+    >,
 )
 where
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern;
@@ -59,12 +60,10 @@ where
 
     /// Allocate a new waiting promise state and return its id.
     ///
-    /// Ids are indexes into an append-only list: entries are never
-    /// removed or compacted, so an id is never handed out for a different
-    /// promise — upholding the unique-per-VM invariant documented on
-    /// [`PromiseStateId`].
+    /// The map mints the id and never hands it out again — upholding the
+    /// unique-per-VM invariant documented on [`PromiseStateId`].
     pub fn prepare(&mut self) -> PromiseStateId {
-        self.0.push(PromiseState::Waiting(Vec::new()))
+        self.0.insert(PromiseState::Waiting(Vec::new()))
     }
 }
 
@@ -108,7 +107,7 @@ where
     /// Return an iterator over the IDs of all currently waiting
     /// (i.e. [`PromiseState::Waiting`]) promise states.
     pub fn waiting_ids(&self) -> impl Iterator<Item = PromiseStateId> + '_ {
-        self.0.iter_enumerated().filter_map(|(id, state)| {
+        self.0.iter().filter_map(|(id, state)| {
             if matches!(state, PromiseState::Waiting(_)) {
                 Some(id)
             } else {
