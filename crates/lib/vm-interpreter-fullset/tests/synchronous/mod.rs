@@ -6,7 +6,7 @@ use waymark_vm_interpreter_fullset::Effect;
 use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_test::{executable, function};
 
-use crate::support::{Instruction, TestConstValue, TestReadyValue, new_runtime};
+use crate::support::{Instruction, TestConstValue, TestMaterialValue, new_runtime};
 
 #[test]
 fn runtime_executes_pure_and_core_instructions_to_completion() {
@@ -44,7 +44,7 @@ fn runtime_executes_pure_and_core_instructions_to_completion() {
 
     match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
-            assert_eq!(value, TestReadyValue::Int(5));
+            assert_eq!(value, TestMaterialValue::Int(5));
         }
         Effect::ExcSet(waymark_vm_interpreter_excset::Effect::UnhandledException(exception)) => {
             panic!("program should not raise an exception: {exception:?}")

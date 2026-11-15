@@ -135,7 +135,7 @@ mod tests {
 
     fn action_call_request<Metadata>(
         metadata: Metadata,
-    ) -> ActionCallRequest<waymark_vm_value_python::ReadyValue, Metadata> {
+    ) -> ActionCallRequest<waymark_vm_value_python::MaterialValue, Metadata> {
         ActionCallRequest {
             action_ref: ActionRef {
                 action_name: "act".to_owned(),
@@ -158,7 +158,7 @@ mod tests {
         let requester = WorkerPoolActionRequester::<
             _,
             ActionCallCorrelation,
-            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python::MaterialValue,
             waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
         >::new(RecordingPool::default());
 
@@ -185,7 +185,7 @@ mod tests {
             action_call_requester: WorkerPoolActionRequester::<
                 _,
                 WithVmId<InstanceId, ActionCallCorrelation>,
-                waymark_vm_value_python::ReadyValue,
+                waymark_vm_value_python::MaterialValue,
                 waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
             >::new(RecordingPool::default()),
         };

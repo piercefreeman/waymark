@@ -1,9 +1,9 @@
 //! [`waymark_vm_interpreter_coreset`] trait implementations.
 
-use crate::ReadyValue;
+use crate::MaterialValue;
 
 impl<Flavor: crate::Flavor> waymark_vm_interpreter_coreset::value::ShouldJump
-    for ReadyValue<Flavor>
+    for MaterialValue<Flavor>
 {
     fn should_jump(
         &self,
@@ -13,7 +13,7 @@ impl<Flavor: crate::Flavor> waymark_vm_interpreter_coreset::value::ShouldJump
 }
 
 impl<Flavor: crate::Flavor> waymark_vm_interpreter_coreset::value::CaptureCallArgument
-    for ReadyValue<Flavor>
+    for MaterialValue<Flavor>
 where
     Flavor::Extension: Clone,
     Flavor::ExceptionValue: Clone,

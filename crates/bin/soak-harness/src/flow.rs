@@ -485,21 +485,23 @@ fn build_instance_inputs(
         let idx = step + 1;
         inputs.insert(
             format!("delay_ms_{idx}"),
-            waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::Int(i64::from(
+            waymark_system_vm::Value::Ready(waymark_system_vm::MaterialValue::Int(i64::from(
                 *delay_ms,
             ))),
         );
         inputs.insert(
             format!("should_fail_{idx}"),
-            waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::Bool(*should_fail)),
+            waymark_system_vm::Value::Ready(waymark_system_vm::MaterialValue::Bool(*should_fail)),
         );
         inputs.insert(
             format!("payload_bytes_{idx}"),
-            waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::Int(*payload_bytes)),
+            waymark_system_vm::Value::Ready(waymark_system_vm::MaterialValue::Int(*payload_bytes)),
         );
         inputs.insert(
             format!("include_payload_{idx}"),
-            waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::Bool(*include_payload)),
+            waymark_system_vm::Value::Ready(waymark_system_vm::MaterialValue::Bool(
+                *include_payload,
+            )),
         );
     }
 

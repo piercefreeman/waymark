@@ -1,5 +1,5 @@
 use waymark_vm_compiler_for_ast_old_test_support::{
-    TestExecutable, TestLowering, TestRaisedException, TestReadyValue, TestSpec, TestValue,
+    TestExecutable, TestLowering, TestMaterialValue, TestRaisedException, TestSpec, TestValue,
 };
 
 type TestInterpreter = waymark_vm_interpreter_fullset::FullSetInterpreter<
@@ -25,7 +25,7 @@ pub fn runtime(executable: TestExecutable) -> TestRuntime {
     .expect("compiled main function should exist")
 }
 
-pub fn runtime_with_args(executable: TestExecutable, args: Vec<TestReadyValue>) -> TestRuntime {
+pub fn runtime_with_args(executable: TestExecutable, args: Vec<TestMaterialValue>) -> TestRuntime {
     waymark_vm_runtime::Runtime::with_custom_entrypoint(
         TestInterpreter::default(),
         executable,

@@ -3,7 +3,7 @@
 
 use waymark_convert_core::TryConvert;
 use waymark_proto::python_value as proto_value;
-use waymark_vm_value_python::{RaisedException, ReadyValue, Value};
+use waymark_vm_value_python::{MaterialValue, RaisedException, Value};
 
 use waymark_vm_value_convert_core::PendingPromiseError;
 
@@ -94,14 +94,14 @@ impl TryConvert<(&[u8], &[String]), Vec<Value>> for WorkflowArgumentsConverter {
 /// `exception` arm.
 impl
     TryConvert<
-        waymark_workflow_completion_core::Outcome<ReadyValue, RaisedException>,
+        waymark_workflow_completion_core::Outcome<MaterialValue, RaisedException>,
         proto_value::WorkflowOutcome,
     > for WorkflowOutcomeConverter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
-        outcome: waymark_workflow_completion_core::Outcome<ReadyValue, RaisedException>,
+        outcome: waymark_workflow_completion_core::Outcome<MaterialValue, RaisedException>,
     ) -> Result<proto_value::WorkflowOutcome, Self::Error> {
         use proto_value::workflow_outcome::Outcome;
 
@@ -122,13 +122,13 @@ impl
 
 /// Convert how a workflow completed into the bytes the completion
 /// payload carries: the outcome message, encoded.
-impl TryConvert<waymark_workflow_completion_core::Outcome<ReadyValue, RaisedException>, Vec<u8>>
+impl TryConvert<waymark_workflow_completion_core::Outcome<MaterialValue, RaisedException>, Vec<u8>>
     for WorkflowOutcomeConverter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
-        outcome: waymark_workflow_completion_core::Outcome<ReadyValue, RaisedException>,
+        outcome: waymark_workflow_completion_core::Outcome<MaterialValue, RaisedException>,
     ) -> Result<Vec<u8>, Self::Error> {
         let message: proto_value::WorkflowOutcome = Self::try_convert(outcome)?;
         Ok(prost::Message::encode_to_vec(&message))
@@ -148,7 +148,7 @@ mod tests {
         use proto_value::{primitive_value::Kind as PrimitiveKind, value::Kind};
 
         let message: proto_value::WorkflowOutcome =
-            WorkflowOutcomeConverter::try_convert(Outcome::Completion(ReadyValue::Int(42)))
+            WorkflowOutcomeConverter::try_convert(Outcome::Completion(MaterialValue::Int(42)))
                 .expect("no pending promise");
 
         // The returned value travels as-is in the `value` arm: no
@@ -169,7 +169,7 @@ mod tests {
         let exception = Exception {
             type_id: "ValueError".to_owned(),
             mro_type_ids: vec!["Exception".to_owned(), "BaseException".to_owned()],
-            details: Value::Ready(ReadyValue::String("boom".to_owned())),
+            details: Value::Ready(MaterialValue::String("boom".to_owned())),
         };
         let message: proto_value::WorkflowOutcome =
             WorkflowOutcomeConverter::try_convert(Outcome::Exception(exception))
@@ -198,10 +198,10 @@ mod tests {
     #[test]
     fn an_outcome_payload_is_the_encoded_message() {
         let bytes: Vec<u8> =
-            WorkflowOutcomeConverter::try_convert(Outcome::Completion(ReadyValue::Int(42)))
+            WorkflowOutcomeConverter::try_convert(Outcome::Completion(MaterialValue::Int(42)))
                 .expect("no pending promise");
         let message: proto_value::WorkflowOutcome =
-            WorkflowOutcomeConverter::try_convert(Outcome::Completion(ReadyValue::Int(42)))
+            WorkflowOutcomeConverter::try_convert(Outcome::Completion(MaterialValue::Int(42)))
                 .expect("no pending promise");
 
         assert_eq!(bytes, prost::Message::encode_to_vec(&message));

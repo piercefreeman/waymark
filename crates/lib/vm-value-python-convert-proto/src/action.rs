@@ -5,7 +5,7 @@ use std::convert::Infallible;
 
 use waymark_convert_core::{Convert as _, TryConvert};
 use waymark_proto::python_value as proto_value;
-use waymark_vm_value_python::{RaisedException, ReadyValue, Value};
+use waymark_vm_value_python::{MaterialValue, RaisedException, Value};
 
 use waymark_vm_value_convert_core::PendingPromiseError;
 
@@ -55,14 +55,18 @@ pub enum ActionDispatchError {
 /// of its own.
 impl
     TryConvert<
-        (waymark_action_core::ActionRef, Vec<ReadyValue>, Vec<u8>),
+        (waymark_action_core::ActionRef, Vec<MaterialValue>, Vec<u8>),
         waymark_proto::messages::ActionDispatch,
     > for ActionArgumentsConverter
 {
     type Error = ActionDispatchError;
 
     fn try_convert(
-        (action_ref, values, metadata): (waymark_action_core::ActionRef, Vec<ReadyValue>, Vec<u8>),
+        (action_ref, values, metadata): (
+            waymark_action_core::ActionRef,
+            Vec<MaterialValue>,
+            Vec<u8>,
+        ),
     ) -> Result<waymark_proto::messages::ActionDispatch, Self::Error> {
         let waymark_action_core::ActionRef {
             action_name,
@@ -127,7 +131,7 @@ pub enum ActionOutcomeError {
 impl
     TryConvert<
         Option<proto_value::action_outcome::Outcome>,
-        waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
+        waymark_action_runtime_core::ActionCallOutcome<MaterialValue, RaisedException>,
     > for ActionOutcomeConverter
 {
     type Error = MissingOutcomeError;
@@ -135,7 +139,7 @@ impl
     fn try_convert(
         outcome: Option<proto_value::action_outcome::Outcome>,
     ) -> Result<
-        waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
+        waymark_action_runtime_core::ActionCallOutcome<MaterialValue, RaisedException>,
         Self::Error,
     > {
         use proto_value::action_outcome::Outcome;
@@ -158,15 +162,17 @@ impl
 /// Read how an action call completed from the result payload: the
 /// outcome message, decoded and interpreted.
 impl
-    TryConvert<Vec<u8>, waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>>
-    for ActionOutcomeConverter
+    TryConvert<
+        Vec<u8>,
+        waymark_action_runtime_core::ActionCallOutcome<MaterialValue, RaisedException>,
+    > for ActionOutcomeConverter
 {
     type Error = ActionOutcomeError;
 
     fn try_convert(
         bytes: Vec<u8>,
     ) -> Result<
-        waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
+        waymark_action_runtime_core::ActionCallOutcome<MaterialValue, RaisedException>,
         Self::Error,
     > {
         let message: proto_value::ActionOutcome =
@@ -180,14 +186,14 @@ impl
 /// the `exception` arm.
 impl
     TryConvert<
-        waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
+        waymark_action_runtime_core::ActionCallOutcome<MaterialValue, RaisedException>,
         proto_value::ActionOutcome,
     > for ActionOutcomeConverter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
-        outcome: waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
+        outcome: waymark_action_runtime_core::ActionCallOutcome<MaterialValue, RaisedException>,
     ) -> Result<proto_value::ActionOutcome, Self::Error> {
         use proto_value::action_outcome::Outcome;
 
@@ -209,13 +215,15 @@ impl
 /// Convert how an action call completed into the bytes the result
 /// payload carries: the outcome message, encoded.
 impl
-    TryConvert<waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>, Vec<u8>>
-    for ActionOutcomeConverter
+    TryConvert<
+        waymark_action_runtime_core::ActionCallOutcome<MaterialValue, RaisedException>,
+        Vec<u8>,
+    > for ActionOutcomeConverter
 {
     type Error = PendingPromiseError;
 
     fn try_convert(
-        outcome: waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
+        outcome: waymark_action_runtime_core::ActionCallOutcome<MaterialValue, RaisedException>,
     ) -> Result<Vec<u8>, Self::Error> {
         let message: proto_value::ActionOutcome = Self::try_convert(outcome)?;
         Ok(prost::Message::encode_to_vec(&message))
@@ -242,7 +250,7 @@ impl TryConvert<waymark_action_runtime_core::ActionCallLossError, RaisedExceptio
                 waymark_vm_value_python::exception::classes::ACTION_EXECUTION_LOST
             }
         };
-        Ok(class.exception(Value::Ready(ReadyValue::None)))
+        Ok(class.exception(Value::Ready(MaterialValue::None)))
     }
 }
 
@@ -264,14 +272,14 @@ pub enum ActionArgumentsError {
 /// is called with.
 ///
 /// Empty bytes are the no-arguments encoding and read as no values.
-impl TryConvert<Vec<u8>, std::collections::HashMap<String, ReadyValue>>
+impl TryConvert<Vec<u8>, std::collections::HashMap<String, MaterialValue>>
     for ActionArgumentsConverter
 {
     type Error = ActionArgumentsError;
 
     fn try_convert(
         bytes: Vec<u8>,
-    ) -> Result<std::collections::HashMap<String, ReadyValue>, Self::Error> {
+    ) -> Result<std::collections::HashMap<String, MaterialValue>, Self::Error> {
         let message: proto_value::ActionArguments =
             prost::Message::decode(bytes.as_slice()).map_err(ActionArgumentsError::Decode)?;
         named_arguments(
@@ -292,28 +300,28 @@ mod tests {
     use super::*;
 
     fn outcome_payload(
-        outcome: waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
+        outcome: waymark_action_runtime_core::ActionCallOutcome<MaterialValue, RaisedException>,
     ) -> Vec<u8> {
         ActionOutcomeConverter::try_convert(outcome).expect("no pending promise in the outcome")
     }
 
     fn read_outcome(
         payload: &[u8],
-    ) -> waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException> {
+    ) -> waymark_action_runtime_core::ActionCallOutcome<MaterialValue, RaisedException> {
         ActionOutcomeConverter::try_convert(payload.to_vec()).expect("the encoded outcome decodes")
     }
 
     #[test]
     fn returned_value_becomes_the_settled_value() {
         let returned = outcome_payload(waymark_action_runtime_core::ActionCallOutcome::Value(
-            ReadyValue::Int(42),
+            MaterialValue::Int(42),
         ));
 
         let waymark_action_runtime_core::ActionCallOutcome::Value(value) = read_outcome(&returned)
         else {
             panic!("a returned value must settle the promise with that value");
         };
-        assert_eq!(value, ReadyValue::Int(42));
+        assert_eq!(value, MaterialValue::Int(42));
     }
 
     #[test]
@@ -322,10 +330,10 @@ mod tests {
         let exception = Exception {
             type_id: "ValueError".to_owned(),
             mro_type_ids: vec!["Exception".to_owned(), "BaseException".to_owned()],
-            details: Value::Ready(ReadyValue::String("boom".to_owned())),
+            details: Value::Ready(MaterialValue::String("boom".to_owned())),
         };
         let returned = outcome_payload(waymark_action_runtime_core::ActionCallOutcome::Value(
-            ReadyValue::Exception(Box::new(exception)),
+            MaterialValue::Exception(Box::new(exception)),
         ));
 
         assert!(matches!(
@@ -342,7 +350,7 @@ mod tests {
         let empty = prost::Message::encode_to_vec(&proto_value::ActionOutcome { outcome: None });
 
         let converted: Result<
-            waymark_action_runtime_core::ActionCallOutcome<ReadyValue, RaisedException>,
+            waymark_action_runtime_core::ActionCallOutcome<MaterialValue, RaisedException>,
             _,
         > = ActionOutcomeConverter::try_convert(empty);
 
@@ -362,9 +370,9 @@ mod tests {
                     "Exception".to_owned(),
                     "BaseException".to_owned(),
                 ],
-                details: Value::Ready(ReadyValue::Dict(IndexMap::from([(
+                details: Value::Ready(MaterialValue::Dict(IndexMap::from([(
                     "message".to_owned(),
-                    Value::Ready(ReadyValue::String(
+                    Value::Ready(MaterialValue::String(
                         "attempt 1 has not reached success".to_owned(),
                     )),
                 )]))),
@@ -382,12 +390,12 @@ mod tests {
             exception.mro_type_ids,
             ["RuntimeError", "Exception", "BaseException"]
         );
-        let Value::Ready(ReadyValue::Dict(details)) = exception.details else {
+        let Value::Ready(MaterialValue::Dict(details)) = exception.details else {
             panic!("the exception's details are its own value");
         };
         assert_eq!(
             details.get("message"),
-            Some(&Value::Ready(ReadyValue::String(
+            Some(&Value::Ready(MaterialValue::String(
                 "attempt 1 has not reached success".to_owned()
             ))),
         );
@@ -407,17 +415,17 @@ mod tests {
         assert_eq!(
             not_started,
             waymark_vm_value_python::exception::classes::ACTION_EXECUTION_NOT_STARTED
-                .exception(Value::Ready(ReadyValue::None))
+                .exception(Value::Ready(MaterialValue::None))
         );
         assert_eq!(
             lost,
             waymark_vm_value_python::exception::classes::ACTION_EXECUTION_LOST
-                .exception(Value::Ready(ReadyValue::None))
+                .exception(Value::Ready(MaterialValue::None))
         );
     }
     /// The encoded arguments of a dispatch for `names` paired with
     /// `values`.
-    fn dispatch_arguments(names: Vec<String>, values: Vec<ReadyValue>) -> Vec<u8> {
+    fn dispatch_arguments(names: Vec<String>, values: Vec<MaterialValue>) -> Vec<u8> {
         let dispatch: waymark_proto::messages::ActionDispatch =
             ActionArgumentsConverter::try_convert((
                 waymark_action_core::ActionRef {
@@ -437,32 +445,35 @@ mod tests {
         // The bytes are the encoded arguments message, byte for byte, and
         // read back as the named values an action body is called with.
         let names = vec!["zebra".to_owned(), "apple".to_owned()];
-        let values = vec![ReadyValue::Int(1), ReadyValue::String("two".to_owned())];
+        let values = vec![
+            MaterialValue::Int(1),
+            MaterialValue::String("two".to_owned()),
+        ];
 
         let bytes = dispatch_arguments(names, values);
         let message = proto_value::ActionArguments {
             arguments: vec![
                 proto_value::ActionArgument {
                     key: "zebra".to_owned(),
-                    value: Some(Converter::try_convert(&ReadyValue::Int(1)).unwrap()),
+                    value: Some(Converter::try_convert(&MaterialValue::Int(1)).unwrap()),
                 },
                 proto_value::ActionArgument {
                     key: "apple".to_owned(),
                     value: Some(
-                        Converter::try_convert(&ReadyValue::String("two".to_owned())).unwrap(),
+                        Converter::try_convert(&MaterialValue::String("two".to_owned())).unwrap(),
                     ),
                 },
             ],
         };
         assert_eq!(bytes, prost::Message::encode_to_vec(&message));
 
-        let named: std::collections::HashMap<String, ReadyValue> =
+        let named: std::collections::HashMap<String, MaterialValue> =
             ActionArgumentsConverter::try_convert(bytes).expect("every entry carries a value");
         assert_eq!(
             named,
             std::collections::HashMap::from([
-                ("zebra".to_owned(), ReadyValue::Int(1)),
-                ("apple".to_owned(), ReadyValue::String("two".to_owned())),
+                ("zebra".to_owned(), MaterialValue::Int(1)),
+                ("apple".to_owned(), MaterialValue::String("two".to_owned())),
             ])
         );
     }
@@ -472,16 +483,16 @@ mod tests {
         // An explicit `None` is an argument like any other: the action is
         // called with it.
         let names = vec!["value".to_owned(), "count".to_owned()];
-        let values = vec![ReadyValue::None, ReadyValue::Int(3)];
+        let values = vec![MaterialValue::None, MaterialValue::Int(3)];
 
         let bytes = dispatch_arguments(names, values);
-        let named: std::collections::HashMap<String, ReadyValue> =
+        let named: std::collections::HashMap<String, MaterialValue> =
             ActionArgumentsConverter::try_convert(bytes).expect("every entry carries a value");
         assert_eq!(
             named,
             std::collections::HashMap::from([
-                ("value".to_owned(), ReadyValue::None),
-                ("count".to_owned(), ReadyValue::Int(3)),
+                ("value".to_owned(), MaterialValue::None),
+                ("count".to_owned(), MaterialValue::Int(3)),
             ])
         );
     }
@@ -495,7 +506,7 @@ mod tests {
                     module_name: None,
                     call_args: vec!["first".to_owned(), "second".to_owned()],
                 },
-                vec![ReadyValue::Int(1)],
+                vec![MaterialValue::Int(1)],
                 Vec::new(),
             ));
 
@@ -516,7 +527,7 @@ mod tests {
         };
         let bytes = prost::Message::encode_to_vec(&message);
 
-        let read: Result<std::collections::HashMap<String, ReadyValue>, _> =
+        let read: Result<std::collections::HashMap<String, MaterialValue>, _> =
             ActionArgumentsConverter::try_convert(bytes);
 
         let ActionArgumentsError::Arguments(error) =

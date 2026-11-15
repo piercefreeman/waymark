@@ -9,7 +9,7 @@ use waymark_vm_interpreter_fullset::Effect;
 use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_test::{StateId, executable, function};
 
-use crate::support::{Instruction, TestConstValue, TestReadyValue, new_runtime};
+use crate::support::{Instruction, TestConstValue, TestMaterialValue, new_runtime};
 
 #[test]
 fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
@@ -77,7 +77,7 @@ fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
     };
 
     runtime
-        .resolve_promise(promise_state_id, TestReadyValue::Int(0))
+        .resolve_promise(promise_state_id, TestMaterialValue::Int(0))
         .expect("sleep promise should resolve cleanly");
 
     let emitted_effect = runtime
@@ -86,7 +86,7 @@ fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
 
     match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
-            assert_eq!(value, TestReadyValue::Int(7));
+            assert_eq!(value, TestMaterialValue::Int(7));
         }
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
             panic!("resolved sleep should not emit an action call")

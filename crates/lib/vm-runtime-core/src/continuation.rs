@@ -228,13 +228,13 @@ mod tests {
     use crate::{ExceptionHandlers, Frame, FrameKind, RegisterId, Registers};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    enum TestReadyValue {
+    enum TestMaterialValue {
         Int(i32),
     }
 
-    type TestValue = PromiseValue<TestReadyValue>;
+    type TestValue = PromiseValue<TestMaterialValue>;
 
-    impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
+    impl waymark_vm_runtime_value::RootValueAccess for TestMaterialValue {
         type RootValue = TestValue;
     }
 
@@ -253,13 +253,13 @@ mod tests {
     fn capture_and_resume_update_state_and_destination_register() {
         let continuation = Continuation::capture(frame(1), 7, RegisterId(1));
 
-        let resumed = continuation.resume(PromiseValue::Ready(TestReadyValue::Int(42)));
+        let resumed = continuation.resume(PromiseValue::Ready(TestMaterialValue::Int(42)));
 
         assert_eq!(resumed.state, 7);
         assert_eq!(resumed.regs.get(RegisterId(0)), None);
         assert_eq!(
             resumed.regs.get(RegisterId(1)),
-            Some(&PromiseValue::Ready(TestReadyValue::Int(42)))
+            Some(&PromiseValue::Ready(TestMaterialValue::Int(42)))
         );
         assert!(resumed.exception.is_none());
     }
@@ -272,13 +272,13 @@ mod tests {
             &mut frame,
             9,
             RegisterId(0),
-            PromiseValue::Ready(TestReadyValue::Int(11)),
+            PromiseValue::Ready(TestMaterialValue::Int(11)),
         );
 
         assert_eq!(frame.state, 9);
         assert_eq!(
             frame.regs.get(RegisterId(0)),
-            Some(&PromiseValue::Ready(TestReadyValue::Int(11)))
+            Some(&PromiseValue::Ready(TestMaterialValue::Int(11)))
         );
         assert!(frame.exception.is_none());
     }
@@ -313,12 +313,12 @@ mod tests {
 
         let resumed = continuation
             .into_arm(SelectArm::new(RegisterId(1), 7))
-            .resume(PromiseValue::Ready(TestReadyValue::Int(42)));
+            .resume(PromiseValue::Ready(TestMaterialValue::Int(42)));
 
         assert_eq!(resumed.state, 7);
         assert_eq!(
             resumed.regs.get(RegisterId(1)),
-            Some(&PromiseValue::Ready(TestReadyValue::Int(42)))
+            Some(&PromiseValue::Ready(TestMaterialValue::Int(42)))
         );
         assert!(resumed.exception.is_none());
     }

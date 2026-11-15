@@ -10,7 +10,7 @@ use waymark_smoke_sources::{
     build_control_flow_program, build_parallel_spread_program, build_program,
     build_try_except_program, build_while_loop_program,
 };
-use waymark_system_vm::{ReadyValue, Value};
+use waymark_system_vm::{MaterialValue, Value};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -149,24 +149,24 @@ async fn run_smoke(base: i64) -> i32 {
             };
             let inputs = match name {
                 "smoke" => {
-                    HashMap::from([("base".to_string(), Value::Ready(ReadyValue::Int(base)))])
+                    HashMap::from([("base".to_string(), Value::Ready(MaterialValue::Int(base)))])
                 }
                 "control_flow" => {
-                    HashMap::from([("base".to_string(), Value::Ready(ReadyValue::Int(2)))])
+                    HashMap::from([("base".to_string(), Value::Ready(MaterialValue::Int(2)))])
                 }
                 "parallel_spread" => {
-                    HashMap::from([("base".to_string(), Value::Ready(ReadyValue::Int(3)))])
+                    HashMap::from([("base".to_string(), Value::Ready(MaterialValue::Int(3)))])
                 }
                 "try_except" => HashMap::from([(
                     "values".to_string(),
-                    Value::Ready(ReadyValue::List(vec![
-                        Value::Ready(ReadyValue::Int(1)),
-                        Value::Ready(ReadyValue::Int(2)),
-                        Value::Ready(ReadyValue::Int(3)),
+                    Value::Ready(MaterialValue::List(vec![
+                        Value::Ready(MaterialValue::Int(1)),
+                        Value::Ready(MaterialValue::Int(2)),
+                        Value::Ready(MaterialValue::Int(3)),
                     ])),
                 )]),
                 "while_loop" => {
-                    HashMap::from([("limit".to_string(), Value::Ready(ReadyValue::Int(6)))])
+                    HashMap::from([("limit".to_string(), Value::Ready(MaterialValue::Int(6)))])
                 }
                 _ => HashMap::new(),
             };

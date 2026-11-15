@@ -303,7 +303,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
                 waymark_ids::InstanceId,
                 waymark_action_runtime_metadata::ActionCallCorrelation,
             >,
-            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python::MaterialValue,
             waymark_system_vm::RaisedException,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >::new(worker_pool_completions);
@@ -333,7 +333,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
 
     let (registrar, poller_state) = waymark_action_completions_reconciler::poller::state::<
         _,
-        waymark_vm_value_python::ReadyValue,
+        waymark_vm_value_python::MaterialValue,
         waymark_system_vm::RaisedException,
         waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
     >(ack_tx);
@@ -471,7 +471,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
                 waymark_action_runtime_worker_pool::WorkerPoolActionRequester::<
                     _,
                     _,
-                    waymark_vm_value_python::ReadyValue,
+                    waymark_vm_value_python::MaterialValue,
                     waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
                 >::new(worker_pool_requests.clone());
             let action_call_requester =
@@ -506,7 +506,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
                 vm_id: *vm_id,
             };
             let sleep_settler = sleep_registrar.subscribe::<
-                waymark_sleep_compat_python::ReadyValueSleepProvider,
+                waymark_sleep_compat_python::MaterialValueSleepProvider,
                 waymark_system_vm::RaisedException,
             >(*vm_id);
             let (extcall_handler, extcall_settler) = waymark_extcall_reconciler::new(
@@ -556,7 +556,7 @@ pub async fn start<Spawner, Backend, WorkerPoolRequests, WorkerPoolCompletions, 
 
                     waymark_observability_events_vm_driver_hooks::Hooks::<
                         waymark_observability_events_vm_driver_hooks_fullset::FullSetEffectSummarizer<
-                            waymark_vm_value_python::ReadyValue,
+                            waymark_vm_value_python::MaterialValue,
                             waymark_system_vm::RaisedException,
                         >,
                         _,

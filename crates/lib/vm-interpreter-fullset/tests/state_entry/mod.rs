@@ -10,7 +10,7 @@ use waymark_vm_runtime_core::{FullRuntimeView, RegisterId};
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
 
 use crate::support::{
-    Instruction, TestActionRef, TestException, TestReadyValue, TestSpec, TestValue,
+    Instruction, TestActionRef, TestException, TestMaterialValue, TestSpec, TestValue,
 };
 
 type Inner = FullSetInterpreter<TestSpec, Executable<Instruction>, TestValue, TestException>;
@@ -104,7 +104,7 @@ fn pending_exceptions_are_consumed_before_execute_dispatch() {
 
     let rejection = TestException {
         type_id: "ValueError".to_owned(),
-        details: TestValue::Ready(TestReadyValue::Int(7)),
+        details: TestValue::Ready(TestMaterialValue::Int(7)),
     };
     runtime
         .reject_promise(promise_state_id, rejection.clone())

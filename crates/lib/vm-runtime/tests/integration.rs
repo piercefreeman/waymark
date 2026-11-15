@@ -4,7 +4,7 @@ use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_runtime_test::{
     FunctionId, StateId, TestEffect, TestException, TestExecutionError, TestFrame, TestInstruction,
-    TestInterpreter, TestReadyValue, TestRuntimeView, executable, function, runtime,
+    TestInterpreter, TestMaterialValue, TestRuntimeView, executable, function, runtime,
     runtime_with_entrypoint, try_runtime,
 };
 
@@ -66,14 +66,14 @@ fn with_custom_entrypoint_uses_requested_function_and_ready_arguments() {
         ]),
         CallSpec {
             func: FunctionId(1),
-            args: vec![TestReadyValue::Int(7), TestReadyValue::Int(9)],
+            args: vec![TestMaterialValue::Int(7), TestMaterialValue::Int(9)],
         },
     );
 
     let emitted_effect = runtime.run().expect("custom entrypoint should emit");
     assert_eq!(
         emitted_effect.effect,
-        TestEffect::Value(TestReadyValue::Int(9))
+        TestEffect::Value(TestMaterialValue::Int(9))
     );
 }
 
@@ -117,7 +117,7 @@ fn run_returns_step_error_when_a_state_has_no_instructions() {
         executable(vec![function(0, vec![Vec::new()])]),
         CallSpec {
             func: FunctionId(0),
-            args: Vec::<TestReadyValue>::new(),
+            args: Vec::<TestMaterialValue>::new(),
         },
     );
 
@@ -164,13 +164,13 @@ fn resolve_promise_resumes_a_suspended_frame_and_emits_the_resolved_value() {
     assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
 
     runtime
-        .resolve_promise(PromiseStateId::from_raw(0), TestReadyValue::Int(41))
+        .resolve_promise(PromiseStateId::from_raw(0), TestMaterialValue::Int(41))
         .expect("prepared promise should resolve");
 
     let emitted_effect = runtime.run().expect("resumed frame should emit");
     assert_eq!(
         emitted_effect.effect,
-        TestEffect::Value(TestReadyValue::Int(41))
+        TestEffect::Value(TestMaterialValue::Int(41))
     );
 }
 
@@ -190,7 +190,7 @@ fn resolve_promise_rejects_unknown_promise_ids_without_disturbing_waiting_work()
     assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
 
     let err = runtime
-        .resolve_promise(PromiseStateId::from_raw(9), TestReadyValue::Int(41))
+        .resolve_promise(PromiseStateId::from_raw(9), TestMaterialValue::Int(41))
         .expect_err("unknown promise IDs should be rejected");
 
     let SettlePromiseError::PromiseStateNotFound(err) = err else {
@@ -199,13 +199,13 @@ fn resolve_promise_rejects_unknown_promise_ids_without_disturbing_waiting_work()
     assert_eq!(err.promise_state_id, PromiseStateId::from_raw(9));
 
     runtime
-        .resolve_promise(PromiseStateId::from_raw(0), TestReadyValue::Int(41))
+        .resolve_promise(PromiseStateId::from_raw(0), TestMaterialValue::Int(41))
         .expect("the waiting promise should still resolve cleanly");
 
     let emitted_effect = runtime.run().expect("resumed frame should still emit");
     assert_eq!(
         emitted_effect.effect,
-        TestEffect::Value(TestReadyValue::Int(41))
+        TestEffect::Value(TestMaterialValue::Int(41))
     );
 }
 
@@ -225,24 +225,24 @@ fn resolve_promise_preserves_the_first_value_when_duplicate_resolution_occurs() 
     assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
 
     runtime
-        .resolve_promise(PromiseStateId::from_raw(0), TestReadyValue::Int(7))
+        .resolve_promise(PromiseStateId::from_raw(0), TestMaterialValue::Int(7))
         .expect("first promise resolution should succeed");
 
     let err = runtime
-        .resolve_promise(PromiseStateId::from_raw(0), TestReadyValue::Int(11))
+        .resolve_promise(PromiseStateId::from_raw(0), TestMaterialValue::Int(11))
         .expect_err("already-settled promise should reject a new value");
 
     let SettlePromiseError::AlreadySettled(err) = err else {
         panic!("duplicate resolutions should report already-settled errors");
     };
 
-    assert_eq!(err.new_value, TestReadyValue::Int(11));
+    assert_eq!(err.new_value, TestMaterialValue::Int(11));
     let emitted_effect = runtime
         .run()
         .expect("resumed frame should keep the first value");
     assert_eq!(
         emitted_effect.effect,
-        TestEffect::Value(TestReadyValue::Int(7))
+        TestEffect::Value(TestMaterialValue::Int(7))
     );
 }
 
@@ -266,7 +266,7 @@ fn reject_promise_bubbles_uncaught_exceptions() {
             PromiseStateId::from_raw(0),
             TestException {
                 type_id: "ValueError".to_owned(),
-                details: TestReadyValue::Int(41),
+                details: TestMaterialValue::Int(41),
             },
         )
         .expect("exceptional promise result should resolve");
@@ -278,7 +278,7 @@ fn reject_promise_bubbles_uncaught_exceptions() {
         emitted_effect.effect,
         TestEffect::UnhandledException(TestException {
             type_id: "ValueError".to_owned(),
-            details: TestReadyValue::Int(41),
+            details: TestMaterialValue::Int(41),
         })
     );
 }
@@ -337,7 +337,7 @@ fn state_entry_hook_can_redirect_exceptional_resumes_when_the_interpreter_wants(
             PromiseStateId::from_raw(0),
             TestException {
                 type_id: "ValueError".to_owned(),
-                details: TestReadyValue::Int(41),
+                details: TestMaterialValue::Int(41),
             },
         )
         .expect("exceptional promise result should resolve");
@@ -386,13 +386,13 @@ fn snapshot_suspended_and_from_snapshot_preserves_suspended_promises() {
 
     // Resolve the promise in the restored runtime.
     restored
-        .resolve_promise(PromiseStateId::from_raw(0), TestReadyValue::Int(42))
+        .resolve_promise(PromiseStateId::from_raw(0), TestMaterialValue::Int(42))
         .expect("promise should resolve after restore");
 
     let emitted_effect = restored.run().expect("restored runtime should emit");
     assert_eq!(
         emitted_effect.effect,
-        TestEffect::Value(TestReadyValue::Int(42))
+        TestEffect::Value(TestMaterialValue::Int(42))
     );
 }
 
@@ -437,7 +437,7 @@ fn snapshot_suspended_and_from_snapshot_preserves_rejected_promises() {
             PromiseStateId::from_raw(0),
             TestException {
                 type_id: "ValueError".to_owned(),
-                details: TestReadyValue::Int(41),
+                details: TestMaterialValue::Int(41),
             },
         )
         .expect("promise should reject after restore");
@@ -449,7 +449,7 @@ fn snapshot_suspended_and_from_snapshot_preserves_rejected_promises() {
         emitted_effect.effect,
         TestEffect::UnhandledException(TestException {
             type_id: "ValueError".to_owned(),
-            details: TestReadyValue::Int(41),
+            details: TestMaterialValue::Int(41),
         })
     );
 }
@@ -614,12 +614,12 @@ fn effect_counter_survives_snapshot_roundtrip() {
             .expect("snapshot should restore");
 
     restored
-        .resolve_promise(PromiseStateId::from_raw(0), TestReadyValue::Int(20))
+        .resolve_promise(PromiseStateId::from_raw(0), TestMaterialValue::Int(20))
         .expect("promise should resolve after restore");
     let emitted_effect = restored.run().expect("emit after restore");
     assert_eq!(emitted_effect.number, EffectNumber(2));
     assert_eq!(
         emitted_effect.effect,
-        TestEffect::Value(TestReadyValue::Int(20))
+        TestEffect::Value(TestMaterialValue::Int(20))
     );
 }

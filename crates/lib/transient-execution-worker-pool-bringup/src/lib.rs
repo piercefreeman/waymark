@@ -15,7 +15,7 @@ pub type ActionCallRequesterFor<WorkerPoolRequests> =
     waymark_action_runtime_worker_pool::WorkerPoolActionRequester<
         WorkerPoolRequests,
         waymark_action_runtime_metadata::ActionCallCorrelation,
-        waymark_vm_value_python::ReadyValue,
+        waymark_vm_value_python::MaterialValue,
         waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
     >;
 
@@ -25,7 +25,7 @@ pub type ActionCallCompletionsProviderFor<WorkerPoolCompletions> =
     waymark_action_runtime_worker_pool::WorkerPoolActionCallCompletionsProvider<
         WorkerPoolCompletions,
         waymark_action_runtime_metadata::ActionCallCorrelation,
-        waymark_vm_value_python::ReadyValue,
+        waymark_vm_value_python::MaterialValue,
         waymark_vm_value_python::RaisedException,
         waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
     >;
