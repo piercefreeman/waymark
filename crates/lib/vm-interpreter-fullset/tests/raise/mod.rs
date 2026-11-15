@@ -11,13 +11,13 @@ use waymark_vm_runtime_test::{StateId, executable, function};
 
 use crate::support::{
     Instruction, TestConstException, TestConstValue, TestException, TestExceptionPattern,
-    TestReadyValue, TestValue, new_runtime, new_runtime_with_args,
+    TestMaterialValue, TestValue, new_runtime, new_runtime_with_args,
 };
 
 fn value_error(details: i64) -> TestException {
     TestException {
         type_id: "ValueError".to_owned(),
-        details: TestValue::Ready(TestReadyValue::Int(details)),
+        details: TestValue::Ready(TestMaterialValue::Int(details)),
     }
 }
 
@@ -27,7 +27,7 @@ fn runtime_raises_exception_values_from_registers() {
         1,
         vec![vec![ExcSet::Raise { src: RegisterId(0) }.into()]],
     )]);
-    let raised = TestReadyValue::Exception(Box::new(value_error(7)));
+    let raised = TestMaterialValue::Exception(Box::new(value_error(7)));
 
     let mut runtime = new_runtime_with_args(executable, vec![raised]);
 
@@ -50,7 +50,7 @@ fn raise_rejects_non_exception_values() {
         vec![vec![ExcSet::Raise { src: RegisterId(0) }.into()]],
     )]);
 
-    let mut runtime = new_runtime_with_args(executable, vec![TestReadyValue::Int(7)]);
+    let mut runtime = new_runtime_with_args(executable, vec![TestMaterialValue::Int(7)]);
 
     let result = runtime.run();
 
@@ -113,7 +113,7 @@ fn same_frame_exceptions_unwind_into_local_handlers() {
         ],
     );
     let executable = executable(vec![function]);
-    let raised = TestReadyValue::Exception(Box::new(value_error(7)));
+    let raised = TestMaterialValue::Exception(Box::new(value_error(7)));
 
     let mut runtime = new_runtime_with_args(executable, vec![raised]);
 
@@ -123,7 +123,10 @@ fn same_frame_exceptions_unwind_into_local_handlers() {
 
     match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
-            assert_eq!(value, TestReadyValue::Exception(Box::new(value_error(7))));
+            assert_eq!(
+                value,
+                TestMaterialValue::Exception(Box::new(value_error(7)))
+            );
         }
         effect => panic!("local handler should return the captured exception: {effect:?}"),
     }
@@ -149,7 +152,7 @@ fn handlers_listing_another_pattern_do_not_catch() {
         ],
     );
     let executable = executable(vec![function]);
-    let raised = TestReadyValue::Exception(Box::new(value_error(7)));
+    let raised = TestMaterialValue::Exception(Box::new(value_error(7)));
 
     let mut runtime = new_runtime_with_args(executable, vec![raised]);
 
@@ -185,7 +188,7 @@ fn catch_all_handlers_catch_without_a_destination() {
         ],
     );
     let executable = executable(vec![function]);
-    let raised = TestReadyValue::Exception(Box::new(value_error(7)));
+    let raised = TestMaterialValue::Exception(Box::new(value_error(7)));
 
     let mut runtime = new_runtime_with_args(executable, vec![raised]);
 
@@ -197,7 +200,10 @@ fn catch_all_handlers_catch_without_a_destination() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             // The register the raise read from is untouched: nothing was
             // bound.
-            assert_eq!(value, TestReadyValue::Exception(Box::new(value_error(7))));
+            assert_eq!(
+                value,
+                TestMaterialValue::Exception(Box::new(value_error(7)))
+            );
         }
         effect => panic!("the catch-all handler should complete: {effect:?}"),
     }

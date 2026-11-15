@@ -6,7 +6,7 @@ pub async fn run(
     runtime: waymark_system_vm::Runtime,
 ) -> Result<
     waymark_workflow_completion_core::Outcome<
-        waymark_system_vm::ReadyValue,
+        waymark_system_vm::MaterialValue,
         waymark_system_vm::RaisedException,
     >,
     waymark_fn_main_common::Error,

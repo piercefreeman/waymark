@@ -7,7 +7,7 @@ use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_test::{StateId, executable, function};
 
 use crate::support::{
-    RuntimeInstruction, TestReadyValue, TestSleepDurationError, new_runtime_with_args,
+    RuntimeInstruction, TestMaterialValue, TestSleepDurationError, new_runtime_with_args,
 };
 
 #[test]
@@ -25,7 +25,7 @@ fn runtime_surfaces_invalid_sleep_duration_errors_from_the_interpreter() {
                 .into(),
             ]],
         )]),
-        vec![TestReadyValue(0)],
+        vec![TestMaterialValue(0)],
     );
 
     assert!(matches!(

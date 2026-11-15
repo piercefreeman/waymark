@@ -8,7 +8,7 @@ use waymark_vm_runtime::{CallSpec, Runtime};
 use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
 use waymark_vm_value_python::exception::classes;
-use waymark_vm_value_python::{Exception, RaisedException, ReadyValue, Value};
+use waymark_vm_value_python::{Exception, MaterialValue, RaisedException, Value};
 
 #[derive(Debug)]
 struct TestSpec;
@@ -48,7 +48,7 @@ struct TestConstException;
 
 impl From<&TestConstException> for RaisedException {
     fn from(_exception: &TestConstException) -> Self {
-        classes::VALUE_ERROR.exception(Value::Ready(ReadyValue::None))
+        classes::VALUE_ERROR.exception(Value::Ready(MaterialValue::None))
     }
 }
 
@@ -126,8 +126,8 @@ struct RuntimeInterpreter {
 
 /// The composite's effect over the Python value and exception.
 type TestEffect = Effect<
-    waymark_vm_interpreter_coreset::Effect<ReadyValue>,
-    waymark_vm_interpreter_extcallset::Effect<usize, ReadyValue>,
+    waymark_vm_interpreter_coreset::Effect<MaterialValue>,
+    waymark_vm_interpreter_extcallset::Effect<usize, MaterialValue>,
     waymark_vm_interpreter_excset::Effect<RaisedException>,
 >;
 
@@ -184,7 +184,7 @@ fn reject_the_action_call(
         executable,
         CallSpec {
             func: FunctionId(0),
-            args: vec![ReadyValue::Int(41)],
+            args: vec![MaterialValue::Int(41)],
         },
     )
     .expect("function 0 should exist");
@@ -213,14 +213,14 @@ fn reject_the_action_call(
 #[test]
 fn handlers_catch_a_rejection_by_a_base_class_of_its_exception() {
     let key_error =
-        classes::KEY_ERROR.exception(Value::Ready(ReadyValue::String("absent".to_owned())));
+        classes::KEY_ERROR.exception(Value::Ready(MaterialValue::String("absent".to_owned())));
 
     let effect =
         reject_the_action_call(guarded_action_call(vec!["LookupError"]), key_error.clone());
 
     match effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
-            assert_eq!(value, ReadyValue::Exception(Box::new(key_error)));
+            assert_eq!(value, MaterialValue::Exception(Box::new(key_error)));
         }
         effect => panic!("the handler should return the caught exception: {effect:?}"),
     }
@@ -228,7 +228,7 @@ fn handlers_catch_a_rejection_by_a_base_class_of_its_exception() {
 
 #[test]
 fn handlers_listing_exception_do_not_catch_the_runtime_timeout() {
-    let timeout = classes::ACTION_TIMEOUT.exception(Value::Ready(ReadyValue::None));
+    let timeout = classes::ACTION_TIMEOUT.exception(Value::Ready(MaterialValue::None));
 
     let effect = reject_the_action_call(guarded_action_call(vec!["Exception"]), timeout.clone());
 
@@ -242,7 +242,7 @@ fn handlers_listing_exception_do_not_catch_the_runtime_timeout() {
 
 #[test]
 fn handlers_listing_exception_do_not_catch_a_lost_execution() {
-    let lost = classes::ACTION_EXECUTION_LOST.exception(Value::Ready(ReadyValue::None));
+    let lost = classes::ACTION_EXECUTION_LOST.exception(Value::Ready(MaterialValue::None));
 
     let effect = reject_the_action_call(guarded_action_call(vec!["Exception"]), lost.clone());
 
@@ -257,14 +257,14 @@ fn handlers_listing_exception_do_not_catch_a_lost_execution() {
 #[test]
 fn handlers_listing_exception_catch_an_execution_that_never_started() {
     let not_started =
-        classes::ACTION_EXECUTION_NOT_STARTED.exception(Value::Ready(ReadyValue::None));
+        classes::ACTION_EXECUTION_NOT_STARTED.exception(Value::Ready(MaterialValue::None));
 
     let effect =
         reject_the_action_call(guarded_action_call(vec!["Exception"]), not_started.clone());
 
     match effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
-            assert_eq!(value, ReadyValue::Exception(Box::new(not_started)));
+            assert_eq!(value, MaterialValue::Exception(Box::new(not_started)));
         }
         effect => panic!("the handler should return the caught exception: {effect:?}"),
     }
@@ -301,7 +301,7 @@ fn action_call_can_resume_with_an_exception_error() {
         executable,
         CallSpec {
             func: FunctionId(0),
-            args: vec![ReadyValue::Int(41)],
+            args: vec![MaterialValue::Int(41)],
         },
     )
     .expect("function 0 should exist");
@@ -319,12 +319,12 @@ fn action_call_can_resume_with_an_exception_error() {
     };
 
     assert_eq!(action_ref, 7);
-    assert_eq!(args, vec![ReadyValue::Int(41)]);
+    assert_eq!(args, vec![MaterialValue::Int(41)]);
 
     let rejection = Exception {
         type_id: "ValueError".to_owned(),
         mro_type_ids: vec!["Exception".to_owned(), "BaseException".to_owned()],
-        details: Value::Ready(ReadyValue::String("boom".to_owned())),
+        details: Value::Ready(MaterialValue::String("boom".to_owned())),
     };
     runtime
         .reject_promise(promise_state_id, rejection.clone())

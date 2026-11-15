@@ -10,8 +10,8 @@ use waymark_vm_ast_old::{ActionCall, Literal};
 /// Test value type definition as an actual [`waymark_vm_value_python::Value`].
 pub use waymark_vm_value_python::Value as TestValue;
 
-/// Test ready value type definition as an actual [`waymark_vm_value_python::ReadyValue`].
-pub use waymark_vm_value_python::ReadyValue as TestReadyValue;
+/// Test material value type definition as an actual [`waymark_vm_value_python::MaterialValue`].
+pub use waymark_vm_value_python::MaterialValue as TestMaterialValue;
 
 /// Test raised exception type definition as an actual
 /// [`waymark_vm_value_python::RaisedException`].

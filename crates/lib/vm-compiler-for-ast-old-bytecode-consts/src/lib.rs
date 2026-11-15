@@ -31,7 +31,7 @@ pub enum ConstValue {
     None,
 }
 
-impl From<&ConstValue> for waymark_vm_value_python::ReadyValue {
+impl From<&ConstValue> for waymark_vm_value_python::MaterialValue {
     fn from(value: &ConstValue) -> Self {
         match value {
             ConstValue::Int(value) => Self::Int(*value),
@@ -127,7 +127,7 @@ impl From<&ConstException> for waymark_vm_value_python::RaisedException {
             type_id: exception.type_id.clone(),
             mro_type_ids: exception.mro_type_ids.clone(),
             details: waymark_vm_value_python::Value::Ready(
-                waymark_vm_value_python::ReadyValue::from(&exception.details),
+                waymark_vm_value_python::MaterialValue::from(&exception.details),
             ),
         }
     }

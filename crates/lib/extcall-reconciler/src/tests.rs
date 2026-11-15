@@ -17,7 +17,7 @@ use waymark_action_runtime_core::{
     ActionCallRequester, ActionCallStage,
 };
 use waymark_action_runtime_metadata::ActionCallCorrelation;
-use waymark_sleep_compat_python::ReadyValueSleepProvider;
+use waymark_sleep_compat_python::MaterialValueSleepProvider;
 
 /// Error type for the mock action requester.
 #[derive(Debug, thiserror::Error)]
@@ -34,12 +34,12 @@ mock! {
 
     impl ActionCallRequester for ActionRequester {
         type Error = MockRequesterError;
-        type Argument = waymark_vm_value_python::ReadyValue;
+        type Argument = waymark_vm_value_python::MaterialValue;
         type Metadata = ActionCallCorrelation;
 
         async fn request_action_call(
             &self,
-            request: ActionCallRequest<waymark_vm_value_python::ReadyValue, ActionCallCorrelation>,
+            request: ActionCallRequest<waymark_vm_value_python::MaterialValue, ActionCallCorrelation>,
         ) -> Result<(), MockRequesterError>;
     }
 }
@@ -57,7 +57,7 @@ enum FakeCompletionsProvider {
 }
 
 impl ActionCallCompletionsProvider for FakeCompletionsProvider {
-    type Value = waymark_vm_value_python::ReadyValue;
+    type Value = waymark_vm_value_python::MaterialValue;
     type RaisedException = waymark_vm_value_python::RaisedException;
     type ActionExecutionError = core::convert::Infallible;
     type WaitError = MockProviderError;
@@ -70,7 +70,7 @@ impl ActionCallCompletionsProvider for FakeCompletionsProvider {
             NEVec<
                 ActionCallCompletion<
                     ActionCallCorrelation,
-                    waymark_vm_value_python::ReadyValue,
+                    waymark_vm_value_python::MaterialValue,
                     waymark_vm_value_python::RaisedException,
                     core::convert::Infallible,
                 >,
@@ -95,7 +95,7 @@ struct LostCompletionsProvider {
 }
 
 impl ActionCallCompletionsProvider for LostCompletionsProvider {
-    type Value = waymark_vm_value_python::ReadyValue;
+    type Value = waymark_vm_value_python::MaterialValue;
     type RaisedException = waymark_vm_value_python::RaisedException;
     type ActionExecutionError = ActionCallLossError;
     type WaitError = MockProviderError;
@@ -108,7 +108,7 @@ impl ActionCallCompletionsProvider for LostCompletionsProvider {
             NEVec<
                 ActionCallCompletion<
                     ActionCallCorrelation,
-                    waymark_vm_value_python::ReadyValue,
+                    waymark_vm_value_python::MaterialValue,
                     waymark_vm_value_python::RaisedException,
                     ActionCallLossError,
                 >,
@@ -147,7 +147,7 @@ async fn effect_handler_dispatches_action_call() {
         >,
     >::new(provider);
     let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
-        ReadyValueSleepProvider,
+        MaterialValueSleepProvider,
         waymark_vm_value_python::RaisedException,
     >(false);
     let (mut handler, _settler) =
@@ -160,7 +160,7 @@ async fn effect_handler_dispatches_action_call() {
             module_name: None,
             call_args: vec!["arg".into()],
         },
-        args: vec![waymark_vm_value_python::ReadyValue::String("hi".into())],
+        args: vec![waymark_vm_value_python::MaterialValue::String("hi".into())],
     };
 
     let effect_number = EffectNumber(0);
@@ -189,7 +189,7 @@ async fn effect_handler_records_sleep() {
         >,
     >::new(provider);
     let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
-        ReadyValueSleepProvider,
+        MaterialValueSleepProvider,
         waymark_vm_value_python::RaisedException,
     >(false);
     let (mut handler, mut settler) =
@@ -235,7 +235,7 @@ async fn action_settler_settles_a_lost_execution_raised() {
         >,
     >::new(provider);
     let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
-        ReadyValueSleepProvider,
+        MaterialValueSleepProvider,
         waymark_vm_value_python::RaisedException,
     >(false);
     let (_handler, mut settler) =
@@ -254,7 +254,7 @@ async fn action_settler_settles_a_lost_execution_raised() {
     assert_eq!(
         *exception,
         waymark_vm_value_python::exception::classes::ACTION_EXECUTION_LOST.exception(
-            waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::None)
+            waymark_vm_value_python::Value::Ready(waymark_vm_value_python::MaterialValue::None)
         )
     );
 }
@@ -273,7 +273,7 @@ async fn action_settler_error_propagates() {
         >,
     >::new(provider);
     let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
-        ReadyValueSleepProvider,
+        MaterialValueSleepProvider,
         waymark_vm_value_python::RaisedException,
     >(false);
     let (_handler, mut settler) =
@@ -305,7 +305,7 @@ async fn a_shut_down_action_provider_is_an_action_settler_error() {
         >,
     >::new(provider);
     let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
-        ReadyValueSleepProvider,
+        MaterialValueSleepProvider,
         waymark_vm_value_python::RaisedException,
     >(false);
     let (_handler, mut settler) =
@@ -344,7 +344,7 @@ async fn sleep_settler_error_propagates() {
         >,
     >::new(provider);
     let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
-        ReadyValueSleepProvider,
+        MaterialValueSleepProvider,
         waymark_vm_value_python::RaisedException,
     >(false);
     let (handler, mut settler) =

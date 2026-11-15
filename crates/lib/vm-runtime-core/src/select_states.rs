@@ -165,11 +165,11 @@ mod tests {
     use crate::{Continuation, ExceptionHandlers, Frame, FrameKind, Registers};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    struct TestReadyValue;
+    struct TestMaterialValue;
 
-    type TestValue = PromiseValue<TestReadyValue>;
+    type TestValue = PromiseValue<TestMaterialValue>;
 
-    impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
+    impl waymark_vm_runtime_value::RootValueAccess for TestMaterialValue {
         type RootValue = TestValue;
     }
 

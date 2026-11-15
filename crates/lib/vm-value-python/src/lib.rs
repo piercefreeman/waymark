@@ -24,7 +24,7 @@ impl waymark_vm_value::Flavor for PythonFlavor {
 }
 
 /// The Python VM value that is ready.
-pub type ReadyValue = waymark_vm_value::ReadyValue<PythonFlavor>;
+pub type MaterialValue = waymark_vm_value::MaterialValue<PythonFlavor>;
 
 /// The bound Python VM promise value type alias.
 pub type PromiseValue = waymark_vm_value::PromiseValue<PythonFlavor>;

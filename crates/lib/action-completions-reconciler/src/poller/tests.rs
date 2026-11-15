@@ -12,7 +12,7 @@ use waymark_vm_codec_rmp::RmpCodec;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement, PromiseSettlementAck as _};
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_value_python::exception::classes;
-use waymark_vm_value_python::{RaisedException, ReadyValue, Value};
+use waymark_vm_value_python::{MaterialValue, RaisedException, Value};
 
 use super::{Ack, DemandRegistrar, Params, PollActionSettlementsError, SettlementsHandle};
 use crate::test_support::{MockBackend, key, lost_record, record};
@@ -29,10 +29,10 @@ fn poll_once<F: Future>(future: std::pin::Pin<&mut F>) -> Poll<F::Output> {
 
 /// Poll the handle for settlements with the given demanded promise ids.
 async fn poll_settlements(
-    handle: &mut SettlementsHandle<InstanceId, ReadyValue, RaisedException, TestConverter>,
+    handle: &mut SettlementsHandle<InstanceId, MaterialValue, RaisedException, TestConverter>,
     ids: &[usize],
 ) -> Result<
-    NEVec<PromiseSettlement<ReadyValue, RaisedException, Ack<InstanceId>>>,
+    NEVec<PromiseSettlement<MaterialValue, RaisedException, Ack<InstanceId>>>,
     PollActionSettlementsError,
 > {
     let demand = demand(ids);
@@ -50,14 +50,14 @@ type TestConverter = waymark_vm_value_python_convert_proto::ActionOutcomeConvert
 fn poller(
     backend: &MockBackend,
 ) -> (
-    DemandRegistrar<InstanceId, ReadyValue, RaisedException, TestConverter>,
-    Params<MockBackend, RmpCodec, ReadyValue, RaisedException>,
+    DemandRegistrar<InstanceId, MaterialValue, RaisedException, TestConverter>,
+    Params<MockBackend, RmpCodec, MaterialValue, RaisedException>,
     tokio::sync::mpsc::UnboundedReceiver<CompletionKey<InstanceId>>,
 ) {
     let (ack_tx, ack_rx) = tokio::sync::mpsc::unbounded_channel();
     let (registrar, state) = super::state::<
         _,
-        ReadyValue,
+        MaterialValue,
         RaisedException,
         waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
     >(ack_tx);
@@ -93,7 +93,7 @@ async fn delivers_demanded_settlements_with_key_acks() {
     assert_eq!(settlement.promise_state_id, PromiseStateId::from_raw(3));
     assert!(matches!(
         settlement.resolution,
-        PromiseResolution::Resolved(ReadyValue::String(ref s)) if s == "hi"
+        PromiseResolution::Resolved(MaterialValue::String(ref s)) if s == "hi"
     ));
 
     // The ack originates from the poller: acknowledging pushes the row's
@@ -133,7 +133,7 @@ async fn settles_a_lost_execution_raised() {
     };
     assert_eq!(
         exception,
-        classes::ACTION_EXECUTION_NOT_STARTED.exception(Value::Ready(ReadyValue::None))
+        classes::ACTION_EXECUTION_NOT_STARTED.exception(Value::Ready(MaterialValue::None))
     );
 
     poll_loop.abort();

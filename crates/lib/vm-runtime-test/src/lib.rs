@@ -66,7 +66,7 @@ pub enum TestInstruction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TestEffect {
     Message(&'static str),
-    Value(TestReadyValue),
+    Value(TestMaterialValue),
     UnhandledException(TestException),
 }
 
@@ -81,12 +81,12 @@ pub type TestExecutable = waymark_vm_bytecode::Executable<TestInstruction>;
 pub type TestFunction = waymark_vm_bytecode::Function<TestInstruction>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TestReadyValue {
+pub enum TestMaterialValue {
     Int(i32),
 }
-pub type TestValue = PromiseValue<TestReadyValue>;
+pub type TestValue = PromiseValue<TestMaterialValue>;
 
-impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
+impl waymark_vm_runtime_value::RootValueAccess for TestMaterialValue {
     type RootValue = TestValue;
 }
 
@@ -95,7 +95,7 @@ impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TestException {
     pub type_id: String,
-    pub details: TestReadyValue,
+    pub details: TestMaterialValue,
 }
 
 impl waymark_vm_runtime_exception::HasMatchPattern for TestException {
@@ -253,6 +253,6 @@ where
         .expect("test executable should define the entrypoint")
 }
 
-pub fn value_ready(value: TestReadyValue) -> TestValue {
+pub fn value_ready(value: TestMaterialValue) -> TestValue {
     PromiseValue::Ready(value)
 }

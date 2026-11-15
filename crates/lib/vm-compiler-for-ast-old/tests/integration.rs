@@ -15,28 +15,28 @@ use waymark_vm_ast_old_helpers::{
 };
 use waymark_vm_bytecode_core::{FunctionId, InstructionId, StateId};
 use waymark_vm_compiler_for_ast_old_test_support::{
-    TestActionRef, TestRaisedException, TestReadyValue, TestValue,
+    TestActionRef, TestMaterialValue, TestRaisedException, TestValue,
 };
 use waymark_vm_interpreter_fullset::Effect;
 
 /// The effect the test runtime emits: the fullset's, over the test types.
 type TestEffect = Effect<
-    waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
-    waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
+    waymark_vm_interpreter_coreset::Effect<TestMaterialValue>,
+    waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestMaterialValue>,
     core::convert::Infallible,
     waymark_vm_interpreter_excset::Effect<TestRaisedException>,
 >;
 
 fn completed_int(emitted_effect: waymark_vm_runtime_effect::EmittedEffect<TestEffect>) -> i64 {
     match completed_value(emitted_effect) {
-        TestReadyValue::Int(value) => value,
+        TestMaterialValue::Int(value) => value,
         other => panic!("unexpected runtime effect: {other:?}"),
     }
 }
 
 fn completed_value(
     emitted_effect: waymark_vm_runtime_effect::EmittedEffect<TestEffect>,
-) -> TestReadyValue {
+) -> TestMaterialValue {
     match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => value,
         other => panic!("unexpected runtime effect: {other:?}"),
@@ -65,9 +65,9 @@ fn compiles_assignments_and_addition_to_completion() {
     let emitted_effect = runtime.run().expect("program should complete");
 
     match emitted_effect.effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
-        ))) => assert_eq!(value, 5),
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(
+            TestMaterialValue::Int(value),
+        )) => assert_eq!(value, 5),
         other => panic!("unexpected runtime effect: {other:?}"),
     }
 }
@@ -77,28 +77,28 @@ fn compiles_supported_scalar_literals_to_completion() {
     struct LiteralCase {
         name: &'static str,
         expr: Spanned<Expr>,
-        expected: TestReadyValue,
+        expected: TestMaterialValue,
     }
 
     let cases = vec![
         LiteralCase {
             name: "float",
             expr: float(1.5),
-            expected: TestReadyValue::Float(1.5.try_into().unwrap()),
+            expected: TestMaterialValue::Float(1.5.try_into().unwrap()),
         },
         LiteralCase {
             name: "string",
             expr: spanned(Expr::Literal {
                 value: Literal::String("hello".to_owned()),
             }),
-            expected: TestReadyValue::String("hello".to_owned()),
+            expected: TestMaterialValue::String("hello".to_owned()),
         },
         LiteralCase {
             name: "bool",
             expr: spanned(Expr::Literal {
                 value: Literal::Bool(true),
             }),
-            expected: TestReadyValue::Bool(true),
+            expected: TestMaterialValue::Bool(true),
         },
     ];
 
@@ -123,8 +123,8 @@ fn compiles_scalar_binary_operations_to_completion() {
         name: &'static str,
         inputs: Vec<&'static str>,
         expr: Spanned<Expr>,
-        args: Vec<TestReadyValue>,
-        expected: TestReadyValue,
+        args: Vec<TestMaterialValue>,
+        expected: TestMaterialValue,
     }
 
     let cases = vec![
@@ -133,97 +133,97 @@ fn compiles_scalar_binary_operations_to_completion() {
             inputs: Vec::new(),
             expr: binary_expr(int(2), BinaryOperator::Add, int(3)),
             args: Vec::new(),
-            expected: TestReadyValue::Int(5),
+            expected: TestMaterialValue::Int(5),
         },
         BinaryCase {
             name: "sub",
             inputs: Vec::new(),
             expr: binary_expr(int(9), BinaryOperator::Sub, int(4)),
             args: Vec::new(),
-            expected: TestReadyValue::Int(5),
+            expected: TestMaterialValue::Int(5),
         },
         BinaryCase {
             name: "mul",
             inputs: Vec::new(),
             expr: binary_expr(int(6), BinaryOperator::Mul, int(7)),
             args: Vec::new(),
-            expected: TestReadyValue::Int(42),
+            expected: TestMaterialValue::Int(42),
         },
         BinaryCase {
             name: "div",
             inputs: Vec::new(),
             expr: binary_expr(int(8), BinaryOperator::Div, int(2)),
             args: Vec::new(),
-            expected: TestReadyValue::Int(4),
+            expected: TestMaterialValue::Int(4),
         },
         BinaryCase {
             name: "floor div",
             inputs: Vec::new(),
             expr: binary_expr(int(7), BinaryOperator::FloorDiv, int(2)),
             args: Vec::new(),
-            expected: TestReadyValue::Int(3),
+            expected: TestMaterialValue::Int(3),
         },
         BinaryCase {
             name: "mod",
             inputs: Vec::new(),
             expr: binary_expr(int(7), BinaryOperator::Mod, int(3)),
             args: Vec::new(),
-            expected: TestReadyValue::Int(1),
+            expected: TestMaterialValue::Int(1),
         },
         BinaryCase {
             name: "eq",
             inputs: Vec::new(),
             expr: binary_expr(int(4), BinaryOperator::Eq, int(4)),
             args: Vec::new(),
-            expected: TestReadyValue::Bool(true),
+            expected: TestMaterialValue::Bool(true),
         },
         BinaryCase {
             name: "ne",
             inputs: Vec::new(),
             expr: binary_expr(int(4), BinaryOperator::Ne, int(5)),
             args: Vec::new(),
-            expected: TestReadyValue::Bool(true),
+            expected: TestMaterialValue::Bool(true),
         },
         BinaryCase {
             name: "lt",
             inputs: Vec::new(),
             expr: binary_expr(int(1), BinaryOperator::Lt, int(2)),
             args: Vec::new(),
-            expected: TestReadyValue::Bool(true),
+            expected: TestMaterialValue::Bool(true),
         },
         BinaryCase {
             name: "le",
             inputs: Vec::new(),
             expr: binary_expr(int(2), BinaryOperator::Le, int(2)),
             args: Vec::new(),
-            expected: TestReadyValue::Bool(true),
+            expected: TestMaterialValue::Bool(true),
         },
         BinaryCase {
             name: "gt",
             inputs: Vec::new(),
             expr: binary_expr(int(3), BinaryOperator::Gt, int(2)),
             args: Vec::new(),
-            expected: TestReadyValue::Bool(true),
+            expected: TestMaterialValue::Bool(true),
         },
         BinaryCase {
             name: "ge",
             inputs: Vec::new(),
             expr: binary_expr(int(3), BinaryOperator::Ge, int(3)),
             args: Vec::new(),
-            expected: TestReadyValue::Bool(true),
+            expected: TestMaterialValue::Bool(true),
         },
         BinaryCase {
             name: "in",
             inputs: vec!["needle", "haystack"],
             expr: binary_expr(variable("needle"), BinaryOperator::In, variable("haystack")),
             args: vec![
-                TestReadyValue::Int(2),
-                TestReadyValue::List(vec![
-                    TestValue::Ready(TestReadyValue::Int(1)),
-                    TestValue::Ready(TestReadyValue::Int(2)),
+                TestMaterialValue::Int(2),
+                TestMaterialValue::List(vec![
+                    TestValue::Ready(TestMaterialValue::Int(1)),
+                    TestValue::Ready(TestMaterialValue::Int(2)),
                 ]),
             ],
-            expected: TestReadyValue::Bool(true),
+            expected: TestMaterialValue::Bool(true),
         },
         BinaryCase {
             name: "not in",
@@ -234,41 +234,41 @@ fn compiles_scalar_binary_operations_to_completion() {
                 variable("haystack"),
             ),
             args: vec![
-                TestReadyValue::Int(4),
-                TestReadyValue::List(vec![
-                    TestValue::Ready(TestReadyValue::Int(1)),
-                    TestValue::Ready(TestReadyValue::Int(2)),
+                TestMaterialValue::Int(4),
+                TestMaterialValue::List(vec![
+                    TestValue::Ready(TestMaterialValue::Int(1)),
+                    TestValue::Ready(TestMaterialValue::Int(2)),
                 ]),
             ],
-            expected: TestReadyValue::Bool(true),
+            expected: TestMaterialValue::Bool(true),
         },
         BinaryCase {
             name: "and falsey lhs",
             inputs: vec!["lhs", "rhs"],
             expr: binary_expr(variable("lhs"), BinaryOperator::And, variable("rhs")),
-            args: vec![TestReadyValue::Int(0), TestReadyValue::Int(5)],
-            expected: TestReadyValue::Int(0),
+            args: vec![TestMaterialValue::Int(0), TestMaterialValue::Int(5)],
+            expected: TestMaterialValue::Int(0),
         },
         BinaryCase {
             name: "and truthy lhs",
             inputs: vec!["lhs", "rhs"],
             expr: binary_expr(variable("lhs"), BinaryOperator::And, variable("rhs")),
-            args: vec![TestReadyValue::Int(2), TestReadyValue::Int(5)],
-            expected: TestReadyValue::Int(5),
+            args: vec![TestMaterialValue::Int(2), TestMaterialValue::Int(5)],
+            expected: TestMaterialValue::Int(5),
         },
         BinaryCase {
             name: "or falsey lhs",
             inputs: vec!["lhs", "rhs"],
             expr: binary_expr(variable("lhs"), BinaryOperator::Or, variable("rhs")),
-            args: vec![TestReadyValue::Int(0), TestReadyValue::Int(5)],
-            expected: TestReadyValue::Int(5),
+            args: vec![TestMaterialValue::Int(0), TestMaterialValue::Int(5)],
+            expected: TestMaterialValue::Int(5),
         },
         BinaryCase {
             name: "or truthy lhs",
             inputs: vec!["lhs", "rhs"],
             expr: binary_expr(variable("lhs"), BinaryOperator::Or, variable("rhs")),
-            args: vec![TestReadyValue::Int(2), TestReadyValue::Int(5)],
-            expected: TestReadyValue::Int(2),
+            args: vec![TestMaterialValue::Int(2), TestMaterialValue::Int(5)],
+            expected: TestMaterialValue::Int(2),
         },
     ];
 
@@ -300,8 +300,8 @@ fn compiles_scalar_unary_operations_to_completion() {
         name: &'static str,
         inputs: Vec<&'static str>,
         expr: Spanned<Expr>,
-        args: Vec<TestReadyValue>,
-        expected: TestReadyValue,
+        args: Vec<TestMaterialValue>,
+        expected: TestMaterialValue,
     }
 
     let cases = vec![
@@ -310,28 +310,28 @@ fn compiles_scalar_unary_operations_to_completion() {
             inputs: Vec::new(),
             expr: unary_expr(UnaryOperator::Neg, int(5)),
             args: Vec::new(),
-            expected: TestReadyValue::Int(-5),
+            expected: TestMaterialValue::Int(-5),
         },
         UnaryCase {
             name: "not falsey int",
             inputs: vec!["value"],
             expr: unary_expr(UnaryOperator::Not, variable("value")),
-            args: vec![TestReadyValue::Int(0)],
-            expected: TestReadyValue::Bool(true),
+            args: vec![TestMaterialValue::Int(0)],
+            expected: TestMaterialValue::Bool(true),
         },
         UnaryCase {
             name: "not truthy int",
             inputs: vec!["value"],
             expr: unary_expr(UnaryOperator::Not, variable("value")),
-            args: vec![TestReadyValue::Int(7)],
-            expected: TestReadyValue::Bool(false),
+            args: vec![TestMaterialValue::Int(7)],
+            expected: TestMaterialValue::Bool(false),
         },
         UnaryCase {
             name: "not empty list",
             inputs: vec!["value"],
             expr: unary_expr(UnaryOperator::Not, variable("value")),
-            args: vec![TestReadyValue::List(Vec::new())],
-            expected: TestReadyValue::Bool(true),
+            args: vec![TestMaterialValue::List(Vec::new())],
+            expected: TestMaterialValue::Bool(true),
         },
     ];
 
@@ -382,9 +382,9 @@ fn compiles_user_function_calls() {
     let emitted_effect = runtime.run().expect("program should complete");
 
     match emitted_effect.effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
-        ))) => assert_eq!(value, 42),
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(
+            TestMaterialValue::Int(value),
+        )) => assert_eq!(value, 42),
         other => panic!("unexpected runtime effect: {other:?}"),
     }
 }
@@ -412,14 +412,14 @@ fn compiles_action_calls_into_extcalls() {
             args,
         }) => {
             assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch"));
-            assert_eq!(args, vec![TestReadyValue::Int(41)]);
+            assert_eq!(args, vec![TestMaterialValue::Int(41)]);
             promise_state_id
         }
         other => panic!("unexpected first runtime effect: {other:?}"),
     };
 
     runtime
-        .resolve_promise(promise_state_id, TestReadyValue::Int(42))
+        .resolve_promise(promise_state_id, TestMaterialValue::Int(42))
         .expect("extcall promise should resolve");
 
     let emitted_effect = runtime
@@ -427,9 +427,9 @@ fn compiles_action_calls_into_extcalls() {
         .expect("program should complete after resolution");
 
     match emitted_effect.effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
-        ))) => assert_eq!(value, 42),
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(
+            TestMaterialValue::Int(value),
+        )) => assert_eq!(value, 42),
         other => panic!("unexpected second runtime effect: {other:?}"),
     }
 }
@@ -454,12 +454,12 @@ fn compiles_nested_dict_and_list_literals_to_completion() {
 
     assert_eq!(
         completed_value(runtime.run().expect("program should complete")),
-        TestReadyValue::Dict(
+        TestMaterialValue::Dict(
             [(
                 "key".to_owned(),
-                TestValue::Ready(TestReadyValue::List(vec![
-                    TestValue::Ready(TestReadyValue::Int(2)),
-                    TestValue::Ready(TestReadyValue::Int(3))
+                TestValue::Ready(TestMaterialValue::List(vec![
+                    TestValue::Ready(TestMaterialValue::Int(2)),
+                    TestValue::Ready(TestMaterialValue::Int(3))
                 ])),
             )]
             .into_iter()
@@ -486,10 +486,10 @@ fn compiles_global_len_calls_to_completion() {
     let result = completed_int(
         runtime_with_args(
             compile_program(&program),
-            vec![TestReadyValue::List(vec![
-                TestValue::Ready(TestReadyValue::Int(1)),
-                TestValue::Ready(TestReadyValue::Int(2)),
-                TestValue::Ready(TestReadyValue::Int(3)),
+            vec![TestMaterialValue::List(vec![
+                TestValue::Ready(TestMaterialValue::Int(1)),
+                TestValue::Ready(TestMaterialValue::Int(2)),
+                TestValue::Ready(TestMaterialValue::Int(3)),
             ])],
         )
         .run()
@@ -505,8 +505,8 @@ fn compiles_index_expressions_to_completion() {
         name: &'static str,
         inputs: Vec<&'static str>,
         expr: Spanned<Expr>,
-        args: Vec<TestReadyValue>,
-        expected: TestReadyValue,
+        args: Vec<TestMaterialValue>,
+        expected: TestMaterialValue,
     }
 
     let cases = vec![
@@ -517,11 +517,11 @@ fn compiles_index_expressions_to_completion() {
                 object: Box::new(variable("items")),
                 index: Box::new(int(1)),
             }),
-            args: vec![TestReadyValue::List(vec![
-                TestValue::Ready(TestReadyValue::Int(3)),
-                TestValue::Ready(TestReadyValue::Int(8)),
+            args: vec![TestMaterialValue::List(vec![
+                TestValue::Ready(TestMaterialValue::Int(3)),
+                TestValue::Ready(TestMaterialValue::Int(8)),
             ])],
-            expected: TestReadyValue::Int(8),
+            expected: TestMaterialValue::Int(8),
         },
         IndexCase {
             name: "list negative index",
@@ -530,11 +530,11 @@ fn compiles_index_expressions_to_completion() {
                 object: Box::new(variable("items")),
                 index: Box::new(int(-1)),
             }),
-            args: vec![TestReadyValue::List(vec![
-                TestValue::Ready(TestReadyValue::Int(3)),
-                TestValue::Ready(TestReadyValue::Int(8)),
+            args: vec![TestMaterialValue::List(vec![
+                TestValue::Ready(TestMaterialValue::Int(3)),
+                TestValue::Ready(TestMaterialValue::Int(8)),
             ])],
-            expected: TestReadyValue::Int(8),
+            expected: TestMaterialValue::Int(8),
         },
         IndexCase {
             name: "dict string key",
@@ -543,12 +543,15 @@ fn compiles_index_expressions_to_completion() {
                 object: Box::new(variable("record")),
                 index: Box::new(string("field")),
             }),
-            args: vec![TestReadyValue::Dict(
-                [("field".to_owned(), TestValue::Ready(TestReadyValue::Int(7)))]
-                    .into_iter()
-                    .collect(),
+            args: vec![TestMaterialValue::Dict(
+                [(
+                    "field".to_owned(),
+                    TestValue::Ready(TestMaterialValue::Int(7)),
+                )]
+                .into_iter()
+                .collect(),
             )],
-            expected: TestReadyValue::Int(7),
+            expected: TestMaterialValue::Int(7),
         },
         IndexCase {
             name: "string index",
@@ -557,8 +560,8 @@ fn compiles_index_expressions_to_completion() {
                 object: Box::new(variable("text")),
                 index: Box::new(int(1)),
             }),
-            args: vec![TestReadyValue::String("hello".to_owned())],
-            expected: TestReadyValue::String("e".to_owned()),
+            args: vec![TestMaterialValue::String("hello".to_owned())],
+            expected: TestMaterialValue::String("e".to_owned()),
         },
     ];
 
@@ -591,10 +594,10 @@ fn compiles_dot_expressions_to_completion() {
     let executable = compile_program(&program);
     let mut runtime = runtime_with_args(
         executable,
-        vec![TestReadyValue::Dict(
+        vec![TestMaterialValue::Dict(
             [(
                 "field".to_owned(),
-                TestValue::Ready(TestReadyValue::Int(11)),
+                TestValue::Ready(TestMaterialValue::Int(11)),
             )]
             .into_iter()
             .collect(),
@@ -603,7 +606,7 @@ fn compiles_dot_expressions_to_completion() {
 
     assert_eq!(
         completed_value(runtime.run().expect("program should complete")),
-        TestReadyValue::Int(11)
+        TestMaterialValue::Int(11)
     );
 }
 
@@ -634,7 +637,7 @@ fn compiles_sleep_statements_into_resumable_sleep_effects() {
     };
 
     runtime
-        .resolve_promise(promise_state_id, TestReadyValue::None)
+        .resolve_promise(promise_state_id, TestMaterialValue::None)
         .expect("sleep promise should resolve");
 
     assert_eq!(
@@ -709,7 +712,7 @@ fn drive_to_the_first_timeout(exception_types: &[&str]) -> support::TestRuntime 
     ));
 
     runtime
-        .resolve_promise(sleep_promise_state_id, TestReadyValue::None)
+        .resolve_promise(sleep_promise_state_id, TestMaterialValue::None)
         .expect("the timeout sleep should resolve");
 
     runtime
@@ -837,7 +840,7 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
             args,
         }) => {
             assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_first"));
-            assert_eq!(args, vec![TestReadyValue::Int(1)]);
+            assert_eq!(args, vec![TestMaterialValue::Int(1)]);
             promise_state_id
         }
         other => panic!("unexpected first runtime effect: {other:?}"),
@@ -853,17 +856,17 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
             args,
         }) => {
             assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_second"));
-            assert_eq!(args, vec![TestReadyValue::Int(2)]);
+            assert_eq!(args, vec![TestMaterialValue::Int(2)]);
             promise_state_id
         }
         other => panic!("unexpected second runtime effect: {other:?}"),
     };
 
     runtime
-        .resolve_promise(second_promise, TestReadyValue::Int(20))
+        .resolve_promise(second_promise, TestMaterialValue::Int(20))
         .expect("second extcall promise should resolve");
     runtime
-        .resolve_promise(first_promise, TestReadyValue::Int(10))
+        .resolve_promise(first_promise, TestMaterialValue::Int(10))
         .expect("first extcall promise should resolve");
 
     let emitted_effect = runtime
@@ -871,9 +874,9 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
         .expect("program should complete after resolving both extcalls");
 
     match emitted_effect.effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
-        ))) => assert_eq!(value, 7),
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(
+            TestMaterialValue::Int(value),
+        )) => assert_eq!(value, 7),
         other => panic!("unexpected final runtime effect: {other:?}"),
     }
 }
@@ -902,10 +905,10 @@ fn compiles_spread_expressions_to_completion() {
     let executable = compile_program(&program);
     let mut runtime = runtime_with_args(
         executable,
-        vec![TestReadyValue::List(vec![
-            TestValue::Ready(TestReadyValue::Int(1)),
-            TestValue::Ready(TestReadyValue::Int(2)),
-            TestValue::Ready(TestReadyValue::Int(3)),
+        vec![TestMaterialValue::List(vec![
+            TestValue::Ready(TestMaterialValue::Int(1)),
+            TestValue::Ready(TestMaterialValue::Int(2)),
+            TestValue::Ready(TestMaterialValue::Int(3)),
         ])],
     );
 
@@ -924,7 +927,7 @@ fn compiles_spread_expressions_to_completion() {
                 args,
             }) => {
                 assert!(matches!(&action_ref, TestActionRef(name) if name == "double"));
-                assert_eq!(args, vec![TestReadyValue::Int(input)]);
+                assert_eq!(args, vec![TestMaterialValue::Int(input)]);
                 promise_state_id
             }
             other => panic!("unexpected runtime effect for spread item {input}: {other:?}"),
@@ -935,7 +938,7 @@ fn compiles_spread_expressions_to_completion() {
 
     for (promise, output) in pending_promises.into_iter().zip([2, 4, 6]) {
         runtime
-            .resolve_promise(promise, TestReadyValue::Int(output))
+            .resolve_promise(promise, TestMaterialValue::Int(output))
             .unwrap_or_else(|error| {
                 panic!("spread promise producing {output} should resolve: {error:?}")
             });
@@ -947,10 +950,10 @@ fn compiles_spread_expressions_to_completion() {
                 .run()
                 .expect("spread program should complete after all promises resolve")
         ),
-        TestReadyValue::List(vec![
-            TestValue::Ready(TestReadyValue::Int(2)),
-            TestValue::Ready(TestReadyValue::Int(4)),
-            TestValue::Ready(TestReadyValue::Int(6)),
+        TestMaterialValue::List(vec![
+            TestValue::Ready(TestMaterialValue::Int(2)),
+            TestValue::Ready(TestMaterialValue::Int(4)),
+            TestValue::Ready(TestMaterialValue::Int(6)),
         ])
     );
 }
@@ -990,7 +993,7 @@ fn compiles_mixed_parallel_blocks_with_leading_action_before_awaiting() {
             args,
         }) => {
             assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_first"));
-            assert_eq!(args, vec![TestReadyValue::Int(1)]);
+            assert_eq!(args, vec![TestMaterialValue::Int(1)]);
             promise_state_id
         }
         other => panic!("unexpected first runtime effect: {other:?}"),
@@ -1006,17 +1009,17 @@ fn compiles_mixed_parallel_blocks_with_leading_action_before_awaiting() {
             args,
         }) => {
             assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_second"));
-            assert_eq!(args, vec![TestReadyValue::Int(3)]);
+            assert_eq!(args, vec![TestMaterialValue::Int(3)]);
             promise_state_id
         }
         other => panic!("unexpected second runtime effect: {other:?}"),
     };
 
     runtime
-        .resolve_promise(second_promise, TestReadyValue::Int(30))
+        .resolve_promise(second_promise, TestMaterialValue::Int(30))
         .expect("second extcall promise should resolve");
     runtime
-        .resolve_promise(first_promise, TestReadyValue::Int(10))
+        .resolve_promise(first_promise, TestMaterialValue::Int(10))
         .expect("first extcall promise should resolve");
 
     let emitted_effect = runtime
@@ -1024,9 +1027,9 @@ fn compiles_mixed_parallel_blocks_with_leading_action_before_awaiting() {
         .expect("program should complete after resolving both extcalls");
 
     match emitted_effect.effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
-        ))) => assert_eq!(value, 7),
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(
+            TestMaterialValue::Int(value),
+        )) => assert_eq!(value, 7),
         other => panic!("unexpected final runtime effect: {other:?}"),
     }
 }
@@ -1045,9 +1048,9 @@ fn compiles_empty_parallel_blocks_as_noops() {
     let effect = runtime.run().expect("program should complete").effect;
 
     match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
-        ))) => assert_eq!(value, 5),
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(
+            TestMaterialValue::Int(value),
+        )) => assert_eq!(value, 5),
         other => panic!("unexpected runtime effect: {other:?}"),
     }
 }
@@ -1095,14 +1098,14 @@ fn compiles_parallel_expressions_into_positional_assignments() {
             args,
         }) => {
             assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch"));
-            assert_eq!(args, vec![TestReadyValue::Int(4)]);
+            assert_eq!(args, vec![TestMaterialValue::Int(4)]);
             promise_state_id
         }
         other => panic!("unexpected first runtime effect: {other:?}"),
     };
 
     runtime
-        .resolve_promise(promise_state_id, TestReadyValue::Int(5))
+        .resolve_promise(promise_state_id, TestMaterialValue::Int(5))
         .expect("extcall promise should resolve");
 
     let emitted_effect = runtime
@@ -1110,9 +1113,9 @@ fn compiles_parallel_expressions_into_positional_assignments() {
         .expect("program should complete after resolving the parallel expression");
 
     match emitted_effect.effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
-        ))) => assert_eq!(value, 9),
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(
+            TestMaterialValue::Int(value),
+        )) => assert_eq!(value, 9),
         other => panic!("unexpected second runtime effect: {other:?}"),
     }
 }
@@ -1163,7 +1166,7 @@ fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
             args,
         }) => {
             assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_first"));
-            assert_eq!(args, vec![TestReadyValue::Int(1)]);
+            assert_eq!(args, vec![TestMaterialValue::Int(1)]);
             promise_state_id
         }
         other => panic!("unexpected first runtime effect: {other:?}"),
@@ -1179,17 +1182,17 @@ fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
             args,
         }) => {
             assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_second"));
-            assert_eq!(args, vec![TestReadyValue::Int(3)]);
+            assert_eq!(args, vec![TestMaterialValue::Int(3)]);
             promise_state_id
         }
         other => panic!("unexpected second runtime effect: {other:?}"),
     };
 
     runtime
-        .resolve_promise(second_promise, TestReadyValue::Int(30))
+        .resolve_promise(second_promise, TestMaterialValue::Int(30))
         .expect("second extcall promise should resolve");
     runtime
-        .resolve_promise(first_promise, TestReadyValue::Int(10))
+        .resolve_promise(first_promise, TestMaterialValue::Int(10))
         .expect("first extcall promise should resolve");
 
     let emitted_effect = runtime
@@ -1197,9 +1200,9 @@ fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
         .expect("program should complete after resolving both extcalls");
 
     match emitted_effect.effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
-        ))) => assert_eq!(value, 43),
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(
+            TestMaterialValue::Int(value),
+        )) => assert_eq!(value, 43),
         other => panic!("unexpected final runtime effect: {other:?}"),
     }
 }
@@ -1243,14 +1246,14 @@ fn compiles_parallel_expressions_into_aggregate_lists() {
             args,
         }) => {
             assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch"));
-            assert_eq!(args, vec![TestReadyValue::Int(4)]);
+            assert_eq!(args, vec![TestMaterialValue::Int(4)]);
             promise_state_id
         }
         other => panic!("unexpected first runtime effect: {other:?}"),
     };
 
     runtime
-        .resolve_promise(promise_state_id, TestReadyValue::Int(5))
+        .resolve_promise(promise_state_id, TestMaterialValue::Int(5))
         .expect("extcall promise should resolve");
 
     let emitted_effect = runtime
@@ -1259,12 +1262,12 @@ fn compiles_parallel_expressions_into_aggregate_lists() {
 
     match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(
-            TestReadyValue::List(values),
+            TestMaterialValue::List(values),
         )) => assert_eq!(
             values,
             vec![
-                TestValue::Ready(TestReadyValue::Int(4)),
-                TestValue::Ready(TestReadyValue::Int(5))
+                TestValue::Ready(TestMaterialValue::Int(4)),
+                TestValue::Ready(TestMaterialValue::Int(5))
             ]
         ),
         other => panic!("unexpected second runtime effect: {other:?}"),
@@ -1305,7 +1308,7 @@ fn compiles_parallel_expression_results_by_call_position() {
             args,
         }) => {
             assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_first"));
-            assert_eq!(args, vec![TestReadyValue::Int(1)]);
+            assert_eq!(args, vec![TestMaterialValue::Int(1)]);
             promise_state_id
         }
         other => panic!("unexpected first runtime effect: {other:?}"),
@@ -1321,17 +1324,17 @@ fn compiles_parallel_expression_results_by_call_position() {
             args,
         }) => {
             assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_second"));
-            assert_eq!(args, vec![TestReadyValue::Int(2)]);
+            assert_eq!(args, vec![TestMaterialValue::Int(2)]);
             promise_state_id
         }
         other => panic!("unexpected second runtime effect: {other:?}"),
     };
 
     runtime
-        .resolve_promise(second_promise, TestReadyValue::Int(20))
+        .resolve_promise(second_promise, TestMaterialValue::Int(20))
         .expect("second extcall promise should resolve");
     runtime
-        .resolve_promise(first_promise, TestReadyValue::Int(10))
+        .resolve_promise(first_promise, TestMaterialValue::Int(10))
         .expect("first extcall promise should resolve");
 
     let emitted_effect = runtime
@@ -1339,9 +1342,9 @@ fn compiles_parallel_expression_results_by_call_position() {
         .expect("program should complete after resolving both parallel expression calls");
 
     match emitted_effect.effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
-        ))) => assert_eq!(value, 30),
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(
+            TestMaterialValue::Int(value),
+        )) => assert_eq!(value, 30),
         other => panic!("unexpected final runtime effect: {other:?}"),
     }
 }
@@ -1363,14 +1366,14 @@ fn compiles_conditionals_assigning_on_all_paths() {
     )]);
 
     let result = completed_int(
-        runtime_with_args(compile_program(&program), vec![TestReadyValue::Int(1)])
+        runtime_with_args(compile_program(&program), vec![TestMaterialValue::Int(1)])
             .run()
             .expect("program should complete"),
     );
     assert_eq!(result, 1);
 
     let result = completed_int(
-        runtime_with_args(compile_program(&program), vec![TestReadyValue::Int(0)])
+        runtime_with_args(compile_program(&program), vec![TestMaterialValue::Int(0)])
             .run()
             .expect("program should complete"),
     );
@@ -1396,7 +1399,7 @@ fn compiles_terminal_conditionals_without_compiling_unreachable_tail() {
     let result = completed_int(
         runtime_with_args(
             compile_program(&program),
-            vec![TestReadyValue::Int(1), TestReadyValue::Int(0)],
+            vec![TestMaterialValue::Int(1), TestMaterialValue::Int(0)],
         )
         .run()
         .expect("program should complete"),
@@ -1406,7 +1409,7 @@ fn compiles_terminal_conditionals_without_compiling_unreachable_tail() {
     let result = completed_int(
         runtime_with_args(
             compile_program(&program),
-            vec![TestReadyValue::Int(0), TestReadyValue::Int(1)],
+            vec![TestMaterialValue::Int(0), TestMaterialValue::Int(1)],
         )
         .run()
         .expect("program should complete"),
@@ -1416,7 +1419,7 @@ fn compiles_terminal_conditionals_without_compiling_unreachable_tail() {
     let result = completed_int(
         runtime_with_args(
             compile_program(&program),
-            vec![TestReadyValue::Int(0), TestReadyValue::Int(0)],
+            vec![TestMaterialValue::Int(0), TestMaterialValue::Int(0)],
         )
         .run()
         .expect("program should complete"),
@@ -1436,14 +1439,14 @@ fn compiles_while_loops_with_break() {
     )]);
 
     let result = completed_int(
-        runtime_with_args(compile_program(&program), vec![TestReadyValue::Int(1)])
+        runtime_with_args(compile_program(&program), vec![TestMaterialValue::Int(1)])
             .run()
             .expect("program should complete"),
     );
     assert_eq!(result, 7);
 
     let result = completed_int(
-        runtime_with_args(compile_program(&program), vec![TestReadyValue::Int(0)])
+        runtime_with_args(compile_program(&program), vec![TestMaterialValue::Int(0)])
             .run()
             .expect("program should complete"),
     );
@@ -1483,7 +1486,7 @@ fn lowers_continue_to_the_loop_condition_state() {
     ));
 
     let result = completed_int(
-        runtime_with_args(compile_program(&program), vec![TestReadyValue::Int(0)])
+        runtime_with_args(compile_program(&program), vec![TestMaterialValue::Int(0)])
             .run()
             .expect("program should complete"),
     );
@@ -1514,14 +1517,14 @@ fn compiles_nested_conditionals_inside_while_loops() {
     )]);
 
     let result = completed_int(
-        runtime_with_args(compile_program(&program), vec![TestReadyValue::Int(1)])
+        runtime_with_args(compile_program(&program), vec![TestMaterialValue::Int(1)])
             .run()
             .expect("program should complete"),
     );
     assert_eq!(result, 1);
 
     let result = completed_int(
-        runtime_with_args(compile_program(&program), vec![TestReadyValue::Int(0)])
+        runtime_with_args(compile_program(&program), vec![TestMaterialValue::Int(0)])
             .run()
             .expect("program should complete"),
     );
