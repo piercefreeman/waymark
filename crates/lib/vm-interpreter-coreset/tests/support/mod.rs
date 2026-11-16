@@ -20,10 +20,8 @@ use waymark_vm_bytecode::Executable;
 use waymark_vm_instructions_coreset::CoreSet;
 use waymark_vm_interpreter_coreset::CoreSetInterpreter;
 use waymark_vm_runtime::{CallSpec, Runtime};
-use waymark_vm_runtime_core::RegisterId;
-use waymark_vm_runtime_promise_core::{
-    PromiseStateId, Resolvable, Suspendable, UnresolvedPromiseError,
-};
+use waymark_vm_runtime_core::{RegisterId, Suspendable};
+use waymark_vm_runtime_promise_core::{PromiseStateId, Resolvable, UnresolvedPromiseError};
 use waymark_vm_runtime_test::{FunctionId, StateId};
 
 pub type Instruction = CoreSet<TestSpec>;

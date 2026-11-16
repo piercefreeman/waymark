@@ -8,7 +8,6 @@ publish.workspace = true
 index_type = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 thiserror = { workspace = true }
-waymark-blanket-impl-macros = { workspace = true }
 
 [features]
 default = []

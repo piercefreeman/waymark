@@ -511,7 +511,7 @@ impl waymark_vm_runtime_value::RootValueAccess for TestValue {
     type RootValue = TestValue;
 }
 
-impl waymark_vm_runtime_promise_core::Suspendable for TestValue {
+impl waymark_vm_runtime_core::Suspendable for TestValue {
     fn from_pending(promise_state_id: PromiseStateId) -> Self {
         Self::Pending(promise_state_id)
     }

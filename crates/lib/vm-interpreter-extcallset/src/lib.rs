@@ -66,7 +66,7 @@ fn suspend_frame<FunctionId, StateId, Value, RaisedException>(
     resume: StateId,
 ) -> PromiseStateId
 where
-    Value: waymark_vm_runtime_promise_core::Suspendable,
+    Value: waymark_vm_runtime_core::Suspendable,
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
 {
     let promise_state_id = state.promise_states.prepare();
@@ -91,7 +91,7 @@ where
     StateId: Copy + 'static,
     Spec::ActionRef: Clone,
     Value: self::value::Value + Clone + 'static,
-    Value: waymark_vm_runtime_promise_core::Promisable,
+    Value: waymark_vm_runtime_core::Promisable,
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
     RaisedException: 'static,
 {

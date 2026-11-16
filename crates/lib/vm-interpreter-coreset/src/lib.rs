@@ -57,7 +57,7 @@ where
     Spec::StateId: Copy + Default,
     Value: self::Value,
     Value: Clone,
-    Value: waymark_vm_runtime_promise_core::Suspendable,
+    Value: waymark_vm_runtime_core::Suspendable,
     Value: waymark_vm_runtime_promise_core::Resolvable,
     Value::ReadyValue: Clone,
     Value: 'static,
