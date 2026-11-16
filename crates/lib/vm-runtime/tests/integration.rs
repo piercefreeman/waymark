@@ -623,3 +623,78 @@ fn effect_counter_survives_snapshot_roundtrip() {
         TestEffect::Value(TestMaterialValue::Int(20))
     );
 }
+
+/// A loop that suspends on a fresh promise each iteration and is resumed by
+/// settling it: every iteration leaves one settled promise state behind.
+/// Collected before each snapshot, those states no longer accumulate: the
+/// snapshot after many iterations grows only by the width of a few counters.
+#[test]
+fn collected_snapshot_stays_flat_across_loop_iterations() {
+    let loop_executable = || {
+        executable(vec![function(
+            1,
+            vec![vec![TestInstruction::Suspend {
+                dst: RegisterId(0),
+                resume: StateId(0),
+            }]],
+        )])
+    };
+
+    let iterate = |runtime: &mut waymark_vm_runtime::Runtime<_, _, _, _>, iterations: usize| {
+        for iteration in 0..iterations {
+            let promise_state_id = runtime
+                .waiting_promise_state_ids()
+                .next()
+                .expect("the loop waits on one promise");
+            runtime
+                .resolve_promise(
+                    promise_state_id,
+                    TestMaterialValue::Int(i32::try_from(iteration).expect("iteration fits")),
+                )
+                .expect("the waiting promise resolves");
+            assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
+        }
+    };
+
+    let snapshot_size = |runtime: &waymark_vm_runtime::Runtime<_, _, _, _>| {
+        let mut buf = Vec::new();
+        runtime
+            .snapshot(&mut rmp_serde::Serializer::new(&mut buf))
+            .expect("the runtime snapshots");
+        buf.len()
+    };
+
+    let mut collected = waymark_vm_runtime::Runtime::with_conventional_entrypoint(
+        TestInterpreter,
+        loop_executable(),
+    )
+    .expect("entrypoint should exist");
+    assert!(matches!(collected.run(), Err(RunError::NoReadyFrame)));
+
+    iterate(&mut collected, 2);
+    collected.collect();
+    let size_after_few = snapshot_size(&collected);
+
+    iterate(&mut collected, 50);
+    collected.collect();
+    let size_after_many = snapshot_size(&collected);
+
+    // The integers that keep growing (the next id, the waiting key, the
+    // resolved iteration count) can take a few more bytes each; the
+    // settled states themselves add nothing.
+    assert!(
+        size_after_many <= size_after_few + 8,
+        "{size_after_many} bytes after many iterations, {size_after_few} after a few"
+    );
+
+    // The same loop without collecting keeps every settled state.
+    let mut uncollected = waymark_vm_runtime::Runtime::with_conventional_entrypoint(
+        TestInterpreter,
+        loop_executable(),
+    )
+    .expect("entrypoint should exist");
+    assert!(matches!(uncollected.run(), Err(RunError::NoReadyFrame)));
+
+    iterate(&mut uncollected, 52);
+    assert!(snapshot_size(&uncollected) > size_after_many);
+}
