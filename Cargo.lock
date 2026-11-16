@@ -6345,6 +6345,7 @@ dependencies = [
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-promise-value",
  "waymark-vm-runtime-value",
 ]

@@ -144,11 +144,13 @@ where
                     RaisedException,
                 >,
             >,
+    Value: waymark_vm_runtime_promise_core::TracePromiseStateIds,
     Value: Clone + 'static + serde::Serialize,
     Value: waymark_vm_runtime_promise_core::Resolvable,
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
     RaisedException: Clone + 'static,
     RaisedException: serde::Serialize,
+    RaisedException: waymark_vm_runtime_promise_core::TracePromiseStateIds,
     waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
     Effector: waymark_vm_driver_core::EffectHandler<Effect = Interpreter::Effect>,
     Effector: waymark_vm_driver_core::PromiseSettler<
@@ -215,8 +217,8 @@ where
 
                     // Stale settlements are normal under at-least-once
                     // delivery: a redelivery of an applied settlement finds its
-                    // promise already settled, or — once settled promise states
-                    // are garbage collected — not present at all.  Either way
+                    // promise already settled, or — when its settled state has
+                    // since been collected — not present at all.  Either way
                     // there is nothing to apply and the settlement is still
                     // acked below: the ack is what removes the durable record,
                     // and without it it would redeliver forever.  Benign by
@@ -266,6 +268,8 @@ where
 
                 // Persist the runtime snapshot if we should.
                 if should_persist {
+                    runtime.collect();
+
                     let data = snapshot_buffer
                         .write_with(|buf| codec.with_serializer(buf, |ser| runtime.snapshot(ser)))
                         .map_err(Error::SnapshotSerialization)?;

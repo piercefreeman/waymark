@@ -268,4 +268,13 @@ where
     ) -> impl Iterator<Item = waymark_vm_runtime_promise_core::PromiseStateId> + '_ {
         self.state.promise_states.waiting_ids()
     }
+
+    /// Free the settled promise states no handle references any more.
+    pub fn collect(&mut self)
+    where
+        Value: waymark_vm_runtime_promise_core::TracePromiseStateIds,
+        RaisedException: waymark_vm_runtime_promise_core::TracePromiseStateIds,
+    {
+        self.state.promise_states.sweep();
+    }
 }
