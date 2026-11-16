@@ -8,6 +8,8 @@ mod frame_exception_handlers;
 mod full_runtime_view;
 mod promise_state;
 mod promise_state_handle;
+#[cfg(feature = "serde")]
+mod promise_state_handle_registry;
 mod promise_states;
 mod promise_waiter;
 mod registers;

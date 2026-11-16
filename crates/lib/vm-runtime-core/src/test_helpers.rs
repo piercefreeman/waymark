@@ -13,3 +13,14 @@ impl waymark_vm_runtime_exception::Match for TestException {
         self.0 == *pattern
     }
 }
+
+/// A raised exception for the snapshot tests: serde can read it back from
+/// owned bytes.
+#[cfg(feature = "serde")]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub(crate) struct RestoreTestException(pub(crate) String);
+
+#[cfg(feature = "serde")]
+impl waymark_vm_runtime_exception::HasMatchPattern for RestoreTestException {
+    type Pattern = String;
+}
