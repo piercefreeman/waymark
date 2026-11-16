@@ -6279,6 +6279,7 @@ dependencies = [
  "index_type",
  "serde",
  "thiserror",
+ "waymark-blanket-impl-macros",
  "waymark-id-map",
  "waymark-typed-vec-serde",
  "waymark-vm-exception-handler",
@@ -6312,7 +6313,6 @@ dependencies = [
  "index_type",
  "serde",
  "thiserror",
- "waymark-blanket-impl-macros",
 ]
 
 [[package]]
@@ -6325,6 +6325,7 @@ dependencies = [
  "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime-core",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-value",

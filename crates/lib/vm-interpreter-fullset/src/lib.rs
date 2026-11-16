@@ -66,7 +66,7 @@ pub use waymark_vm_runtime_core::FullRuntimeView as RuntimeView;
         Value: waymark_vm_runtime_exception::ValueToRaisedException<RaisedException>,
         Value: waymark_vm_runtime_exception::RaisedExceptionToValue<RaisedException>,
         Value: waymark_vm_runtime_promise_core::Resolvable,
-        Value: waymark_vm_runtime_promise_core::Suspendable,
+        Value: waymark_vm_runtime_core::Suspendable,
         Value::ReadyValue: Clone,
         RaisedException: Clone + 'static,
         RaisedException: waymark_vm_runtime_exception::Match,

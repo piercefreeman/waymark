@@ -2,7 +2,7 @@ use waymark_vm_runtime_promise_core::{PromiseStateId, UnresolvedPromiseError};
 
 use crate::PromiseValue;
 
-impl<T> waymark_vm_runtime_promise_core::Suspendable for PromiseValue<T> {
+impl<T> waymark_vm_runtime_core::Suspendable for PromiseValue<T> {
     fn from_pending(promise_state_id: PromiseStateId) -> Self {
         Self::Pending(promise_state_id)
     }
@@ -37,7 +37,8 @@ impl<T> waymark_vm_runtime_promise_core::Resolvable for PromiseValue<T> {
 
 #[cfg(test)]
 mod tests {
-    use waymark_vm_runtime_promise_core::{Resolvable as _, Suspendable as _};
+    use waymark_vm_runtime_core::Suspendable as _;
+    use waymark_vm_runtime_promise_core::Resolvable as _;
 
     use super::*;
 

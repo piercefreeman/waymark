@@ -46,15 +46,6 @@ impl PromiseStateId {
     }
 }
 
-/// A value for a runtime that supports suspending.
-pub trait Suspendable {
-    /// Construct a promisable value from a pending value.
-    fn from_pending(promise_state_id: PromiseStateId) -> Self;
-
-    /// View the value as a promise state id.
-    fn as_pending(&self) -> Option<PromiseStateId>;
-}
-
 /// A value for a runtime that supports resolving with values.
 pub trait Resolvable {
     /// A ready value type.
@@ -77,14 +68,6 @@ pub trait Resolvable {
     /// is still pending.
     fn as_ready_mut(&mut self) -> Result<&mut Self::ReadyValue, UnresolvedPromiseError>;
 }
-
-/// A value type that supports promises.
-///
-/// Wraps a "resolved" value type with the possibilities of either it being
-/// immediately available (i.e. resolved) or being in a placeholder
-/// state waiting for a wrapped value to be resolved with.
-#[waymark_blanket_impl_macros::blanket_impl]
-pub trait Promisable: Suspendable + Resolvable {}
 
 /// A resolved promise was required but the actual value was pending.
 #[derive(Debug, thiserror::Error)]

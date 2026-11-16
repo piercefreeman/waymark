@@ -22,10 +22,8 @@ use waymark_vm_interpreter_extcallset::{
     Effect, Error as InterpreterError, ExtCallSetInterpreter, RuntimeView,
 };
 use waymark_vm_runtime::{CallSpec, Runtime};
-use waymark_vm_runtime_core::{Frame, PromiseState, RegisterId};
-use waymark_vm_runtime_promise_core::{
-    PromiseStateId, Resolvable, Suspendable, UnresolvedPromiseError,
-};
+use waymark_vm_runtime_core::{Frame, PromiseState, RegisterId, Suspendable};
+use waymark_vm_runtime_promise_core::{PromiseStateId, Resolvable, UnresolvedPromiseError};
 use waymark_vm_runtime_test::{FunctionId, StateId};
 
 /// The extcallset raises nothing of its own, so the raised exception is
