@@ -6,6 +6,9 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use crate::{Frame, PromiseStates, PromiseWaiter, SelectStates, SettlePromiseError};
 
+#[cfg(feature = "serde")]
+mod serde_impl;
+
 /// The state shape of the runtime.
 ///
 /// Public struct, but the runtime itself will shield the access to
@@ -18,26 +21,6 @@ use crate::{Frame, PromiseStates, PromiseWaiter, SelectStates, SettlePromiseErro
     Debug;
     FunctionId, StateId, Value, RaisedException,
     waymark_vm_runtime_exception::MatchPatternOf<RaisedException>,
-)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(bound(
-        serialize = "
-            FunctionId: serde::Serialize,
-            StateId: serde::Serialize,
-            Value: serde::Serialize,
-            RaisedException: serde::Serialize,
-            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
-        ",
-        deserialize = "
-            FunctionId: serde::Deserialize<'de>,
-            StateId: serde::Deserialize<'de>,
-            Value: serde::Deserialize<'de>,
-            RaisedException: serde::Deserialize<'de>,
-            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Deserialize<'de>,
-        ",
-    ))
 )]
 pub struct RuntimeState<FunctionId, StateId, Value, RaisedException>
 where

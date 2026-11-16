@@ -68,6 +68,33 @@ impl<'de> serde::Deserialize<'de> for PromiseStateHandle {
         D: serde::Deserializer<'de>,
     {
         let id = <PromiseStateId as serde::Deserialize>::deserialize(deserializer)?;
-        Ok(Self::new(id, AtomicOwnersCounter::new()))
+
+        let owners_counter = crate::promise_state_handle_registry::owners_counter(id)
+            .map_err(<D::Error as serde::de::Error>::custom)?;
+
+        Ok(Self::new(id, owners_counter))
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod tests {
+    use super::PromiseStateHandle;
+    use crate::PromiseStates;
+    use crate::promise_state_handle_registry::PromiseStateHandleRegistryError;
+    use crate::test_helpers::TestException;
+
+    #[test]
+    fn a_handle_read_outside_a_restore_is_refused() {
+        let mut states = PromiseStates::<&'static str, usize, i32, TestException>::new();
+        let bytes = rmp_serde::to_vec(&states.prepare()).expect("handle encodes");
+
+        let refusal = rmp_serde::from_slice::<PromiseStateHandle>(&bytes)
+            .expect_err("a handle outside a restore is refused");
+
+        let not_in_scope = PromiseStateHandleRegistryError::NotInScope.to_string();
+        assert!(
+            refusal.to_string().contains(&not_in_scope),
+            "refused for another reason: {refusal}"
+        );
     }
 }

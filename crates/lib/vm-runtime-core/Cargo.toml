@@ -36,3 +36,5 @@ serde = [
 
 [dev-dependencies]
 waymark-vm-runtime-promise-value = { workspace = true }
+
+rmp-serde = { workspace = true }

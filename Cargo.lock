@@ -6277,6 +6277,7 @@ version = "0.1.0"
 dependencies = [
  "derive-where",
  "index_type",
+ "rmp-serde",
  "serde",
  "thiserror",
  "waymark-atomic-owners-counter",

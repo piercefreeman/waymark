@@ -7,10 +7,17 @@ use crate::{
     WaitersFor,
 };
 
+#[cfg(feature = "serde")]
+mod serde_impl;
+
+#[cfg(feature = "serde")]
+pub(crate) use self::serde_impl::deserialize_promise_states;
+
 /// One entry of the promise states table: a promise state, and the count of
 /// the handles that hold it, with the table as one more owner.
 ///
-/// Stored as the promise state alone.
+/// Stored as the promise state alone, and read back by the promise states
+/// table's snapshot reader with the counter of its id.
 #[derive_where(
     Debug;
     FunctionId, StateId, Value, RaisedException,
@@ -18,25 +25,16 @@ use crate::{
 )]
 #[cfg_attr(
     feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
+    derive(serde::Serialize),
     serde(
         transparent,
-        bound(
-            serialize = "
-                FunctionId: serde::Serialize,
-                StateId: serde::Serialize,
-                Value: serde::Serialize,
-                RaisedException: serde::Serialize,
-                waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
-            ",
-            deserialize = "
-                FunctionId: serde::Deserialize<'de>,
-                StateId: serde::Deserialize<'de>,
-                Value: serde::Deserialize<'de>,
-                RaisedException: serde::Deserialize<'de>,
-                waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Deserialize<'de>,
-            ",
-        )
+        bound(serialize = "
+            FunctionId: serde::Serialize,
+            StateId: serde::Serialize,
+            Value: serde::Serialize,
+            RaisedException: serde::Serialize,
+            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
+        ")
     )
 )]
 struct PromiseStatesEntry<FunctionId, StateId, Value, RaisedException>
@@ -64,6 +62,8 @@ where
 }
 
 /// The promise states of a runtime, keyed by their promise state ids.
+///
+/// Read back only as part of a [`crate::RuntimeState`].
 #[derive_where(
     Debug;
     FunctionId, StateId, Value, RaisedException,
@@ -71,32 +71,26 @@ where
 )]
 #[cfg_attr(
     feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(bound(
-        serialize = "
-            FunctionId: serde::Serialize,
-            StateId: serde::Serialize,
-            Value: serde::Serialize,
-            RaisedException: serde::Serialize,
-            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
-        ",
-        deserialize = "
-            FunctionId: serde::Deserialize<'de>,
-            StateId: serde::Deserialize<'de>,
-            Value: serde::Deserialize<'de>,
-            RaisedException: serde::Deserialize<'de>,
-            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Deserialize<'de>,
-        ",
-    ))
+    derive(serde::Serialize),
+    serde(bound(serialize = "
+        FunctionId: serde::Serialize,
+        StateId: serde::Serialize,
+        Value: serde::Serialize,
+        RaisedException: serde::Serialize,
+        waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
+    "))
 )]
 pub struct PromiseStates<FunctionId, StateId, Value, RaisedException>(
-    waymark_id_map::IdMap<
-        PromiseStateId,
-        PromiseStatesEntry<FunctionId, StateId, Value, RaisedException>,
-    >,
+    PromiseStatesEntriesMap<FunctionId, StateId, Value, RaisedException>,
 )
 where
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern;
+
+/// The promise states table's entries by their promise state ids.
+type PromiseStatesEntriesMap<FunctionId, StateId, Value, RaisedException> = waymark_id_map::IdMap<
+    PromiseStateId,
+    PromiseStatesEntry<FunctionId, StateId, Value, RaisedException>,
+>;
 
 impl<FunctionId, StateId, Value, RaisedException> Default
     for PromiseStates<FunctionId, StateId, Value, RaisedException>
