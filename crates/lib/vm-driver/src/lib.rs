@@ -215,8 +215,8 @@ where
 
                     // Stale settlements are normal under at-least-once
                     // delivery: a redelivery of an applied settlement finds its
-                    // promise already settled, or — once settled promise states
-                    // are garbage collected — not present at all.  Either way
+                    // promise already settled, or — when its settled state has
+                    // since been collected — not present at all.  Either way
                     // there is nothing to apply and the settlement is still
                     // acked below: the ack is what removes the durable record,
                     // and without it it would redeliver forever.  Benign by
@@ -266,6 +266,8 @@ where
 
                 // Persist the runtime snapshot if we should.
                 if should_persist {
+                    runtime.collect();
+
                     let data = snapshot_buffer
                         .write_with(|buf| codec.with_serializer(buf, |ser| runtime.snapshot(ser)))
                         .map_err(Error::SnapshotSerialization)?;

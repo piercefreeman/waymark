@@ -268,4 +268,9 @@ where
     ) -> impl Iterator<Item = waymark_vm_runtime_promise_core::PromiseStateId> + '_ {
         self.state.promise_states.waiting_ids()
     }
+
+    /// Free the settled promise states no value holds any more.
+    pub fn collect(&mut self) {
+        self.state.promise_states.sweep();
+    }
 }

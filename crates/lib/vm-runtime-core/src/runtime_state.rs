@@ -35,11 +35,6 @@ where
     pub ready: VecDeque<Frame<FunctionId, StateId, Value, RaisedException>>,
 
     /// A state of the promises of this runtime.
-    //
-    // TODO: the promise states should be garbage-collected together with
-    // the promise values that refer to them. We can implement this without
-    // a full garbage-collector by holding the promises in a weak-rc-map
-    // or something like that.
     pub promise_states: PromiseStates<FunctionId, StateId, Value, RaisedException>,
 
     /// A state of the selects of this runtime.
