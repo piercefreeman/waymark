@@ -4043,6 +4043,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-atomic-owners-counter"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-backend-postgres"
 version = "0.1.0"
 dependencies = [
