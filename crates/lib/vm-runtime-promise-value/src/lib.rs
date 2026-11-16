@@ -4,13 +4,14 @@ mod extcallset;
 mod promisable;
 mod pureset;
 
-use waymark_vm_runtime_promise_core::{PromiseStateId, UnresolvedPromiseError};
+use waymark_vm_runtime_core::PromiseStateHandle;
+use waymark_vm_runtime_promise_core::UnresolvedPromiseError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PromiseValue<T> {
     Ready(T),
-    Pending(PromiseStateId),
+    Pending(PromiseStateHandle),
 }
 
 impl<T> From<T> for PromiseValue<T> {
@@ -32,7 +33,8 @@ impl<T> PromiseValue<T> {
     pub fn require_ready(self) -> Result<T, (UnresolvedPromiseError, Self)> {
         match self {
             Self::Ready(value) => Ok(value),
-            Self::Pending(promise_state_id) => {
+            Self::Pending(ref promise_state_handle) => {
+                let promise_state_id = promise_state_handle.id();
                 Err((UnresolvedPromiseError { promise_state_id }, self))
             }
         }
@@ -41,8 +43,8 @@ impl<T> PromiseValue<T> {
     pub fn require_ready_ref(&self) -> Result<&T, UnresolvedPromiseError> {
         match self {
             PromiseValue::Ready(value) => Ok(value),
-            PromiseValue::Pending(promise_state_id) => Err(UnresolvedPromiseError {
-                promise_state_id: *promise_state_id,
+            PromiseValue::Pending(promise_state_handle) => Err(UnresolvedPromiseError {
+                promise_state_id: promise_state_handle.id(),
             }),
         }
     }
@@ -50,8 +52,8 @@ impl<T> PromiseValue<T> {
     pub fn require_ready_mut(&mut self) -> Result<&mut T, UnresolvedPromiseError> {
         match self {
             PromiseValue::Ready(value) => Ok(value),
-            PromiseValue::Pending(promise_state_id) => Err(UnresolvedPromiseError {
-                promise_state_id: *promise_state_id,
+            PromiseValue::Pending(promise_state_handle) => Err(UnresolvedPromiseError {
+                promise_state_id: promise_state_handle.id(),
             }),
         }
     }

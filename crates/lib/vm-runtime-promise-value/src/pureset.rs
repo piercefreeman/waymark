@@ -9,7 +9,9 @@ where
     fn capture_copy(&self) -> Self {
         match self {
             PromiseValue::Ready(value) => PromiseValue::Ready(value.capture_copy()),
-            PromiseValue::Pending(promise_state_id) => PromiseValue::Pending(*promise_state_id),
+            PromiseValue::Pending(promise_state_handle) => {
+                PromiseValue::Pending(promise_state_handle.clone())
+            }
         }
     }
 }

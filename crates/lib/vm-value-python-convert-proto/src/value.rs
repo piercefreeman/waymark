@@ -76,7 +76,9 @@ impl TryConvert<&Value, proto_value::Value> for Converter {
     fn try_convert(value: &Value) -> Result<proto_value::Value, Self::Error> {
         match value {
             Value::Ready(value) => Self::try_convert(value),
-            Value::Pending(promise_state_id) => Err(PendingPromiseError(*promise_state_id)),
+            Value::Pending(promise_state_handle) => {
+                Err(PendingPromiseError(promise_state_handle.id()))
+            }
         }
     }
 }
@@ -398,15 +400,17 @@ mod tests {
 
     #[test]
     fn a_pending_promise_cannot_be_written() {
-        let value = MaterialValue::List(vec![Value::Pending(
-            waymark_vm_runtime_promise_core::PromiseStateId::from_raw(7),
-        )]);
+        let promise_state_handle =
+            waymark_vm_runtime_core::PromiseStates::<(), (), (), core::convert::Infallible>::new()
+                .prepare();
+        let promise_state_id = promise_state_handle.id();
+        let value = MaterialValue::List(vec![Value::Pending(promise_state_handle)]);
 
         let written: Result<proto_value::Value, _> = Converter::try_convert(&value);
 
         assert_eq!(
             written.expect_err("a pending promise has no encoding"),
-            PendingPromiseError(waymark_vm_runtime_promise_core::PromiseStateId::from_raw(7)),
+            PendingPromiseError(promise_state_id),
         );
     }
 }

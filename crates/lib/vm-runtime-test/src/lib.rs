@@ -156,7 +156,7 @@ impl Interpreter for TestInterpreter {
             TestInstruction::Exit => Ok(ExecutionOutcome::ExitFrame),
             TestInstruction::Suspend { dst, resume } => {
                 let FullRuntimeView { state, .. } = runtime;
-                let promise_state_id = state.promise_states.prepare();
+                let promise_state_id = state.promise_states.prepare().id();
                 let promise_state = state
                     .promise_states
                     .get_mut(promise_state_id)

@@ -97,8 +97,11 @@ where
                     .map(|arg| frame.regs[*arg].capture_call_argument())
                     .collect::<Vec<_>>();
 
-                let promise_state_id = state.promise_states.prepare();
-                frame.regs.set(*dst, Value::from_pending(promise_state_id));
+                let promise_state_handle = state.promise_states.prepare();
+                let promise_state_id = promise_state_handle.id();
+                frame
+                    .regs
+                    .set(*dst, Value::from_pending(promise_state_handle));
 
                 let regs = Registers::new_for_fn_call(num_regs, args);
 

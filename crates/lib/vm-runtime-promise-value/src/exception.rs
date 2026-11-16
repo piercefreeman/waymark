@@ -28,8 +28,10 @@ where
             Self::Ready(value) => value
                 .into_raised()
                 .map_err(ValueToRaisedExceptionError::Ready),
-            Self::Pending(promise_state_id) => Err(ValueToRaisedExceptionError::Pending(
-                UnresolvedPromiseError { promise_state_id },
+            Self::Pending(promise_state_handle) => Err(ValueToRaisedExceptionError::Pending(
+                UnresolvedPromiseError {
+                    promise_state_id: promise_state_handle.id(),
+                },
             )),
         }
     }

@@ -5,6 +5,7 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+waymark-atomic-owners-counter = { workspace = true }
 waymark-blanket-impl-macros = { workspace = true }
 waymark-id-map = { workspace = true }
 waymark-typed-vec-serde = { workspace = true, optional = true }

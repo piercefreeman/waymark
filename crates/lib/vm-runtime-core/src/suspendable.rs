@@ -1,9 +1,11 @@
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
+use crate::PromiseStateHandle;
+
 /// A value for a runtime that supports suspending.
 pub trait Suspendable {
     /// Construct a promisable value from a pending value.
-    fn from_pending(promise_state_id: PromiseStateId) -> Self;
+    fn from_pending(promise_state_handle: PromiseStateHandle) -> Self;
 
     /// View the value as a promise state id.
     fn as_pending(&self) -> Option<PromiseStateId>;
