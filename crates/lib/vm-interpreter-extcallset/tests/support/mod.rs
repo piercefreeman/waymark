@@ -22,7 +22,7 @@ use waymark_vm_interpreter_extcallset::{
     Effect, Error as InterpreterError, ExtCallSetInterpreter, RuntimeView,
 };
 use waymark_vm_runtime::{CallSpec, Runtime};
-use waymark_vm_runtime_core::{Frame, PromiseState, RegisterId, Suspendable};
+use waymark_vm_runtime_core::{Frame, PromiseState, PromiseStateHandle, RegisterId, Suspendable};
 use waymark_vm_runtime_promise_core::{PromiseStateId, Resolvable, UnresolvedPromiseError};
 use waymark_vm_runtime_test::{FunctionId, StateId};
 
@@ -48,14 +48,14 @@ impl waymark_vm_instructions_extcallset::Spec for TestSpec {
 pub struct TestMaterialValue(pub i32);
 
 /// Minimal promise-aware value: ready holds a [`TestMaterialValue`], pending
-/// holds a promise state id.
+/// holds a promise state handle.
 ///
 /// Hand-rolled on purpose: see the module-level note on why we don't reuse
 /// `PromiseValue` here.
 #[derive(Debug, Clone)]
 pub enum TestValue {
     Ready(TestMaterialValue),
-    Pending(PromiseStateId),
+    Pending(PromiseStateHandle),
 }
 
 impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for TestValue {
@@ -65,8 +65,8 @@ impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for Tes
     fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
         match self {
             Self::Ready(TestMaterialValue(value)) => Ok(*value),
-            Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
-                promise_state_id: *promise_state_id,
+            Self::Pending(promise_state_handle) => Err(UnresolvedPromiseError {
+                promise_state_id: promise_state_handle.id(),
             }),
         }
     }
@@ -93,19 +93,21 @@ impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
                 let seconds: u64 = (*value).try_into().map_err(|_| Self::Error::Negative)?;
                 NonZeroDuration::from_secs(seconds).ok_or(Self::Error::Zero)
             }
-            Self::Pending(promise_state_id) => Err(Self::Error::Unresolved(*promise_state_id)),
+            Self::Pending(promise_state_handle) => {
+                Err(Self::Error::Unresolved(promise_state_handle.id()))
+            }
         }
     }
 }
 
 impl Suspendable for TestValue {
-    fn from_pending(promise_state_id: PromiseStateId) -> Self {
-        Self::Pending(promise_state_id)
+    fn from_pending(promise_state_handle: PromiseStateHandle) -> Self {
+        Self::Pending(promise_state_handle)
     }
 
     fn as_pending(&self) -> Option<PromiseStateId> {
         match self {
-            Self::Pending(promise_state_id) => Some(*promise_state_id),
+            Self::Pending(promise_state_handle) => Some(promise_state_handle.id()),
             Self::Ready(_) => None,
         }
     }
@@ -121,9 +123,11 @@ impl Resolvable for TestValue {
     fn into_ready(self) -> Result<TestMaterialValue, (UnresolvedPromiseError, Self)> {
         match self {
             Self::Ready(value) => Ok(value),
-            Self::Pending(promise_state_id) => Err((
-                UnresolvedPromiseError { promise_state_id },
-                Self::Pending(promise_state_id),
+            Self::Pending(promise_state_handle) => Err((
+                UnresolvedPromiseError {
+                    promise_state_id: promise_state_handle.id(),
+                },
+                Self::Pending(promise_state_handle),
             )),
         }
     }
@@ -131,8 +135,8 @@ impl Resolvable for TestValue {
     fn as_ready(&self) -> Result<&TestMaterialValue, UnresolvedPromiseError> {
         match self {
             Self::Ready(value) => Ok(value),
-            Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
-                promise_state_id: *promise_state_id,
+            Self::Pending(promise_state_handle) => Err(UnresolvedPromiseError {
+                promise_state_id: promise_state_handle.id(),
             }),
         }
     }
@@ -140,8 +144,8 @@ impl Resolvable for TestValue {
     fn as_ready_mut(&mut self) -> Result<&mut TestMaterialValue, UnresolvedPromiseError> {
         match self {
             Self::Ready(value) => Ok(value),
-            Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
-                promise_state_id: *promise_state_id,
+            Self::Pending(promise_state_handle) => Err(UnresolvedPromiseError {
+                promise_state_id: promise_state_handle.id(),
             }),
         }
     }
@@ -198,9 +202,10 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
             RuntimeInstruction::InspectPending(register) => {
                 let RuntimeView { state } = runtime_view;
 
-                let TestValue::Pending(promise_state_id) = frame.regs[*register].clone() else {
+                let TestValue::Pending(promise_state_handle) = frame.regs[*register].clone() else {
                     panic!("register should hold the suspended operation's pending promise");
                 };
+                let promise_state_id = promise_state_handle.id();
 
                 assert!(matches!(
                     state.promise_states.get(promise_state_id),

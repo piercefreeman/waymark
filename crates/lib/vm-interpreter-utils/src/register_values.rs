@@ -148,10 +148,11 @@ mod tests {
         let mut registers = Registers::new(3);
         registers.set(RegisterId(0), PromiseValue::Ready(10));
         registers.set(RegisterId(1), PromiseValue::Ready(20));
-        registers.set(
-            RegisterId(2),
-            PromiseValue::Pending(PromiseStateId::from_raw(7)),
-        );
+        let promise_state_handle =
+            waymark_vm_runtime_core::PromiseStates::<(), (), (), core::convert::Infallible>::new()
+                .prepare();
+        let pending_promise_state_id = promise_state_handle.id();
+        registers.set(RegisterId(2), PromiseValue::Pending(promise_state_handle));
 
         let err = with_register_values(
             [RegisterId(0), RegisterId(1), RegisterId(2)],
@@ -178,7 +179,7 @@ mod tests {
                 promise_state_id,
             } => {
                 assert_eq!(item_pos, 2);
-                assert_eq!(promise_state_id, PromiseStateId::from_raw(7));
+                assert_eq!(promise_state_id, pending_promise_state_id);
             }
             other => panic!("unexpected error: {other:?}"),
         }

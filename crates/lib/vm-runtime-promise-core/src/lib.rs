@@ -12,6 +12,13 @@ use index_type::{IndexTooBigError, IndexType};
 #[index_too_big_error(msg = "promise state id")]
 pub struct PromiseStateIdTooBigError;
 
+/// A value that can report the promise states it holds.
+pub trait TracePromiseStateIds {
+    /// Call `visit` with the id of every promise state this value holds a
+    /// handle to, once per handle.
+    fn trace_promise_state_ids(&self, visit: &mut dyn FnMut(PromiseStateId));
+}
+
 /// An opaque identifier of a promise state.
 ///
 /// # Invariant: unique per VM

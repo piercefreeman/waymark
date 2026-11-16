@@ -484,7 +484,7 @@ impl From<&TestConstValue> for TestMaterialValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TestValue {
     Ready(TestMaterialValue),
-    Pending(PromiseStateId),
+    Pending(waymark_vm_runtime_core::PromiseStateHandle),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -500,8 +500,8 @@ impl TestValue {
     fn require_ready_ref(&self) -> Result<&TestMaterialValue, UnresolvedPromiseError> {
         match self {
             Self::Ready(value) => Ok(value),
-            Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
-                promise_state_id: *promise_state_id,
+            Self::Pending(promise_state_handle) => Err(UnresolvedPromiseError {
+                promise_state_id: promise_state_handle.id(),
             }),
         }
     }
@@ -512,13 +512,13 @@ impl waymark_vm_runtime_value::RootValueAccess for TestValue {
 }
 
 impl waymark_vm_runtime_core::Suspendable for TestValue {
-    fn from_pending(promise_state_id: PromiseStateId) -> Self {
-        Self::Pending(promise_state_id)
+    fn from_pending(promise_state_handle: waymark_vm_runtime_core::PromiseStateHandle) -> Self {
+        Self::Pending(promise_state_handle)
     }
 
     fn as_pending(&self) -> Option<PromiseStateId> {
         match self {
-            Self::Pending(promise_state_id) => Some(*promise_state_id),
+            Self::Pending(promise_state_handle) => Some(promise_state_handle.id()),
             Self::Ready(_) => None,
         }
     }
@@ -534,9 +534,11 @@ impl waymark_vm_runtime_promise_core::Resolvable for TestValue {
     fn into_ready(self) -> Result<Self::ReadyValue, (UnresolvedPromiseError, Self)> {
         match self {
             Self::Ready(value) => Ok(value),
-            Self::Pending(promise_state_id) => Err((
-                UnresolvedPromiseError { promise_state_id },
-                Self::Pending(promise_state_id),
+            Self::Pending(promise_state_handle) => Err((
+                UnresolvedPromiseError {
+                    promise_state_id: promise_state_handle.id(),
+                },
+                Self::Pending(promise_state_handle),
             )),
         }
     }
@@ -548,8 +550,8 @@ impl waymark_vm_runtime_promise_core::Resolvable for TestValue {
     fn as_ready_mut(&mut self) -> Result<&mut Self::ReadyValue, UnresolvedPromiseError> {
         match self {
             Self::Ready(value) => Ok(value),
-            Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
-                promise_state_id: *promise_state_id,
+            Self::Pending(promise_state_handle) => Err(UnresolvedPromiseError {
+                promise_state_id: promise_state_handle.id(),
             }),
         }
     }
@@ -578,7 +580,7 @@ impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestValue {
     fn capture_call_argument(&self) -> Self {
         match self {
             Self::Ready(value) => Self::Ready(value.capture_call_argument()),
-            Self::Pending(promise_state_id) => Self::Pending(*promise_state_id),
+            Self::Pending(promise_state_handle) => Self::Pending(promise_state_handle.clone()),
         }
     }
 }
@@ -598,7 +600,7 @@ impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestValue {
     fn capture_copy(&self) -> Self {
         match self {
             Self::Ready(value) => Self::Ready(value.capture_copy()),
-            Self::Pending(promise_state_id) => Self::Pending(*promise_state_id),
+            Self::Pending(promise_state_handle) => Self::Pending(promise_state_handle.clone()),
         }
     }
 }

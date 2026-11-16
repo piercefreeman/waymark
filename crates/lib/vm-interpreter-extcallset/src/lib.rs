@@ -69,12 +69,13 @@ where
     Value: waymark_vm_runtime_core::Suspendable,
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
 {
-    let promise_state_id = state.promise_states.prepare();
+    let promise_state_handle = state.promise_states.prepare();
+    let promise_state_id = promise_state_handle.id();
     waymark_vm_runtime_core::Continuation::immediate_resume(
         &mut frame,
         resume,
         dst,
-        Value::from_pending(promise_state_id),
+        Value::from_pending(promise_state_handle),
     );
     state.ready.push_front(frame);
     promise_state_id

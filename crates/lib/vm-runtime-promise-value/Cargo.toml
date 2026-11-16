@@ -20,4 +20,8 @@ thiserror = { workspace = true }
 [features]
 default = []
 
-serde = ["dep:serde", "waymark-vm-runtime-promise-core/serde"]
+serde = [
+  "dep:serde",
+  "waymark-vm-runtime-core/serde",
+  "waymark-vm-runtime-promise-core/serde",
+]
