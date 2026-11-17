@@ -168,7 +168,7 @@ where
     Value: waymark_vm_runtime_promise_core::TracePromiseStateIds,
     Value: Clone + Send + 'static,
     Value: serde::Serialize,
-    Value: waymark_vm_runtime_promise_core::Resolvable,
+    Value: waymark_vm_runtime_core::Promisable,
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
     RaisedException: Clone + Send + 'static,
     RaisedException: serde::Serialize + core::fmt::Debug,

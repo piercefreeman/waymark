@@ -11,8 +11,8 @@ pub mod step;
 use std::collections::VecDeque;
 
 use waymark_vm_runtime_core::{
-    ExceptionHandlers, Frame, FrameKind, PromiseStates, Registers, RuntimeState, SelectStates,
-    SettlePromiseError,
+    ExceptionHandlers, Frame, FrameKind, PromisableExt as _, PromiseStates, Registers,
+    RuntimeState, SelectStates, SettlePromiseError,
 };
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
@@ -211,7 +211,7 @@ impl<Executable, Interpreter, Value, RaisedException>
     Runtime<Executable, Interpreter, Value, RaisedException>
 where
     Executable: waymark_vm_executable::FunctionStates,
-    Value: waymark_vm_runtime_promise_core::Resolvable,
+    Value: waymark_vm_runtime_core::Promisable,
     Value: Clone,
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
     RaisedException: Clone,
@@ -228,7 +228,7 @@ where
             .resolve_promise(promise_state_id, Value::from_ready(value))
             .map_err(|error| {
                 error.map(|new_value| {
-                    let Ok(new_value) = new_value.into_ready() else {
+                    let Ok(new_value) = new_value.require_ready() else {
                         // We've wrapped this value with `Value::from_ready`
                         // ourselves just a couple lines above.
                         // It is guaranteed to be resolved here.

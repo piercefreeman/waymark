@@ -1,7 +1,5 @@
-//! Core traits and type for promises support at runtime.
-//!
-//! Provides abstraction layer necessary to generalize the promise-capable
-//! value types.
+//! The promise state id, and the error of a pending value used where a
+//! ready one is required.
 
 #![warn(missing_docs)]
 
@@ -53,35 +51,25 @@ impl PromiseStateId {
     }
 }
 
-/// A value for a runtime that supports resolving with values.
-pub trait Resolvable {
-    /// A ready value type.
-    type ReadyValue;
-
-    /// Construct a promisable value from a ready value.
-    fn from_ready(value: Self::ReadyValue) -> Self;
-
-    /// Convert the value into a ready value or get an error if the value
-    /// is still pending.
-    fn into_ready(self) -> Result<Self::ReadyValue, (UnresolvedPromiseError, Self)>
-    where
-        Self: Sized;
-
-    /// View the value as mutable ready value or get an error if the value
-    /// is still pending.
-    fn as_ready(&self) -> Result<&Self::ReadyValue, UnresolvedPromiseError>;
-
-    /// View the value as mutable ready value or get an error if the value
-    /// is still pending.
-    fn as_ready_mut(&mut self) -> Result<&mut Self::ReadyValue, UnresolvedPromiseError>;
-}
-
 /// A resolved promise was required but the actual value was pending.
+///
+/// Carries what the pending value holds: a borrow of it, the value's own
+/// part, or what an error that outlives the value keeps of it.
 #[derive(Debug, thiserror::Error)]
 #[error("an unresolved async value is used where a resolved value is expected")]
-pub struct UnresolvedPromiseError {
-    /// The ID of the promise state.
-    ///
-    /// For reconstructing the promise back if needed.
-    pub promise_state_id: PromiseStateId,
+pub struct UnresolvedPromiseError<Pending> {
+    /// What the pending value holds.
+    pub pending: Pending,
+}
+
+impl<Pending> UnresolvedPromiseError<Pending> {
+    /// The same error, carrying `f` applied to what it carries.
+    pub fn map<OtherPending>(
+        self,
+        f: impl FnOnce(Pending) -> OtherPending,
+    ) -> UnresolvedPromiseError<OtherPending> {
+        UnresolvedPromiseError {
+            pending: f(self.pending),
+        }
+    }
 }

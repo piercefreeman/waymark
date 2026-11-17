@@ -98,8 +98,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::with_register_values;
-    use waymark_vm_runtime_core::{RegisterId, Registers};
-    use waymark_vm_runtime_promise_core::{PromiseStateId, Resolvable as _};
+    use waymark_vm_runtime_core::{PromisableExt as _, RegisterId, Registers};
+    use waymark_vm_runtime_promise_core::PromiseStateId;
     use waymark_vm_runtime_promise_value::PromiseValue;
 
     #[derive(Debug)]
@@ -127,12 +127,13 @@ mod tests {
                 let value = registers
                     .get(register)
                     .ok_or(TestError::MissingListItem { item_pos, register })?;
-                let value = value
-                    .as_ready()
-                    .map_err(|source| TestError::UnresolvedListItem {
-                        item_pos,
-                        promise_state_id: source.promise_state_id,
-                    })?;
+                let value =
+                    value
+                        .require_ready_ref()
+                        .map_err(|source| TestError::UnresolvedListItem {
+                            item_pos,
+                            promise_state_id: source.pending.id(),
+                        })?;
 
                 Ok::<_, TestError>(*value)
             },
@@ -160,12 +161,13 @@ mod tests {
                 let value = registers
                     .get(register)
                     .ok_or(TestError::MissingListItem { item_pos, register })?;
-                let value = value
-                    .as_ready()
-                    .map_err(|source| TestError::UnresolvedListItem {
-                        item_pos,
-                        promise_state_id: source.promise_state_id,
-                    })?;
+                let value =
+                    value
+                        .require_ready_ref()
+                        .map_err(|source| TestError::UnresolvedListItem {
+                            item_pos,
+                            promise_state_id: source.pending.id(),
+                        })?;
 
                 Ok::<_, TestError>(*value)
             },
@@ -196,12 +198,13 @@ mod tests {
                 let value = registers
                     .get(register)
                     .ok_or(TestError::MissingListItem { item_pos, register })?;
-                let value = value
-                    .as_ready()
-                    .map_err(|source| TestError::UnresolvedListItem {
-                        item_pos,
-                        promise_state_id: source.promise_state_id,
-                    })?;
+                let value =
+                    value
+                        .require_ready_ref()
+                        .map_err(|source| TestError::UnresolvedListItem {
+                            item_pos,
+                            promise_state_id: source.pending.id(),
+                        })?;
 
                 Ok::<_, TestError>(*value)
             },

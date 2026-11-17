@@ -6281,7 +6281,6 @@ dependencies = [
  "serde",
  "thiserror",
  "waymark-atomic-owners-counter",
- "waymark-blanket-impl-macros",
  "waymark-id-map",
  "waymark-typed-vec-serde",
  "waymark-vm-exception-handler",

@@ -37,7 +37,7 @@ pub trait HooksFor<Interpreter, Value, RaisedException, Effector, Persister, Cod
     >
 where
     Interpreter: waymark_vm_interpreter::Interpreter,
-    Value: waymark_vm_runtime_promise_core::Resolvable,
+    Value: waymark_vm_runtime_core::Promisable,
     Effector: waymark_vm_driver_core::EffectHandler + waymark_vm_driver_core::PromiseSettler,
     Persister: waymark_vm_driver_core::SnapshotPersister,
     Codec: waymark_vm_codec_core::SerializerProvider,
@@ -56,7 +56,7 @@ where
             Error = crate::ErrorFor<Interpreter, Codec, Persister, Effector>,
         >,
     Interpreter: waymark_vm_interpreter::Interpreter,
-    Value: waymark_vm_runtime_promise_core::Resolvable,
+    Value: waymark_vm_runtime_core::Promisable,
     Effector: waymark_vm_driver_core::EffectHandler + waymark_vm_driver_core::PromiseSettler,
     Persister: waymark_vm_driver_core::SnapshotPersister,
     Codec: waymark_vm_codec_core::SerializerProvider,

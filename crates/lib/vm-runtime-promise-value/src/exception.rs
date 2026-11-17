@@ -1,6 +1,6 @@
 //! [`waymark_vm_runtime_exception`] trait implementations.
 
-use waymark_vm_runtime_promise_core::UnresolvedPromiseError;
+use waymark_vm_runtime_promise_core::{PromiseStateId, UnresolvedPromiseError};
 
 use crate::PromiseValue;
 
@@ -9,7 +9,7 @@ use crate::PromiseValue;
 pub enum ValueToRaisedExceptionError<ReadyValueError> {
     /// A pending promise is not an exception.
     #[error("a pending promise cannot be raised: {0}")]
-    Pending(#[source] UnresolvedPromiseError),
+    Pending(#[source] UnresolvedPromiseError<PromiseStateId>),
 
     /// The ready value cannot be raised.
     #[error("ready value: {0}")]
@@ -30,7 +30,7 @@ where
                 .map_err(ValueToRaisedExceptionError::Ready),
             Self::Pending(promise_state_handle) => Err(ValueToRaisedExceptionError::Pending(
                 UnresolvedPromiseError {
-                    promise_state_id: promise_state_handle.id(),
+                    pending: promise_state_handle.id(),
                 },
             )),
         }
