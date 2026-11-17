@@ -2,6 +2,7 @@ from base64 import b64encode
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from enum import Enum, IntEnum
 from pathlib import Path
 from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple, Union
 from uuid import UUID
@@ -24,6 +25,21 @@ DECIMAL_VALUE = Decimal("123.456789012345678901234567890")
 BINARY_PAYLOAD = b"hello world"
 BINARY_PAYLOAD_B64 = b64encode(BINARY_PAYLOAD).decode("ascii")
 BIN_PATH = Path("/usr/local/bin")
+
+
+class Color(Enum):
+    RED = "red"
+    GREEN = "green"
+
+
+class Priority(IntEnum):
+    LOW = 1
+    HIGH = 2
+
+
+class Region(str, Enum):
+    US = "us"
+    EU = "eu"
 
 
 @dataclass
@@ -165,6 +181,13 @@ def test_coerce_dict_to_dataclass_rejects_extra_fields(
         pytest.param(Decimal, str(DECIMAL_VALUE), DECIMAL_VALUE, id="decimal"),
         pytest.param(bytes, BINARY_PAYLOAD_B64, BINARY_PAYLOAD, id="bytes"),
         pytest.param(Path, str(BIN_PATH), BIN_PATH, id="path"),
+        pytest.param(Color, "red", Color.RED, id="enum"),
+        pytest.param(Color, Color.GREEN, Color.GREEN, id="enum-member"),
+        pytest.param(Priority, 2, Priority.HIGH, id="int-enum"),
+        pytest.param(Region, "eu", Region.EU, id="str-enum"),
+        pytest.param(list[Color], ["red", "green"], [Color.RED, Color.GREEN], id="enum-list"),
+        pytest.param(Color | None, "green", Color.GREEN, id="optional-enum"),
+        pytest.param(dict[str, Region], {"a": "us"}, {"a": Region.US}, id="enum-dict-values"),
     ],
 )
 def test_coerce_value_primitives(annotation: Any, payload: Any, expected: Any) -> None:
@@ -322,3 +345,8 @@ def test_coerce_value_union_annotation_variants(
     annotation = annotation_factory(primary_type, secondary_type)
 
     _assert_coerced_value(annotation, payload, expected)
+
+
+def test_coerce_value_enum_rejects_unknown_value() -> None:
+    with pytest.raises(ValueError):
+        coerce_value("blue", Color)

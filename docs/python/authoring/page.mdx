@@ -88,7 +88,8 @@ At runtime, the worker also uses those annotations to restore incoming values:
 - Dataclasses are rebuilt field by field; containers are coerced element by
   element.
 - Types such as `datetime`, `UUID`, `Decimal`, and `bytes` are restored from
-  their serialized form.
+  their serialized form, and an enum annotation turns the serialized value
+  back into the enum member.
 - An argument without an annotation is passed through as received.
 
 Workflow `run()` inputs are bound to the `run()` signature when you
