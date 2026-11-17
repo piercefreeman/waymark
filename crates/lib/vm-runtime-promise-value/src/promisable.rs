@@ -56,9 +56,9 @@ mod tests {
             .expect_err("pending promise should fail by reference");
         assert_eq!(err.promise_state_id, PromiseStateId::from_raw(3));
 
-        let promise = PromiseValue::<String>::from_pending(PromiseStateId::from_raw(5));
+        let mut promise = PromiseValue::<String>::from_pending(PromiseStateId::from_raw(5));
         let err = promise
-            .as_ready()
+            .as_ready_mut()
             .expect_err("pending promise should fail by mutable reference");
         assert_eq!(err.promise_state_id, PromiseStateId::from_raw(5));
     }
