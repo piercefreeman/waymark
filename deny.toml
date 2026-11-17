@@ -1,5 +1,12 @@
 [advisories]
-ignore = []
+
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0543"
+reason = "chrono is unmaintained with no successor release; a move to jiff or time is not planned yet"
+
+[[advisories.ignore]]
+id = "RUSTSEC-2026-0542"
+reason = "humantime is flagged only for wrapping chrono; it comes in via console-subscriber"
 
 [licenses]
 allow = ["Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "BSL-1.0", "ISC", "MIT", "MPL-2.0", "Unicode-3.0", "Zlib"]
