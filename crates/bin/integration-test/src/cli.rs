@@ -50,12 +50,14 @@ pub fn parse_modes(raw: &str) -> Result<Vec<ExecutionMode>, color_eyre::eyre::Re
         match trimmed {
             "transient" => parsed.push(ExecutionMode::Transient),
             "durable" => parsed.push(ExecutionMode::Durable),
-            other => bail!("unsupported execution mode '{other}'"),
+            other => {
+                bail!("unsupported execution mode '{other}'");
+            }
         }
     }
 
     if parsed.is_empty() {
-        bail!("no execution modes requested")
+        bail!("no execution modes requested");
     }
 
     Ok(parsed)

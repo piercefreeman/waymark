@@ -229,6 +229,14 @@ impl Handle {
 }
 
 impl ShutdownParams {
+    // `allow`, not `expect`: whether the error crosses the lint's size
+    // threshold depends on the size of tokio's `Child`, which differs by
+    // target and by the tokio features a build unifies in, and which is not
+    // measured on every supported target.
+    #[allow(
+        clippy::result_large_err,
+        reason = "the managed process hands the `Child` back on its error by design"
+    )]
     async fn shutdown_child_process(
         &self,
         child: waymark_managed_process::Child,
