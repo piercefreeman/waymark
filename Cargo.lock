@@ -5527,7 +5527,6 @@ dependencies = [
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-exception",
- "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-view-capture",
 ]
 
@@ -6281,7 +6280,6 @@ dependencies = [
  "serde",
  "thiserror",
  "waymark-atomic-owners-counter",
- "waymark-blanket-impl-macros",
  "waymark-id-map",
  "waymark-typed-vec-serde",
  "waymark-vm-exception-handler",

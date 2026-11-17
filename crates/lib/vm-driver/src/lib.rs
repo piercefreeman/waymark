@@ -145,7 +145,7 @@ where
                 >,
             >,
     Value: Clone + 'static + serde::Serialize,
-    Value: waymark_vm_runtime_promise_core::Resolvable,
+    Value: waymark_vm_runtime_core::Promisable,
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
     RaisedException: Clone + 'static,
     RaisedException: serde::Serialize,

@@ -66,7 +66,7 @@ fn suspend_frame<FunctionId, StateId, Value, RaisedException>(
     resume: StateId,
 ) -> PromiseStateId
 where
-    Value: waymark_vm_runtime_core::Suspendable,
+    Value: waymark_vm_runtime_core::Promisable,
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
 {
     let promise_state_handle = state.promise_states.prepare();

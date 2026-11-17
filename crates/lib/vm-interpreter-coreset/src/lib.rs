@@ -8,8 +8,8 @@ pub mod value;
 use derive_where::derive_where;
 use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_runtime_core::{
-    Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, Registers, RuntimeState,
-    SettledPromiseState,
+    Continuation, ExceptionHandlers, Frame, FrameKind, PromisableExt as _, PromiseState, Registers,
+    RuntimeState, SettledPromiseState,
 };
 
 pub use self::error::*;
@@ -57,8 +57,7 @@ where
     Spec::StateId: Copy + Default,
     Value: self::Value,
     Value: Clone,
-    Value: waymark_vm_runtime_core::Suspendable,
-    Value: waymark_vm_runtime_promise_core::Resolvable,
+    Value: waymark_vm_runtime_core::Promisable,
     Value::ReadyValue: Clone,
     Value: 'static,
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
@@ -120,10 +119,9 @@ where
             }
             waymark_vm_instructions_coreset::CoreSet::Await { dst, src, resume } => {
                 let value = &frame.regs[*src];
-                match value.as_ready() {
-                    Err(waymark_vm_runtime_promise_core::UnresolvedPromiseError {
-                        promise_state_id,
-                    }) => {
+                match value.require_ready_ref() {
+                    Err(waymark_vm_runtime_promise_core::UnresolvedPromiseError { pending }) => {
+                        let promise_state_id = pending.id();
                         let promise_state = state
                             .promise_states
                             .get_mut(promise_state_id)
@@ -174,7 +172,7 @@ where
                 // sources meanwhile.
                 let mut pending = Vec::with_capacity(arms.len());
                 for arm in arms {
-                    let promise_state_id = match frame.regs[arm.src].as_ready() {
+                    let promise_state_id = match frame.regs[arm.src].require_ready_ref() {
                         Ok(value) => {
                             // A ready source wins the scan outright.
                             let value = Value::from_ready(value.clone());
@@ -183,8 +181,8 @@ where
                             return Ok(ExecutionOutcome::Continue(frame));
                         }
                         Err(waymark_vm_runtime_promise_core::UnresolvedPromiseError {
-                            promise_state_id,
-                        }) => promise_state_id,
+                            pending,
+                        }) => pending.id(),
                     };
                     let promise_state = state
                         .promise_states
@@ -275,8 +273,12 @@ where
                     }
                     FrameKind::TopLevel => {
                         let val = val
-                            .into_ready()
-                            .map_err(|(error, _)| FnExitError::TopLevel(error))
+                            .require_ready()
+                            .map_err(|error| {
+                                FnExitError::TopLevel(
+                                    error.map(|promise_state_handle| promise_state_handle.id()),
+                                )
+                            })
                             .map_err(Error::Return)?;
                         ExecutionOutcome::ExitFrameWithEffect(Effect::Complete(val))
                     }

@@ -6,6 +6,7 @@ mod continuation;
 mod frame;
 mod frame_exception_handlers;
 mod full_runtime_view;
+mod promisable;
 mod promise_state;
 mod promise_state_handle;
 #[cfg(feature = "serde")]
@@ -15,12 +16,12 @@ mod promise_waiter;
 mod registers;
 mod runtime_state;
 mod select_states;
-mod suspendable;
 
 pub use self::continuation::*;
 pub use self::frame::*;
 pub use self::frame_exception_handlers::*;
 pub use self::full_runtime_view::*;
+pub use self::promisable::*;
 pub use self::promise_state::*;
 pub use self::promise_state_handle::*;
 pub use self::promise_states::*;
@@ -28,7 +29,6 @@ pub use self::promise_waiter::*;
 pub use self::registers::*;
 pub use self::runtime_state::*;
 pub use self::select_states::*;
-pub use self::suspendable::*;
 
 #[cfg(test)]
 pub(crate) mod test_helpers;

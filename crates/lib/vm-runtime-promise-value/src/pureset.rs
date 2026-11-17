@@ -1,5 +1,7 @@
 //! [`waymark_vm_interpreter_pureset`] trait implementations.
 
+use waymark_vm_runtime_core::PromisableExt as _;
+
 use crate::PromiseValue;
 
 impl<T> waymark_vm_interpreter_pureset::value::CaptureCopy for PromiseValue<T>
