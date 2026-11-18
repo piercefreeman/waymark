@@ -156,13 +156,13 @@ mod tests {
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    enum TestReadyValue {
+    enum TestMaterialValue {
         Int(i32),
     }
 
-    type TestValue = PromiseValue<TestReadyValue>;
+    type TestValue = PromiseValue<TestMaterialValue>;
 
-    impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
+    impl waymark_vm_runtime_value::RootValueAccess for TestMaterialValue {
         type RootValue = TestValue;
     }
 
@@ -214,14 +214,14 @@ mod tests {
         runtime
             .resolve_promise(
                 promise_state_id,
-                PromiseValue::Ready(TestReadyValue::Int(41)),
+                PromiseValue::Ready(TestMaterialValue::Int(41)),
             )
             .expect("waiting promise should resolve");
 
         assert_eq!(runtime.ready.len(), 2);
 
         let PromiseState::Settled(SettledPromiseState::Resolved(PromiseValue::Ready(
-            TestReadyValue::Int(value),
+            TestMaterialValue::Int(value),
         ))) = runtime
             .promise_states
             .get(promise_state_id)
@@ -233,7 +233,8 @@ mod tests {
 
         let first = runtime.ready.pop_front().expect("first resumed frame");
         assert_eq!(first.state, 3);
-        let Some(PromiseValue::Ready(TestReadyValue::Int(value))) = first.regs.get(RegisterId(0))
+        let Some(PromiseValue::Ready(TestMaterialValue::Int(value))) =
+            first.regs.get(RegisterId(0))
         else {
             panic!("first resumed frame should receive the resolved value");
         };
@@ -241,7 +242,8 @@ mod tests {
 
         let second = runtime.ready.pop_front().expect("second resumed frame");
         assert_eq!(second.state, 5);
-        let Some(PromiseValue::Ready(TestReadyValue::Int(value))) = second.regs.get(RegisterId(1))
+        let Some(PromiseValue::Ready(TestMaterialValue::Int(value))) =
+            second.regs.get(RegisterId(1))
         else {
             panic!("second resumed frame should receive the resolved value");
         };
@@ -256,7 +258,7 @@ mod tests {
             .get_mut(promise_state_id)
             .expect("promise state exists");
         *promise_state = PromiseState::Settled(SettledPromiseState::Resolved(PromiseValue::Ready(
-            TestReadyValue::Int(7),
+            TestMaterialValue::Int(7),
         )));
 
         let mut runtime = runtime_state(promise_states);
@@ -264,7 +266,7 @@ mod tests {
         let err = runtime
             .resolve_promise(
                 promise_state_id,
-                PromiseValue::Ready(TestReadyValue::Int(9)),
+                PromiseValue::Ready(TestMaterialValue::Int(9)),
             )
             .expect_err("already settled promise should reject a second value");
 
@@ -272,14 +274,14 @@ mod tests {
             panic!("duplicate resolution should surface an already-settled error");
         };
 
-        let PromiseValue::Ready(TestReadyValue::Int(value)) = err.new_value else {
+        let PromiseValue::Ready(TestMaterialValue::Int(value)) = err.new_value else {
             panic!("rejected value should be returned to the caller");
         };
         assert_eq!(value, 9);
         assert!(runtime.ready.is_empty());
 
         let PromiseState::Settled(SettledPromiseState::Resolved(PromiseValue::Ready(
-            TestReadyValue::Int(value),
+            TestMaterialValue::Int(value),
         ))) = runtime
             .promise_states
             .get(promise_state_id)
@@ -338,14 +340,14 @@ mod tests {
         runtime.select_states = select_states;
 
         runtime
-            .resolve_promise(source, PromiseValue::Ready(TestReadyValue::Int(41)))
+            .resolve_promise(source, PromiseValue::Ready(TestMaterialValue::Int(41)))
             .expect("source promise should resolve");
 
         let resumed = runtime.ready.pop_front().expect("claimed frame is resumed");
         assert_eq!(resumed.state, 7);
         assert_eq!(
             resumed.regs.get(RegisterId(1)),
-            Some(&PromiseValue::Ready(TestReadyValue::Int(41)))
+            Some(&PromiseValue::Ready(TestMaterialValue::Int(41)))
         );
         assert!(resumed.exception.is_none());
     }
@@ -400,7 +402,10 @@ mod tests {
         runtime.select_states = select_states;
 
         runtime
-            .resolve_promise(winner_source, PromiseValue::Ready(TestReadyValue::Int(1)))
+            .resolve_promise(
+                winner_source,
+                PromiseValue::Ready(TestMaterialValue::Int(1)),
+            )
             .expect("winner source should resolve");
 
         let claimed = runtime.ready.pop_front().expect("claimed frame is resumed");
@@ -410,7 +415,7 @@ mod tests {
         // The loser arm finds the select already claimed and is inert;
         // the source's other waiters are still notified.
         runtime
-            .resolve_promise(loser_source, PromiseValue::Ready(TestReadyValue::Int(2)))
+            .resolve_promise(loser_source, PromiseValue::Ready(TestMaterialValue::Int(2)))
             .expect("loser source should resolve");
 
         let resumed = runtime.ready.pop_front().expect("plain waiter is resumed");

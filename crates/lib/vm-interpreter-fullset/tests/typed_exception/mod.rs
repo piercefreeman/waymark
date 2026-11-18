@@ -13,7 +13,7 @@ use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_test::{StateId, executable, function};
 
 use crate::support::{
-    Instruction, TestConstValue, TestException, TestExceptionPattern, TestReadyValue, TestValue,
+    Instruction, TestConstValue, TestException, TestExceptionPattern, TestMaterialValue, TestValue,
     new_runtime,
 };
 
@@ -52,7 +52,7 @@ fn raising_prologue() -> Vec<Instruction> {
 fn expected_exception() -> TestException {
     TestException {
         type_id: "TypeError".to_owned(),
-        details: TestValue::Ready(TestReadyValue::Text(
+        details: TestValue::Ready(TestMaterialValue::Text(
             "+ is not supported for these operands".to_owned(),
         )),
     }
@@ -90,7 +90,7 @@ fn raised_typed_exceptions_unwind_into_matching_handlers() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             assert_eq!(
                 value,
-                TestReadyValue::Exception(Box::new(expected_exception()))
+                TestMaterialValue::Exception(Box::new(expected_exception()))
             );
         }
         effect => {
@@ -153,7 +153,7 @@ fn typed_exceptions_raised_in_called_functions_are_caught_by_local_handlers() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             assert_eq!(
                 value,
-                TestReadyValue::Exception(Box::new(expected_exception()))
+                TestMaterialValue::Exception(Box::new(expected_exception()))
             );
         }
         effect => {
@@ -210,7 +210,7 @@ fn typed_exceptions_raised_in_called_functions_propagate_to_caller_handlers() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             assert_eq!(
                 value,
-                TestReadyValue::Exception(Box::new(expected_exception()))
+                TestMaterialValue::Exception(Box::new(expected_exception()))
             );
         }
         effect => {

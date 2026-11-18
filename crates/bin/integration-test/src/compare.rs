@@ -88,13 +88,13 @@ fn mismatch(
 
 fn compare_values(
     path: Path<'_>,
-    expected: &waymark_system_vm::ReadyValue,
-    actual: &waymark_system_vm::ReadyValue,
+    expected: &waymark_system_vm::MaterialValue,
+    actual: &waymark_system_vm::MaterialValue,
 ) -> Result<(), String> {
-    use waymark_system_vm::ReadyValue;
+    use waymark_system_vm::MaterialValue;
 
     match (expected, actual) {
-        (ReadyValue::List(expected_items), ReadyValue::List(actual_items)) => {
+        (MaterialValue::List(expected_items), MaterialValue::List(actual_items)) => {
             if expected_items.len() != actual_items.len() {
                 return Err(mismatch(
                     path,
@@ -111,7 +111,7 @@ fn compare_values(
             }
             Ok(())
         }
-        (ReadyValue::Dict(expected_entries), ReadyValue::Dict(actual_entries)) => {
+        (MaterialValue::Dict(expected_entries), MaterialValue::Dict(actual_entries)) => {
             let expected_keys: Vec<&str> = expected_entries.keys().map(String::as_str).collect();
             let actual_keys: Vec<&str> = actual_entries.keys().map(String::as_str).collect();
             // Insertion order is part of a dict's value, so the keys are
@@ -128,7 +128,7 @@ fn compare_values(
             }
             Ok(())
         }
-        (ReadyValue::Exception(expected), ReadyValue::Exception(actual)) => {
+        (MaterialValue::Exception(expected), MaterialValue::Exception(actual)) => {
             compare_exception_values(path, expected, actual)
         }
         (expected, actual) if expected == actual => Ok(()),

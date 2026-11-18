@@ -10,23 +10,27 @@ use waymark_vm_interpreter_pureset::value::{
     LengthError, MakeDictError, UnaryOperationError,
 };
 
-use crate::{Flavor, ReadyValue, ReadyValue as RV, Value, pythonic};
+use crate::{Flavor, MaterialValue, Value, pythonic};
 
 fn contains_bool<Flavor: self::Flavor>(
-    a: &ReadyValue<Flavor>,
-    b: &ReadyValue<Flavor>,
+    a: &MaterialValue<Flavor>,
+    b: &MaterialValue<Flavor>,
 ) -> Result<bool, BinaryOperationError>
 where
     Flavor::Extension: PartialEq,
     Flavor::ExceptionValue: PartialEq,
 {
     match (a, b) {
-        (ReadyValue::String(needle), ReadyValue::String(haystack)) => Ok(haystack.contains(needle)),
-        (value, ReadyValue::List(items)) => Ok(items
+        (MaterialValue::String(needle), MaterialValue::String(haystack)) => {
+            Ok(haystack.contains(needle))
+        }
+        (value, MaterialValue::List(items)) => Ok(items
             .iter()
             .any(|item| matches!(item, Value::Ready(item) if item == value))),
-        (ReadyValue::String(needle), ReadyValue::Dict(entries)) => Ok(entries.contains_key(needle)),
-        (_, ReadyValue::Dict(_)) => Ok(false),
+        (MaterialValue::String(needle), MaterialValue::Dict(entries)) => {
+            Ok(entries.contains_key(needle))
+        }
+        (_, MaterialValue::Dict(_)) => Ok(false),
         _ => Err(BinaryOperationError::UnsupportedOperation {
             operation: BinaryOperationKind::In,
         }),
@@ -46,26 +50,26 @@ where
 }
 
 fn normalized_index<Flavor: self::Flavor>(
-    index: &ReadyValue<Flavor>,
+    index: &MaterialValue<Flavor>,
     len: usize,
 ) -> Result<usize, IndexOperationError> {
     match index {
-        ReadyValue::Int(index) => {
+        MaterialValue::Int(index) => {
             pythonic::normalized_index(*index, len).ok_or(IndexOperationError::IndexOutOfBounds)
         }
-        ReadyValue::Float(_)
-        | ReadyValue::Bool(_)
-        | ReadyValue::String(_)
-        | ReadyValue::None
-        | ReadyValue::List(_)
-        | RV::Dict(_)
-        | RV::Exception(_)
-        | RV::Extension(_) => Err(IndexOperationError::UnsupportedOperation),
+        MaterialValue::Float(_)
+        | MaterialValue::Bool(_)
+        | MaterialValue::String(_)
+        | MaterialValue::None
+        | MaterialValue::List(_)
+        | MaterialValue::Dict(_)
+        | MaterialValue::Exception(_)
+        | MaterialValue::Extension(_) => Err(IndexOperationError::UnsupportedOperation),
     }
 }
 
 impl<Flavor: self::Flavor, ConstValue> waymark_vm_interpreter_pureset::value::LoadConst<ConstValue>
-    for ReadyValue<Flavor>
+    for MaterialValue<Flavor>
 where
     Self: From<ConstValue>,
 {
@@ -74,7 +78,8 @@ where
     }
 }
 
-impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::CaptureCopy for ReadyValue<Flavor>
+impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::CaptureCopy
+    for MaterialValue<Flavor>
 where
     Flavor::Extension: Clone,
     Flavor::ExceptionValue: Clone,
@@ -84,7 +89,8 @@ where
     }
 }
 
-impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::BinaryOps for ReadyValue<Flavor>
+impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::BinaryOps
+    for MaterialValue<Flavor>
 where
     Flavor::Extension: Clone + PartialEq,
     Flavor::ExceptionValue: Clone + PartialEq,
@@ -312,7 +318,9 @@ where
     }
 }
 
-impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::UnaryOps for ReadyValue<Flavor> {
+impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::UnaryOps
+    for MaterialValue<Flavor>
+{
     fn neg(value: &Self) -> Result<Self, UnaryOperationError> {
         match value {
             Self::Int(value) => {
@@ -335,7 +343,9 @@ impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::UnaryOps for R
     }
 }
 
-impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::MakeList for ReadyValue<Flavor> {
+impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::MakeList
+    for MaterialValue<Flavor>
+{
     fn make_list<I>(items: I) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeListError>
     where
         I: IntoIterator<Item = Self::RootValue>,
@@ -344,7 +354,8 @@ impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::MakeList for R
     }
 }
 
-impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::ListAppend for ReadyValue<Flavor>
+impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::ListAppend
+    for MaterialValue<Flavor>
 where
     Flavor::Extension: Clone,
     Flavor::ExceptionValue: Clone,
@@ -363,7 +374,9 @@ where
     }
 }
 
-impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::AsDictKey for ReadyValue<Flavor> {
+impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::AsDictKey
+    for MaterialValue<Flavor>
+{
     fn as_dict_key(&self) -> Result<&str, AsDictKeyError> {
         match self {
             Self::String(value) => Ok(value),
@@ -379,7 +392,9 @@ impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::AsDictKey for 
     }
 }
 
-impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::MakeDict for ReadyValue<Flavor> {
+impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::MakeDict
+    for MaterialValue<Flavor>
+{
     fn make_dict<I>(entries: I) -> Result<Self, MakeDictError>
     where
         I: IntoIterator<Item = (String, Self::RootValue)>,
@@ -394,7 +409,7 @@ impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::MakeDict for R
     }
 }
 
-impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::Length for ReadyValue<Flavor> {
+impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::Length for MaterialValue<Flavor> {
     type Length = usize;
 
     fn length(&self) -> Result<Self::Length, LengthError> {
@@ -417,7 +432,7 @@ impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::Length for Rea
     }
 }
 
-impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::IndexOp for ReadyValue<Flavor>
+impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::IndexOp for MaterialValue<Flavor>
 where
     Flavor::Extension: Clone,
     Flavor::ExceptionValue: Clone,
@@ -460,7 +475,7 @@ where
     }
 }
 
-impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::DotOp for ReadyValue<Flavor>
+impl<Flavor: self::Flavor> waymark_vm_interpreter_pureset::value::DotOp for MaterialValue<Flavor>
 where
     Flavor::Extension: Clone,
     Flavor::ExceptionValue: Clone,

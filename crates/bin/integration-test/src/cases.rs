@@ -25,22 +25,22 @@ pub enum Kwarg {
 
 impl Kwarg {
     /// The VM value this argument denotes.
-    pub fn value(&self) -> waymark_system_vm::ReadyValue {
-        use waymark_system_vm::{ReadyValue, Value};
+    pub fn value(&self) -> waymark_system_vm::MaterialValue {
+        use waymark_system_vm::{MaterialValue, Value};
 
         match self {
-            Self::Int(value) => ReadyValue::Int(*value),
-            Self::Str(value) => ReadyValue::String((*value).to_owned()),
-            Self::Ints(values) => ReadyValue::List(
+            Self::Int(value) => MaterialValue::Int(*value),
+            Self::Str(value) => MaterialValue::String((*value).to_owned()),
+            Self::Ints(values) => MaterialValue::List(
                 values
                     .iter()
-                    .map(|value| Value::Ready(ReadyValue::Int(*value)))
+                    .map(|value| Value::Ready(MaterialValue::Int(*value)))
                     .collect(),
             ),
-            Self::Strs(values) => ReadyValue::List(
+            Self::Strs(values) => MaterialValue::List(
                 values
                     .iter()
-                    .map(|value| Value::Ready(ReadyValue::String((*value).to_owned())))
+                    .map(|value| Value::Ready(MaterialValue::String((*value).to_owned())))
                     .collect(),
             ),
         }

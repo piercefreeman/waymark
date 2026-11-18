@@ -11,7 +11,7 @@ type Converter = waymark_workflow_initialization_convert_proto::Converter<
 fn int_arg(key: &str, value: i64) -> waymark_proto::python_value::WorkflowArgument {
     let value: waymark_proto::python_value::Value =
         waymark_vm_value_python_convert_proto::Converter::try_convert(
-            &waymark_vm_value_python::ReadyValue::Int(value),
+            &waymark_vm_value_python::MaterialValue::Int(value),
         )
         .expect("an integer holds no pending promise");
 
@@ -26,7 +26,7 @@ fn encoded(arguments: Vec<waymark_proto::python_value::WorkflowArgument>) -> Vec
 }
 
 fn ready_int(value: i64) -> waymark_vm_value_python::Value {
-    waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::Int(value))
+    waymark_vm_value_python::Value::Ready(waymark_vm_value_python::MaterialValue::Int(value))
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn an_argument_matching_no_input_is_refused() {
 fn an_explicit_none_reaches_its_input() {
     let none: waymark_proto::python_value::Value =
         waymark_vm_value_python_convert_proto::Converter::try_convert(
-            &waymark_vm_value_python::ReadyValue::None,
+            &waymark_vm_value_python::MaterialValue::None,
         )
         .expect("None holds no pending promise");
     let payload = encoded(vec![waymark_proto::python_value::WorkflowArgument {
@@ -95,7 +95,7 @@ fn an_explicit_none_reaches_its_input() {
     assert_eq!(
         call_spec.args,
         vec![waymark_vm_value_python::Value::Ready(
-            waymark_vm_value_python::ReadyValue::None
+            waymark_vm_value_python::MaterialValue::None
         )],
     );
 }

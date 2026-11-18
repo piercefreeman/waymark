@@ -157,13 +157,13 @@ mod tests {
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
-    enum TestReadyValue {
+    enum TestMaterialValue {
         Int(i32),
     }
 
-    type TestValue = PromiseValue<TestReadyValue>;
+    type TestValue = PromiseValue<TestMaterialValue>;
 
-    impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
+    impl waymark_vm_runtime_value::RootValueAccess for TestMaterialValue {
         type RootValue = TestValue;
     }
 
@@ -191,26 +191,26 @@ mod tests {
             PromiseState::Waiting(vec![PromiseWaiter::Await(continuation(RegisterId(1), 3))]);
 
         let continuations = state
-            .resolve(PromiseValue::Ready(TestReadyValue::Int(17)))
+            .resolve(PromiseValue::Ready(TestMaterialValue::Int(17)))
             .expect("waiting promise should resolve");
 
         assert_eq!(continuations.len(), 1);
         assert!(matches!(
             &state,
             PromiseState::Settled(SettledPromiseState::Resolved(PromiseValue::Ready(
-                TestReadyValue::Int(value)
+                TestMaterialValue::Int(value)
             ))) if *value == 17
         ));
 
         let Some(PromiseWaiter::Await(continuation)) = continuations.into_iter().next() else {
             panic!("continuation waiter is returned");
         };
-        let resumed = continuation.resume(PromiseValue::Ready(TestReadyValue::Int(17)));
+        let resumed = continuation.resume(PromiseValue::Ready(TestMaterialValue::Int(17)));
         assert_eq!(resumed.state, 3);
         assert_eq!(resumed.regs.get(RegisterId(0)), None);
         assert_eq!(
             resumed.regs.get(RegisterId(1)),
-            Some(&PromiseValue::Ready(TestReadyValue::Int(17)))
+            Some(&PromiseValue::Ready(TestMaterialValue::Int(17)))
         );
         assert!(resumed.exception.is_none());
     }
@@ -218,22 +218,22 @@ mod tests {
     #[test]
     fn resolve_settled_promise_returns_error_and_preserves_original_settlement() {
         let mut state = PromiseState::<&'static str, usize, TestValue, TestException>::Settled(
-            SettledPromiseState::Resolved(PromiseValue::Ready(TestReadyValue::Int(5))),
+            SettledPromiseState::Resolved(PromiseValue::Ready(TestMaterialValue::Int(5))),
         );
 
-        let err = match state.resolve(PromiseValue::Ready(TestReadyValue::Int(9))) {
+        let err = match state.resolve(PromiseValue::Ready(TestMaterialValue::Int(9))) {
             Ok(_) => panic!("settled promise should reject a second settlement"),
             Err(err) => err,
         };
 
         assert!(matches!(
             err.new_value,
-            PromiseValue::Ready(TestReadyValue::Int(9))
+            PromiseValue::Ready(TestMaterialValue::Int(9))
         ));
         assert!(matches!(
             &state,
             PromiseState::Settled(SettledPromiseState::Resolved(PromiseValue::Ready(
-                TestReadyValue::Int(value)
+                TestMaterialValue::Int(value)
             ))) if *value == 5
         ));
     }

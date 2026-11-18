@@ -159,7 +159,7 @@ mod tests {
         let (tx, rx) = mpsc::channel(4);
         let mut provider = WorkerStreamActionCallCompletionsProvider::<
             ActionCallCorrelation,
-            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python::MaterialValue,
             waymark_vm_value_python::RaisedException,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >::new(rx);
@@ -187,7 +187,7 @@ mod tests {
         let (tx, rx) = mpsc::channel::<proto::ActionResult>(1);
         let mut provider = WorkerStreamActionCallCompletionsProvider::<
             ActionCallCorrelation,
-            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python::MaterialValue,
             waymark_vm_value_python::RaisedException,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >::new(rx);

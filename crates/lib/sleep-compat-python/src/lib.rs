@@ -4,13 +4,13 @@
 #![warn(missing_docs)]
 
 /// Sleep value provider for the VM value model: sleeps resolve to
-/// [`waymark_vm_value_python::ReadyValue::None`].
-pub struct ReadyValueSleepProvider;
+/// [`waymark_vm_value_python::MaterialValue::None`].
+pub struct MaterialValueSleepProvider;
 
-impl waymark_sleep_core::SleepValueProvider for ReadyValueSleepProvider {
-    type Value = waymark_vm_value_python::ReadyValue;
+impl waymark_sleep_core::SleepValueProvider for MaterialValueSleepProvider {
+    type Value = waymark_vm_value_python::MaterialValue;
 
     fn value() -> Self::Value {
-        waymark_vm_value_python::ReadyValue::None
+        waymark_vm_value_python::MaterialValue::None
     }
 }

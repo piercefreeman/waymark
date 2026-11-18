@@ -4,7 +4,7 @@ use std::time::{Duration, TryFromFloatSecsError};
 
 use waymark_nonzero_duration::{NonZeroDuration, ZeroDurationError};
 
-use crate::ReadyValue;
+use crate::MaterialValue;
 
 /// Errors returned while converting a value into a sleep duration.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -31,7 +31,7 @@ pub enum SleepDurationError {
 }
 
 impl<Flavor: crate::Flavor> waymark_vm_interpreter_extcallset::value::SleepDuration
-    for ReadyValue<Flavor>
+    for MaterialValue<Flavor>
 {
     type Error = SleepDurationError;
 
@@ -61,13 +61,13 @@ impl<Flavor: crate::Flavor> waymark_vm_interpreter_extcallset::value::SleepDurat
 }
 
 impl<Flavor: crate::Flavor> waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument
-    for ReadyValue<Flavor>
+    for MaterialValue<Flavor>
 where
     Flavor::Extension: Clone,
     Flavor::ExceptionValue: Clone,
 {
     type Error = core::convert::Infallible;
-    type ActionCallArgument = ReadyValue<Flavor>;
+    type ActionCallArgument = MaterialValue<Flavor>;
 
     fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
         Ok(self.clone())

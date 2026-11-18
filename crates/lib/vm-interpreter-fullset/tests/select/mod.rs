@@ -9,8 +9,8 @@ use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_test::{StateId, executable, function};
 
 use crate::support::{
-    Instruction, TestActionRef, TestEffect, TestException, TestReadyValue, TestValue, new_runtime,
-    new_runtime_with_args,
+    Instruction, TestActionRef, TestEffect, TestException, TestMaterialValue, TestValue,
+    new_runtime, new_runtime_with_args,
 };
 
 fn action_call_promise_state_id(
@@ -25,7 +25,7 @@ fn action_call_promise_state_id(
     }
 }
 
-fn completed_value(effect: TestEffect) -> TestReadyValue {
+fn completed_value(effect: TestEffect) -> TestMaterialValue {
     match effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => value,
         other => panic!("expected the program to complete: {other:?}"),
@@ -97,18 +97,18 @@ fn select_over_pending_sources_resumes_through_the_first_settled_arm() {
     );
 
     runtime
-        .resolve_promise(second_promise, TestReadyValue::Int(99))
+        .resolve_promise(second_promise, TestMaterialValue::Int(99))
         .expect("second source should resolve cleanly");
 
     let emitted_effect = runtime.run().expect("taken arm should complete the run");
     assert_eq!(
         completed_value(emitted_effect.effect),
-        TestReadyValue::Int(99)
+        TestMaterialValue::Int(99)
     );
 
     // The losing source settles later and its claim is inert.
     runtime
-        .resolve_promise(first_promise, TestReadyValue::Int(7))
+        .resolve_promise(first_promise, TestMaterialValue::Int(7))
         .expect("late loser settlement should be accepted and inert");
 }
 
@@ -132,7 +132,7 @@ fn select_delivers_rejections_by_raising_at_the_arm() {
             first_promise,
             TestException {
                 type_id: "ValueError".to_owned(),
-                details: TestValue::Ready(TestReadyValue::Int(41)),
+                details: TestValue::Ready(TestMaterialValue::Int(41)),
             },
         )
         .expect("first source should reject cleanly");
@@ -162,7 +162,7 @@ fn select_with_an_already_settled_source_is_taken_at_scan_time() {
 
     // Settle the second source before the select instruction runs.
     runtime
-        .resolve_promise(second_promise, TestReadyValue::Int(99))
+        .resolve_promise(second_promise, TestMaterialValue::Int(99))
         .expect("second source should resolve cleanly");
 
     let emitted_effect = runtime
@@ -170,7 +170,7 @@ fn select_with_an_already_settled_source_is_taken_at_scan_time() {
         .expect("select should take the settled arm at scan time");
     assert_eq!(
         completed_value(emitted_effect.effect),
-        TestReadyValue::Int(99)
+        TestMaterialValue::Int(99)
     );
 }
 
@@ -213,7 +213,7 @@ fn select_with_a_ready_value_source_is_taken_at_scan_time() {
         ],
     )]);
 
-    let mut runtime = new_runtime_with_args(executable, vec![TestReadyValue::Int(5)]);
+    let mut runtime = new_runtime_with_args(executable, vec![TestMaterialValue::Int(5)]);
 
     let action_effect = runtime.run().expect("the action call should emit");
     let _action_promise = action_call_promise_state_id(action_effect.effect);
@@ -223,7 +223,7 @@ fn select_with_a_ready_value_source_is_taken_at_scan_time() {
         .expect("select should take the ready arm at scan time");
     assert_eq!(
         completed_value(emitted_effect.effect),
-        TestReadyValue::Int(5)
+        TestMaterialValue::Int(5)
     );
 }
 

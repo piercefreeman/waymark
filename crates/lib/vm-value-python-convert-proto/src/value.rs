@@ -8,9 +8,9 @@
 //! becomes its data dict, dropping the defining module and name.  Both
 //! await a VM value that can express them.
 //!
-//! A double that is not finite has no [`ReadyValue::Float`] to land in —
+//! A double that is not finite has no [`MaterialValue::Float`] to land in —
 //! that variant is a `NonNaNFinite` — so it reads as
-//! [`ReadyValue::None`].
+//! [`MaterialValue::None`].
 
 use std::convert::Infallible;
 
@@ -18,7 +18,7 @@ use indexmap::IndexMap;
 use typed_floats::NonNaNFinite;
 use waymark_convert_core::{Convert as _, TryConvert};
 use waymark_proto::python_value as proto_value;
-use waymark_vm_value_python::{Exception, RaisedException, ReadyValue, Value};
+use waymark_vm_value_python::{Exception, MaterialValue, RaisedException, Value};
 
 use waymark_vm_value_convert_core::PendingPromiseError;
 
@@ -28,26 +28,26 @@ fn primitive(kind: proto_value::primitive_value::Kind) -> proto_value::value::Ki
     proto_value::value::Kind::Primitive(proto_value::PrimitiveValue { kind: Some(kind) })
 }
 
-impl TryConvert<&ReadyValue, proto_value::Value> for Converter {
+impl TryConvert<&MaterialValue, proto_value::Value> for Converter {
     type Error = PendingPromiseError;
 
-    fn try_convert(value: &ReadyValue) -> Result<proto_value::Value, Self::Error> {
+    fn try_convert(value: &MaterialValue) -> Result<proto_value::Value, Self::Error> {
         use proto_value::primitive_value::Kind as PrimitiveKind;
         use proto_value::value::Kind;
 
         let kind = match value {
-            ReadyValue::Int(value) => primitive(PrimitiveKind::IntValue(*value)),
-            ReadyValue::Float(value) => primitive(PrimitiveKind::DoubleValue(value.get())),
-            ReadyValue::Bool(value) => primitive(PrimitiveKind::BoolValue(*value)),
-            ReadyValue::String(value) => primitive(PrimitiveKind::StringValue(value.clone())),
-            ReadyValue::None => primitive(PrimitiveKind::NullValue(0)),
-            ReadyValue::List(items) => Kind::ListValue(proto_value::ListValue {
+            MaterialValue::Int(value) => primitive(PrimitiveKind::IntValue(*value)),
+            MaterialValue::Float(value) => primitive(PrimitiveKind::DoubleValue(value.get())),
+            MaterialValue::Bool(value) => primitive(PrimitiveKind::BoolValue(*value)),
+            MaterialValue::String(value) => primitive(PrimitiveKind::StringValue(value.clone())),
+            MaterialValue::None => primitive(PrimitiveKind::NullValue(0)),
+            MaterialValue::List(items) => Kind::ListValue(proto_value::ListValue {
                 items: items
                     .iter()
                     .map(Self::try_convert)
                     .collect::<Result<_, _>>()?,
             }),
-            ReadyValue::Dict(entries) => Kind::DictValue(proto_value::DictValue {
+            MaterialValue::Dict(entries) => Kind::DictValue(proto_value::DictValue {
                 entries: entries
                     .iter()
                     .map(|(key, value)| {
@@ -58,12 +58,12 @@ impl TryConvert<&ReadyValue, proto_value::Value> for Converter {
                     })
                     .collect::<Result<_, _>>()?,
             }),
-            ReadyValue::Exception(exception) => {
+            MaterialValue::Exception(exception) => {
                 Kind::Exception(Box::new(Self::try_convert(&**exception)?))
             }
             // This flavor has no extension value: the type is
             // uninhabited, so there is nothing to write.
-            ReadyValue::Extension(extension) => match *extension {},
+            MaterialValue::Extension(extension) => match *extension {},
         };
 
         Ok(proto_value::Value { kind: Some(kind) })
@@ -97,15 +97,15 @@ impl TryConvert<&Exception, proto_value::ExceptionValue> for Converter {
     }
 }
 
-impl TryConvert<&proto_value::Value, ReadyValue> for Converter {
+impl TryConvert<&proto_value::Value, MaterialValue> for Converter {
     type Error = Infallible;
 
-    fn try_convert(value: &proto_value::Value) -> Result<ReadyValue, Self::Error> {
+    fn try_convert(value: &proto_value::Value) -> Result<MaterialValue, Self::Error> {
         use proto_value::value::Kind;
 
         let Some(kind) = &value.kind else {
             // A value naming no kind is as empty as the encoding can be.
-            return Ok(ReadyValue::None);
+            return Ok(MaterialValue::None);
         };
 
         Ok(match kind {
@@ -114,14 +114,14 @@ impl TryConvert<&proto_value::Value, ReadyValue> for Converter {
             // data it carries; the defining module and name are dropped.
             Kind::Basemodel(basemodel) => match &basemodel.data {
                 Some(data) => Self::convert(data),
-                None => ReadyValue::Dict(Default::default()),
+                None => MaterialValue::Dict(Default::default()),
             },
             Kind::Exception(exception) => {
-                ReadyValue::Exception(Box::new(Self::convert(&**exception)))
+                MaterialValue::Exception(Box::new(Self::convert(&**exception)))
             }
-            Kind::ListValue(list) => ReadyValue::List(items(&list.items)),
+            Kind::ListValue(list) => MaterialValue::List(items(&list.items)),
             // The VM has no tuple value, so a tuple arrives as a list.
-            Kind::TupleValue(tuple) => ReadyValue::List(items(&tuple.items)),
+            Kind::TupleValue(tuple) => MaterialValue::List(items(&tuple.items)),
             Kind::DictValue(dict) => Self::convert(dict),
         })
     }
@@ -139,44 +139,44 @@ impl TryConvert<&proto_value::Value, Value> for Converter {
     }
 }
 
-impl TryConvert<&proto_value::PrimitiveValue, ReadyValue> for Converter {
+impl TryConvert<&proto_value::PrimitiveValue, MaterialValue> for Converter {
     type Error = Infallible;
 
-    fn try_convert(value: &proto_value::PrimitiveValue) -> Result<ReadyValue, Self::Error> {
+    fn try_convert(value: &proto_value::PrimitiveValue) -> Result<MaterialValue, Self::Error> {
         use proto_value::primitive_value::Kind;
 
         let Some(kind) = &value.kind else {
-            return Ok(ReadyValue::None);
+            return Ok(MaterialValue::None);
         };
 
         Ok(match kind {
-            Kind::StringValue(value) => ReadyValue::String(value.clone()),
+            Kind::StringValue(value) => MaterialValue::String(value.clone()),
             Kind::DoubleValue(value) => match NonNaNFinite::try_from(*value) {
-                Ok(value) => ReadyValue::Float(value),
+                Ok(value) => MaterialValue::Float(value),
                 // The VM's float is finite and not NaN; anything else has
                 // nowhere to land.
-                Err(_) => ReadyValue::None,
+                Err(_) => MaterialValue::None,
             },
-            Kind::IntValue(value) => ReadyValue::Int(*value),
-            Kind::BoolValue(value) => ReadyValue::Bool(*value),
-            Kind::NullValue(_) => ReadyValue::None,
+            Kind::IntValue(value) => MaterialValue::Int(*value),
+            Kind::BoolValue(value) => MaterialValue::Bool(*value),
+            Kind::NullValue(_) => MaterialValue::None,
         })
     }
 }
 
-impl TryConvert<&proto_value::DictValue, ReadyValue> for Converter {
+impl TryConvert<&proto_value::DictValue, MaterialValue> for Converter {
     type Error = Infallible;
 
-    fn try_convert(dict: &proto_value::DictValue) -> Result<ReadyValue, Self::Error> {
+    fn try_convert(dict: &proto_value::DictValue) -> Result<MaterialValue, Self::Error> {
         let mut map = IndexMap::with_capacity(dict.entries.len());
         for entry in &dict.entries {
             let value = match &entry.value {
                 Some(value) => Self::convert(value),
-                None => Value::Ready(ReadyValue::None),
+                None => Value::Ready(MaterialValue::None),
             };
             map.insert(entry.key.clone(), value);
         }
-        Ok(ReadyValue::Dict(map))
+        Ok(MaterialValue::Dict(map))
     }
 }
 
@@ -195,16 +195,16 @@ impl TryConvert<&proto_value::ExceptionValue, Exception> for Converter {
                 .details
                 .as_deref()
                 .map(Self::convert)
-                .unwrap_or(Value::Ready(ReadyValue::None)),
+                .unwrap_or(Value::Ready(MaterialValue::None)),
         })
     }
 }
 
 /// Read a ready value back from an owned encoded-value payload.
-impl TryConvert<Vec<u8>, ReadyValue> for Converter {
+impl TryConvert<Vec<u8>, MaterialValue> for Converter {
     type Error = prost::DecodeError;
 
-    fn try_convert(bytes: Vec<u8>) -> Result<ReadyValue, Self::Error> {
+    fn try_convert(bytes: Vec<u8>) -> Result<MaterialValue, Self::Error> {
         let message: proto_value::Value = prost::Message::decode(bytes.as_slice())?;
         Ok(Self::convert(&message))
     }
@@ -229,15 +229,15 @@ impl TryConvert<Vec<u8>, RaisedException> for Converter {
 mod tests {
     use super::*;
 
-    fn ready(value: ReadyValue) -> Value {
+    fn ready(value: MaterialValue) -> Value {
         Value::Ready(value)
     }
 
-    fn read(value: &proto_value::Value) -> ReadyValue {
+    fn read(value: &proto_value::Value) -> MaterialValue {
         Converter::convert(value)
     }
 
-    fn round_trip(value: ReadyValue) -> ReadyValue {
+    fn round_trip(value: MaterialValue) -> MaterialValue {
         let encoded: proto_value::Value =
             Converter::try_convert(&value).expect("no pending promise in the value");
         Converter::convert(&encoded)
@@ -246,12 +246,12 @@ mod tests {
     #[test]
     fn primitives_round_trip() {
         for value in [
-            ReadyValue::Int(42),
-            ReadyValue::Int(-7),
-            ReadyValue::Float(NonNaNFinite::try_from(1.25).unwrap()),
-            ReadyValue::Bool(true),
-            ReadyValue::String("hello".to_owned()),
-            ReadyValue::None,
+            MaterialValue::Int(42),
+            MaterialValue::Int(-7),
+            MaterialValue::Float(NonNaNFinite::try_from(1.25).unwrap()),
+            MaterialValue::Bool(true),
+            MaterialValue::String("hello".to_owned()),
+            MaterialValue::None,
         ] {
             assert_eq!(round_trip(value.clone()), value);
         }
@@ -259,19 +259,19 @@ mod tests {
 
     #[test]
     fn nested_containers_round_trip() {
-        let value = ReadyValue::Dict(IndexMap::from([
+        let value = MaterialValue::Dict(IndexMap::from([
             (
                 "list".to_owned(),
-                ready(ReadyValue::List(vec![
-                    ready(ReadyValue::Int(1)),
-                    ready(ReadyValue::String("two".to_owned())),
+                ready(MaterialValue::List(vec![
+                    ready(MaterialValue::Int(1)),
+                    ready(MaterialValue::String("two".to_owned())),
                 ])),
             ),
             (
                 "nested".to_owned(),
-                ready(ReadyValue::Dict(IndexMap::from([(
+                ready(MaterialValue::Dict(IndexMap::from([(
                     "deep".to_owned(),
-                    ready(ReadyValue::Bool(false)),
+                    ready(MaterialValue::Bool(false)),
                 )]))),
             ),
         ]));
@@ -287,14 +287,14 @@ mod tests {
         // survive a round trip in the order given, not in the order the
         // keys happen to sort in.
         let keys = ["zebra", "apple", "mango", "banana"];
-        let value = ReadyValue::Dict(
+        let value = MaterialValue::Dict(
             keys.iter()
                 .enumerate()
-                .map(|(index, key)| ((*key).to_owned(), ready(ReadyValue::Int(index as i64))))
+                .map(|(index, key)| ((*key).to_owned(), ready(MaterialValue::Int(index as i64))))
                 .collect(),
         );
 
-        let ReadyValue::Dict(entries) = round_trip(value) else {
+        let MaterialValue::Dict(entries) = round_trip(value) else {
             panic!("a dict round trips as a dict");
         };
 
@@ -306,12 +306,12 @@ mod tests {
     fn an_exception_stays_an_exception() {
         // The exception-ness is the point: it is what lets the VM settle
         // a promise raised rather than with a value.
-        let exception = ReadyValue::Exception(Box::new(Exception {
+        let exception = MaterialValue::Exception(Box::new(Exception {
             type_id: "ValueError".to_owned(),
             mro_type_ids: vec!["Exception".to_owned(), "BaseException".to_owned()],
-            details: ready(ReadyValue::Dict(IndexMap::from([(
+            details: ready(MaterialValue::Dict(IndexMap::from([(
                 "message".to_owned(),
-                ready(ReadyValue::String("boom".to_owned())),
+                ready(MaterialValue::String("boom".to_owned())),
             )]))),
         }));
 
@@ -324,8 +324,8 @@ mod tests {
             kind: Some(proto_value::value::Kind::TupleValue(
                 proto_value::TupleValue {
                     items: vec![
-                        Converter::try_convert(&ReadyValue::Int(1)).unwrap(),
-                        Converter::try_convert(&ReadyValue::Int(2)).unwrap(),
+                        Converter::try_convert(&MaterialValue::Int(1)).unwrap(),
+                        Converter::try_convert(&MaterialValue::Int(2)).unwrap(),
                     ],
                 },
             )),
@@ -333,7 +333,10 @@ mod tests {
 
         assert_eq!(
             read(&tuple),
-            ReadyValue::List(vec![ready(ReadyValue::Int(1)), ready(ReadyValue::Int(2))]),
+            MaterialValue::List(vec![
+                ready(MaterialValue::Int(1)),
+                ready(MaterialValue::Int(2))
+            ]),
         );
     }
 
@@ -347,7 +350,7 @@ mod tests {
                     data: Some(proto_value::DictValue {
                         entries: vec![proto_value::DictEntry {
                             key: "field".to_owned(),
-                            value: Some(Converter::try_convert(&ReadyValue::Int(3)).unwrap()),
+                            value: Some(Converter::try_convert(&MaterialValue::Int(3)).unwrap()),
                         }],
                     }),
                 },
@@ -356,9 +359,9 @@ mod tests {
 
         assert_eq!(
             read(&basemodel),
-            ReadyValue::Dict(IndexMap::from([(
+            MaterialValue::Dict(IndexMap::from([(
                 "field".to_owned(),
-                ready(ReadyValue::Int(3)),
+                ready(MaterialValue::Int(3)),
             )])),
         );
     }
@@ -372,7 +375,7 @@ mod tests {
                 ))),
             };
 
-            assert_eq!(read(&value), ReadyValue::None);
+            assert_eq!(read(&value), MaterialValue::None);
         }
     }
 
@@ -380,22 +383,22 @@ mod tests {
     fn an_encoded_value_payload_reads_back() {
         // A value payload IS an encoded proto value message, byte for
         // byte — what an argument entry's value carries.
-        let value = ReadyValue::Dict(IndexMap::from([
-            ("zebra".to_owned(), ready(ReadyValue::Int(1))),
-            ("apple".to_owned(), ready(ReadyValue::Int(2))),
+        let value = MaterialValue::Dict(IndexMap::from([
+            ("zebra".to_owned(), ready(MaterialValue::Int(1))),
+            ("apple".to_owned(), ready(MaterialValue::Int(2))),
         ]));
 
         let message: proto_value::Value =
             Converter::try_convert(&value).expect("no pending promise");
         let bytes = prost::Message::encode_to_vec(&message);
 
-        let read: ReadyValue = Converter::try_convert(bytes).expect("the bytes decode");
+        let read: MaterialValue = Converter::try_convert(bytes).expect("the bytes decode");
         assert_eq!(read, value);
     }
 
     #[test]
     fn a_pending_promise_cannot_be_written() {
-        let value = ReadyValue::List(vec![Value::Pending(
+        let value = MaterialValue::List(vec![Value::Pending(
             waymark_vm_runtime_promise_core::PromiseStateId::from_raw(7),
         )]);
 

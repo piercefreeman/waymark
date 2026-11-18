@@ -13,13 +13,13 @@ use super::generator::GeneratedCase;
 /// The inline adapter pinned to this binary's flavor converter.
 fn py_inline_action<F, Fut>(body: F) -> waymark_worker_inline::InlineActionCallable
 where
-    F: Fn(std::collections::HashMap<String, waymark_vm_value_python::ReadyValue>) -> Fut
+    F: Fn(std::collections::HashMap<String, waymark_vm_value_python::MaterialValue>) -> Fut
         + Send
         + Sync
         + 'static,
     Fut: Future<
             Output = Result<
-                waymark_vm_value_python::ReadyValue,
+                waymark_vm_value_python::MaterialValue,
                 waymark_vm_value_python::RaisedException,
             >,
         > + Send
@@ -55,7 +55,7 @@ pub async fn run_case(
 
     let inputs = HashMap::from([(
         "base".to_string(),
-        waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::Int(case.base_input)),
+        waymark_system_vm::Value::Ready(waymark_system_vm::MaterialValue::Int(case.base_input)),
     )]);
 
     let runtime =
@@ -179,55 +179,56 @@ fn action_error(message: String) -> waymark_vm_value_python::Exception {
     waymark_vm_value_python::Exception {
         type_id: "ActionError".to_owned(),
         mro_type_ids: vec!["Exception".to_owned(), "BaseException".to_owned()],
-        details: waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::Dict(
-            indexmap::IndexMap::from([(
+        details: waymark_vm_value_python::Value::Ready(
+            waymark_vm_value_python::MaterialValue::Dict(indexmap::IndexMap::from([(
                 "message".to_owned(),
-                waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::String(
-                    message,
-                )),
-            )]),
-        )),
+                waymark_vm_value_python::Value::Ready(
+                    waymark_vm_value_python::MaterialValue::String(message),
+                ),
+            )])),
+        ),
     }
 }
 
 async fn action_inc(
-    kwargs: HashMap<String, waymark_vm_value_python::ReadyValue>,
-) -> Result<waymark_vm_value_python::ReadyValue, waymark_vm_value_python::RaisedException> {
+    kwargs: HashMap<String, waymark_vm_value_python::MaterialValue>,
+) -> Result<waymark_vm_value_python::MaterialValue, waymark_vm_value_python::RaisedException> {
     let value = get_i64(&kwargs, "value")?;
-    Ok(waymark_vm_value_python::ReadyValue::Int(value + 1))
+    Ok(waymark_vm_value_python::MaterialValue::Int(value + 1))
 }
 
 async fn action_double(
-    kwargs: HashMap<String, waymark_vm_value_python::ReadyValue>,
-) -> Result<waymark_vm_value_python::ReadyValue, waymark_vm_value_python::RaisedException> {
+    kwargs: HashMap<String, waymark_vm_value_python::MaterialValue>,
+) -> Result<waymark_vm_value_python::MaterialValue, waymark_vm_value_python::RaisedException> {
     let value = get_i64(&kwargs, "value")?;
-    Ok(waymark_vm_value_python::ReadyValue::Int(value * 2))
+    Ok(waymark_vm_value_python::MaterialValue::Int(value * 2))
 }
 
 async fn action_sum(
-    kwargs: HashMap<String, waymark_vm_value_python::ReadyValue>,
-) -> Result<waymark_vm_value_python::ReadyValue, waymark_vm_value_python::RaisedException> {
-    let Some(waymark_vm_value_python::ReadyValue::List(values)) = kwargs.get("values") else {
+    kwargs: HashMap<String, waymark_vm_value_python::MaterialValue>,
+) -> Result<waymark_vm_value_python::MaterialValue, waymark_vm_value_python::RaisedException> {
+    let Some(waymark_vm_value_python::MaterialValue::List(values)) = kwargs.get("values") else {
         return Err(action_error("sum expects list input".to_owned()));
     };
     let mut total = 0i64;
     for item in values {
-        let waymark_vm_value_python::Value::Ready(waymark_vm_value_python::ReadyValue::Int(value)) =
-            item
+        let waymark_vm_value_python::Value::Ready(waymark_vm_value_python::MaterialValue::Int(
+            value,
+        )) = item
         else {
             return Err(action_error("sum expects integer elements".to_owned()));
         };
         total += value;
     }
-    Ok(waymark_vm_value_python::ReadyValue::Int(total))
+    Ok(waymark_vm_value_python::MaterialValue::Int(total))
 }
 
 fn get_i64(
-    kwargs: &HashMap<String, waymark_vm_value_python::ReadyValue>,
+    kwargs: &HashMap<String, waymark_vm_value_python::MaterialValue>,
     key: &str,
 ) -> Result<i64, waymark_vm_value_python::RaisedException> {
     match kwargs.get(key) {
-        Some(waymark_vm_value_python::ReadyValue::Int(value)) => Ok(*value),
+        Some(waymark_vm_value_python::MaterialValue::Int(value)) => Ok(*value),
         _ => Err(action_error(format!("missing integer '{key}'"))),
     }
 }

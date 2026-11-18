@@ -6,7 +6,7 @@ use waymark_vm_interpreter_extcallset::Effect;
 use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_test::{StateId, executable, function};
 
-use crate::support::{RuntimeInstruction, TestEffect, TestReadyValue, new_runtime_with_args};
+use crate::support::{RuntimeInstruction, TestEffect, TestMaterialValue, new_runtime_with_args};
 
 #[test]
 fn runtime_emits_an_action_call_and_queues_the_resumed_frame() {
@@ -26,7 +26,7 @@ fn runtime_emits_an_action_call_and_queues_the_resumed_frame() {
                 vec![RuntimeInstruction::InspectPending(RegisterId(1))],
             ],
         )]),
-        vec![TestReadyValue(41)],
+        vec![TestMaterialValue(41)],
     );
 
     let emitted_effect = runtime

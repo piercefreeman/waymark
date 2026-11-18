@@ -27,7 +27,7 @@ pub struct WorkflowStore {
     outcome_polling: waymark_workflow_service_vm_runtimes::OutcomePollingService<
         PostgresBackend,
         waymark_vm_codec_rmp::RmpCodec,
-        waymark_system_vm::ReadyValue,
+        waymark_system_vm::MaterialValue,
         waymark_system_vm::RaisedException,
     >,
     /// The bridge's observability-events emitter, for the executables
