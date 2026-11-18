@@ -682,7 +682,9 @@ fn exception_values_cross_to_and_from_the_raised_domain() {
     let not_an_exception: Result<RaisedException, _> =
         Value::Ready(MaterialValue::Int(1)).into_raised();
     assert!(not_an_exception.is_err());
-    let pending: Result<RaisedException, _> =
-        Value::Pending(waymark_vm_runtime_promise_core::PromiseStateId::from_raw(3)).into_raised();
+    let promise_state_handle =
+        waymark_vm_runtime_core::PromiseStates::<(), (), (), core::convert::Infallible>::new()
+            .prepare();
+    let pending: Result<RaisedException, _> = Value::Pending(promise_state_handle).into_raised();
     assert!(pending.is_err());
 }

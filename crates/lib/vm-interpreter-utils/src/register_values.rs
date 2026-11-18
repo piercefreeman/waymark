@@ -98,8 +98,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::with_register_values;
-    use waymark_vm_runtime_core::{RegisterId, Registers};
-    use waymark_vm_runtime_promise_core::{PromiseStateId, Resolvable as _};
+    use waymark_vm_runtime_core::{PromisableExt as _, RegisterId, Registers};
+    use waymark_vm_runtime_promise_core::PromiseStateId;
     use waymark_vm_runtime_promise_value::PromiseValue;
 
     #[derive(Debug)]
@@ -127,12 +127,13 @@ mod tests {
                 let value = registers
                     .get(register)
                     .ok_or(TestError::MissingListItem { item_pos, register })?;
-                let value = value
-                    .as_ready()
-                    .map_err(|source| TestError::UnresolvedListItem {
-                        item_pos,
-                        promise_state_id: source.promise_state_id,
-                    })?;
+                let value =
+                    value
+                        .require_ready_ref()
+                        .map_err(|source| TestError::UnresolvedListItem {
+                            item_pos,
+                            promise_state_id: source.pending.id(),
+                        })?;
 
                 Ok::<_, TestError>(*value)
             },
@@ -148,10 +149,11 @@ mod tests {
         let mut registers = Registers::new(3);
         registers.set(RegisterId(0), PromiseValue::Ready(10));
         registers.set(RegisterId(1), PromiseValue::Ready(20));
-        registers.set(
-            RegisterId(2),
-            PromiseValue::Pending(PromiseStateId::from_raw(7)),
-        );
+        let promise_state_handle =
+            waymark_vm_runtime_core::PromiseStates::<(), (), (), core::convert::Infallible>::new()
+                .prepare();
+        let pending_promise_state_id = promise_state_handle.id();
+        registers.set(RegisterId(2), PromiseValue::Pending(promise_state_handle));
 
         let err = with_register_values(
             [RegisterId(0), RegisterId(1), RegisterId(2)],
@@ -159,12 +161,13 @@ mod tests {
                 let value = registers
                     .get(register)
                     .ok_or(TestError::MissingListItem { item_pos, register })?;
-                let value = value
-                    .as_ready()
-                    .map_err(|source| TestError::UnresolvedListItem {
-                        item_pos,
-                        promise_state_id: source.promise_state_id,
-                    })?;
+                let value =
+                    value
+                        .require_ready_ref()
+                        .map_err(|source| TestError::UnresolvedListItem {
+                            item_pos,
+                            promise_state_id: source.pending.id(),
+                        })?;
 
                 Ok::<_, TestError>(*value)
             },
@@ -178,7 +181,7 @@ mod tests {
                 promise_state_id,
             } => {
                 assert_eq!(item_pos, 2);
-                assert_eq!(promise_state_id, PromiseStateId::from_raw(7));
+                assert_eq!(promise_state_id, pending_promise_state_id);
             }
             other => panic!("unexpected error: {other:?}"),
         }
@@ -195,12 +198,13 @@ mod tests {
                 let value = registers
                     .get(register)
                     .ok_or(TestError::MissingListItem { item_pos, register })?;
-                let value = value
-                    .as_ready()
-                    .map_err(|source| TestError::UnresolvedListItem {
-                        item_pos,
-                        promise_state_id: source.promise_state_id,
-                    })?;
+                let value =
+                    value
+                        .require_ready_ref()
+                        .map_err(|source| TestError::UnresolvedListItem {
+                            item_pos,
+                            promise_state_id: source.pending.id(),
+                        })?;
 
                 Ok::<_, TestError>(*value)
             },

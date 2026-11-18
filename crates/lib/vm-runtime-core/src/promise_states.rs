@@ -1,9 +1,20 @@
 use derive_where::derive_where;
+use waymark_atomic_owners_counter::AtomicOwnersCounter;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::{PromiseState, SettlingAlreadySettledPromiseError, WaitersFor};
+use crate::{PromiseState, PromiseStateHandle, SettlingAlreadySettledPromiseError, WaitersFor};
 
-/// The promise states of a runtime, keyed by their promise state ids.
+#[cfg(feature = "serde")]
+mod serde_impl;
+
+#[cfg(feature = "serde")]
+pub(crate) use self::serde_impl::deserialize_promise_states;
+
+/// One entry of the promise states table: a promise state, and the count of
+/// the handles that hold it, with the table as one more owner.
+///
+/// Stored as the promise state alone, and read back by the promise states
+/// table's snapshot reader with the counter of its id.
 #[derive_where(
     Debug;
     FunctionId, StateId, Value, RaisedException,
@@ -11,32 +22,60 @@ use crate::{PromiseState, SettlingAlreadySettledPromiseError, WaitersFor};
 )]
 #[cfg_attr(
     feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(bound(
-        serialize = "
+    derive(serde::Serialize),
+    serde(
+        transparent,
+        bound(serialize = "
             FunctionId: serde::Serialize,
             StateId: serde::Serialize,
             Value: serde::Serialize,
             RaisedException: serde::Serialize,
             waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
-        ",
-        deserialize = "
-            FunctionId: serde::Deserialize<'de>,
-            StateId: serde::Deserialize<'de>,
-            Value: serde::Deserialize<'de>,
-            RaisedException: serde::Deserialize<'de>,
-            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Deserialize<'de>,
-        ",
-    ))
+        ")
+    )
+)]
+struct PromiseStatesEntry<FunctionId, StateId, Value, RaisedException>
+where
+    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
+{
+    /// The promise state.
+    state: PromiseState<FunctionId, StateId, Value, RaisedException>,
+
+    /// The table's owner of the state's count.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    owners_counter: AtomicOwnersCounter,
+}
+
+/// The promise states of a runtime, keyed by their promise state ids.
+///
+/// Read back only as part of a [`crate::RuntimeState`].
+#[derive_where(
+    Debug;
+    FunctionId, StateId, Value, RaisedException,
+    waymark_vm_runtime_exception::MatchPatternOf<RaisedException>,
+)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize),
+    serde(bound(serialize = "
+        FunctionId: serde::Serialize,
+        StateId: serde::Serialize,
+        Value: serde::Serialize,
+        RaisedException: serde::Serialize,
+        waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
+    "))
 )]
 pub struct PromiseStates<FunctionId, StateId, Value, RaisedException>(
-    waymark_id_map::IdMap<
-        PromiseStateId,
-        PromiseState<FunctionId, StateId, Value, RaisedException>,
-    >,
+    PromiseStatesEntriesMap<FunctionId, StateId, Value, RaisedException>,
 )
 where
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern;
+
+/// The promise states table's entries by their promise state ids.
+type PromiseStatesEntriesMap<FunctionId, StateId, Value, RaisedException> = waymark_id_map::IdMap<
+    PromiseStateId,
+    PromiseStatesEntry<FunctionId, StateId, Value, RaisedException>,
+>;
 
 impl<FunctionId, StateId, Value, RaisedException> Default
     for PromiseStates<FunctionId, StateId, Value, RaisedException>
@@ -58,12 +97,21 @@ where
         Self::default()
     }
 
-    /// Allocate a new waiting promise state and return its id.
+    /// Allocate a new waiting promise state and return the first handle
+    /// holding it.
     ///
     /// The map mints the id and never hands it out again — upholding the
     /// unique-per-VM invariant documented on [`PromiseStateId`].
-    pub fn prepare(&mut self) -> PromiseStateId {
-        self.0.insert(PromiseState::Waiting(Vec::new()))
+    pub fn prepare(&mut self) -> PromiseStateHandle {
+        let owners_counter = AtomicOwnersCounter::new();
+        let handle_owners_counter = owners_counter.clone();
+
+        let id = self.0.insert(PromiseStatesEntry {
+            state: PromiseState::Waiting(Vec::new()),
+            owners_counter,
+        });
+
+        PromiseStateHandle::new(id, handle_owners_counter)
     }
 }
 
@@ -86,9 +134,12 @@ where
         promise_state_id: PromiseStateId,
     ) -> Result<&PromiseState<FunctionId, StateId, Value, RaisedException>, PromiseStateNotFoundError>
     {
-        self.0
+        let entry = self
+            .0
             .get(promise_state_id)
-            .ok_or(PromiseStateNotFoundError { promise_state_id })
+            .ok_or(PromiseStateNotFoundError { promise_state_id })?;
+
+        Ok(&entry.state)
     }
 
     /// Mutably borrow a promise state by `promise_state_id`.
@@ -99,16 +150,77 @@ where
         &mut PromiseState<FunctionId, StateId, Value, RaisedException>,
         PromiseStateNotFoundError,
     > {
-        self.0
+        let entry = self
+            .0
             .get_mut(promise_state_id)
-            .ok_or(PromiseStateNotFoundError { promise_state_id })
+            .ok_or(PromiseStateNotFoundError { promise_state_id })?;
+
+        Ok(&mut entry.state)
+    }
+
+    /// Borrow the promise state `promise_state_handle` holds.
+    ///
+    /// The handle is borrowed for the lookup only; the state borrows the
+    /// table alone.
+    pub fn by_handle<'state>(
+        &'state self,
+        promise_state_handle: &PromiseStateHandle,
+    ) -> Result<
+        &'state PromiseState<FunctionId, StateId, Value, RaisedException>,
+        PromiseStateNotFoundError,
+    > {
+        self.get(promise_state_handle.id())
+    }
+
+    /// Mutably borrow the promise state `promise_state_handle` holds.
+    ///
+    /// The handle is borrowed for the lookup only; the state borrows the
+    /// table alone.
+    pub fn mut_by_handle<'state>(
+        &'state mut self,
+        promise_state_handle: &PromiseStateHandle,
+    ) -> Result<
+        &'state mut PromiseState<FunctionId, StateId, Value, RaisedException>,
+        PromiseStateNotFoundError,
+    > {
+        self.get_mut(promise_state_handle.id())
+    }
+
+    /// Remove every settled promise state that no handle holds any more,
+    /// leaving the table as its only owner.
+    ///
+    /// Passes repeat until one removes nothing: a removed state's value can
+    /// hold the last handle to another settled state.
+    ///
+    /// Counting alone never frees settled states that hold each other's
+    /// handles in a cycle; the sweep relies on no such cycle forming.
+    pub fn sweep(&mut self) {
+        loop {
+            let unheld: Vec<PromiseStateId> = self
+                .0
+                .iter()
+                .filter(|(_, entry)| {
+                    matches!(entry.state, PromiseState::Settled(_))
+                        && entry.owners_counter.strong() == std::num::NonZeroUsize::MIN
+                })
+                .map(|(id, _)| id)
+                .collect();
+
+            if unheld.is_empty() {
+                return;
+            }
+
+            for id in unheld {
+                self.0.remove(id);
+            }
+        }
     }
 
     /// Return an iterator over the IDs of all currently waiting
     /// (i.e. [`PromiseState::Waiting`]) promise states.
     pub fn waiting_ids(&self) -> impl Iterator<Item = PromiseStateId> + '_ {
-        self.0.iter().filter_map(|(id, state)| {
-            if matches!(state, PromiseState::Waiting(_)) {
+        self.0.iter().filter_map(|(id, entry)| {
+            if matches!(entry.state, PromiseState::Waiting(_)) {
                 Some(id)
             } else {
                 None
@@ -225,8 +337,8 @@ mod tests {
     fn prepare_allocates_waiting_states_in_order() {
         let mut states = PromiseStates::<&'static str, usize, i32, TestException>::new();
 
-        let first = states.prepare();
-        let second = states.prepare();
+        let first = states.prepare().id();
+        let second = states.prepare().id();
 
         assert_eq!(first, PromiseStateId::from_raw(0));
         assert_eq!(second, PromiseStateId::from_raw(1));
@@ -243,7 +355,7 @@ mod tests {
     #[test]
     fn resolve_updates_state_and_returns_continuations() {
         let mut states = PromiseStates::<&'static str, usize, i32, TestException>::new();
-        let promise_state_id = states.prepare();
+        let promise_state_id = states.prepare().id();
         let state = states
             .get_mut(promise_state_id)
             .expect("promise state exists");
@@ -275,9 +387,71 @@ mod tests {
     }
 
     #[test]
+    fn sweep_removes_settled_states_no_handle_holds() {
+        let mut states = PromiseStates::<&'static str, usize, i32, TestException>::new();
+        let unheld = states.prepare();
+        let held = states.prepare();
+        let waiting = states.prepare().id();
+
+        let unheld_id = unheld.id();
+        let held_id = held.id();
+        drop(unheld);
+        states
+            .resolve(unheld_id, 1)
+            .expect("waiting promise resolves");
+        states
+            .resolve(held_id, 2)
+            .expect("waiting promise resolves");
+
+        states.sweep();
+
+        assert!(states.get(unheld_id).is_err());
+        assert!(matches!(
+            states.by_handle(&held),
+            Ok(PromiseState::Settled(SettledPromiseState::Resolved(2)))
+        ));
+        assert!(states.mut_by_handle(&held).is_ok());
+        assert!(states.get(waiting).is_ok());
+
+        drop(held);
+        states.sweep();
+
+        assert!(states.get(held_id).is_err());
+        assert!(states.get(waiting).is_ok());
+    }
+
+    #[test]
+    fn sweep_frees_a_chain_in_one_call() {
+        let mut states = PromiseStates::<
+            &'static str,
+            usize,
+            Option<crate::PromiseStateHandle>,
+            TestException,
+        >::new();
+        let inner = states.prepare();
+        let outer = states.prepare();
+        let inner_id = inner.id();
+        let outer_id = outer.id();
+        drop(outer);
+        states
+            .resolve(inner_id, None)
+            .expect("waiting promise resolves");
+        // The outer state's value holds the only other handle to the inner
+        // one, so the inner state is freed only once the outer one is.
+        states
+            .resolve(outer_id, Some(inner))
+            .expect("waiting promise resolves");
+
+        states.sweep();
+
+        assert!(states.get(outer_id).is_err());
+        assert!(states.get(inner_id).is_err());
+    }
+
+    #[test]
     fn reject_preserves_exceptional_results() {
         let mut states = PromiseStates::<&'static str, usize, i32, TestException>::new();
-        let promise_state_id = states.prepare();
+        let promise_state_id = states.prepare().id();
 
         let continuations = states
             .reject(promise_state_id, TestException("ValueError"))

@@ -19,7 +19,7 @@ thiserror = { workspace = true }
 typed_floats = { workspace = true }
 
 [dev-dependencies]
-waymark-vm-runtime-promise-core = { workspace = true }
+waymark-vm-runtime-core = { workspace = true }
 
 [lib]
 doctest = false

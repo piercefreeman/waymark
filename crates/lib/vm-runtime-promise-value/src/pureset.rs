@@ -1,5 +1,7 @@
 //! [`waymark_vm_interpreter_pureset`] trait implementations.
 
+use waymark_vm_runtime_core::PromisableExt as _;
+
 use crate::PromiseValue;
 
 impl<T> waymark_vm_interpreter_pureset::value::CaptureCopy for PromiseValue<T>
@@ -9,7 +11,9 @@ where
     fn capture_copy(&self) -> Self {
         match self {
             PromiseValue::Ready(value) => PromiseValue::Ready(value.capture_copy()),
-            PromiseValue::Pending(promise_state_id) => PromiseValue::Pending(*promise_state_id),
+            PromiseValue::Pending(promise_state_handle) => {
+                PromiseValue::Pending(promise_state_handle.clone())
+            }
         }
     }
 }

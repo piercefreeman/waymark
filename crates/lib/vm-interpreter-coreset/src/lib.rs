@@ -8,8 +8,8 @@ pub mod value;
 use derive_where::derive_where;
 use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_runtime_core::{
-    Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, Registers, RuntimeState,
-    SettledPromiseState,
+    Continuation, ExceptionHandlers, Frame, FrameKind, PromisableExt as _, PromisableReadinessRef,
+    PromiseState, Registers, RuntimeState, SettledPromiseState,
 };
 
 pub use self::error::*;
@@ -57,8 +57,7 @@ where
     Spec::StateId: Copy + Default,
     Value: self::Value,
     Value: Clone,
-    Value: waymark_vm_runtime_promise_core::Suspendable,
-    Value: waymark_vm_runtime_promise_core::Resolvable,
+    Value: waymark_vm_runtime_core::Promisable,
     Value::ReadyValue: Clone,
     Value: 'static,
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
@@ -97,8 +96,11 @@ where
                     .map(|arg| frame.regs[*arg].capture_call_argument())
                     .collect::<Vec<_>>();
 
-                let promise_state_id = state.promise_states.prepare();
-                frame.regs.set(*dst, Value::from_pending(promise_state_id));
+                let promise_state_handle = state.promise_states.prepare();
+                let promise_state_id = promise_state_handle.id();
+                frame
+                    .regs
+                    .set(*dst, Value::from_pending(promise_state_handle));
 
                 let regs = Registers::new_for_fn_call(num_regs, args);
 
@@ -116,14 +118,11 @@ where
                 state.ready.push_back(new_frame);
             }
             waymark_vm_instructions_coreset::CoreSet::Await { dst, src, resume } => {
-                let value = &frame.regs[*src];
-                match value.as_ready() {
-                    Err(waymark_vm_runtime_promise_core::UnresolvedPromiseError {
-                        promise_state_id,
-                    }) => {
+                match frame.regs[*src].promisable_readiness() {
+                    PromisableReadinessRef::Pending(promise_state_handle) => {
                         let promise_state = state
                             .promise_states
-                            .get_mut(promise_state_id)
+                            .mut_by_handle(promise_state_handle)
                             .map_err(AwaitError::SourcePromiseStateNotFound)
                             .map_err(Error::Await)?;
                         return Ok(match promise_state {
@@ -154,7 +153,7 @@ where
                             }
                         });
                     }
-                    Ok(value) => {
+                    PromisableReadinessRef::Ready(value) => {
                         frame.regs.set(*dst, Value::from_ready(value.clone()));
                         frame.state = *resume;
                     }
@@ -171,21 +170,24 @@ where
                 // sources meanwhile.
                 let mut pending = Vec::with_capacity(arms.len());
                 for arm in arms {
-                    let promise_state_id = match frame.regs[arm.src].as_ready() {
-                        Ok(value) => {
+                    let promise_state_handle = match frame.regs[arm.src].promisable_readiness() {
+                        PromisableReadinessRef::Ready(value) => {
                             // A ready source wins the scan outright.
                             let value = Value::from_ready(value.clone());
                             frame.regs.set(arm.dst, value);
                             frame.state = arm.resume;
                             return Ok(ExecutionOutcome::Continue(frame));
                         }
-                        Err(waymark_vm_runtime_promise_core::UnresolvedPromiseError {
-                            promise_state_id,
-                        }) => promise_state_id,
+                        PromisableReadinessRef::Pending(promise_state_handle) => {
+                            promise_state_handle
+                        }
                     };
+                    // The frame moves into a continuation below if every arm
+                    // waits, so the second pass looks the states up by id.
+                    let promise_state_id = promise_state_handle.id();
                     let promise_state = state
                         .promise_states
-                        .get(promise_state_id)
+                        .by_handle(promise_state_handle)
                         .map_err(SelectError::SourcePromiseStateNotFound)
                         .map_err(Error::Select)?;
                     match promise_state {
@@ -272,8 +274,12 @@ where
                     }
                     FrameKind::TopLevel => {
                         let val = val
-                            .into_ready()
-                            .map_err(|(error, _)| FnExitError::TopLevel(error))
+                            .require_ready()
+                            .map_err(|error| {
+                                FnExitError::TopLevel(
+                                    error.map(|promise_state_handle| promise_state_handle.id()),
+                                )
+                            })
                             .map_err(Error::Return)?;
                         ExecutionOutcome::ExitFrameWithEffect(Effect::Complete(val))
                     }
