@@ -128,7 +128,7 @@ async fn resumes_promises_and_forwards_resolved_effect() {
 
     settlements_tx
         .send(PromiseSettlement {
-            promise_state_id: PromiseStateId(0),
+            promise_state_id: PromiseStateId::from_raw(0),
             resolution: PromiseResolution::Resolved(TestReadyValue::Int(41)),
             ack: (),
         })
@@ -166,7 +166,7 @@ async fn fires_the_hooks_in_run_order() {
         .return_const(());
     hooks
         .expect_promise_settled()
-        .withf(|promise_state_id, _| *promise_state_id == PromiseStateId(0))
+        .withf(|promise_state_id, _| *promise_state_id == PromiseStateId::from_raw(0))
         .times(1)
         .in_sequence(&mut sequence)
         .return_const(());
@@ -213,7 +213,7 @@ async fn fires_the_hooks_in_run_order() {
 
     settlements_tx
         .send(PromiseSettlement {
-            promise_state_id: PromiseStateId(0),
+            promise_state_id: PromiseStateId::from_raw(0),
             resolution: PromiseResolution::Resolved(TestReadyValue::Int(41)),
             ack: (),
         })
@@ -361,7 +361,7 @@ async fn duplicate_resolutions_are_ignored() {
     // runs to completion.
     settlements_tx
         .send(PromiseSettlement {
-            promise_state_id: PromiseStateId(0),
+            promise_state_id: PromiseStateId::from_raw(0),
             resolution: PromiseResolution::Resolved(TestReadyValue::Int(10)),
             ack: (),
         })
@@ -369,7 +369,7 @@ async fn duplicate_resolutions_are_ignored() {
         .unwrap();
     settlements_tx
         .send(PromiseSettlement {
-            promise_state_id: PromiseStateId(0),
+            promise_state_id: PromiseStateId::from_raw(0),
             resolution: PromiseResolution::Resolved(TestReadyValue::Int(11)),
             ack: (),
         })
@@ -387,7 +387,7 @@ async fn duplicate_resolutions_are_ignored() {
     hooks
         .expect_promise_settled()
         .withf(|promise_state_id, resolution| {
-            *promise_state_id == PromiseStateId(0)
+            *promise_state_id == PromiseStateId::from_raw(0)
                 && matches!(
                     resolution,
                     PromiseResolution::Resolved(TestReadyValue::Int(10))
@@ -399,7 +399,7 @@ async fn duplicate_resolutions_are_ignored() {
     hooks
         .expect_promise_settled()
         .withf(|promise_state_id, resolution| {
-            *promise_state_id == PromiseStateId(0)
+            *promise_state_id == PromiseStateId::from_raw(0)
                 && matches!(
                     resolution,
                     PromiseResolution::Resolved(TestReadyValue::Int(11))
@@ -441,7 +441,7 @@ async fn duplicate_rejection_after_resolution_is_ignored() {
     // arriving for an already-resolved promise is dropped the same way.
     settlements_tx
         .send(PromiseSettlement {
-            promise_state_id: PromiseStateId(0),
+            promise_state_id: PromiseStateId::from_raw(0),
             resolution: PromiseResolution::Resolved(TestReadyValue::Int(10)),
             ack: (),
         })
@@ -449,7 +449,7 @@ async fn duplicate_rejection_after_resolution_is_ignored() {
         .unwrap();
     settlements_tx
         .send(PromiseSettlement {
-            promise_state_id: PromiseStateId(0),
+            promise_state_id: PromiseStateId::from_raw(0),
             resolution: PromiseResolution::Rejected(TestException {
                 type_id: "late".to_string(),
                 details: TestReadyValue::Int(99),
@@ -493,7 +493,7 @@ async fn unknown_promise_ids_are_ignored() {
     // dropped, and the settlement that follows still applies normally.
     settlements_tx
         .send(PromiseSettlement {
-            promise_state_id: PromiseStateId(9),
+            promise_state_id: PromiseStateId::from_raw(9),
             resolution: PromiseResolution::Resolved(TestReadyValue::Int(41)),
             ack: (),
         })
@@ -501,7 +501,7 @@ async fn unknown_promise_ids_are_ignored() {
         .unwrap();
     settlements_tx
         .send(PromiseSettlement {
-            promise_state_id: PromiseStateId(0),
+            promise_state_id: PromiseStateId::from_raw(0),
             resolution: PromiseResolution::Resolved(TestReadyValue::Int(10)),
             ack: (),
         })
@@ -555,7 +555,7 @@ async fn promise_rejection_forwards_exception() {
 
     settlements_tx
         .send(PromiseSettlement {
-            promise_state_id: PromiseStateId(0),
+            promise_state_id: PromiseStateId::from_raw(0),
             resolution: PromiseResolution::Rejected(TestException {
                 type_id: "ValueError".to_owned(),
                 details: TestReadyValue::Int(41),

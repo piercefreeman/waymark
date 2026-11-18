@@ -18,7 +18,7 @@ use super::{Ack, DemandRegistrar, Params, PollActionSettlementsError, Settlement
 use crate::test_support::{MockBackend, key, lost_record, record};
 
 fn demand(ids: &[usize]) -> NEVec<PromiseStateId> {
-    NEVec::try_from_vec(ids.iter().map(|id| PromiseStateId(*id)).collect())
+    NEVec::try_from_vec(ids.iter().map(|id| PromiseStateId::from_raw(*id)).collect())
         .expect("test demand is non-empty")
 }
 
@@ -90,7 +90,7 @@ async fn delivers_demanded_settlements_with_key_acks() {
         .expect("settlement delivered");
     assert_eq!(settlements.len().get(), 1);
     let settlement = settlements.into_iter().next().unwrap();
-    assert_eq!(settlement.promise_state_id, PromiseStateId(3));
+    assert_eq!(settlement.promise_state_id, PromiseStateId::from_raw(3));
     assert!(matches!(
         settlement.resolution,
         PromiseResolution::Resolved(ReadyValue::String(ref s)) if s == "hi"
@@ -127,7 +127,7 @@ async fn settles_a_lost_execution_raised() {
         .await
         .expect("settlement delivered");
     let settlement = settlements.into_iter().next().unwrap();
-    assert_eq!(settlement.promise_state_id, PromiseStateId(3));
+    assert_eq!(settlement.promise_state_id, PromiseStateId::from_raw(3));
     let PromiseResolution::Rejected(exception) = settlement.resolution else {
         panic!("a lost execution settles its promise raised");
     };

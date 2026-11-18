@@ -49,7 +49,7 @@ fn harness() -> Harness {
 fn key(promise: usize) -> TestKey {
     TestKey {
         vm_id: 42,
-        promise_state_id: PromiseStateId(promise),
+        promise_state_id: PromiseStateId::from_raw(promise),
     }
 }
 
@@ -60,7 +60,7 @@ async fn records_born_locked_then_delivers() {
     h.handler
         .request_action(
             EffectNumber(3),
-            PromiseStateId(11),
+            PromiseStateId::from_raw(11),
             action_ref("greet"),
             vec![1i64, 2i64],
         )
@@ -84,7 +84,10 @@ async fn records_born_locked_then_delivers() {
     assert_eq!(requests[0].action_ref, action_ref("greet"));
     assert_eq!(requests[0].arguments, vec![1, 2]);
     assert_eq!(requests[0].metadata.effect_number, EffectNumber(3));
-    assert_eq!(requests[0].metadata.promise_state_id, PromiseStateId(11));
+    assert_eq!(
+        requests[0].metadata.promise_state_id,
+        PromiseStateId::from_raw(11)
+    );
     drop(requests);
 
     // The requested call's lock is tracked for renewal.
@@ -101,7 +104,7 @@ async fn replayed_effect_is_not_delivered_again() {
         h.handler
             .request_action(
                 EffectNumber(3),
-                PromiseStateId(11),
+                PromiseStateId::from_raw(11),
                 action_ref("greet"),
                 vec![1i64],
             )
@@ -133,7 +136,7 @@ async fn divergent_payload_is_fatal() {
     h.handler
         .request_action(
             EffectNumber(3),
-            PromiseStateId(11),
+            PromiseStateId::from_raw(11),
             action_ref("greet"),
             vec![1i64],
         )
@@ -144,7 +147,7 @@ async fn divergent_payload_is_fatal() {
         .handler
         .request_action(
             EffectNumber(3),
-            PromiseStateId(11),
+            PromiseStateId::from_raw(11),
             action_ref("greet"),
             vec![999i64],
         )
@@ -164,7 +167,7 @@ async fn retries_retryable_record_failures() {
     h.handler
         .request_action(
             EffectNumber(3),
-            PromiseStateId(11),
+            PromiseStateId::from_raw(11),
             action_ref("greet"),
             vec![1i64],
         )
@@ -188,7 +191,7 @@ async fn a_recording_that_committed_but_failed_is_left_to_the_recheck() {
     h.handler
         .request_action(
             EffectNumber(3),
-            PromiseStateId(11),
+            PromiseStateId::from_raw(11),
             action_ref("greet"),
             vec![1i64],
         )
@@ -229,7 +232,7 @@ async fn delivery_failure_leaves_the_row_recorded_and_up_for_unlocking() {
     let error = handler
         .request_action(
             EffectNumber(3),
-            PromiseStateId(11),
+            PromiseStateId::from_raw(11),
             action_ref("greet"),
             vec![1i64],
         )
