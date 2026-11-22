@@ -27,7 +27,9 @@ pub struct Observability {
 /// `dsn` — written and read there; the observability database URL
 /// variables are not read — with its tables emptied first, ending on
 /// `shutdown_token` — the lossy batchers on their last handle or on
-/// `force_shutdown_token`; its pipelines run as tasks of `spawner`.
+/// `force_shutdown_token`; its pipelines run as tasks of `spawner`, and
+/// the shared migrations lock it takes on the store is handed over through
+/// `migrations_locks_handover`.
 ///
 /// The metrics recorder is installed process-wide here, its Prometheus
 /// half served on an ephemeral port nobody reads, for the upkeep that
@@ -37,6 +39,7 @@ pub async fn start<Spawner>(
     mut spawner: Spawner,
     dsn: &SecretStr,
     node_id: waymark_ids::NodeId,
+    migrations_locks_handover: &waymark_postgres_bringup::SharedMigrationsLocksHandover,
     shutdown_token: tokio_util::sync::CancellationToken,
     force_shutdown_token: tokio_util::sync::CancellationToken,
 ) -> Result<Observability, color_eyre::eyre::Report>
@@ -95,6 +98,7 @@ where
         config,
         node_id,
         sampling_handle,
+        migrations_locks_handover,
         shutdown_token,
         force_shutdown_token,
     )

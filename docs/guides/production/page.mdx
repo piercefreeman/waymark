@@ -56,6 +56,9 @@ migrates under a running process. A process that was killed releases its lock
 when the lock expires, `WAYMARK_MIGRATIONS_LOCK_TTL_MS` after its last
 renewal. A node or bridge that cannot renew its lock shuts down
 `WAYMARK_MIGRATIONS_LOCK_FENCING_MARGIN_MS` before the lock would expire.
+The observability store has a migrations lock of its own, taken and renewed
+the same way under the `WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_LOCK_*`
+variables.
 
 The bridge never migrates. It refuses to start unless the schema exactly
 matches its own migrations, and it refuses to start while a migration is in

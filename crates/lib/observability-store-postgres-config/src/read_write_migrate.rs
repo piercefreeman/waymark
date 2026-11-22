@@ -2,7 +2,7 @@
 
 use waymark_secret_string::SecretString;
 
-use waymark_postgres_config::{connection, pool};
+use waymark_postgres_config::{connection, migrations_lock, pool};
 
 use crate::profiles;
 
@@ -21,6 +21,11 @@ pub struct ReadWriteMigrate {
     /// credentials than the write pool's, with the rights the migrations
     /// need.
     pub migrations: connection::Config,
+
+    /// The migrations lock: the exclusive one the migrations run under,
+    /// through the migrations connection's URL, and the shared one the
+    /// store is written under afterwards, through the write pool's URL.
+    pub migrations_lock: migrations_lock::Config,
 }
 
 /// Error returned when reading a [`ReadWriteMigrate`] from the environment.
@@ -37,6 +42,10 @@ pub enum FromEnvError {
     /// The migrations connection's config could not be read.
     #[error("migrations connection: {0}")]
     Migrations(#[source] connection::FromUrlAndEnvError),
+
+    /// The migrations lock's config could not be read.
+    #[error("migrations lock: {0}")]
+    MigrationsLock(#[source] migrations_lock::FromEnvError),
 }
 
 impl ReadWriteMigrate {
@@ -55,11 +64,14 @@ impl ReadWriteMigrate {
         let migrations =
             connection::Config::from_url_and_env::<profiles::Migrations>(migrations_url)
                 .map_err(FromEnvError::Migrations)?;
+        let migrations_lock = migrations_lock::Config::from_env::<profiles::MigrationsLock>()
+            .map_err(FromEnvError::MigrationsLock)?;
 
         Ok(Self {
             write,
             read,
             migrations,
+            migrations_lock,
         })
     }
 }

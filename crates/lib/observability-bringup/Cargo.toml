@@ -11,6 +11,10 @@ waymark-essential-metrics-sampler = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-lossy-batcher = { workspace = true }
 waymark-managed-spawner = { workspace = true }
+waymark-migrations-engine = { workspace = true }
+waymark-migrations-engine-assertion = { workspace = true }
+waymark-migrations-engine-backend = { workspace = true }
+waymark-migrations-engine-backend-sqlx-postgres = { workspace = true }
 waymark-observability-config = { workspace = true }
 waymark-observability-events-bringup = { workspace = true }
 waymark-observability-events-vm-driver-hooks = { workspace = true }
@@ -21,6 +25,5 @@ waymark-postgres-bringup = { workspace = true }
 waymark-sqlx-postgres-migrations = { workspace = true }
 
 aide = { workspace = true }
-sqlx = { workspace = true, features = ["migrate"] }
 thiserror = { workspace = true }
 tokio-util = { workspace = true }

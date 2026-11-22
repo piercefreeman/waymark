@@ -5073,7 +5073,6 @@ name = "waymark-observability-bringup"
 version = "0.1.0"
 dependencies = [
  "aide",
- "sqlx",
  "thiserror",
  "tokio-util",
  "waymark-api-observability-state-http",
@@ -5082,6 +5081,10 @@ dependencies = [
  "waymark-ids",
  "waymark-lossy-batcher",
  "waymark-managed-spawner",
+ "waymark-migrations-engine",
+ "waymark-migrations-engine-assertion",
+ "waymark-migrations-engine-backend",
+ "waymark-migrations-engine-backend-sqlx-postgres",
  "waymark-observability-config",
  "waymark-observability-events-bringup",
  "waymark-observability-events-vm-driver-hooks",
