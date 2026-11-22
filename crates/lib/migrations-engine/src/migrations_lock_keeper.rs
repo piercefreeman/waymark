@@ -33,6 +33,20 @@ impl ExclusiveMigrationsLock {
     }
 }
 
+#[cfg(test)]
+impl ExclusiveMigrationsLock {
+    /// An exclusive lock no keeper took, for the tests of what runs under
+    /// one, with the token that fences it.
+    pub fn with_fence_for_tests() -> (Self, CancellationToken) {
+        let fence = CancellationToken::new();
+        let lock = Self {
+            fence: fence.clone(),
+        };
+
+        (lock, fence)
+    }
+}
+
 /// A shared migrations lock, as the holder that took it has it.
 ///
 /// A fenced lock must not be relied on any more: its keeper counted it as

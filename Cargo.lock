@@ -4840,7 +4840,9 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+ "waymark-migrations-engine-assertion",
  "waymark-migrations-engine-backend",
+ "waymark-migrations-engine-migration",
  "waymark-nonzero-duration",
 ]
 
