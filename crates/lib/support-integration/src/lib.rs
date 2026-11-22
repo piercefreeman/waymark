@@ -3,6 +3,6 @@
 mod postgres;
 
 pub use postgres::{
-    LOCAL_POSTGRES_DSN, MigrateMainDatabaseError, connect_pool, ensure_local_postgres,
-    migrate_main_database,
+    LOCAL_POSTGRES_DSN, MigrateDatabaseError, MigrateMainDatabaseError, MigrationsRunErrorFor,
+    connect_pool, ensure_local_postgres, migrate_database, migrate_main_database,
 };

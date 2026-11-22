@@ -27,6 +27,34 @@ const MIGRATIONS_LOCK_FENCING_MARGIN: NonZeroDuration =
 const MIGRATIONS_LOCK_STATEMENT_TIMEOUT: NonZeroDuration =
     NonZeroDuration::from_nonzero_secs(NonZeroU64::new(3).unwrap());
 
+/// The error of a migrations run on a database whose migrations engine
+/// tables are `Tables`, with assertions of the type `Assertion` and
+/// migrations of the type `Migration`.
+pub type MigrationsRunErrorFor<Tables, Assertion, Migration> =
+    waymark_migrations_engine::run_migrations::ErrorFor<
+        waymark_migrations_engine_backend_sqlx_postgres::Backend<Tables>,
+        Assertion,
+        Migration,
+    >;
+
+/// Error returned by [`migrate_database`].
+#[derive(Debug, thiserror::Error)]
+pub enum MigrateDatabaseError<AssertionCheckError, RunError> {
+    /// The timing of the migrations lock the helper takes is not valid.
+    #[error("migrations lock timing: {0}")]
+    LockTiming(#[source] waymark_migrations_engine::migrations_lock_timing::ValidateError),
+
+    /// The database was not migrated.
+    #[error("migrating: {0}")]
+    Migrate(
+        #[source]
+        waymark_postgres_bringup::migrate_and_release_migrations_lock::Error<
+            AssertionCheckError,
+            RunError,
+        >,
+    ),
+}
+
 /// Error returned by [`migrate_main_database`].
 #[derive(Debug, thiserror::Error)]
 pub enum MigrateMainDatabaseError {
@@ -35,24 +63,20 @@ pub enum MigrateMainDatabaseError {
     #[error("the main database's migrations array: {0}")]
     MigrationsArray(#[source] waymark_migrations_engine::migrations_comparison::ArrayOrderError),
 
-    /// The timing of the migrations lock the helper takes is not valid.
-    #[error("migrations lock timing: {0}")]
-    LockTiming(#[source] waymark_migrations_engine::migrations_lock_timing::ValidateError),
-
     /// The main database was not migrated.
     #[error("migrating the main database: {0}")]
     Migrate(
         #[source]
-        waymark_postgres_bringup::migrate_and_release_migrations_lock::Error<
-            waymark_migrations_engine_assertion::CheckErrorFor<
-                waymark_backend_postgres_migrations::Assertions,
-            >,
-            waymark_migrations_engine::run_migrations::ErrorFor<
-                waymark_migrations_engine_backend_sqlx_postgres::Backend<
-                    waymark_backend_postgres_migrations::Tables,
+        Box<
+            MigrateDatabaseError<
+                waymark_migrations_engine_assertion::CheckErrorFor<
+                    waymark_backend_postgres_migrations::Assertions,
                 >,
-                waymark_backend_postgres_migrations::Assertions,
-                waymark_backend_postgres_migrations::Migration,
+                MigrationsRunErrorFor<
+                    waymark_backend_postgres_migrations::Tables,
+                    waymark_backend_postgres_migrations::Assertions,
+                    waymark_backend_postgres_migrations::Migration,
+                >,
             >,
         >,
     ),
@@ -135,14 +159,54 @@ async fn ensure_local_postgres_impl() -> Result<(), EnsureLocalPostgresError> {
     Ok(())
 }
 
-/// Migrate the main database at `dsn`, the way a tool does: under the
-/// exclusive migrations lock, released afterwards.
+/// Migrate the main database at `dsn`, the way a tool does: see
+/// [`migrate_database`].
+pub async fn migrate_main_database(dsn: &SecretStr) -> Result<(), Box<MigrateMainDatabaseError>> {
+    let assertions = waymark_backend_postgres_migrations::assertions();
+    let migrations = waymark_migrations_engine::validate_migrations_array(
+        waymark_backend_postgres_migrations::migrations(),
+    )
+    .map_err(|error| Box::new(MigrateMainDatabaseError::MigrationsArray(error)))?;
+
+    migrate_database::<waymark_backend_postgres_migrations::Tables, _, _, _>(
+        dsn,
+        None,
+        &assertions,
+        &migrations,
+    )
+    .await
+    .map_err(|error| Box::new(MigrateMainDatabaseError::Migrate(error)))
+}
+
+/// Migrate the database at `dsn` to `migrations`, the way a tool does:
+/// under the exclusive migrations lock, released afterwards. Its tables
+/// are in `schema`, created if missing; unscoped when `None`. The database
+/// has to meet `assertions`.
 ///
 /// Test processes start together, and each migrates: the one that has the
 /// lock makes the others' migrations refused. A refused one is tried
 /// again until the readiness deadline, by when the one in progress is
 /// over and nothing is pending any more.
-pub async fn migrate_main_database(dsn: &SecretStr) -> Result<(), Box<MigrateMainDatabaseError>> {
+pub async fn migrate_database<Tables, Assertion, Migrations, Migration>(
+    dsn: &SecretStr,
+    schema: Option<&str>,
+    assertions: &Assertion,
+    migrations: &waymark_migrations_engine::ValidMigrationsArray<Migrations>,
+) -> Result<
+    (),
+    Box<
+        MigrateDatabaseError<
+            waymark_migrations_engine_assertion::CheckErrorFor<Assertion>,
+            MigrationsRunErrorFor<Tables, Assertion, Migration>,
+        >,
+    >,
+>
+where
+    Tables: waymark_migrations_engine_backend_sqlx_postgres::Tables,
+    Assertion: waymark_migrations_engine_assertion::Assertion<Connection = sqlx::PgConnection>,
+    Migrations: AsRef<[Migration]>,
+    Migration: waymark_migrations_engine_migration::Migration<Connection = sqlx::PgConnection>,
+{
     let migrations_connection = waymark_postgres_config::connection::Config {
         url: dsn.into(),
         statement_timeout: None,
@@ -156,37 +220,29 @@ pub async fn migrate_main_database(dsn: &SecretStr) -> Result<(), Box<MigrateMai
     let migrations_lock = waymark_postgres_config::migrations_lock::Config {
         timing: migrations_lock_timing
             .validate()
-            .map_err(|error| Box::new(MigrateMainDatabaseError::LockTiming(error)))?,
+            .map_err(|error| Box::new(MigrateDatabaseError::LockTiming(error)))?,
         statement_timeout: Some(MIGRATIONS_LOCK_STATEMENT_TIMEOUT),
     };
-    let assertions = waymark_backend_postgres_migrations::assertions();
-    let migrations = waymark_migrations_engine::validate_migrations_array(
-        waymark_backend_postgres_migrations::migrations(),
-    )
-    .map_err(|error| Box::new(MigrateMainDatabaseError::MigrationsArray(error)))?;
 
     let deadline = Instant::now() + READY_TIMEOUT;
 
     loop {
-        let migrated = waymark_postgres_bringup::migrate_and_release_migrations_lock::<
-            waymark_backend_postgres_migrations::Tables,
-            _,
-            _,
-            _,
-        >(
-            waymark_postgres_bringup::migrate_and_release_migrations_lock::Params {
-                migrations_connection: &migrations_connection,
-                migrations_lock: &migrations_lock,
-                schema: None,
-                holder_id: waymark_migrations_engine_backend::migrations_lock::HolderId::from_raw(
-                    uuid::Uuid::new_v4(),
-                ),
-                assertions: &assertions,
-                migrations: &migrations,
-                transactions: waymark_migrations_engine::MigrationsRunTransactions::WholeRun,
-            },
-        )
-        .await;
+        let migrated =
+            waymark_postgres_bringup::migrate_and_release_migrations_lock::<Tables, _, _, _>(
+                waymark_postgres_bringup::migrate_and_release_migrations_lock::Params {
+                    migrations_connection: &migrations_connection,
+                    migrations_lock: &migrations_lock,
+                    schema: schema.map(Into::into),
+                    holder_id:
+                        waymark_migrations_engine_backend::migrations_lock::HolderId::from_raw(
+                            uuid::Uuid::new_v4(),
+                        ),
+                    assertions,
+                    migrations,
+                    transactions: waymark_migrations_engine::MigrationsRunTransactions::WholeRun,
+                },
+            )
+            .await;
 
         let error = match migrated {
             Ok(_) => return Ok(()),
@@ -206,7 +262,7 @@ pub async fn migrate_main_database(dsn: &SecretStr) -> Result<(), Box<MigrateMai
         );
 
         if !refused || Instant::now() >= deadline {
-            return Err(Box::new(MigrateMainDatabaseError::Migrate(error)));
+            return Err(Box::new(MigrateDatabaseError::Migrate(error)));
         }
 
         tokio::time::sleep(RETRY_DELAY).await;
