@@ -7,6 +7,19 @@ use std::borrow::Cow;
 
 use waymark_sqlx_postgres_schema_pool::{PgConnectOptionsExt as _, PgPoolOptionsExt as _};
 
+mod migrations_support;
+
+pub mod keep_shared_migrations_lock;
+pub mod migrate_and_release_migrations_lock;
+pub mod migrate_and_take_shared_migrations_lock;
+pub mod take_shared_migrations_lock_and_check;
+
+pub use self::keep_shared_migrations_lock::keep_shared_migrations_lock;
+pub use self::migrate_and_release_migrations_lock::migrate_and_release_migrations_lock;
+pub use self::migrate_and_take_shared_migrations_lock::migrate_and_take_shared_migrations_lock;
+pub use self::migrations_support::*;
+pub use self::take_shared_migrations_lock_and_check::take_shared_migrations_lock_and_check;
+
 /// What a pool's or a connection's transactions may do.
 #[derive(Debug)]
 pub enum Transactions {
@@ -309,3 +322,6 @@ fn connect_options(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod migrations_tests;
