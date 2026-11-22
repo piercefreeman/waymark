@@ -5366,9 +5366,17 @@ name = "waymark-postgres-bringup"
 version = "0.1.0"
 dependencies = [
  "const_format",
+ "derive-where",
  "sqlx",
  "thiserror",
  "tokio",
+ "uuid",
+ "waymark-migrations-engine",
+ "waymark-migrations-engine-assertion",
+ "waymark-migrations-engine-backend",
+ "waymark-migrations-engine-backend-sqlx-postgres",
+ "waymark-migrations-engine-migration",
+ "waymark-migrations-sql-file",
  "waymark-nonzero-duration",
  "waymark-postgres-config",
  "waymark-secret-string",
