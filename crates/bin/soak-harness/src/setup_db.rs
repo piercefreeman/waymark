@@ -33,22 +33,45 @@ pub async fn boot_postgres() -> Result<(), color_eyre::eyre::Report> {
 /// database to accept connections; every connection, the migrations'
 /// included, runs its statements under `statement_timeout`.
 ///
-/// The database is migrated through a connection of its own, the way the
-/// executor migrates it.
+/// The database is migrated through a connection of its own, under the
+/// exclusive migrations lock, which is released afterwards: the harness
+/// takes no migrations lock for its own statements.
 pub async fn connect(
     dsn: &SecretStr,
     statement_timeout: NonZeroDuration,
     timeout: Duration,
 ) -> Result<PgPool, color_eyre::eyre::Report> {
-    let migrations = waymark_postgres_config::connection::Config {
+    let migrations_connection = waymark_postgres_config::connection::Config {
         url: dsn.into(),
         statement_timeout: Some(statement_timeout),
     };
+    let migrations_lock = crate::common::migrations_lock_config()
+        .wrap_err("the timing of the harness's migrations lock")?;
+    let assertions = waymark_backend_postgres_migrations::assertions();
+    let migrations = waymark_migrations_engine::validate_migrations_array(
+        waymark_backend_postgres_migrations::migrations(),
+    )
+    .wrap_err("the main database's migrations array")?;
 
     crate::common::wait_for_database("the main database", timeout, || async {
-        let migrated = waymark_postgres_bringup::migrate(&migrations, None, async |connection| {
-            waymark_backend_postgres_migrations::run(connection).await
-        })
+        let migrated = waymark_postgres_bringup::migrate_and_release_migrations_lock::<
+            waymark_backend_postgres_migrations::Tables,
+            _,
+            _,
+            _,
+        >(
+            waymark_postgres_bringup::migrate_and_release_migrations_lock::Params {
+                migrations_connection: &migrations_connection,
+                migrations_lock: &migrations_lock,
+                schema: None,
+                holder_id: waymark_migrations_engine_backend::migrations_lock::HolderId::from_raw(
+                    waymark_ids::NodeId::new_uuid_v4().into(),
+                ),
+                assertions: &assertions,
+                migrations: &migrations,
+                transactions: waymark_migrations_engine::MigrationsRunTransactions::WholeRun,
+            },
+        )
         .await;
 
         let Err(error) = migrated else {
@@ -56,11 +79,12 @@ pub async fn connect(
         };
 
         // Only a connect another attempt may get past is waited out; a bad
-        // URL, a permanent connect failure, a migration failure or a failed
-        // close is not the database coming up, and no migration runs twice.
+        // URL, a permanent connect failure, a refused migrations lock, a
+        // migration failure or a failed close is not the database coming
+        // up, and no migration runs twice.
         let retry = matches!(
             &error,
-            waymark_postgres_bringup::MigrateError::Connect(
+            waymark_postgres_bringup::migrate_and_release_migrations_lock::Error::ConnectForMigrations(
                 waymark_postgres_bringup::ConnectionError::Connect(connect_error),
             ) if !is_permanent(connect_error)
         );

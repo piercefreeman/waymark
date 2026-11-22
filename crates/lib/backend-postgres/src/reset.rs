@@ -29,13 +29,20 @@ pub async fn truncate_all(pool: &PgPool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-/// Drop every table the migrations create, `_sqlx_migrations` and the
-/// trigger functions, so a migration run from scratch succeeds on
-/// `connection` afterwards.
+/// Drop every table the migrations create, the migrations engine's own
+/// tables and the trigger functions, so a migration run from scratch
+/// succeeds on `connection` afterwards.
+///
+/// The migrations locks go with their table: nothing may run on the
+/// database meanwhile.
 pub async fn drop_schema(connection: &mut sqlx::PgConnection) -> Result<(), sqlx::Error> {
     // The legacy-table names must stay in this list for as long as the
     // migrations create them: a run from scratch replays the full migration
     // history, so a leftover table would fail it on "table already exists".
+    //
+    // `_sqlx_migrations` is what a database migrated before the migrations
+    // engine has in place of `_waymark_main_migrations`: it is dropped so
+    // a reset of such a database leaves nothing behind.
     sqlx::query(
         r#"
         DROP TABLE IF EXISTS
@@ -56,6 +63,8 @@ pub async fn drop_schema(connection: &mut sqlx::PgConnection) -> Result<(), sqlx
             workload_pinnings,
             runnable_workloads,
             vm_execution_results,
+            _waymark_main_migrations,
+            _waymark_main_migrations_locks,
             _sqlx_migrations
         CASCADE
         "#,

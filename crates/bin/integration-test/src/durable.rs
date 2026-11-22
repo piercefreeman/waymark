@@ -135,12 +135,12 @@ async fn connect_durable_stack() -> Result<DurableStack, color_eyre::eyre::Repor
             .wrap_err("auto-bootstrap local postgres for integration runner")?;
     }
 
+    waymark_support_integration::migrate_main_database(&dsn)
+        .await
+        .wrap_err("run postgres migrations for integration runner")?;
     let pool = connect_pool(&dsn)
         .await
         .wrap_err_with(|| format!("connect postgres backend: {dsn}"))?;
-    waymark_backend_postgres_migrations::run(&pool)
-        .await
-        .wrap_err("run postgres migrations for integration runner")?;
 
     // Reset the durable tables so stale runnable workloads from prior
     // (crashed) runs cannot be revived into this run's execution subsystem.
