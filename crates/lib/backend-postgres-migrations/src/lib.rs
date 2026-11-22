@@ -24,7 +24,7 @@ pub fn assertions() -> Assertions {
 pub type Migration = waymark_migrations_source::MigrationSource<sqlx::PgConnection>;
 
 /// The migrations of the main database, in the order of their versions.
-pub fn migrations() -> [Migration; 26] {
+pub fn migrations() -> [Migration; 27] {
     waymark_migrations_source::migrations![
         "migrations/0001_init.sql",
         "migrations/0002_runner_actions_done_execution_id.sql",
@@ -52,6 +52,7 @@ pub fn migrations() -> [Migration; 26] {
         "migrations/0024_rename_action_call_completions_outcome.sql",
         "migrations/0025_drop_worker_status.sql",
         "migrations/0026_action_call_request_lock_nonce.sql",
+        waymark_backend_postgres_migration_0027_id_map_tables,
     ]
 }
 
