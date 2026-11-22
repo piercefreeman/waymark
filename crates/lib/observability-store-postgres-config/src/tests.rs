@@ -29,15 +29,12 @@ fn each_pool_takes_its_url_and_its_own_statement_timeout() {
         Some(std::time::Duration::from_secs(10)),
     );
     assert_eq!(
-        config.migrations_check.url.expose_secret(),
-        "postgres://primary/waymark"
+        config.migrations_lock.timing.heartbeat().get(),
+        std::time::Duration::from_secs(5),
     );
     assert_eq!(
-        config
-            .migrations_check
-            .statement_timeout
-            .map(NonZeroDuration::get),
-        Some(std::time::Duration::from_secs(600)),
+        config.migrations_lock.timing.time_to_live().get(),
+        std::time::Duration::from_secs(15),
     );
 }
 
@@ -111,7 +108,7 @@ fn migrate_only_takes_the_migrations_connection_alone() {
 }
 
 #[test]
-fn write_only_checks_the_migrations_through_the_write_url() {
+fn write_only_takes_the_write_pool_and_the_migrations_lock() {
     let config = WriteOnly::from_url_and_env("postgres://primary/waymark".into())
         .expect("the defaults are valid");
 
@@ -124,15 +121,12 @@ fn write_only_checks_the_migrations_through_the_write_url() {
         Some(std::time::Duration::from_secs(30)),
     );
     assert_eq!(
-        config.migrations_check.url.expose_secret(),
-        "postgres://primary/waymark"
+        config.migrations_lock.timing.heartbeat().get(),
+        std::time::Duration::from_secs(5),
     );
     assert_eq!(
-        config
-            .migrations_check
-            .statement_timeout
-            .map(NonZeroDuration::get),
-        Some(std::time::Duration::from_secs(600)),
+        config.migrations_lock.timing.time_to_live().get(),
+        std::time::Duration::from_secs(15),
     );
 }
 

@@ -205,14 +205,26 @@ where
 /// Error returned by [`start_emitter_only`].
 #[derive(Debug, thiserror::Error)]
 pub enum StartEmitterOnlyError {
-    /// The store's schema is not there, or not migrated exactly to this
+    /// The store's migrations are not in the order of their versions.
+    #[error("the observability store's migrations array: {0}")]
+    MigrationsArray(#[source] waymark_migrations_engine::migrations_comparison::ArrayOrderError),
+
+    /// The store's shared migrations lock could not be taken, or the
+    /// store's schema is not there, or not migrated exactly to this
     /// build's migrations.
-    #[error("checking the observability migrations: {0}")]
-    MigrationsCheck(
+    #[error("taking the observability store's shared migrations lock: {0}")]
+    MigrationsLock(
         #[source]
-        waymark_postgres_bringup::CheckMigrationsError<
-            waymark_sqlx_postgres_migrations::CheckError,
+        waymark_postgres_bringup::take_shared_migrations_lock_and_check::Error<
+            AssertionsCheckError,
         >,
+    ),
+
+    /// The store's shared migrations lock could not be handed over to be
+    /// kept.
+    #[error("handing the observability store's shared migrations lock over: {0}")]
+    HandOverMigrationsLock(
+        #[source] waymark_postgres_bringup::shared_migrations_locks_keeping::KeepingGoneError,
     ),
 
     /// The observability write pool could not be brought up.
@@ -227,11 +239,16 @@ pub enum StartEmitterOnlyError {
 /// and the lossy batcher into it under `lossy_batcher_policy`, as a task of
 /// `spawner` that stops when the emitter's last handle is dropped or on
 /// `force_shutdown_token` — and return `node_id`'s event emitter.
+///
+/// The shared migrations lock the process has on the store from then on,
+/// taken for `node_id`, is handed over through
+/// `migrations_locks_handover`.
 pub async fn start_emitter_only<Spawner>(
     spawner: Spawner,
     config: &waymark_observability_store_config::WriteOnly,
     lossy_batcher_policy: waymark_lossy_batcher::ValidPolicy,
     node_id: waymark_ids::NodeId,
+    migrations_locks_handover: &waymark_postgres_bringup::SharedMigrationsLocksHandover,
     force_shutdown_token: tokio_util::sync::CancellationToken,
 ) -> Result<Emitter, StartEmitterOnlyError>
 where
@@ -239,19 +256,41 @@ where
 {
     let waymark_observability_store_config::WriteOnly::Postgres(postgres_config) = config;
 
-    // The migrations check first, on a connection of its own: it waits for
-    // a migration in progress, which the write pool's statement timeout
-    // would cut short. A store migrated to other migrations than this
-    // build's fails the bringup rather than losing every event written to
-    // it. The connection and the pool require the schema and never create
-    // it: only a process that migrates the store creates it.
-    waymark_postgres_bringup::check_migrations(
-        &postgres_config.migrations_check,
-        Some(SCHEMA.into()),
-        async |connection| waymark_observability_store_postgres_migrations::check(connection).await,
+    // The shared migrations lock first, on a connection of its own, and
+    // the migrations check under it: a store migrated to other migrations
+    // than this build's fails the bringup rather than losing every event
+    // written to it, and so does a migration in progress. The connection
+    // and the pool require the schema and never create it: only a process
+    // that migrates the store creates it.
+    let observability_store_assertions =
+        waymark_observability_store_postgres_migrations::assertions();
+    let observability_store_migrations = waymark_migrations_engine::validate_migrations_array(
+        waymark_observability_store_postgres_migrations::migrations(),
+    )
+    .map_err(StartEmitterOnlyError::MigrationsArray)?;
+    let held_migrations_lock = waymark_postgres_bringup::take_shared_migrations_lock_and_check::<
+        waymark_observability_store_postgres_migrations::Tables,
+        _,
+        _,
+        _,
+    >(
+        waymark_postgres_bringup::take_shared_migrations_lock_and_check::Params {
+            lock_url: &postgres_config.write.url,
+            migrations_lock: &postgres_config.migrations_lock,
+            schema: Some(SCHEMA.into()),
+            holder_id: waymark_migrations_engine_backend::migrations_lock::HolderId::from_raw(
+                node_id.into(),
+            ),
+            assertions: &observability_store_assertions,
+            migrations: &observability_store_migrations,
+        },
     )
     .await
-    .map_err(StartEmitterOnlyError::MigrationsCheck)?;
+    .map_err(StartEmitterOnlyError::MigrationsLock)?;
+
+    migrations_locks_handover
+        .keep(held_migrations_lock.keeper)
+        .map_err(StartEmitterOnlyError::HandOverMigrationsLock)?;
 
     let write_pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
         config: &postgres_config.write,

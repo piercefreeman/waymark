@@ -4,10 +4,11 @@
 //! - gRPC WorkflowService for workflow registration
 //! - gRPC health check for singleton discovery
 //!
-//! It never migrates the database: it refuses to start unless the schema
-//! matches its migrations exactly, and while a migration is in progress.
-//! It keeps a shared migrations lock on the database for as long as it
-//! runs, and shuts down when it can not renew it.
+//! It never migrates the database nor the observability store: it refuses
+//! to start unless each one's schema matches its migrations exactly, and
+//! while a migration of either is in progress. It keeps a shared
+//! migrations lock on each for as long as it runs, and shuts down when it
+//! cannot renew one.
 //!
 //! It is a node of its own: it mints a node id at every boot and, with a
 //! database, emits what it observes — the executables registered through
@@ -28,7 +29,8 @@
 //! - WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS: Connection cap for the observability write pool (default: 4)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS: Statement timeout on the observability write pool, `0` for none (default: 30000)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_ACQUIRE_TIMEOUT_MS: How long taking a connection from the observability write pool may wait, `0` refuses to boot (default: 30000)
-//! - WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_STATEMENT_TIMEOUT_MS: how long the startup waits for an observability migration in progress, `0` for no limit (default: 600000)
+//! - WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_LOCK_TTL_MS / WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_LOCK_HEARTBEAT_MS / WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_LOCK_FENCING_MARGIN_MS: the observability store's migrations lock: how long it lasts after a renewal, how often it is renewed, and how early before its expiry the bridge shuts down when it could not renew it (defaults: 15000 / 5000 / 1000)
+//! - WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_LOCK_STATEMENT_TIMEOUT_MS: statement timeout on the connection the observability store's migrations lock is renewed through, `0` for none (default: 3000)
 //! - WAYMARK_OBSERVABILITY_EVENTS_SINK_BUFFERS / WAYMARK_OBSERVABILITY_EVENTS_SINK_MAX_BATCH / WAYMARK_OBSERVABILITY_EVENTS_SINK_MAX_DELAY_MS / WAYMARK_OBSERVABILITY_EVENTS_SINK_FLUSHERS: Observability-events write batching (defaults: 3 / 256 / 1000 / 1)
 //! - WAYMARK_OBSERVABILITY_EVENTS_RETENTION_MS / WAYMARK_OBSERVABILITY_EVENTS_RETENTION_SWEEP_INTERVAL_MS / WAYMARK_OBSERVABILITY_EVENTS_RECORD_SNAPSHOT_PERSISTED: read and validated at boot as on the node, with no effect on the bridge
 //! - WAYMARK_BRIDGE_GRPC_ADDR: gRPC server bind address (default: 127.0.0.1:24117)
@@ -189,6 +191,7 @@ async fn main()
                         &observability_store,
                         observability_events.lossy_batcher_policy,
                         node_id,
+                        &migrations_locks_handover,
                         force_shutdown_token.child_token(),
                     )
                     .await?;

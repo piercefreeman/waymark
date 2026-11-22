@@ -63,9 +63,7 @@ variables.
 The bridge never migrates. It refuses to start unless the schema exactly
 matches its own migrations, and it refuses to start while a migration is in
 progress; it does not wait for one. An older node also refuses a newer
-schema. The bridge checks the observability store at startup too; there it
-waits up to `WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_STATEMENT_TIMEOUT_MS`
-for an in-progress migration.
+schema. The bridge checks the observability store at startup the same way.
 
 On a new database, start the app once a node is healthy. Until then,
 your app's workflow calls fail with `unable to boot waymark server`, and
@@ -216,12 +214,10 @@ Budget your Postgres connections per process:
   processes, with
   up to 10 connections (`WAYMARK_DATABASE_MAX_CONNECTIONS`, the same
   variable as the node's, with a default of its own), plus up to 4 for
-  its own observability write pool, plus one for its migrations lock on
-  the main database, held open for as long as the bridge runs - 15 in
-  total. It checks the main schema at startup through that lock's
-  connection, and opens one connection to check the observability
-  schema, closed before the pool of that database opens; neither adds
-  to the 15.
+  its own observability write pool, plus one for each of its two
+  migrations locks, held open for as long as the bridge runs - 16 in
+  total. It checks each schema at startup through that database's lock
+  connection, so the checks add none.
 
 The observability store holds events and node load samples, kept for
 seven days by default. On a busy deployment you can move it off the main

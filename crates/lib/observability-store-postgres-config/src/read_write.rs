@@ -2,7 +2,7 @@
 
 use waymark_secret_string::SecretString;
 
-use waymark_postgres_config::{connection, pool};
+use waymark_postgres_config::{migrations_lock, pool};
 
 use crate::profiles;
 
@@ -17,9 +17,9 @@ pub struct ReadWrite {
     /// same database as the write pool's, or at a read replica of it.
     pub read: pool::Config,
 
-    /// The connection the migrations check runs through, to the write
-    /// pool's URL; its statement timeout is the migrations connection's.
-    pub migrations_check: connection::Config,
+    /// The shared migrations lock the store is written under, through
+    /// the write pool's URL.
+    pub migrations_lock: migrations_lock::Config,
 }
 
 /// Error returned when reading a [`ReadWrite`] from the environment.
@@ -33,9 +33,9 @@ pub enum FromEnvError {
     #[error("read pool: {0}")]
     Read(#[source] pool::FromUrlAndEnvError),
 
-    /// The migrations check connection's config could not be read.
-    #[error("migrations check connection: {0}")]
-    MigrationsCheck(#[source] connection::FromUrlAndEnvError),
+    /// The migrations lock's config could not be read.
+    #[error("migrations lock: {0}")]
+    MigrationsLock(#[source] migrations_lock::FromEnvError),
 }
 
 impl ReadWrite {
@@ -45,18 +45,17 @@ impl ReadWrite {
         write_url: SecretString,
         read_url: SecretString,
     ) -> Result<Self, FromEnvError> {
-        let write = pool::Config::from_url_and_env::<profiles::WritePool>(write_url.clone())
+        let write = pool::Config::from_url_and_env::<profiles::WritePool>(write_url)
             .map_err(FromEnvError::Write)?;
         let read = pool::Config::from_url_and_env::<profiles::ReadPool>(read_url)
             .map_err(FromEnvError::Read)?;
-        let migrations_check =
-            connection::Config::from_url_and_env::<profiles::Migrations>(write_url)
-                .map_err(FromEnvError::MigrationsCheck)?;
+        let migrations_lock = migrations_lock::Config::from_env::<profiles::MigrationsLock>()
+            .map_err(FromEnvError::MigrationsLock)?;
 
         Ok(Self {
             write,
             read,
-            migrations_check,
+            migrations_lock,
         })
     }
 }
