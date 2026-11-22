@@ -1,10 +1,10 @@
 //! The main database's profiles: where the config of its pools and
 //! connections comes from.
 
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 
 use waymark_nonzero_duration::NonZeroDuration;
-use waymark_postgres_config::{connection, pool};
+use waymark_postgres_config::{connection, migrations_lock, pool};
 
 /// The executor's read-write pool: `WAYMARK_DATABASE_*`.
 #[derive(Debug)]
@@ -45,4 +45,25 @@ impl connection::Profile for Migrations {
     // 10 minutes: a migration on a large table is slow before it is
     // stuck.
     const STATEMENT_TIMEOUT_DEFAULT: Option<NonZeroDuration> = NonZeroDuration::from_secs(600);
+}
+
+/// The migrations lock: `WAYMARK_MIGRATIONS_LOCK_*`.
+#[derive(Debug)]
+pub(crate) struct MigrationsLock;
+
+impl migrations_lock::Profile for MigrationsLock {
+    const PREFIX: &'static str = "MIGRATIONS_LOCK";
+
+    const HEARTBEAT_DEFAULT: NonZeroDuration =
+        NonZeroDuration::from_nonzero_secs(NonZeroU64::new(5).unwrap());
+
+    const TIME_TO_LIVE_DEFAULT: NonZeroDuration =
+        NonZeroDuration::from_nonzero_secs(NonZeroU64::new(15).unwrap());
+
+    const FENCING_MARGIN_DEFAULT: NonZeroDuration =
+        NonZeroDuration::from_nonzero_secs(NonZeroU64::new(1).unwrap());
+
+    // 3 seconds: a renewal that takes longer leaves room for another one
+    // before the lock stops being relied on.
+    const STATEMENT_TIMEOUT_DEFAULT: Option<NonZeroDuration> = NonZeroDuration::from_secs(3);
 }

@@ -1,6 +1,6 @@
 //! The main database, read, written and migrated.
 
-use waymark_postgres_config::{connection, pool};
+use waymark_postgres_config::{connection, migrations_lock, pool};
 use waymark_secret_string::SecretString;
 
 use crate::profiles;
@@ -16,6 +16,11 @@ pub struct ReadWriteMigrate {
     /// credentials than the read-write pool's, with the rights the
     /// migrations need.
     pub migrations: connection::Config,
+
+    /// The migrations lock: the exclusive one the migrations run under,
+    /// through the migrations connection's URL, and the shared one the
+    /// runtime keeps afterwards, through the read-write pool's URL.
+    pub migrations_lock: migrations_lock::Config,
 }
 
 /// Error returned by [`ReadWriteMigrate::from_env`].
@@ -36,6 +41,10 @@ pub enum FromEnvError {
     /// The migrations connection's config could not be read.
     #[error("migrations connection: {0}")]
     Migrations(#[source] connection::FromUrlAndEnvError),
+
+    /// The migrations lock's config could not be read.
+    #[error("migrations lock: {0}")]
+    MigrationsLock(#[source] migrations_lock::FromEnvError),
 }
 
 /// Error returned by [`ReadWriteMigrate::from_urls_and_env`].
@@ -48,6 +57,10 @@ pub enum FromUrlsAndEnvError {
     /// The migrations connection's config could not be read.
     #[error("migrations connection: {0}")]
     Migrations(#[source] connection::FromUrlAndEnvError),
+
+    /// The migrations lock's config could not be read.
+    #[error("migrations lock: {0}")]
+    MigrationsLock(#[source] migrations_lock::FromEnvError),
 }
 
 impl ReadWriteMigrate {
@@ -64,10 +77,13 @@ impl ReadWriteMigrate {
         let migrations =
             connection::Config::from_url_and_env::<profiles::Migrations>(migrations_url)
                 .map_err(FromEnvError::Migrations)?;
+        let migrations_lock = migrations_lock::Config::from_env::<profiles::MigrationsLock>()
+            .map_err(FromEnvError::MigrationsLock)?;
 
         Ok(Self {
             read_write,
             migrations,
+            migrations_lock,
         })
     }
 
@@ -85,10 +101,13 @@ impl ReadWriteMigrate {
         let migrations =
             connection::Config::from_url_and_env::<profiles::Migrations>(migrations_url)
                 .map_err(FromUrlsAndEnvError::Migrations)?;
+        let migrations_lock = migrations_lock::Config::from_env::<profiles::MigrationsLock>()
+            .map_err(FromUrlsAndEnvError::MigrationsLock)?;
 
         Ok(Self {
             read_write,
             migrations,
+            migrations_lock,
         })
     }
 }

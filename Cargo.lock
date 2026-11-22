@@ -4512,6 +4512,8 @@ dependencies = [
  "waymark-ids",
  "waymark-managed-spawner-supervised",
  "waymark-metrics-bringup",
+ "waymark-migrations-engine",
+ "waymark-migrations-engine-backend",
  "waymark-observability-bringup",
  "waymark-postgres-bringup",
  "waymark-prometheus-exporter-bringup",

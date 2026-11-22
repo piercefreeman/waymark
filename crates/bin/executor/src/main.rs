@@ -14,6 +14,8 @@
 //! - WAYMARK_DATABASE_ACQUIRE_TIMEOUT_MS: How long taking a connection from the main database pool may wait, `0` refuses to boot (default: 30000)
 //! - WAYMARK_MIGRATIONS_DATABASE_URL: DSN the main database's migrations run through (default: WAYMARK_DATABASE_URL)
 //! - WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS: Statement timeout on the main migrations connection, `0` for none (default: 600000)
+//! - WAYMARK_MIGRATIONS_LOCK_TTL_MS / WAYMARK_MIGRATIONS_LOCK_HEARTBEAT_MS / WAYMARK_MIGRATIONS_LOCK_FENCING_MARGIN_MS: The main database's migrations lock: how long it lasts after a renewal, how often it is renewed, and how early before its expiry the process shuts down when it could not renew it (defaults: 15000 / 5000 / 1000)
+//! - WAYMARK_MIGRATIONS_LOCK_STATEMENT_TIMEOUT_MS: Statement timeout on the connection the main database's migrations lock is renewed through, `0` for none (default: 3000)
 //! - WAYMARK_WORKER_GRPC_ADDR: gRPC server for worker connections (default: 127.0.0.1:24118)
 //! - WAYMARK_USER_MODULE: Python module(s) to preload (comma-separated)
 //! - WAYMARK_WORKER_COUNT: Number of workers (default: num_cpus)
@@ -121,6 +123,12 @@ async fn main()
 
     let supervisor = waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
+    // The shared migrations locks the startup takes are handed over here,
+    // and kept outside the supervisor: its tasks stop on the shutdown
+    // token, and the locks have to outlast their drain.
+    let (migrations_locks_handover, migrations_locks_keeping) =
+        waymark_postgres_bringup::shared_migrations_locks_keeping();
+
     // Bring everything up under the supervisor, handing each subsystem's
     // tasks over as soon as they exist, and run the lifecycle from there:
     // the startup stops at a checkpoint once the stop-startup-then-shutdown
@@ -131,8 +139,12 @@ async fn main()
         stop_startup_then_shutdown_token: stop_startup_then_shutdown_token.clone(),
         shutdown_token: shutdown_token.clone(),
     };
-    let clean_shutdown = waymark_fn_main_lifecycle::run(params, async |supervisor, checkpoint| {
+    let lifecycle = waymark_fn_main_lifecycle::run(params, async |supervisor, checkpoint| {
         let mut supervisor = supervisor.spawner(waymark_fn_main_common::ErrorConverter);
+
+        // Held by the startup alone, so it is dropped when the startup
+        // returns: no lock is handed over after that.
+        let migrations_locks_handover = migrations_locks_handover;
 
         // The shutdown signal listener: on a request it cancels the
         // stop-startup-then-shutdown token, then waits for the shutdown
@@ -169,10 +181,36 @@ async fn main()
         // The migrations first, through a connection of their own: it may
         // carry other credentials than the pool's, and the pool's statement
         // timeout is sized for the runtime's statements, not for migrations.
-        waymark_postgres_bringup::migrate(&config.database.migrations, None, async |connection| {
-            waymark_backend_postgres_migrations::run(connection).await
-        })
-        .await?;
+        // They run under the exclusive migrations lock; the shared one this
+        // process has from then on is handed over to be kept for as long
+        // as the process runs on the database.
+        let main_database_assertions = waymark_backend_postgres_migrations::assertions();
+        let main_database_migrations = waymark_migrations_engine::validate_migrations_array(
+            waymark_backend_postgres_migrations::migrations(),
+        )?;
+        let held_main_database_migrations_lock =
+            waymark_postgres_bringup::migrate_and_take_shared_migrations_lock::<
+                waymark_backend_postgres_migrations::Tables,
+                _,
+                _,
+                _,
+            >(
+                waymark_postgres_bringup::migrate_and_take_shared_migrations_lock::Params {
+                    migrations_connection: &config.database.migrations,
+                    shared_lock_url: &config.database.read_write.url,
+                    migrations_lock: &config.database.migrations_lock,
+                    schema: None,
+                    holder_id:
+                        waymark_migrations_engine_backend::migrations_lock::HolderId::from_raw(
+                            node_id.into(),
+                        ),
+                    assertions: &main_database_assertions,
+                    migrations: &main_database_migrations,
+                    transactions: waymark_migrations_engine::MigrationsRunTransactions::WholeRun,
+                },
+            )
+            .await?;
+        migrations_locks_handover.keep(held_main_database_migrations_lock.keeper)?;
         checkpoint()?;
         let pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
             config: &config.database.read_write,
@@ -320,7 +358,31 @@ async fn main()
         );
 
         Ok::<(), waymark_fn_main_common::Error>(())
-    })
-    .await?;
+    });
+
+    // The lifecycle and the keeping of the shared migrations locks go on
+    // together. The locks are released only once the lifecycle has
+    // returned, with every task drained: until then this process may still
+    // write to the databases. A lock that is fenced requests the shutdown,
+    // and fails the process once the lifecycle has returned.
+    let lifecycle_returned = tokio_util::sync::CancellationToken::new();
+    let (lifecycle, migrations_locks_kept) = tokio::join!(
+        async {
+            let lifecycle = lifecycle.await;
+
+            lifecycle_returned.cancel();
+
+            lifecycle
+        },
+        migrations_locks_keeping.run(
+            lifecycle_returned.cancelled(),
+            stop_startup_then_shutdown_token.clone(),
+        ),
+    );
+
+    let clean_shutdown = lifecycle?;
+
+    migrations_locks_kept?;
+
     Ok(clean_shutdown)
 }
