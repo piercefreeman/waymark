@@ -1,3 +1,5 @@
+-- revision: essential-metrics-observability-events-dropped-1
+
 -- The observability events a node's observability-events pipeline dropped,
 -- carried in its samples like the essential-metrics pipeline's own drops.
 -- Rows from before the column read as 0.

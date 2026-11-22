@@ -1,3 +1,5 @@
+-- revision: observability-events-1
+
 CREATE TABLE observability_events (
     node_id uuid NOT NULL,
     node_sequence bigint NOT NULL CHECK (node_sequence >= 0),

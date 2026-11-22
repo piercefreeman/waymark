@@ -1,3 +1,5 @@
+-- revision: observability-vm-instances-1
+
 -- The instance view, kept by the database as the events arrive: one row
 -- per VM with what the observability state serves, so a read never
 -- derives it from the events.
