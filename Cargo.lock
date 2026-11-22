@@ -4272,6 +4272,8 @@ dependencies = [
  "waymark-fn-main-lifecycle-ctrl-c",
  "waymark-ids",
  "waymark-managed-spawner-supervised",
+ "waymark-migrations-engine",
+ "waymark-migrations-engine-backend",
  "waymark-observability-bringup",
  "waymark-observability-events-config",
  "waymark-observability-events-payload",

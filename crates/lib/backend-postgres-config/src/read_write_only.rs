@@ -1,6 +1,6 @@
 //! The main database, read and written.
 
-use waymark_postgres_config::{connection, pool};
+use waymark_postgres_config::{migrations_lock, pool};
 use waymark_secret_string::SecretString;
 
 use crate::profiles;
@@ -12,9 +12,9 @@ pub struct ReadWriteOnly {
     /// The pool the runtime reads and writes through.
     pub read_write: pool::Config,
 
-    /// The connection the migrations check runs through, to the read-write
-    /// pool's URL; its statement timeout is the migrations connection's.
-    pub migrations_check: connection::Config,
+    /// The shared migrations lock the runtime keeps, through the
+    /// read-write pool's URL.
+    pub migrations_lock: migrations_lock::Config,
 }
 
 /// Error returned by [`ReadWriteOnly::from_env`].
@@ -28,9 +28,9 @@ pub enum FromEnvError {
     #[error("read-write pool: {0}")]
     ReadWrite(#[source] pool::FromUrlAndEnvError),
 
-    /// The migrations check connection's config could not be read.
-    #[error("migrations check connection: {0}")]
-    MigrationsCheck(#[source] connection::FromUrlAndEnvError),
+    /// The migrations lock's config could not be read.
+    #[error("migrations lock: {0}")]
+    MigrationsLock(#[source] migrations_lock::FromEnvError),
 }
 
 /// Error returned by [`ReadWriteOnly::from_url_and_env`].
@@ -40,9 +40,9 @@ pub enum FromUrlAndEnvError {
     #[error("read-write pool: {0}")]
     ReadWrite(#[source] pool::FromUrlAndEnvError),
 
-    /// The migrations check connection's config could not be read.
-    #[error("migrations check connection: {0}")]
-    MigrationsCheck(#[source] connection::FromUrlAndEnvError),
+    /// The migrations lock's config could not be read.
+    #[error("migrations lock: {0}")]
+    MigrationsLock(#[source] migrations_lock::FromEnvError),
 }
 
 impl ReadWriteOnly {
@@ -51,14 +51,14 @@ impl ReadWriteOnly {
     pub fn from_env(defaults_for: DefaultsFor) -> Result<Self, FromEnvError> {
         let url = crate::url_from_env().map_err(FromEnvError::DatabaseUrl)?;
         let read_write = defaults_for
-            .read_write_pool_from_url_and_env(url.clone())
+            .read_write_pool_from_url_and_env(url)
             .map_err(FromEnvError::ReadWrite)?;
-        let migrations_check = connection::Config::from_url_and_env::<profiles::Migrations>(url)
-            .map_err(FromEnvError::MigrationsCheck)?;
+        let migrations_lock = migrations_lock::Config::from_env::<profiles::MigrationsLock>()
+            .map_err(FromEnvError::MigrationsLock)?;
 
         Ok(Self {
             read_write,
-            migrations_check,
+            migrations_lock,
         })
     }
 
@@ -70,14 +70,14 @@ impl ReadWriteOnly {
         url: SecretString,
     ) -> Result<Self, FromUrlAndEnvError> {
         let read_write = defaults_for
-            .read_write_pool_from_url_and_env(url.clone())
+            .read_write_pool_from_url_and_env(url)
             .map_err(FromUrlAndEnvError::ReadWrite)?;
-        let migrations_check = connection::Config::from_url_and_env::<profiles::Migrations>(url)
-            .map_err(FromUrlAndEnvError::MigrationsCheck)?;
+        let migrations_lock = migrations_lock::Config::from_env::<profiles::MigrationsLock>()
+            .map_err(FromUrlAndEnvError::MigrationsLock)?;
 
         Ok(Self {
             read_write,
-            migrations_check,
+            migrations_lock,
         })
     }
 }

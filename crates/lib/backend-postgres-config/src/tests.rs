@@ -64,7 +64,7 @@ fn read_write_migrate_takes_both_urls_and_their_own_settings() {
 }
 
 #[test]
-fn read_write_only_takes_the_pool_and_the_migrations_check_connection() {
+fn read_write_only_takes_the_pool_and_the_migrations_lock() {
     let config = ReadWriteOnly::from_url_and_env(
         DefaultsFor::Executor,
         "postgres://app@primary/waymark".into(),
@@ -83,15 +83,19 @@ fn read_write_only_takes_the_pool_and_the_migrations_check_connection() {
         Some(std::time::Duration::from_secs(60)),
     );
     assert_eq!(
-        config.migrations_check.url.expose_secret(),
-        "postgres://app@primary/waymark"
+        config.migrations_lock.timing.heartbeat().get(),
+        std::time::Duration::from_secs(5),
+    );
+    assert_eq!(
+        config.migrations_lock.timing.time_to_live().get(),
+        std::time::Duration::from_secs(15),
     );
     assert_eq!(
         config
-            .migrations_check
+            .migrations_lock
             .statement_timeout
             .map(NonZeroDuration::get),
-        Some(std::time::Duration::from_secs(600)),
+        Some(std::time::Duration::from_secs(3)),
     );
 }
 
