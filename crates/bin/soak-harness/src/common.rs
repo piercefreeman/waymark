@@ -45,6 +45,42 @@ where
 
 const DB_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
 
+const MIGRATIONS_LOCK_HEARTBEAT: waymark_nonzero_duration::NonZeroDuration =
+    waymark_nonzero_duration::NonZeroDuration::from_nonzero_secs(
+        std::num::NonZeroU64::new(5).unwrap(),
+    );
+const MIGRATIONS_LOCK_TIME_TO_LIVE: waymark_nonzero_duration::NonZeroDuration =
+    waymark_nonzero_duration::NonZeroDuration::from_nonzero_secs(
+        std::num::NonZeroU64::new(15).unwrap(),
+    );
+const MIGRATIONS_LOCK_FENCING_MARGIN: waymark_nonzero_duration::NonZeroDuration =
+    waymark_nonzero_duration::NonZeroDuration::from_nonzero_secs(
+        std::num::NonZeroU64::new(1).unwrap(),
+    );
+const MIGRATIONS_LOCK_STATEMENT_TIMEOUT: waymark_nonzero_duration::NonZeroDuration =
+    waymark_nonzero_duration::NonZeroDuration::from_nonzero_secs(
+        std::num::NonZeroU64::new(3).unwrap(),
+    );
+
+/// The config of the migrations lock the harness migrates a database
+/// under: renewed every 5 s, expiring 15 s after a renewal, with 3 s for
+/// each of its statements.
+pub fn migrations_lock_config() -> Result<
+    waymark_postgres_config::migrations_lock::Config,
+    waymark_migrations_engine::migrations_lock_timing::ValidateError,
+> {
+    let timing = waymark_migrations_engine::MigrationsLockTiming {
+        heartbeat: MIGRATIONS_LOCK_HEARTBEAT,
+        time_to_live: MIGRATIONS_LOCK_TIME_TO_LIVE,
+        fencing_margin: MIGRATIONS_LOCK_FENCING_MARGIN,
+    };
+
+    Ok(waymark_postgres_config::migrations_lock::Config {
+        timing: timing.validate()?,
+        statement_timeout: Some(MIGRATIONS_LOCK_STATEMENT_TIMEOUT),
+    })
+}
+
 /// One failed attempt to connect a database.
 #[derive(Debug)]
 pub enum WaitForDatabaseAttemptError<Retry, Stop> {

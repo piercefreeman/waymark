@@ -2,4 +2,7 @@
 
 mod postgres;
 
-pub use postgres::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
+pub use postgres::{
+    LOCAL_POSTGRES_DSN, MigrateMainDatabaseError, connect_pool, ensure_local_postgres,
+    migrate_main_database,
+};

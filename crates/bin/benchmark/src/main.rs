@@ -30,18 +30,6 @@ const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// result before the benchmark declares a stall and aborts.
 const DRAIN_STALL_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// Error from rebuilding the database schema on the migrations connection.
-#[derive(Debug, thiserror::Error)]
-enum RebuildSchemaError {
-    /// The schema could not be dropped.
-    #[error("dropping the schema: {0}")]
-    Drop(#[source] sqlx::Error),
-
-    /// The migrations failed.
-    #[error("applying the migrations: {0}")]
-    Migrate(#[source] sqlx::migrate::MigrateError),
-}
-
 /// Run the benchmark: its stats, and — with observability — the events
 /// the run left in the store, or why they could not be counted.
 #[obs]
@@ -66,26 +54,29 @@ async fn run_benchmark(
             .await
             .wrap_err("bootstrap local postgres")?;
     }
-    // Rebuild the schema from scratch on the migrations connection, before
-    // the pool opens: every run starts on an empty, freshly migrated
-    // database.
-    waymark_postgres_bringup::migrate(
-        &waymark_postgres_config::connection::Config {
-            url: dsn.into(),
-            statement_timeout: None,
-        },
-        None,
-        async |connection| {
-            waymark_backend_postgres::reset::drop_schema(connection)
-                .await
-                .map_err(RebuildSchemaError::Drop)?;
-            waymark_backend_postgres_migrations::run(connection)
-                .await
-                .map_err(RebuildSchemaError::Migrate)
-        },
-    )
-    .await
-    .wrap_err("rebuild database schema")?;
+    // Rebuild the schema from scratch, before the pool opens: every run
+    // starts on an empty, freshly migrated database. The schema is dropped
+    // on a connection of its own, the migrations engine's tables included,
+    // and the database then migrated the way a tool migrates it.
+    let mut reset_connection =
+        waymark_postgres_bringup::connection(waymark_postgres_bringup::ConnectionParams {
+            config: &waymark_postgres_config::connection::Config {
+                url: dsn.into(),
+                statement_timeout: None,
+            },
+            transactions: waymark_postgres_bringup::Transactions::Unrestricted,
+            schema: None,
+        })
+        .await
+        .wrap_err("connect to drop the database schema")?;
+    let dropped = waymark_backend_postgres::reset::drop_schema(&mut reset_connection).await;
+    let closed = sqlx::Connection::close(reset_connection).await;
+    dropped.wrap_err("drop the database schema")?;
+    closed.wrap_err("close the connection the database schema was dropped through")?;
+
+    waymark_support_integration::migrate_main_database(dsn)
+        .await
+        .wrap_err("migrate the database")?;
     let pool = waymark_postgres_bringup::pool(waymark_postgres_bringup::Params {
         config: &waymark_postgres_config::pool::Config {
             url: dsn.into(),

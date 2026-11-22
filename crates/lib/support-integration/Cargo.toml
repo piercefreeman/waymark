@@ -7,11 +7,19 @@ edition = "2024"
 [dependencies]
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-error-fmt = { workspace = true }
+waymark-migrations-engine = { workspace = true }
+waymark-migrations-engine-assertion = { workspace = true }
+waymark-migrations-engine-backend = { workspace = true }
+waymark-migrations-engine-backend-sqlx-postgres = { workspace = true }
+waymark-nonzero-duration = { workspace = true }
+waymark-postgres-bringup = { workspace = true }
+waymark-postgres-config = { workspace = true }
 waymark-secret-string = { workspace = true }
 
 sqlx = { workspace = true, features = ["postgres"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["process", "time", "sync"] }
+uuid = { workspace = true, features = ["v4"] }
 
 [lib]
 test = false
