@@ -5092,7 +5092,6 @@ dependencies = [
  "waymark-observability-store-postgres",
  "waymark-observability-store-postgres-migrations",
  "waymark-postgres-bringup",
- "waymark-sqlx-postgres-migrations",
 ]
 
 [[package]]

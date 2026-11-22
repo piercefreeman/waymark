@@ -220,7 +220,7 @@ settings use the same defaults as the node.
 | `WAYMARK_OBSERVABILITY_POSTGRES_MAX_CONNECTIONS` | Connection cap for the bridge's observability write pool, additive to its database pool's when sharing the database. | `4` |
 | `WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS` | How long one statement on the bridge's observability write pool may run. `0` turns the limit off. | `30000` |
 | `WAYMARK_OBSERVABILITY_POSTGRES_ACQUIRE_TIMEOUT_MS` | How long taking a connection from the bridge's observability write pool may wait before it fails. `0` refuses to boot. | `30000` |
-| `WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_STATEMENT_TIMEOUT_MS` | How long the bridge waits at startup for an observability migration in progress, on a connection of its own. `0` turns the limit off. | `600000` |
+| `WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_LOCK_TTL_MS` / `_HEARTBEAT_MS` / `_FENCING_MARGIN_MS` / `_STATEMENT_TIMEOUT_MS` | The bridge's migrations lock on the observability store, as for the [node's](#observability). | `15000` / `5000` / `1000` / `3000` |
 | `WAYMARK_OBSERVABILITY_EVENTS_SINK_BUFFERS` / `_MAX_BATCH` / `_MAX_DELAY_MS` / `_FLUSHERS` | The bridge's event sink, as for the [node's](#observability). | `3` / `256` / `1000` / `1` |
 | `RUST_LOG` | Log filter, as for the node. | `info` |
 

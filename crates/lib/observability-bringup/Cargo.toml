@@ -22,7 +22,6 @@ waymark-observability-store-config = { workspace = true }
 waymark-observability-store-postgres = { workspace = true }
 waymark-observability-store-postgres-migrations = { workspace = true }
 waymark-postgres-bringup = { workspace = true }
-waymark-sqlx-postgres-migrations = { workspace = true }
 
 aide = { workspace = true }
 thiserror = { workspace = true }

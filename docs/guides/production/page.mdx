@@ -63,9 +63,7 @@ variables.
 The bridge never migrates. It refuses to start unless the schema exactly
 matches its own migrations, and it refuses to start while a migration is in
 progress; it does not wait for one. An older node also refuses a newer
-schema. The bridge checks the observability store at startup too; there it
-waits up to `WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_STATEMENT_TIMEOUT_MS`
-for an in-progress migration.
+schema. The bridge checks the observability store at startup the same way.
 
 On a new database, start the app once a node is healthy. Until then,
 your app's workflow calls fail with `unable to boot waymark server`, and
