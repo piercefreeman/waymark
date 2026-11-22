@@ -1,4 +1,4 @@
-//! Config for Postgres pools and connections.
+//! Config for Postgres pools, connections and migrations locks.
 
 #![warn(missing_docs)]
 
@@ -7,6 +7,7 @@ use std::num::NonZeroU64;
 use waymark_nonzero_duration::NonZeroDuration;
 
 pub mod connection;
+pub mod migrations_lock;
 pub mod pool;
 
 /// The error of reading a number from the environment.
