@@ -1,0 +1,61 @@
+# A runtime state in the shape before the migration: one ready frame, three
+# promise states (waiting with an await and a select arm, resolved,
+# rejected), one select continuation, effect counter 9.
+#
+# Written by hand from `populated_after.hex`, which the runtime at the
+# migration's commit wrote: the frames, the states and the continuation are
+# its bytes, and the two tables are laid out as the runtime before the
+# migration laid them out. The bytes equal the ones the runtime of the
+# v0.30.1 release writes for this state.
+
+94                                  # the runtime state: 4 elements
+
+# The ready frames: one frame.
+91
+  96 07 02                          # frame: function 7, state 2
+    93                              # 3 registers
+      81 a3 49 6e 74 05             # {"Int": 5}
+      81 a7 50 65 6e 64 69 6e 67 00 # {"Pending": 0}
+      81 a7 50 65 6e 64 69 6e 67 01 # {"Pending": 1}
+    c0                              # no exception
+    90                              # no exception handlers
+    a8 54 6f 70 4c 65 76 65 6c      # "TopLevel"
+
+# The promise states table: the sequence of 3 states.
+93
+  # State 0.
+  81 a7 57 61 69 74 69 6e 67        # {"Waiting":
+    92                              #   2 waiters
+      81 a5 41 77 61 69 74          #   {"Await":
+        92                          #     a continuation
+          96 07 03                  #       frame: function 7, state 3
+            91 81 a3 49 6e 74 03    #         1 register: {"Int": 3}
+            c0 90
+            a8 54 6f 70 4c 65 76 65 6c
+          91 00                     #       resume with the value in register 0
+      81 a6 53 65 6c 65 63 74       #   {"Select":
+        92 00                       #     the claim of select 0
+          92 01 04                  #       arm: register 1, resume state 4
+  # State 1.
+  81 a7 53 65 74 74 6c 65 64        # {"Settled":
+    81 a8 52 65 73 6f 6c 76 65 64   #   {"Resolved":
+      81 a3 49 6e 74 2a             #     {"Int": 42}
+  # State 2.
+  81 a7 53 65 74 74 6c 65 64        # {"Settled":
+    81 a8 52 65 6a 65 63 74 65 64   #   {"Rejected":
+      a4 62 6f 6f 6d                #     "boom"
+
+# The select states table: the next id with the continuations by their ids.
+92
+  01                                # the next id
+  81                                # 1 continuation
+    00                              # select 0:
+      92                            #   a continuation
+        96 07 05                    #     frame: function 7, state 5
+          92 81 a3 49 6e 74 0b c0   #       2 registers: {"Int": 11}, empty
+          c0 90
+          a8 54 6f 70 4c 65 76 65 6c
+        90                          #     resume through a select arm
+
+# The effect counter.
+09

@@ -11,3 +11,4 @@
 *.lock linguist-generated
 package-lock.json linguist-generated
 migrations-engine-sql-files-checksums.json linguist-generated
+migrations-engine-crate-capture.json linguist-generated
