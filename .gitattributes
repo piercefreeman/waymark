@@ -10,3 +10,4 @@
 *_pb2_grpc.pyi linguist-generated
 *.lock linguist-generated
 package-lock.json linguist-generated
+migrations-engine-sql-files-checksums.json linguist-generated

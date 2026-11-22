@@ -4908,12 +4908,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-migrations-sql-file"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "envfury",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "waymark-migrations-engine-migration",
+ "waymark-migrations-source-checksums-core",
+ "waymark-migrations-sql-file-core",
+ "waymark-migrations-sql-file-macros",
+ "waymark-support-integration",
+ "waymark-support-test",
+]
+
+[[package]]
 name = "waymark-migrations-sql-file-core"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "waymark-migrations-sql-file-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+ "thiserror",
+ "waymark-migrations-source-checksums-core",
+ "waymark-migrations-source-checksums-proc-macro-helpers",
+ "waymark-migrations-sql-file-core",
 ]
 
 [[package]]

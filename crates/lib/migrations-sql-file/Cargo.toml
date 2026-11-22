@@ -1,0 +1,27 @@
+[package]
+name = "waymark-migrations-sql-file"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-migrations-engine-migration = { workspace = true }
+waymark-migrations-source-checksums-core = { workspace = true }
+waymark-migrations-sql-file-core = { workspace = true }
+waymark-migrations-sql-file-macros = { workspace = true }
+
+derive-where = { workspace = true }
+envfury = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+waymark-support-integration = { workspace = true }
+waymark-support-test = { workspace = true }
+
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lib]
+doctest = false
