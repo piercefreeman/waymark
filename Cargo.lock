@@ -4831,6 +4831,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-migrations-engine-migration"
+version = "0.1.0"
+dependencies = [
+ "waymark-blanket-impl-macros",
+]
+
+[[package]]
 name = "waymark-node-sequence"
 version = "0.1.0"
 
