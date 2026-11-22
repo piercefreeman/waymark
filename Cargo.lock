@@ -5323,6 +5323,7 @@ dependencies = [
  "waymark-essential-metrics-retention-backend",
  "waymark-essential-metrics-sink-backend",
  "waymark-ids",
+ "waymark-migrations-engine",
  "waymark-node-sequence",
  "waymark-nonzero-duration",
  "waymark-observability-events-core",

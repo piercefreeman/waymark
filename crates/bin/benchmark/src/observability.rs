@@ -71,11 +71,24 @@ where
 
     // Provision before the reset: `truncate_all` requires a migrated store,
     // and the bringup's own migration run comes after the reset. The
-    // migrations connection creates the schema, as the bringup's does.
-    waymark_postgres_bringup::migrate(
-        &postgres_config.migrations,
-        Some(SCHEMA.into()),
-        async |connection| waymark_observability_store_postgres_migrations::run(connection).await,
+    // store is migrated the way a tool migrates it, which creates the
+    // schema, as the bringup's migrations connection does.
+    let observability_store_assertions =
+        waymark_observability_store_postgres_migrations::assertions();
+    let observability_store_migrations = waymark_migrations_engine::validate_migrations_array(
+        waymark_observability_store_postgres_migrations::migrations(),
+    )
+    .wrap_err("the observability store's migrations array")?;
+    waymark_support_integration::migrate_database::<
+        waymark_observability_store_postgres_migrations::Tables,
+        _,
+        _,
+        _,
+    >(
+        dsn,
+        Some(SCHEMA),
+        &observability_store_assertions,
+        &observability_store_migrations,
     )
     .await
     .wrap_err("migrate the observability store")?;
