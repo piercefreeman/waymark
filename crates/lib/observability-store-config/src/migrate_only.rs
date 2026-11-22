@@ -27,7 +27,9 @@ pub enum FromEnvError {
 
     /// The Postgres store's config could not be read.
     #[error("postgres: {0}")]
-    Postgres(#[source] waymark_postgres_config::connection::FromUrlAndEnvError),
+    Postgres(
+        #[source] waymark_observability_store_postgres_config::migrate_only::FromUrlAndEnvError,
+    ),
 }
 
 impl MigrateOnly {

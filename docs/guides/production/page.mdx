@@ -7,6 +7,7 @@ export const metadata = {
 export const sections = [
   { title: 'Topology', id: 'topology' },
   { title: 'Migrations and upgrades', id: 'upgrades' },
+  { title: 'The migrations tool', id: 'waymark-migrate' },
   { title: 'Share an image', id: 'one-image' },
   { title: 'Compose the services', id: 'compose' },
   { title: 'Production settings', id: 'production-settings' },
@@ -87,6 +88,49 @@ update is not supported.
    separate process that can outlive the app; stop those processes too.
 3. Start the nodes on the new version and wait for a healthy node.
 4. Start the app on the same version.
+
+## The migrations tool {{ id: 'waymark-migrate' }}
+
+`waymark-migrate` inspects and runs the migrations without starting a node,
+for example as a step of a deploy pipeline. It ships in the same package as
+`waymark-executor` and acts on one database per run: `main-database` or
+`observability-store`. It reads the
+[database variables](/guides/configuration#node-advanced) a node reads for
+that database, and none of the other database's.
+
+```bash
+waymark-migrate main-database status
+waymark-migrate main-database check
+waymark-migrate main-database run --transactions whole-run
+```
+
+- `status` reports the applied and the pending migrations, and whether a
+  migration is in progress. It writes nothing.
+- `check` reports the same, and its exit code tells whether the database
+  exactly matches the release's migrations. It writes nothing.
+- `run` applies the pending migrations under the migrations lock a node
+  migrates under, so it refuses to run while a node or a bridge runs on the
+  database. `--transactions` is required. With `whole-run`, all pending
+  migrations are applied in one transaction, as a node applies them. With
+  `unmanaged`, each migration runs with no transaction around it: one that
+  fails leaves the database partly migrated, and both nodes and the tool
+  refuse it until it is repaired by hand.
+
+There are no rollbacks: restore the snapshot to go back.
+
+Each run logs to the standard output, as the node does, and prints one JSON
+object there last, on a line of its own.
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | `status` reported; `check` found the database exactly at the release's migrations; `run` applied the pending migrations, or none was pending. |
+| `1` | The command failed. |
+| `2` | The command line is not valid. |
+| `3` | `check` found pending migrations, or a database that was never migrated. |
+| `4` | `check` found a migration in progress; `run` was refused the migrations lock. |
+| `5` | A migration was started and never finished. |
+| `6` | The applied migrations conflict with the release's migrations. |
+| `7` | `check` and `run` found a database that was migrated by Waymark 0.30 or earlier and not [moved to this release's migrations ledger](#upgrades) yet. |
 
 ## Share an image {{ id: 'one-image' }}
 

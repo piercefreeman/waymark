@@ -4880,6 +4880,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-migrate"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+ "waymark-backend-postgres-config",
+ "waymark-backend-postgres-migrations",
+ "waymark-fn-main-common",
+ "waymark-migrations-engine",
+ "waymark-migrations-engine-assertion",
+ "waymark-migrations-engine-backend",
+ "waymark-migrations-engine-backend-sqlx-postgres",
+ "waymark-migrations-engine-migration",
+ "waymark-observability-store-config",
+ "waymark-observability-store-postgres-migrations",
+ "waymark-postgres-bringup",
+ "waymark-postgres-config",
+ "waymark-sqlx-postgres-schema-pool",
+]
+
+[[package]]
 name = "waymark-migrations-engine"
 version = "0.1.0"
 dependencies = [
