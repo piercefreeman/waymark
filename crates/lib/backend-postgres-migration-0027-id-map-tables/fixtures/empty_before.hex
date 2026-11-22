@@ -1,0 +1,9 @@
+# A runtime state with nothing in it, in the shape before the migration.
+# Written by hand; the bytes equal the ones the runtime of the v0.30.1
+# release writes for this state.
+
+94          # the runtime state: 4 elements
+  90        # no ready frames
+  90        # the promise states table: no states
+  92 00 80  # the select states table: next id 0, no continuations
+  00        # the effect counter
