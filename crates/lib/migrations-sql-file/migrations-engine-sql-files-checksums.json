@@ -1,0 +1,6 @@
+{
+  "files": {
+    "tests_fixtures/0007_add_the_widgets_table.sql": "sha256:da5d5411c7857d2362772d55967722ae3613ee2579e01eb29aabfe5f49125590",
+    "tests_fixtures/0008_index_the_widgets.sql": "sha256:f2a31ddd0253fed0f4a09b8b34fc0d3c1dea5e43c67043a70544d1d88400d0fd"
+  }
+}
