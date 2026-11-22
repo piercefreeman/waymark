@@ -3012,7 +3012,6 @@ dependencies = [
  "sqlx-postgres",
  "sqlx-sqlite",
  "syn 2.0.117",
- "thiserror",
  "tokio",
  "url",
 ]
@@ -5368,7 +5367,6 @@ dependencies = [
  "waymark-nonzero-duration",
  "waymark-postgres-bringup",
  "waymark-postgres-config",
- "waymark-sqlx-postgres-migrations",
  "waymark-support-integration",
  "waymark-support-test",
 ]

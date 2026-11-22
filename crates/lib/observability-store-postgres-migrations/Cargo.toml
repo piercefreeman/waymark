@@ -7,9 +7,8 @@ publish.workspace = true
 [dependencies]
 waymark-migrations-engine-backend-sqlx-postgres = { workspace = true }
 waymark-migrations-source = { workspace = true }
-waymark-sqlx-postgres-migrations = { workspace = true }
 
-sqlx = { workspace = true, features = ["macros", "migrate", "postgres"] }
+sqlx = { workspace = true, features = ["postgres"] }
 
 [dev-dependencies]
 waymark-migrations-engine = { workspace = true }
