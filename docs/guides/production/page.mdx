@@ -56,6 +56,9 @@ migrates under a running process. A process that was killed releases its lock
 when the lock expires, `WAYMARK_MIGRATIONS_LOCK_TTL_MS` after its last
 renewal. A node or bridge that cannot renew its lock shuts down
 `WAYMARK_MIGRATIONS_LOCK_FENCING_MARGIN_MS` before the lock would expire.
+The observability store has a migrations lock of its own, taken and renewed
+the same way under the `WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_LOCK_*`
+variables.
 
 The bridge never migrates. It refuses to start unless the schema exactly
 matches its own migrations, and it refuses to start while a migration is in
@@ -201,13 +204,13 @@ Budget your Postgres connections per process:
 
 - **Each node** opens up to 25 connections for its main pool
   (`WAYMARK_DATABASE_MAX_CONNECTIONS`), plus up to 4 + 4 for the
-  observability store's write and read pools, plus one for its
-  migrations lock on the main database, held open for as long as the
-  node runs - 34 in total, since the observability store shares the main
-  database by default. At startup it also opens one connection for the
-  main migrations, one more while it has main migrations to apply, and
-  one for the observability migrations; each is closed before the pools
-  of its database open, so none of them adds to the 34.
+  observability store's write and read pools, plus one for each of its
+  two migrations locks, held open for as long as the node runs - 35 in
+  total, since the observability store shares the main database by
+  default. At startup it also opens one connection for the main
+  migrations and one for the observability migrations, and one more for
+  each while it has migrations to apply; each is closed before the pools
+  of its database open, so none of them adds to the 35.
 - **Each app container, pod or host** (whatever shares one `localhost`)
   that queues workflows runs one singleton bridge, shared by its
   processes, with

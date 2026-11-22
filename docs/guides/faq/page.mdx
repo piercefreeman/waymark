@@ -178,7 +178,7 @@ run `waymark-bridge` by hand with the app's environment to see the error.
 
 **How many Postgres connections should I allow?**
 
-Each node opens up to 34 Postgres connections by default, and each bridge
+Each node opens up to 35 Postgres connections by default, and each bridge
 opens up to 15. Those totals include the observability pools and the
 connections of the migrations locks. You can
 [adjust the pool sizes](/guides/production#database-connections).
@@ -209,7 +209,7 @@ retry a lost attempt, the policy must include `ActionExecutionLost` or
 | Workflow lease duration (`WAYMARK_LOCK_TTL_MS`) | 15 s |
 | Durable sleep polling interval (`WAYMARK_SLEEP_POLL_INTERVAL_MS`) | 250 ms |
 | Retry count when `RetryPolicy.attempts` is omitted | 100 retries after the first attempt |
-| Maximum Postgres connections per node / per bridge | 34 / 15 |
+| Maximum Postgres connections per node / per bridge | 35 / 15 |
 | Event and node-sample retention | 7 days |
 
 The lease duration and polling interval aren't recovery or wake-up deadlines.

@@ -44,6 +44,8 @@
 //! - WAYMARK_OBSERVABILITY_POSTGRES_STATEMENT_TIMEOUT_MS: Statement timeout on the observability write pool, `0` for none (default: 30000)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_READ_STATEMENT_TIMEOUT_MS: Statement timeout on the observability read pool, `0` for none (default: 10000)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_STATEMENT_TIMEOUT_MS: Statement timeout on the observability migrations connection, `0` for none (default: 600000)
+//! - WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_LOCK_TTL_MS / WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_LOCK_HEARTBEAT_MS / WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_LOCK_FENCING_MARGIN_MS: The observability store's migrations lock: how long it lasts after a renewal, how often it is renewed, and how early before its expiry the process shuts down when it could not renew it (defaults: 15000 / 5000 / 1000)
+//! - WAYMARK_OBSERVABILITY_POSTGRES_MIGRATIONS_LOCK_STATEMENT_TIMEOUT_MS: Statement timeout on the connection the observability store's migrations lock is renewed through, `0` for none (default: 3000)
 //! - WAYMARK_OBSERVABILITY_POSTGRES_ACQUIRE_TIMEOUT_MS / WAYMARK_OBSERVABILITY_POSTGRES_READ_ACQUIRE_TIMEOUT_MS: How long taking a connection from the observability write / read pool may wait, `0` refuses to boot (defaults: 30000 / 30000)
 //! - WAYMARK_ESSENTIAL_METRICS_SAMPLE_INTERVAL_MS: Essential-metrics sampling interval (default: 10000)
 //! - WAYMARK_ESSENTIAL_METRICS_SINK_BUFFERS / WAYMARK_ESSENTIAL_METRICS_SINK_MAX_BATCH / WAYMARK_ESSENTIAL_METRICS_SINK_MAX_DELAY_MS / WAYMARK_ESSENTIAL_METRICS_SINK_FLUSHERS: Essential-metrics write batching (defaults: 3 / 64 / 5000 / 1)
@@ -233,6 +235,7 @@ async fn main()
                 config.observability.clone(),
                 node_id,
                 essential_metrics_sampling_handle,
+                &migrations_locks_handover,
                 shutdown_token.child_token(),
                 force_shutdown_token.child_token(),
             )

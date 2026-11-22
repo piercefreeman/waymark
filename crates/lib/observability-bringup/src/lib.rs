@@ -15,12 +15,46 @@ const SCHEMA: &str = "observability";
 pub type Emitter =
     waymark_observability_events_bringup::EmitterFor<waymark_observability_store_postgres::Store>;
 
+/// The error of checking the store's assertions.
+pub type AssertionsCheckError = waymark_migrations_engine_assertion::CheckErrorFor<
+    waymark_observability_store_postgres_migrations::Assertions,
+>;
+
+/// The error of the store's migrations run.
+pub type MigrationsRunError = waymark_migrations_engine::run_migrations::ErrorFor<
+    waymark_migrations_engine_backend_sqlx_postgres::Backend<
+        waymark_observability_store_postgres_migrations::Tables,
+    >,
+    waymark_observability_store_postgres_migrations::Assertions,
+    waymark_observability_store_postgres_migrations::Migration,
+>;
+
 /// Error returned by [`start`].
 #[derive(Debug, thiserror::Error)]
 pub enum StartError {
-    /// The store could not be migrated.
+    /// The store's migrations are not in the order of their versions.
+    #[error("the observability store's migrations array: {0}")]
+    MigrationsArray(#[source] waymark_migrations_engine::migrations_comparison::ArrayOrderError),
+
+    /// The store could not be migrated, or its shared migrations lock
+    /// could not be taken.
     #[error("migrating the observability store: {0}")]
-    Migrate(#[source] waymark_postgres_bringup::MigrateError<sqlx::migrate::MigrateError>),
+    Migrate(
+        #[source]
+        Box<
+            waymark_postgres_bringup::migrate_and_take_shared_migrations_lock::Error<
+                AssertionsCheckError,
+                MigrationsRunError,
+            >,
+        >,
+    ),
+
+    /// The store's shared migrations lock could not be handed over to be
+    /// kept.
+    #[error("handing the observability store's shared migrations lock over: {0}")]
+    HandOverMigrationsLock(
+        #[source] waymark_postgres_bringup::shared_migrations_locks_keeping::KeepingGoneError,
+    ),
 
     /// The observability write pool could not be brought up.
     #[error("bringing up the observability write pool: {0}")]
@@ -40,6 +74,10 @@ pub enum StartError {
 /// node's event emitter for producers to share, with what the VM driver
 /// hooks record through it.
 ///
+/// The store is migrated under its exclusive migrations lock, and the
+/// shared one the process has on it from then on, taken for `node_id`, is
+/// handed over through `migrations_locks_handover`.
+///
 /// `handle` is the sampling half of the essential-metrics recorder pair;
 /// the recording half must already be installed in the process-global
 /// fanout.
@@ -48,6 +86,7 @@ pub async fn start<Spawner>(
     config: ObservabilityConfig,
     node_id: waymark_ids::NodeId,
     handle: waymark_essential_metrics_sampler::recorder::Handle,
+    migrations_locks_handover: &waymark_postgres_bringup::SharedMigrationsLocksHandover,
     shutdown_token: tokio_util::sync::CancellationToken,
     force_shutdown_token: tokio_util::sync::CancellationToken,
 ) -> Result<
@@ -71,13 +110,41 @@ where
     // the writes, and the read pool may point at a replica, where nothing
     // can be created, and which only sees the schema once the primary has
     // it and it has caught up.
-    waymark_postgres_bringup::migrate(
-        &postgres_config.migrations,
-        Some(SCHEMA.into()),
-        async |connection| waymark_observability_store_postgres_migrations::run(connection).await,
+    //
+    // The migrations run under the store's exclusive migrations lock; the
+    // shared one that comes out of it is kept through the write pool's
+    // URL.
+    let observability_store_assertions =
+        waymark_observability_store_postgres_migrations::assertions();
+    let observability_store_migrations = waymark_migrations_engine::validate_migrations_array(
+        waymark_observability_store_postgres_migrations::migrations(),
+    )
+    .map_err(StartError::MigrationsArray)?;
+    let held_migrations_lock = waymark_postgres_bringup::migrate_and_take_shared_migrations_lock::<
+        waymark_observability_store_postgres_migrations::Tables,
+        _,
+        _,
+        _,
+    >(
+        waymark_postgres_bringup::migrate_and_take_shared_migrations_lock::Params {
+            migrations_connection: &postgres_config.migrations,
+            shared_lock_url: &postgres_config.write.url,
+            migrations_lock: &postgres_config.migrations_lock,
+            schema: Some(SCHEMA.into()),
+            holder_id: waymark_migrations_engine_backend::migrations_lock::HolderId::from_raw(
+                node_id.into(),
+            ),
+            assertions: &observability_store_assertions,
+            migrations: &observability_store_migrations,
+            transactions: waymark_migrations_engine::MigrationsRunTransactions::WholeRun,
+        },
     )
     .await
-    .map_err(StartError::Migrate)?;
+    .map_err(|error| StartError::Migrate(Box::new(error)))?;
+
+    migrations_locks_handover
+        .keep(held_migrations_lock.keeper)
+        .map_err(StartError::HandOverMigrationsLock)?;
 
     // The store's pools are its own, never the main database's: a slow
     // observability statement waits only on its own pool's budget, and a

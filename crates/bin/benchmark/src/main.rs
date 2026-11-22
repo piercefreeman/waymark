@@ -116,10 +116,21 @@ async fn run_benchmark(
     let mut supervisor =
         waymark_managed_spawner_supervised::supervisor::start(shutdown_token.clone());
 
-    // The run under the supervisor: a failure part-way leaves the tasks
-    // already up supervised, and they are shut down and drained below like
-    // on any other exit.
-    let run_result: Result<_, color_eyre::eyre::Report> = async {
+    // The shared migrations locks the run takes are kept apart from the
+    // supervised tasks, until every one of them has returned: the tasks
+    // still write to the databases while they are drained.
+    let (migrations_locks_handover, migrations_locks_keeping) =
+        waymark_postgres_bringup::shared_migrations_locks_keeping();
+    let tasks_drained = tokio_util::sync::CancellationToken::new();
+
+    let supervised = async {
+        // The run under the supervisor: a failure part-way leaves the tasks
+        // already up supervised, and they are shut down and drained below like
+        // on any other exit.
+        let run_result: Result<_, color_eyre::eyre::Report> = async {
+        // Dropped with the run: no lock is handed over after it.
+        let migrations_locks_handover = migrations_locks_handover;
+
         let mut supervisor = supervisor.spawner(waymark_fn_main_common::ErrorConverter);
 
         // One identity for the node, whatever it reports under: the
@@ -131,6 +142,7 @@ async fn run_benchmark(
                 &mut supervisor,
                 observability_dsn,
                 node_id,
+                &migrations_locks_handover,
                 shutdown_token.child_token(),
                 force_shutdown_token.child_token(),
             )
@@ -219,19 +231,31 @@ async fn run_benchmark(
     }
     .await;
 
-    // Whatever the run did, the draining is over, one way or the other —
-    // force the pinning manager out of its drain loop along with the
-    // graceful stop, then wait for every task. A task that ended before the
-    // request is the root cause of whatever the run saw, so it is reported
-    // over the run's own failure.
-    shutdown_token.cancel();
-    force_shutdown_token.cancel();
-    let report = supervisor.drain().await;
+        // Whatever the run did, the draining is over, one way or the other —
+        // force the pinning manager out of its drain loop along with the
+        // graceful stop, then wait for every task.
+        shutdown_token.cancel();
+        force_shutdown_token.cancel();
+        let report = supervisor.drain().await;
+        tasks_drained.cancel();
 
+        (run_result, report)
+    };
+
+    // A lock that is fenced stops the run through the shutdown token.
+    let ((run_result, report), migrations_locks_kept) = tokio::join!(
+        supervised,
+        migrations_locks_keeping.run(tasks_drained.cancelled(), shutdown_token.clone()),
+    );
+
+    // A task that returned before the shutdown request is the root cause
+    // of whatever the run saw, so it is reported over the run's own
+    // failure; so is a shared migrations lock that was not kept.
     if report.any_before_shutdown() {
         bail!("a task ended before the shutdown was requested:\n{report}");
     }
     tracing::info!(%report, "shutdown complete");
+    migrations_locks_kept.wrap_err("keep the shared migrations locks")?;
     let (observability, elapsed) = run_result?;
 
     let event_counts = match observability {

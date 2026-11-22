@@ -71,6 +71,25 @@ fn migrations_take_their_url_and_their_own_statement_timeout() {
             .map(NonZeroDuration::get),
         Some(std::time::Duration::from_secs(600)),
     );
+    assert_eq!(
+        config.migrations_lock.timing.heartbeat().get(),
+        std::time::Duration::from_secs(5),
+    );
+    assert_eq!(
+        config.migrations_lock.timing.time_to_live().get(),
+        std::time::Duration::from_secs(15),
+    );
+    assert_eq!(
+        config.migrations_lock.timing.fencing_margin().get(),
+        std::time::Duration::from_secs(1),
+    );
+    assert_eq!(
+        config
+            .migrations_lock
+            .statement_timeout
+            .map(NonZeroDuration::get),
+        Some(std::time::Duration::from_secs(3)),
+    );
 }
 
 #[test]
