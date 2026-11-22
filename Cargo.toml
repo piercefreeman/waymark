@@ -74,6 +74,7 @@ waymark-migrations-engine-assertion = { path = "crates/lib/migrations-engine-ass
 waymark-migrations-engine-backend = { path = "crates/lib/migrations-engine-backend" }
 waymark-migrations-engine-migration = { path = "crates/lib/migrations-engine-migration" }
 waymark-migrations-rust-code-core = { path = "crates/lib/migrations-rust-code-core" }
+waymark-migrations-rust-code-macros = { path = "crates/lib/migrations-rust-code-macros" }
 waymark-migrations-source-checksums-core = { path = "crates/lib/migrations-source-checksums-core" }
 waymark-migrations-source-checksums-proc-macro-helpers = { path = "crates/lib/migrations-source-checksums-proc-macro-helpers" }
 waymark-migrations-sql-file-core = { path = "crates/lib/migrations-sql-file-core" }
@@ -235,6 +236,7 @@ aide = { version = "0.16.0-alpha.4", features = ["axum"] }
 async-stream = "0.3"
 async-walkdir = "2"
 axum = "0.8"
+cargo_metadata = "0.23"
 chrono = { version = "0.4", default-features = false }
 clap = "4.5"
 color-eyre = "0.6"
