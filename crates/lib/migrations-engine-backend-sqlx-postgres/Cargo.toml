@@ -1,0 +1,27 @@
+[package]
+name = "waymark-migrations-engine-backend-sqlx-postgres"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-migrations-engine-assertion = { workspace = true }
+waymark-migrations-engine-backend = { workspace = true }
+waymark-migrations-engine-migration = { workspace = true }
+
+derive-where = { workspace = true }
+sqlx = { workspace = true, features = ["postgres", "uuid"] }
+sqlx-core = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+waymark-nonzero-duration = { workspace = true }
+waymark-support-integration = { workspace = true }
+waymark-support-test = { workspace = true }
+
+sqlx = { workspace = true, features = ["runtime-tokio"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+uuid = { workspace = true }
+
+[lib]
+doctest = false

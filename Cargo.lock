@@ -4865,6 +4865,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-migrations-engine-backend-sqlx-postgres"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "sqlx",
+ "sqlx-core",
+ "thiserror",
+ "tokio",
+ "uuid",
+ "waymark-migrations-engine-assertion",
+ "waymark-migrations-engine-backend",
+ "waymark-migrations-engine-migration",
+ "waymark-nonzero-duration",
+ "waymark-support-integration",
+ "waymark-support-test",
+]
+
+[[package]]
 name = "waymark-migrations-engine-migration"
 version = "0.1.0"
 dependencies = [
