@@ -587,6 +587,42 @@ async fn database_that_does_not_meet_an_assertion_is_refused_before_anything_is_
     drop_schema(&bootstrap, schema).await;
 }
 
+/// Whether `schema` is there.
+async fn schema_exists(bootstrap: &sqlx::PgPool, schema: &str) -> bool {
+    let (exists,): (bool,) = sqlx::query_as(
+        r#"
+SELECT to_regnamespace($1) IS NOT NULL
+        "#,
+    )
+    .bind(schema)
+    .fetch_one(bootstrap)
+    .await
+    .expect("look the schema up");
+
+    exists
+}
+
+#[tokio::test]
+async fn running_process_refuses_a_missing_schema_without_creating_it() {
+    let schema = "postgres_bringup_migrations_running_missing";
+    let bootstrap = waymark_support_test::postgres_setup().await;
+    drop_leftover_schema(&bootstrap, schema).await;
+
+    let refused = take_and_check(schema, 3, &[create_one()]).await;
+
+    assert!(matches!(
+        refused,
+        Err(
+            crate::take_shared_migrations_lock_and_check::Error::Connect(
+                crate::ConnectionError::ConnectRequiringSchema(
+                    waymark_sqlx_postgres_schema_pool::ExistingSchemaError::Missing { .. }
+                )
+            )
+        )
+    ));
+    assert!(!schema_exists(&bootstrap, schema).await);
+}
+
 #[tokio::test]
 async fn keeping_reports_a_lock_a_renewal_finds_gone() {
     let schema = "postgres_bringup_migrations_lost";
