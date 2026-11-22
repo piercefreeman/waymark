@@ -4831,6 +4831,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-migrations-engine-backend"
+version = "0.1.0"
+dependencies = [
+ "uuid",
+ "waymark-blanket-impl-macros",
+ "waymark-migrations-engine-migration",
+ "waymark-nonzero-duration",
+]
+
+[[package]]
 name = "waymark-migrations-engine-migration"
 version = "0.1.0"
 dependencies = [
