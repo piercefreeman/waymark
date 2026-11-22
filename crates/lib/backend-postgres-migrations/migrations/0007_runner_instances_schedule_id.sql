@@ -1,3 +1,5 @@
+-- revision: runner-instances-schedule-id-1
+
 ALTER TABLE runner_instances
 ADD COLUMN IF NOT EXISTS schedule_id UUID;
 

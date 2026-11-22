@@ -1,3 +1,5 @@
+-- revision: init-1
+
 -- Waymark core schema (baseline)
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;

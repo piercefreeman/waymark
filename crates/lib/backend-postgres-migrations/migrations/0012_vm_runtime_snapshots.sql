@@ -1,3 +1,5 @@
+-- revision: vm-runtime-snapshots-1
+
 -- VM runtime snapshot persistence.
 
 CREATE TABLE vm_runtime_snapshots (

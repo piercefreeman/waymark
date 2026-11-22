@@ -1,3 +1,5 @@
+-- revision: action-call-requests-1
+
 -- Durably-stored action-call requests.
 --
 -- A row is recorded (born locked by the storing process) when the VM

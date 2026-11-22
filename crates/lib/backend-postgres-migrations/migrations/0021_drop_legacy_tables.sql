@@ -1,3 +1,5 @@
+-- revision: drop-legacy-tables-1
+
 -- Remove the legacy DAG-runner tables; the VM execution path owns all
 -- remaining tables. The dormant scheduling wire contract (proto +
 -- Python schedule API) survives; a future scheduler brings its own

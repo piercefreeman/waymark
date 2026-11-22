@@ -1,3 +1,5 @@
+-- revision: runner-actions-done-timing-1
+
 -- Persist per-attempt lifecycle metadata for action history and timeline rendering.
 
 ALTER TABLE runner_actions_done

@@ -1,3 +1,5 @@
+-- revision: instance-search-columns-1
+
 -- Persist workflow/status instance metadata for indexed search in webapp queries.
 
 ALTER TABLE runner_instances

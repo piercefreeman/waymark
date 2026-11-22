@@ -4135,7 +4135,19 @@ name = "waymark-backend-postgres-migrations"
 version = "0.1.0"
 dependencies = [
  "sqlx",
+ "tokio",
+ "uuid",
+ "waymark-migrations-engine",
+ "waymark-migrations-engine-backend",
+ "waymark-migrations-engine-backend-sqlx-postgres",
+ "waymark-migrations-engine-migration",
+ "waymark-migrations-source",
+ "waymark-nonzero-duration",
+ "waymark-postgres-bringup",
+ "waymark-postgres-config",
  "waymark-sqlx-postgres-migrations",
+ "waymark-support-integration",
+ "waymark-support-test",
 ]
 
 [[package]]

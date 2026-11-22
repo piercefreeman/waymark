@@ -1,0 +1,30 @@
+{
+  "files": {
+    "migrations/0001_init.sql": "sha256:3e84868c711a0a7af2c6c28839ea497030537973b55c09419a4bb9d115b075db",
+    "migrations/0002_runner_actions_done_execution_id.sql": "sha256:f591314c5330000fc9f78415ea121f698db05879b8e84c9932357eb84bfdfaa6",
+    "migrations/0003_instance_locks.sql": "sha256:4459deedb111baee5462d01de2661c0b2d2a305e2b57e344fa4a92a279b3c3b0",
+    "migrations/0004_workflow_versions.sql": "sha256:920bb60329609da7cc536d424f7838d776a7cfec0715c31cd632bb047d2e7cd7",
+    "migrations/0005_runner_instances_workflow_version_id.sql": "sha256:4eded8d074bda7d0354a8413cd57a156ef51530f935776f3dd3e4e9232608e66",
+    "migrations/0006_drop_unused_runner_tables.sql": "sha256:4ac4f151fbb6cadc167a32805da4a3c2b6fe8e1a3816c71a1e14d619714be4ef",
+    "migrations/0007_runner_instances_schedule_id.sql": "sha256:38afdc05d1e4e6d870714534a5ddc151801b6b14cc472f67999914c77b85a448",
+    "migrations/0008_runner_actions_done_timing.sql": "sha256:811f82a41e46966ac700b1e0d6118286c8e2da5d5d7efade42af4ac2a4ca3ed9",
+    "migrations/0009_instance_search_columns.sql": "sha256:5676bacfce035099ee939561e76ac11703705cdac3b9b98b05f9c2140bc1027b",
+    "migrations/0010_runner_instances_perf.sql": "sha256:daeef7afaa408aa205dc307d41985b4e2ac3bacf9bd2dfbba7d69dc593a79a3b",
+    "migrations/0011_runner_instances_state_not_null.sql": "sha256:2be3d1b24c04ce477dd8dcfa19a37c4b0a44784079b9c90c59afce735040805f",
+    "migrations/0012_vm_runtime_snapshots.sql": "sha256:593501e886993a643f3bc4df0e767ae5c387fd1f9839b95b7cf740e16d57bbda",
+    "migrations/0013_workload_pinnings.sql": "sha256:ec41bc9faec1dd6d68b655abf4e5f175fa51aa427e289dae87c15e8bb1f4b57c",
+    "migrations/0014_vm_execution_results.sql": "sha256:67cee791306e4db1fc01c49cabcbfcbaeeaddd473a0d07ae6346ab15e5ec3155",
+    "migrations/0015_vm_executables.sql": "sha256:a5d038538969f8305bee6db0af5d68517e62c3ee64bd1e6ed9da1aacfe3d3f1c",
+    "migrations/0016_action_call_completions.sql": "sha256:5c6b5b6603f469acb0624e956d64c7ce0c3052cbd7b5b28ce6ad16601d696190",
+    "migrations/0017_action_call_requests.sql": "sha256:5ec5e08a60c349d969bceeab850283477a0be3a6edc185f07ce6b3b6b2ae72a6",
+    "migrations/0018_rename_workload_pinnings_to_runnable_workloads.sql": "sha256:3729a578c6af6827c6ada9c78487f0d871fe8e339783817841b72657ff678df7",
+    "migrations/0019_sleep_requests.sql": "sha256:21d4b8e377f46998dab873df6a5c9aef54b9c6be6b489bb735d02909efc527c7",
+    "migrations/0020_snapshot_delete_cleanup.sql": "sha256:6b8b834b5aee47d91ec7e8bb819b0df73254899c8f404bcf44297cb617c55368",
+    "migrations/0021_drop_legacy_tables.sql": "sha256:9f10fd02667b0638a8ce306c6a12def76610f55b296e07cfea114b303ab935b5",
+    "migrations/0022_schedules.sql": "sha256:15a73ee2410c351d863dec720c32291381feeeebdb55c6ed745d5e79141490a8",
+    "migrations/0023_canonical_row_lock_order.sql": "sha256:5bb366db18cbb999715cf8374e863299152604ef914b3b97113cb58203a46d49",
+    "migrations/0024_rename_action_call_completions_outcome.sql": "sha256:bd552a34613e685cb0e9e8598e990fc416da5b73d33fb14f67a9657840c92569",
+    "migrations/0025_drop_worker_status.sql": "sha256:82d8a4eeba0006c49011115b8cbd92f5851a369e33ba490399e6090ec4dd56e1",
+    "migrations/0026_action_call_request_lock_nonce.sql": "sha256:41b77178666dd7b6db76f3b1a6ef8b692ea9bbf4680505a71b3641e480f0d1e4"
+  }
+}

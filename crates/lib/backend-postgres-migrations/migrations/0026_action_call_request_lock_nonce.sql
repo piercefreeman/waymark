@@ -1,3 +1,5 @@
+-- revision: action-call-request-lock-nonce-1
+
 -- Each taken action-call request lock carries its owner's nonce for it,
 -- so that a renewal or an unlock addresses exactly the lock it was issued
 -- for: a lock the same owner took on the same row since carries another

@@ -1,3 +1,5 @@
+-- revision: rename-action-call-completions-outcome-1
+
 -- The completion blob stores the call's execution result (Ok = the
 -- outcome the action produced, Err = the execution failed to produce
 -- one), so the column is named for what it holds.

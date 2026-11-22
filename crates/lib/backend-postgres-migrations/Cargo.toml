@@ -5,9 +5,25 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
-sqlx = { workspace = true, features = ["macros", "migrate", "postgres"] }
+waymark-migrations-engine-backend-sqlx-postgres = { workspace = true }
+waymark-migrations-source = { workspace = true }
 waymark-sqlx-postgres-migrations = { workspace = true }
 
+sqlx = { workspace = true, features = ["macros", "migrate", "postgres"] }
+
+[dev-dependencies]
+waymark-migrations-engine = { workspace = true }
+waymark-migrations-engine-backend = { workspace = true }
+waymark-migrations-engine-migration = { workspace = true }
+waymark-nonzero-duration = { workspace = true }
+waymark-postgres-bringup = { workspace = true }
+waymark-postgres-config = { workspace = true }
+waymark-support-integration = { workspace = true }
+waymark-support-test = { workspace = true }
+
+sqlx = { workspace = true, features = ["runtime-tokio"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+uuid = { workspace = true }
+
 [lib]
-test = false
 doctest = false

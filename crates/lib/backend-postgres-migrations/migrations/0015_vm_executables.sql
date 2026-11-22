@@ -1,3 +1,5 @@
+-- revision: vm-executables-1
+
 -- Persist compiled VM executables (bytecode), deduplicated by (name, version).
 
 CREATE TABLE vm_executables (

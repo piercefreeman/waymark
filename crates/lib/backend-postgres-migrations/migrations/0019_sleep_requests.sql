@@ -1,3 +1,5 @@
+-- revision: sleep-requests-1
+
 -- Durably-recorded sleep requests.
 --
 -- A row is recorded when the VM emits a sleep effect and removed (acked)

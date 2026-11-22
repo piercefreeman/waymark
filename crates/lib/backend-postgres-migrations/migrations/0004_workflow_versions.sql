@@ -1,3 +1,5 @@
+-- revision: workflow-versions-1
+
 -- Workflow versions: replace dag_hash with workflow_version + ir_hash
 
 ALTER TABLE workflow_versions
