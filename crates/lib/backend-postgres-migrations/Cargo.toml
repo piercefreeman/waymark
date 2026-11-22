@@ -5,6 +5,7 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
+waymark-backend-postgres-migration-0027-id-map-tables = { workspace = true }
 waymark-migrations-engine-backend-sqlx-postgres = { workspace = true }
 waymark-migrations-source = { workspace = true }
 

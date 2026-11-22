@@ -7,6 +7,7 @@ use waymark_migrations_engine::run_migrations::Outcome;
 use waymark_migrations_engine::{MigrationsLockTiming, MigrationsRunTransactions};
 use waymark_migrations_engine_backend::migrations_lock;
 use waymark_migrations_engine_migration::HasMigrationIdentity as _;
+use waymark_migrations_source::MigrationSource;
 use waymark_nonzero_duration::NonZeroDuration;
 
 waymark_migrations_source::source_checksums_tests!(sql_files("migrations"));
@@ -37,12 +38,32 @@ fn array_has_every_sql_file_of_the_migrations_directory_and_no_other() {
         })
         .collect();
 
-    let array_versions: BTreeSet<u32> = super::migrations()
+    let array_sql_file_versions: BTreeSet<u32> = super::migrations()
         .iter()
-        .map(|migration| migration.migration_identity().version.to_raw())
+        .filter_map(|migration| match migration {
+            MigrationSource::SqlFile(migration) => {
+                Some(migration.migration_identity().version.to_raw())
+            }
+            MigrationSource::RustCode(_) => None,
+        })
         .collect();
 
-    assert_eq!(array_versions, file_versions);
+    assert_eq!(array_sql_file_versions, file_versions);
+}
+
+#[test]
+fn array_has_the_rust_code_migrations() {
+    let array_rust_code_versions: Vec<u32> = super::migrations()
+        .iter()
+        .filter_map(|migration| match migration {
+            MigrationSource::SqlFile(_) => None,
+            MigrationSource::RustCode(migration) => {
+                Some(migration.migration_identity().version.to_raw())
+            }
+        })
+        .collect();
+
+    assert_eq!(array_rust_code_versions, [27]);
 }
 
 #[tokio::test]
