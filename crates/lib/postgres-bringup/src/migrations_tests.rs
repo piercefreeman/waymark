@@ -19,7 +19,8 @@ use waymark_secret_string::SecretString;
 use crate::{
     HeldSharedMigrationsLock, MigrateUnderExclusiveMigrationsLockError,
     keep_shared_migrations_lock, migrate_and_release_migrations_lock,
-    migrate_and_take_shared_migrations_lock, take_shared_migrations_lock_and_check,
+    migrate_and_take_shared_migrations_lock, shared_migrations_locks_keeping,
+    take_shared_migrations_lock_and_check,
 };
 
 /// The tables of the tests.
@@ -617,6 +618,105 @@ DELETE FROM "{schema}"."{locks}"
         Err(crate::keep_shared_migrations_lock::Error::Lost)
     ));
     assert!(lock.is_migrations_lock_fenced());
+
+    drop_schema(&bootstrap, schema).await;
+}
+
+#[tokio::test]
+async fn locks_handed_over_are_kept_until_the_stop_and_released_then() {
+    let schema = "postgres_bringup_migrations_keeping";
+    let bootstrap = waymark_support_test::postgres_setup().await;
+    drop_leftover_schema(&bootstrap, schema).await;
+
+    let first = migrate_and_take(schema, 1, &[create_one()])
+        .await
+        .expect("the first lock is taken");
+    let second = migrate_and_take(schema, 2, &[create_one()])
+        .await
+        .expect("the second lock is taken");
+
+    let (handover, keeping) = shared_migrations_locks_keeping();
+    handover
+        .keep(first.keeper)
+        .expect("the first lock is handed over");
+    handover
+        .keep(second.keeper)
+        .expect("the second lock is handed over");
+    drop(handover);
+
+    let stop = tokio_util::sync::CancellationToken::new();
+    let on_failure = tokio_util::sync::CancellationToken::new();
+
+    let (kept, ()) = tokio::join!(keeping.run(stop.cancelled(), on_failure.clone()), async {
+        // Past two heartbeats, both locks are still there.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert_eq!(
+            locks(&bootstrap, schema).await,
+            [(1, "shared".to_owned()), (2, "shared".to_owned())]
+        );
+
+        stop.cancel();
+    });
+
+    kept.expect("both locks are kept and released");
+    assert!(!on_failure.is_cancelled());
+    assert!(locks(&bootstrap, schema).await.is_empty());
+
+    drop_schema(&bootstrap, schema).await;
+}
+
+#[tokio::test]
+async fn fenced_lock_cancels_the_failure_token_while_the_other_is_kept() {
+    let schema = "postgres_bringup_migrations_keeping_fenced";
+    let bootstrap = waymark_support_test::postgres_setup().await;
+    drop_leftover_schema(&bootstrap, schema).await;
+
+    let first = migrate_and_take(schema, 1, &[create_one()])
+        .await
+        .expect("the first lock is taken");
+    let second = migrate_and_take(schema, 2, &[create_one()])
+        .await
+        .expect("the second lock is taken");
+
+    let (handover, keeping) = shared_migrations_locks_keeping();
+    handover
+        .keep(first.keeper)
+        .expect("the first lock is handed over");
+    handover
+        .keep(second.keeper)
+        .expect("the second lock is handed over");
+    drop(handover);
+
+    // The first holder's lock goes from under it.
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        r#"
+DELETE FROM "{schema}"."{locks}"
+WHERE holder_id = $1
+        "#,
+        locks = <TestTables as waymark_migrations_engine_backend_sqlx_postgres::Tables>::LOCKS,
+    )))
+    .bind(uuid::Uuid::from_u128(1))
+    .execute(&bootstrap)
+    .await
+    .expect("delete the first lock from under its holder");
+
+    let stop = tokio_util::sync::CancellationToken::new();
+    let on_failure = tokio_util::sync::CancellationToken::new();
+
+    let (kept, ()) = tokio::join!(keeping.run(stop.cancelled(), on_failure.clone()), async {
+        // The failure is signalled before any stop, and the second
+        // lock is still kept then.
+        on_failure.cancelled().await;
+        assert_eq!(locks(&bootstrap, schema).await, [(2, "shared".to_owned())]);
+
+        stop.cancel();
+    });
+
+    assert!(matches!(
+        kept,
+        Err(crate::keep_shared_migrations_lock::Error::Lost)
+    ));
+    assert!(locks(&bootstrap, schema).await.is_empty());
 
     drop_schema(&bootstrap, schema).await;
 }

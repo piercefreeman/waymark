@@ -16,9 +16,11 @@ waymark-secret-string = { workspace = true }
 waymark-sqlx-postgres-schema-pool = { workspace = true }
 
 derive-where = { workspace = true }
+futures-util = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "runtime-tokio"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync"] }
+tokio-util = { workspace = true }
 
 [dev-dependencies]
 waymark-migrations-sql-file = { workspace = true }

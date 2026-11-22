@@ -5367,9 +5367,11 @@ version = "0.1.0"
 dependencies = [
  "const_format",
  "derive-where",
+ "futures-util",
  "sqlx",
  "thiserror",
  "tokio",
+ "tokio-util",
  "uuid",
  "waymark-migrations-engine",
  "waymark-migrations-engine-assertion",
