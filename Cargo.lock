@@ -4145,7 +4145,6 @@ dependencies = [
  "waymark-nonzero-duration",
  "waymark-postgres-bringup",
  "waymark-postgres-config",
- "waymark-sqlx-postgres-migrations",
  "waymark-support-integration",
  "waymark-support-test",
 ]
