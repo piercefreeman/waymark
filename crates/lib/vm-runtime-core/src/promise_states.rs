@@ -64,6 +64,7 @@ where
 /// The promise states of a runtime, keyed by their promise state ids.
 ///
 /// Read back only as part of a [`crate::RuntimeState`].
+#[derive_where(Default)]
 #[derive_where(
     Debug;
     FunctionId, StateId, Value, RaisedException,
@@ -91,16 +92,6 @@ type PromiseStatesEntriesMap<FunctionId, StateId, Value, RaisedException> = waym
     PromiseStateId,
     PromiseStatesEntry<FunctionId, StateId, Value, RaisedException>,
 >;
-
-impl<FunctionId, StateId, Value, RaisedException> Default
-    for PromiseStates<FunctionId, StateId, Value, RaisedException>
-where
-    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
-{
-    fn default() -> Self {
-        Self(Default::default())
-    }
-}
 
 impl<FunctionId, StateId, Value, RaisedException>
     PromiseStates<FunctionId, StateId, Value, RaisedException>

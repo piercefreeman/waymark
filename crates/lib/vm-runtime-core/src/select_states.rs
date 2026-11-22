@@ -68,6 +68,7 @@ pub struct SelectStateClaim<StateId> {
 /// A select continuation is inserted when its frame waits on multiple
 /// promises at once, and claimed - exactly once - by the first of its arms
 /// to settle.
+#[derive_where(Default)]
 #[derive_where(
     Debug;
     FunctionId, StateId, Value, RaisedException,
@@ -102,18 +103,6 @@ where
         SelectStateId,
         Continuation<FunctionId, StateId, Value, RaisedException, ResumeSelectArm>,
     >,
-}
-
-impl<FunctionId, StateId, Value, RaisedException> Default
-    for SelectStates<FunctionId, StateId, Value, RaisedException>
-where
-    RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
-{
-    fn default() -> Self {
-        Self {
-            continuations: waymark_id_map::IdMap::new(),
-        }
-    }
 }
 
 impl<FunctionId, StateId, Value, RaisedException>
