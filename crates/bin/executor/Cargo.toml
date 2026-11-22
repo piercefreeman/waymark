@@ -19,6 +19,8 @@ waymark-http-webapp = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-managed-spawner-supervised = { workspace = true }
 waymark-metrics-bringup = { workspace = true }
+waymark-migrations-engine = { workspace = true }
+waymark-migrations-engine-backend = { workspace = true }
 waymark-observability-bringup = { workspace = true }
 waymark-postgres-bringup = { workspace = true }
 waymark-prometheus-exporter-bringup = { workspace = true }

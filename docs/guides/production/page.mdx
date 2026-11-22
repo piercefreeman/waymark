@@ -45,7 +45,17 @@ independently; only an [upgrade](#upgrades) needs an order.
 ## Migrations and upgrades {{ id: 'upgrades' }}
 
 Nodes migrate the database schema at startup. With HTTP enabled, `/healthz`
-becomes available after migration finishes.
+becomes available after migration finishes. All of a release's pending
+migrations are applied in one transaction: a migration that fails leaves the
+schema as it was.
+
+Every running node holds a migrations lock on the database and renews it
+every `WAYMARK_MIGRATIONS_LOCK_HEARTBEAT_MS`. A node with migrations to apply
+refuses to start while another process holds one, so it never migrates under a
+running process. A process that was killed releases its lock when the lock
+expires, `WAYMARK_MIGRATIONS_LOCK_TTL_MS` after its last renewal. A node that
+cannot renew its lock shuts down
+`WAYMARK_MIGRATIONS_LOCK_FENCING_MARGIN_MS` before the lock would expire.
 
 The bridge checks the schema only at startup. It waits up to
 `WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS` for an in-progress migration, then
@@ -66,8 +76,9 @@ starts keeps no logs, so the error does not say why the bridge did not start
 ([#820](https://github.com/piercefreeman/waymark/issues/820)); to see
 the reason, run `waymark-bridge` by hand with the app's environment.
 
-Plan downtime for the whole upgrade. Running bridges and nodes don't recheck
-the schema, so a rolling update is not supported.
+Plan downtime for the whole upgrade. A node with migrations to apply refuses
+to start while a node of the old version still runs, so a rolling update is
+not supported.
 
 1. Snapshot the database. The old version refuses the migrated schema, so you
    cannot roll back by restarting the old containers.
