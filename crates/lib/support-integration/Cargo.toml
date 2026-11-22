@@ -11,6 +11,7 @@ waymark-migrations-engine = { workspace = true }
 waymark-migrations-engine-assertion = { workspace = true }
 waymark-migrations-engine-backend = { workspace = true }
 waymark-migrations-engine-backend-sqlx-postgres = { workspace = true }
+waymark-migrations-engine-migration = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-postgres-bringup = { workspace = true }
 waymark-postgres-config = { workspace = true }
