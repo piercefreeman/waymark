@@ -1,3 +1,5 @@
+-- revision: essential-metrics-node-samples-1
+
 CREATE TABLE essential_metrics_node_samples (
     node_id uuid NOT NULL,
     sampled_at timestamptz NOT NULL,

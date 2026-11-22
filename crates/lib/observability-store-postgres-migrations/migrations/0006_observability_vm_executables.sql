@@ -1,3 +1,5 @@
+-- revision: observability-vm-executables-1
+
 -- The executables, kept by the database as the events arrive: one row per
 -- executable the events have carried, so the instance view serves what an
 -- instance runs without deriving it from the events. A run's start (the

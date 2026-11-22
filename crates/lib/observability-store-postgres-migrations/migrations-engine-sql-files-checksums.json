@@ -1,0 +1,10 @@
+{
+  "files": {
+    "migrations/0001_essential_metrics_node_samples.sql": "sha256:e59247127e00c16ad22b2c3c2c44b319a8fa1ab7a1c9b1f9c4e6bad07e1281c4",
+    "migrations/0002_observability_events.sql": "sha256:1ed2cdf7b8851a8dac8c8a02e0c12251675b54b8d54cd0f529c6547597269458",
+    "migrations/0003_observability_events_vm_timeline.sql": "sha256:8a726b430a92721d7c43b67cd627c757b5c6d452480a3be2ef0ea51935dcd4f4",
+    "migrations/0004_observability_vm_instances.sql": "sha256:9632be144e7ab58a882e38c30bc8f534c0d176c91669ac207ff1262aec716fe0",
+    "migrations/0005_essential_metrics_observability_events_dropped.sql": "sha256:eac4d70289218068a49489f720f662b40f5a207b2554aeec970d4fa1d8e6b7d7",
+    "migrations/0006_observability_vm_executables.sql": "sha256:bbd81341ca5b8395b99011aecb89e9c55f1a40797570720a08fda11a9a72f4a8"
+  }
+}
