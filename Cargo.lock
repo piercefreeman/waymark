@@ -5694,18 +5694,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-sqlx-postgres-migrations"
-version = "0.1.0"
-dependencies = [
- "futures-core",
- "sqlx",
- "thiserror",
- "tokio",
- "waymark-support-integration",
- "waymark-support-test",
-]
-
-[[package]]
 name = "waymark-sqlx-postgres-schema-pool"
 version = "0.1.0"
 dependencies = [
