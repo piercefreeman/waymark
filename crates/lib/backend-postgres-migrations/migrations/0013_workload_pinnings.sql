@@ -1,3 +1,5 @@
+-- revision: workload-pinnings-1
+
 -- Workload pinning: tracks which node owns VM runtime instances.
 -- Every row in vm_runtime_snapshots has a matching row here.
 

@@ -1,3 +1,5 @@
+-- revision: canonical-row-lock-order-1
+
 -- Canonical row-lock order for the trigger-side multi-row writers.
 --
 -- Any two multi-row statements that take row locks on overlapping sets

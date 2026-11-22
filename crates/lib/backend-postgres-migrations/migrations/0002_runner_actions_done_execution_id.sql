@@ -1,3 +1,5 @@
+-- revision: runner-actions-done-execution-id-1
+
 -- Rename runner action identifier to execution_id and drop stored action name.
 
 ALTER TABLE runner_actions_done

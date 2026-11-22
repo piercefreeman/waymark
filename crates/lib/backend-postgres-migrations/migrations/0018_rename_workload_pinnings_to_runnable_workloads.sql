@@ -1,3 +1,5 @@
+-- revision: rename-workload-pinnings-to-runnable-workloads-1
+
 -- Rename workload_pinnings to runnable_workloads.
 --
 -- The table states two orthogonal facts and the old name only covered

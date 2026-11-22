@@ -78,6 +78,7 @@ waymark-migrations-engine-migration = { path = "crates/lib/migrations-engine-mig
 waymark-migrations-rust-code = { path = "crates/lib/migrations-rust-code" }
 waymark-migrations-rust-code-core = { path = "crates/lib/migrations-rust-code-core" }
 waymark-migrations-rust-code-macros = { path = "crates/lib/migrations-rust-code-macros" }
+waymark-migrations-source = { path = "crates/lib/migrations-source" }
 waymark-migrations-source-checksums-core = { path = "crates/lib/migrations-source-checksums-core" }
 waymark-migrations-source-checksums-proc-macro-helpers = { path = "crates/lib/migrations-source-checksums-proc-macro-helpers" }
 waymark-migrations-sql-file = { path = "crates/lib/migrations-sql-file" }

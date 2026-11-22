@@ -1,3 +1,5 @@
+-- revision: drop-unused-runner-tables-1
+
 -- Remove legacy tables no longer used by runtime or webapp.
 
 DROP TABLE IF EXISTS runner_graph_updates;

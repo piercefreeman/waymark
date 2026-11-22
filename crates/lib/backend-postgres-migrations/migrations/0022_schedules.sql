@@ -1,3 +1,5 @@
+-- revision: schedules-1
+
 -- Schedules: recurring execution definitions. A schedule pins its
 -- executable at registration time (the name comes from the registration;
 -- the pin can never dangle) and carries its complete policy in an opaque

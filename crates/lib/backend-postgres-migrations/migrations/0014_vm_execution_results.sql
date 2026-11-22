@@ -1,3 +1,5 @@
+-- revision: vm-execution-results-1
+
 -- Persist VM execution completion results (successful or exceptional).
 
 CREATE TABLE vm_execution_results (

@@ -1,3 +1,5 @@
+-- revision: instance-locks-1
+
 -- Add scheduling and locking for queued instances.
 
 ALTER TABLE queued_instances

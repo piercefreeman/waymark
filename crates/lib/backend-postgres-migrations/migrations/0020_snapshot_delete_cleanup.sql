@@ -1,3 +1,5 @@
+-- revision: snapshot-delete-cleanup-1
+
 -- Per-VM state cleanup on snapshot removal.
 --
 -- The vm_runtime_snapshots row is the VM's durable existence: it is

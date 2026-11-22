@@ -1,3 +1,5 @@
+-- revision: action-call-completions-1
+
 -- Durably-stored action-call completions.
 --
 -- A row is recorded when the worker pool reports an action completion and

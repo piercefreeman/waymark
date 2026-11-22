@@ -1,3 +1,5 @@
+-- revision: runner-instances-workflow-version-id-1
+
 -- Persist workflow version on instances so webapp can show workflow names.
 
 ALTER TABLE runner_instances
