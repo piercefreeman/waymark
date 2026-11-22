@@ -1,0 +1,29 @@
+[package]
+name = "waymark-migrate"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+
+[dependencies]
+waymark-backend-postgres-config = { workspace = true }
+waymark-backend-postgres-migrations = { workspace = true }
+waymark-fn-main-common = { workspace = true }
+waymark-migrations-engine = { workspace = true }
+waymark-migrations-engine-assertion = { workspace = true }
+waymark-migrations-engine-backend = { workspace = true }
+waymark-migrations-engine-backend-sqlx-postgres = { workspace = true }
+waymark-migrations-engine-migration = { workspace = true }
+waymark-observability-store-config = { workspace = true }
+waymark-observability-store-postgres-migrations = { workspace = true }
+waymark-postgres-bringup = { workspace = true }
+waymark-postgres-config = { workspace = true }
+waymark-sqlx-postgres-schema-pool = { workspace = true }
+
+clap = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }

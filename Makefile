@@ -91,11 +91,11 @@ rust-lint-verify: rust-lint-base-verify
 # synthesis for FunctionEmitter<Spec> crashes the compiler (a rustc ICE, still
 # present on 1.100).
 rust-lint-extended: js-deps
-	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-executor --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-vm-cli -- -D warnings
+	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-executor --exclude waymark-integration-test --exclude waymark-migrate --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-vm-cli -- -D warnings
 	RUSTDOCFLAGS="-D warnings --cfg tokio_unstable" cargo doc --workspace --no-deps --all-features --exclude waymark-vm-compiler-for-ast-old
 
 rust-lint-extended-verify: js-deps
-	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-executor --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-vm-cli -- -D warnings
+	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-executor --exclude waymark-integration-test --exclude waymark-migrate --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-vm-cli -- -D warnings
 	RUSTDOCFLAGS="-D warnings --cfg tokio_unstable" cargo doc --workspace --no-deps --all-features --exclude waymark-vm-compiler-for-ast-old
 
 # Coverage targets

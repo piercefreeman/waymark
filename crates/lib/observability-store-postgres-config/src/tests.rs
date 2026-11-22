@@ -90,7 +90,7 @@ fn migrations_take_their_url_and_their_own_statement_timeout() {
 }
 
 #[test]
-fn migrate_only_takes_the_migrations_connection_alone() {
+fn migrate_only_takes_the_migrations_connection_and_the_migrations_lock() {
     let config = MigrateOnly::from_url_and_env("postgres://owner@primary/waymark".into())
         .expect("the defaults are valid");
 
@@ -104,6 +104,14 @@ fn migrate_only_takes_the_migrations_connection_alone() {
             .statement_timeout
             .map(NonZeroDuration::get),
         Some(std::time::Duration::from_secs(600)),
+    );
+    assert_eq!(
+        config.migrations_lock.timing.heartbeat().get(),
+        std::time::Duration::from_secs(5),
+    );
+    assert_eq!(
+        config.migrations_lock.timing.time_to_live().get(),
+        std::time::Duration::from_secs(15),
     );
 }
 
