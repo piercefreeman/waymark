@@ -5383,6 +5383,7 @@ version = "0.1.0"
 dependencies = [
  "envfury",
  "thiserror",
+ "waymark-migrations-engine",
  "waymark-nonzero-duration",
  "waymark-secret-string",
 ]

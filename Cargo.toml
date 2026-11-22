@@ -70,6 +70,7 @@ waymark-managed-spawner = { path = "crates/lib/managed-spawner" }
 waymark-managed-spawner-supervised = { path = "crates/lib/managed-spawner-supervised" }
 waymark-metrics-bringup = { path = "crates/lib/metrics-bringup" }
 waymark-metrics-util = { path = "crates/lib/metrics-util" }
+waymark-migrations-engine = { path = "crates/lib/migrations-engine" }
 waymark-migrations-engine-assertion = { path = "crates/lib/migrations-engine-assertion" }
 waymark-migrations-engine-backend = { path = "crates/lib/migrations-engine-backend" }
 waymark-migrations-engine-migration = { path = "crates/lib/migrations-engine-migration" }
