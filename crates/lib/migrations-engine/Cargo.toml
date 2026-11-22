@@ -1,0 +1,19 @@
+[package]
+name = "waymark-migrations-engine"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-migrations-engine-backend = { workspace = true }
+waymark-nonzero-duration = { workspace = true }
+
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "time"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+mockall = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "test-util", "time"] }
+uuid = { workspace = true }

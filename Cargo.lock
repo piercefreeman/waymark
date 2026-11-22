@@ -4831,6 +4831,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-migrations-engine"
+version = "0.1.0"
+dependencies = [
+ "mockall",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+ "waymark-migrations-engine-backend",
+ "waymark-nonzero-duration",
+]
+
+[[package]]
 name = "waymark-migrations-engine-backend"
 version = "0.1.0"
 dependencies = [
