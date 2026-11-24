@@ -1,4 +1,5 @@
-//! Config for Postgres pools, connections and migrations locks.
+//! Config for Postgres pools, connections and migrations locks, and for
+//! where a database's URLs come from.
 
 #![warn(missing_docs)]
 
@@ -7,6 +8,7 @@ use std::num::NonZeroU64;
 use waymark_nonzero_duration::NonZeroDuration;
 
 pub mod connection;
+pub mod database_url;
 pub mod migrations_lock;
 pub mod pool;
 
