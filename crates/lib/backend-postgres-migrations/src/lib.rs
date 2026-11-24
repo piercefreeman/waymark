@@ -57,3 +57,6 @@ pub fn migrations() -> [Migration; 26] {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod transition_tests;
