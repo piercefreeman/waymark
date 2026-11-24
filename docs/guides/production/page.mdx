@@ -89,6 +89,27 @@ update is not supported.
 3. Start the nodes on the new version and wait for a healthy node.
 4. Start the app on the same version.
 
+A database that Waymark 0.30 or earlier migrated keeps its migrations ledger
+in a table a later release does not read. Bring a database of an earlier
+release to Waymark 0.30 first. Then, between steps 2 and 3, move the ledger
+over, once per database, with the two SQL files from the Waymark repository,
+as the role that owns the tables:
+
+```bash
+psql "$WAYMARK_DATABASE_URL" --set ON_ERROR_STOP=1 \
+  --file crates/lib/backend-postgres-migrations/transitions/sqlx_migrations_ledger.sql
+psql "$WAYMARK_DATABASE_URL" --set ON_ERROR_STOP=1 \
+  --file crates/lib/observability-store-postgres-migrations/transitions/sqlx_migrations_ledger.sql
+```
+
+The second file is for the observability store, which is in the
+`observability` schema; run it on the store's own database when the store
+has one. Each file runs in one transaction, refuses a database whose applied
+migrations are not exactly the ones of Waymark 0.30, and changes nothing
+when it cannot finish. Until a database is moved over, nodes, bridges, and
+`waymark-migrate` refuse it, saying it does not meet an assertion: it has a
+`_sqlx_migrations` table left by the SQLx migrator.
+
 ## The migrations tool {{ id: 'waymark-migrate' }}
 
 `waymark-migrate` inspects and runs the migrations without starting a node,
