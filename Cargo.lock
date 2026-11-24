@@ -4845,6 +4845,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-migrations-engine-assertion"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "typle",
+]
+
+[[package]]
 name = "waymark-migrations-engine-backend"
 version = "0.1.0"
 dependencies = [
