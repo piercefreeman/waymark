@@ -151,6 +151,15 @@ where
 }
 
 #[test]
+fn the_urls_come_from_the_documented_variables() {
+    assert_eq!(crate::DATABASE_URL_VARIABLE, "WAYMARK_MAIN_DATABASE_URL");
+    assert_eq!(
+        crate::MIGRATIONS_DATABASE_URL_VARIABLE,
+        "WAYMARK_MAIN_MIGRATIONS_DATABASE_URL"
+    );
+}
+
+#[test]
 fn the_profiles_read_the_documented_variables() {
     let main_pool = [
         "WAYMARK_DATABASE_MAX_CONNECTIONS",

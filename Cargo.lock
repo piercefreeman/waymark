@@ -4122,7 +4122,6 @@ dependencies = [
 name = "waymark-backend-postgres-config"
 version = "0.1.0"
 dependencies = [
- "envfury",
  "thiserror",
  "waymark-nonzero-duration",
  "waymark-postgres-config",

@@ -8,11 +8,13 @@
 //!   action/sleep reconcilers, completion writers, snapshot/request batchers)
 //!
 //! Configuration is via environment variables:
-//! - WAYMARK_DATABASE_URL: PostgreSQL connection string (required)
+//! - WAYMARK_DATABASE_URL: PostgreSQL connection string for every database that has no URL of its own (required unless each has one)
+//! - WAYMARK_MAIN_DATABASE_URL: DSN for the main database (default: WAYMARK_DATABASE_URL)
+//! - WAYMARK_MAIN_MIGRATIONS_DATABASE_URL: DSN the main database's migrations run through (default: WAYMARK_MAIN_DATABASE_URL when set, else WAYMARK_MIGRATIONS_DATABASE_URL)
 //! - WAYMARK_DATABASE_MAX_CONNECTIONS: Connection cap for the main database pool (default: 25)
 //! - WAYMARK_DATABASE_STATEMENT_TIMEOUT_MS: Statement timeout on the main database pool, `0` for none (default: 60000)
 //! - WAYMARK_DATABASE_ACQUIRE_TIMEOUT_MS: How long taking a connection from the main database pool may wait, `0` refuses to boot (default: 30000)
-//! - WAYMARK_MIGRATIONS_DATABASE_URL: DSN the main database's migrations run through (default: WAYMARK_DATABASE_URL)
+//! - WAYMARK_MIGRATIONS_DATABASE_URL: DSN the migrations run through for every database that has no migrations URL and no URL of its own (default: WAYMARK_DATABASE_URL)
 //! - WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS: Statement timeout on the main migrations connection, `0` for none (default: 600000)
 //! - WAYMARK_MIGRATIONS_LOCK_TTL_MS / WAYMARK_MIGRATIONS_LOCK_HEARTBEAT_MS / WAYMARK_MIGRATIONS_LOCK_FENCING_MARGIN_MS: The main database's migrations lock: how long it lasts after a renewal, how often it is renewed, and how early before its expiry the process shuts down when it could not renew it (defaults: 15000 / 5000 / 1000)
 //! - WAYMARK_MIGRATIONS_LOCK_STATEMENT_TIMEOUT_MS: Statement timeout on the connection the main database's migrations lock is renewed through, `0` for none (default: 3000)
