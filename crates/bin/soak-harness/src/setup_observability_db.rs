@@ -11,8 +11,9 @@ const OBSERVABILITY_SCHEMA: &str = "observability";
 /// waiting up to `timeout` for its database to accept connections.
 ///
 /// The database is resolved the way the executor resolves it — from the
-/// environment, with `dsn` as the default — so the harness resets and
-/// reads the store the executor writes to. The store is migrated through
+/// store's own variables, with `dsn` as the unified URL the executor is
+/// started with — so the harness resets and reads the store the executor
+/// writes to. The store is migrated through
 /// the executor's migrations connection, which creates the schema, under
 /// the exclusive migrations lock, which is released afterwards: the
 /// harness takes no migrations lock for its own statements. The returned
@@ -22,7 +23,7 @@ pub async fn connect(
     timeout: Duration,
 ) -> Result<waymark_observability_store_postgres::Store, color_eyre::eyre::Report> {
     let config =
-        waymark_observability_config::ObservabilityConfig::from_env_urls_with_default(dsn, dsn)
+        waymark_observability_config::ObservabilityConfig::from_env_with_unified_urls(dsn, dsn)
             .wrap_err("read the observability config")?;
     let waymark_observability_store_config::ReadWriteMigrate::Postgres(postgres_config) = config.db;
     let assertions = waymark_observability_store_postgres_migrations::assertions();

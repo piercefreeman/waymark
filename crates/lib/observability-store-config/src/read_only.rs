@@ -2,7 +2,7 @@
 
 use waymark_secret_string::SecretString;
 
-use crate::{Backend, UrlFromEnvError, backend, scheme};
+use crate::{Backend, ReadUrlFromEnvError, UrlFromEnvError, backend, scheme};
 
 /// An observability store that is only read, dispatched by URL scheme.
 #[derive(Debug, Clone)]
@@ -21,7 +21,7 @@ pub enum FromEnvError {
 
     /// The read database URL could not be read.
     #[error("read database url: {0}")]
-    ReadDatabaseUrl(#[source] UrlFromEnvError),
+    ReadDatabaseUrl(#[source] ReadUrlFromEnvError),
 
     /// No supported backend uses the read database URL's scheme.
     #[error("unsupported observability read database scheme {scheme:?}")]
@@ -38,14 +38,10 @@ pub enum FromEnvError {
 impl ReadOnly {
     /// Create config from environment variables.
     /// `WAYMARK_OBSERVABILITY_DATABASE_URL` is used when
-    /// `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` is not set, and
-    /// `default_database_url` (the main database URL) in turn when that
-    /// is not set.
-    pub fn from_env_url_with_default(
-        default_database_url: &SecretString,
-    ) -> Result<Self, FromEnvError> {
-        let url = crate::url_from_env_with_default(default_database_url)
-            .map_err(FromEnvError::DatabaseUrl)?;
+    /// `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` is not set, and the
+    /// unified `WAYMARK_DATABASE_URL` in turn when that is not set.
+    pub fn from_env() -> Result<Self, FromEnvError> {
+        let url = crate::url_from_env().map_err(FromEnvError::DatabaseUrl)?;
         let read_url =
             crate::read_url_from_env_with_default(&url).map_err(FromEnvError::ReadDatabaseUrl)?;
 

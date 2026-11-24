@@ -100,5 +100,38 @@ pub fn migrations_from_env(
     ))
 }
 
+/// The URL of the database whose own URL variable is `dedicated_variable`,
+/// for a caller that was given the unified URL: that variable, or
+/// `unified_database_url` when it is not set. `WAYMARK_DATABASE_URL` is
+/// not read.
+pub fn from_env_or_unified(
+    dedicated_variable: &'static str,
+    unified_database_url: &SecretString,
+) -> Result<SecretString, FromEnvError> {
+    let url = first_set(&[dedicated_variable], envfury::maybe).map_err(FromEnvError::Read)?;
+
+    Ok(url.unwrap_or_else(|| unified_database_url.clone()))
+}
+
+/// The URL the database is migrated through, for the database whose own
+/// variables are `dedicated_migrations_variable` and `dedicated_variable`
+/// and a caller that was given the unified migrations URL: the first that
+/// is set of the two variables, or `unified_migrations_database_url` when
+/// neither is. `WAYMARK_MIGRATIONS_DATABASE_URL` and `WAYMARK_DATABASE_URL`
+/// are not read.
+pub fn migrations_from_env_or_unified(
+    dedicated_migrations_variable: &'static str,
+    dedicated_variable: &'static str,
+    unified_migrations_database_url: &SecretString,
+) -> Result<SecretString, FromEnvError> {
+    let url = first_set(
+        &[dedicated_migrations_variable, dedicated_variable],
+        envfury::maybe,
+    )
+    .map_err(FromEnvError::Read)?;
+
+    Ok(url.unwrap_or_else(|| unified_migrations_database_url.clone()))
+}
+
 #[cfg(test)]
 mod tests;
