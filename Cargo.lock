@@ -4965,6 +4965,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-migrations-source"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "mockall",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "waymark-migrations-engine-migration",
+ "waymark-migrations-rust-code",
+ "waymark-migrations-sql-file",
+ "waymark-support-integration",
+ "waymark-support-test",
+]
+
+[[package]]
 name = "waymark-migrations-source-checksums-core"
 version = "0.1.0"
 dependencies = [
