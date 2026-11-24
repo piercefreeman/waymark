@@ -73,10 +73,12 @@ waymark-metrics-util = { path = "crates/lib/metrics-util" }
 waymark-migrations-engine-assertion = { path = "crates/lib/migrations-engine-assertion" }
 waymark-migrations-engine-backend = { path = "crates/lib/migrations-engine-backend" }
 waymark-migrations-engine-migration = { path = "crates/lib/migrations-engine-migration" }
+waymark-migrations-rust-code = { path = "crates/lib/migrations-rust-code" }
 waymark-migrations-rust-code-core = { path = "crates/lib/migrations-rust-code-core" }
 waymark-migrations-rust-code-macros = { path = "crates/lib/migrations-rust-code-macros" }
 waymark-migrations-source-checksums-core = { path = "crates/lib/migrations-source-checksums-core" }
 waymark-migrations-source-checksums-proc-macro-helpers = { path = "crates/lib/migrations-source-checksums-proc-macro-helpers" }
+waymark-migrations-sql-file = { path = "crates/lib/migrations-sql-file" }
 waymark-migrations-sql-file-core = { path = "crates/lib/migrations-sql-file-core" }
 waymark-migrations-sql-file-macros = { path = "crates/lib/migrations-sql-file-macros" }
 waymark-node-sequence = { path = "crates/lib/node-sequence" }
