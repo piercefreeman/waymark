@@ -2,9 +2,8 @@ use waymark_nonzero_duration::NonZeroDuration;
 
 use super::*;
 
-// Of the WAYMARK_DATABASE_* and WAYMARK_MIGRATIONS_* variables, only
-// WAYMARK_DATABASE_URL may be set in the test environment; the tests take
-// their URLs as arguments.
+// No WAYMARK_MAIN_POSTGRES_* variable is set in the test environment, and
+// the tests take their URLs as arguments.
 
 #[test]
 fn read_write_migrate_takes_both_urls_and_their_own_settings() {
@@ -162,15 +161,15 @@ fn the_urls_come_from_the_documented_variables() {
 #[test]
 fn the_profiles_read_the_documented_variables() {
     let main_pool = [
-        "WAYMARK_DATABASE_MAX_CONNECTIONS",
-        "WAYMARK_DATABASE_STATEMENT_TIMEOUT_MS",
-        "WAYMARK_DATABASE_ACQUIRE_TIMEOUT_MS",
+        "WAYMARK_MAIN_POSTGRES_MAX_CONNECTIONS",
+        "WAYMARK_MAIN_POSTGRES_STATEMENT_TIMEOUT_MS",
+        "WAYMARK_MAIN_POSTGRES_ACQUIRE_TIMEOUT_MS",
     ];
 
     assert_eq!(pool_variables::<crate::profiles::ExecutorPool>(), main_pool);
     assert_eq!(pool_variables::<crate::profiles::BridgePool>(), main_pool);
     assert_eq!(
         connection_variables::<crate::profiles::Migrations>(),
-        ["WAYMARK_MIGRATIONS_STATEMENT_TIMEOUT_MS"],
+        ["WAYMARK_MAIN_POSTGRES_MIGRATIONS_STATEMENT_TIMEOUT_MS"],
     );
 }

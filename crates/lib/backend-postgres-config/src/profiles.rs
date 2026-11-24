@@ -6,12 +6,12 @@ use std::num::{NonZeroU32, NonZeroU64};
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_postgres_config::{connection, migrations_lock, pool};
 
-/// The executor's read-write pool: `WAYMARK_DATABASE_*`.
+/// The executor's read-write pool: `WAYMARK_MAIN_POSTGRES_*`.
 #[derive(Debug)]
 pub(crate) struct ExecutorPool;
 
 impl pool::Profile for ExecutorPool {
-    const PREFIX: &'static str = "DATABASE";
+    const PREFIX: &'static str = "MAIN_POSTGRES";
 
     const MAX_CONNECTIONS_DEFAULT: NonZeroU32 = NonZeroU32::new(25).unwrap();
 
@@ -20,13 +20,13 @@ impl pool::Profile for ExecutorPool {
     const ACQUIRE_TIMEOUT_DEFAULT: NonZeroDuration = pool::Config::DEFAULT_ACQUIRE_TIMEOUT;
 }
 
-/// The bridge's read-write pool: `WAYMARK_DATABASE_*`, the executor's
-/// variables, with the bridge's own defaults.
+/// The bridge's read-write pool: `WAYMARK_MAIN_POSTGRES_*`, the
+/// executor's variables, with the bridge's own defaults.
 #[derive(Debug)]
 pub(crate) struct BridgePool;
 
 impl pool::Profile for BridgePool {
-    const PREFIX: &'static str = "DATABASE";
+    const PREFIX: &'static str = "MAIN_POSTGRES";
 
     const MAX_CONNECTIONS_DEFAULT: NonZeroU32 = NonZeroU32::new(10).unwrap();
 
@@ -35,24 +35,24 @@ impl pool::Profile for BridgePool {
     const ACQUIRE_TIMEOUT_DEFAULT: NonZeroDuration = pool::Config::DEFAULT_ACQUIRE_TIMEOUT;
 }
 
-/// The migrations connection: `WAYMARK_MIGRATIONS_*`.
+/// The migrations connection: `WAYMARK_MAIN_POSTGRES_MIGRATIONS_*`.
 #[derive(Debug)]
 pub(crate) struct Migrations;
 
 impl connection::Profile for Migrations {
-    const PREFIX: &'static str = "MIGRATIONS";
+    const PREFIX: &'static str = "MAIN_POSTGRES_MIGRATIONS";
 
     // 10 minutes: a migration on a large table is slow before it is
     // stuck.
     const STATEMENT_TIMEOUT_DEFAULT: Option<NonZeroDuration> = NonZeroDuration::from_secs(600);
 }
 
-/// The migrations lock: `WAYMARK_MIGRATIONS_LOCK_*`.
+/// The migrations lock: `WAYMARK_MAIN_POSTGRES_MIGRATIONS_LOCK_*`.
 #[derive(Debug)]
 pub(crate) struct MigrationsLock;
 
 impl migrations_lock::Profile for MigrationsLock {
-    const PREFIX: &'static str = "MIGRATIONS_LOCK";
+    const PREFIX: &'static str = "MAIN_POSTGRES_MIGRATIONS_LOCK";
 
     const HEARTBEAT_DEFAULT: NonZeroDuration =
         NonZeroDuration::from_nonzero_secs(NonZeroU64::new(5).unwrap());
