@@ -4,7 +4,7 @@ use waymark_postgres_config::{migrations_lock, pool};
 use waymark_secret_string::SecretString;
 
 use crate::profiles;
-use crate::{DefaultsFor, MustUrlFromEnvError};
+use crate::{DefaultsFor, UrlFromEnvError};
 
 /// Configuration for the main database, read and written.
 #[derive(Debug, Clone)]
@@ -22,7 +22,7 @@ pub struct ReadWriteOnly {
 pub enum FromEnvError {
     /// The database URL could not be read.
     #[error("database url: {0}")]
-    DatabaseUrl(#[source] MustUrlFromEnvError),
+    DatabaseUrl(#[source] UrlFromEnvError),
 
     /// The read-write pool's config could not be read.
     #[error("read-write pool: {0}")]

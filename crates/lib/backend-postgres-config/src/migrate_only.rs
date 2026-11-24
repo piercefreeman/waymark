@@ -3,8 +3,8 @@
 use waymark_postgres_config::connection;
 use waymark_secret_string::SecretString;
 
+use crate::UrlFromEnvError;
 use crate::profiles;
-use crate::{MustUrlFromEnvError, UrlFromEnvError};
 
 /// Configuration for the main database, migrated.
 #[derive(Debug, Clone)]
@@ -18,12 +18,7 @@ pub struct MigrateOnly {
 /// Error returned by [`MigrateOnly::from_env`].
 #[derive(Debug, thiserror::Error)]
 pub enum FromEnvError {
-    /// The database URL, which the migrations database URL defaults to,
-    /// could not be read.
-    #[error("database url: {0}")]
-    DatabaseUrl(#[source] MustUrlFromEnvError),
-
-    /// The migrations database URL could not be read.
+    /// The migrations database URL could not be told.
     #[error("migrations database url: {0}")]
     MigrationsDatabaseUrl(#[source] UrlFromEnvError),
 
@@ -33,12 +28,14 @@ pub enum FromEnvError {
 }
 
 impl MigrateOnly {
-    /// Create config from environment variables. `WAYMARK_DATABASE_URL` is
-    /// used when `WAYMARK_MIGRATIONS_DATABASE_URL` is not set.
+    /// Create config from environment variables. The migrations run
+    /// through the first that is set of
+    /// `WAYMARK_MAIN_MIGRATIONS_DATABASE_URL`, `WAYMARK_MAIN_DATABASE_URL`
+    /// and the unified `WAYMARK_MIGRATIONS_DATABASE_URL` and
+    /// `WAYMARK_DATABASE_URL`.
     pub fn from_env() -> Result<Self, FromEnvError> {
-        let url = crate::url_from_env().map_err(FromEnvError::DatabaseUrl)?;
-        let migrations_url = crate::migrations_url_from_env_with_default(&url)
-            .map_err(FromEnvError::MigrationsDatabaseUrl)?;
+        let migrations_url =
+            crate::migrations_url_from_env().map_err(FromEnvError::MigrationsDatabaseUrl)?;
 
         Self::from_url_and_env(migrations_url).map_err(FromEnvError::Migrations)
     }

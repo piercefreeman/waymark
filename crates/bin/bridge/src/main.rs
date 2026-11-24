@@ -19,7 +19,8 @@
 //! It shuts down gracefully on Ctrl+C or a termination request.
 //!
 //! Configuration is via environment variables:
-//! - WAYMARK_DATABASE_URL: PostgreSQL connection string (required unless in-memory)
+//! - WAYMARK_DATABASE_URL: PostgreSQL connection string for every database that has no URL of its own (required unless in-memory, or each has one)
+//! - WAYMARK_MAIN_DATABASE_URL: DSN for the main database (default: WAYMARK_DATABASE_URL)
 //! - WAYMARK_DATABASE_MAX_CONNECTIONS: connection cap for the database pool (default: 10)
 //! - WAYMARK_DATABASE_STATEMENT_TIMEOUT_MS: statement timeout on the database pool, `0` for none (default: 60000)
 //! - WAYMARK_DATABASE_ACQUIRE_TIMEOUT_MS: how long taking a connection from the database pool may wait, `0` refuses to boot (default: 30000)
