@@ -31,14 +31,11 @@ pub enum FromEnvError {
 }
 
 impl WriteOnly {
-    /// Create config from environment variables. `default_database_url`
-    /// (the main database URL) is used when
-    /// `WAYMARK_OBSERVABILITY_DATABASE_URL` is not set.
-    pub fn from_env_url_with_default(
-        default_database_url: &SecretString,
-    ) -> Result<Self, FromEnvError> {
-        let url = crate::url_from_env_with_default(default_database_url)
-            .map_err(FromEnvError::DatabaseUrl)?;
+    /// Create config from environment variables. The store is written at
+    /// `WAYMARK_OBSERVABILITY_DATABASE_URL`, or at the unified
+    /// `WAYMARK_DATABASE_URL` when it is not set.
+    pub fn from_env() -> Result<Self, FromEnvError> {
+        let url = crate::url_from_env().map_err(FromEnvError::DatabaseUrl)?;
 
         Self::from_url_and_env(url)
     }

@@ -86,10 +86,7 @@ async fn main()
         let database = waymark_backend_postgres_config::ReadWriteOnly::from_env(
             waymark_backend_postgres_config::DefaultsFor::Bridge,
         )?;
-        let observability_store =
-            waymark_observability_store_config::WriteOnly::from_env_url_with_default(
-                &database.read_write.url,
-            )?;
+        let observability_store = waymark_observability_store_config::WriteOnly::from_env()?;
         let observability_events =
             waymark_observability_events_config::ObservabilityEventsConfig::from_env()?;
 

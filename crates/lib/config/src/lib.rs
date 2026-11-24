@@ -148,11 +148,7 @@ impl WorkerConfig {
 
         let http = waymark_http_config::HttpConfig::from_env()?;
 
-        let observability =
-            waymark_observability_config::ObservabilityConfig::from_env_urls_with_default(
-                &database.read_write.url,
-                &database.migrations.url,
-            )?;
+        let observability = waymark_observability_config::ObservabilityConfig::from_env()?;
 
         let FromMillis(vm_retention) = envfury::or_parse("WAYMARK_VM_RETENTION_MS", "60000")?;
 

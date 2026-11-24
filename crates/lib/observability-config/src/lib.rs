@@ -34,21 +34,30 @@ pub enum FromEnvError {
 }
 
 impl ObservabilityConfig {
-    /// Create config from environment variables. `default_database_url`
-    /// (the main database URL) is used when
-    /// `WAYMARK_OBSERVABILITY_DATABASE_URL` is not set, and that URL in
-    /// turn when `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` is not set.
-    /// When `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL` is not set, the
-    /// migrations go through `WAYMARK_OBSERVABILITY_DATABASE_URL`, or
-    /// through `default_migrations_url` (the main database's migrations
-    /// URL) when that is not set either.
-    pub fn from_env_urls_with_default(
-        default_database_url: &SecretString,
-        default_migrations_url: &SecretString,
+    /// Create config from environment variables. The store's URLs come
+    /// from its own variables, with the unified `WAYMARK_DATABASE_URL` and
+    /// `WAYMARK_MIGRATIONS_DATABASE_URL` standing in for the ones that are
+    /// not set, as
+    /// [`waymark_observability_store_config::ReadWriteMigrate::from_env`]
+    /// has it.
+    pub fn from_env() -> Result<Self, FromEnvError> {
+        let db = waymark_observability_store_config::ReadWriteMigrate::from_env()
+            .map_err(FromEnvError::Db)?;
+        Self::from_db_and_env(db)
+    }
+
+    /// Create config from environment variables, for a caller that was
+    /// given the unified URLs: `unified_database_url` and
+    /// `unified_migrations_database_url` stand in for
+    /// `WAYMARK_DATABASE_URL` and `WAYMARK_MIGRATIONS_DATABASE_URL`, which
+    /// are not read.
+    pub fn from_env_with_unified_urls(
+        unified_database_url: &SecretString,
+        unified_migrations_database_url: &SecretString,
     ) -> Result<Self, FromEnvError> {
-        let db = waymark_observability_store_config::ReadWriteMigrate::from_env_urls_with_default(
-            default_database_url,
-            default_migrations_url,
+        let db = waymark_observability_store_config::ReadWriteMigrate::from_env_with_unified_urls(
+            unified_database_url,
+            unified_migrations_database_url,
         )
         .map_err(FromEnvError::Db)?;
         Self::from_db_and_env(db)

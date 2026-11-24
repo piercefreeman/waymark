@@ -2,7 +2,9 @@
 
 use waymark_secret_string::SecretString;
 
-use crate::{Backend, UrlFromEnvError, backend, scheme};
+use waymark_postgres_config::database_url;
+
+use crate::{Backend, ReadUrlFromEnvError, UrlFromEnvError, backend, scheme};
 
 /// An observability store that is written, read and migrated, dispatched
 /// by URL scheme.
@@ -21,7 +23,7 @@ pub enum FromEnvError {
 
     /// The read database URL could not be read.
     #[error("read database url: {0}")]
-    ReadDatabaseUrl(#[source] UrlFromEnvError),
+    ReadDatabaseUrl(#[source] ReadUrlFromEnvError),
 
     /// The migrations database URL could not be read.
     #[error("migrations database url: {0}")]
@@ -66,33 +68,45 @@ pub enum FromEnvError {
 }
 
 impl ReadWriteMigrate {
-    /// Create config from environment variables. `default_database_url`
-    /// (the main database URL) is used when
-    /// `WAYMARK_OBSERVABILITY_DATABASE_URL` is not set, and that URL in
-    /// turn when `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` is not set.
-    /// When `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL` is not set, the
-    /// migrations go through `WAYMARK_OBSERVABILITY_DATABASE_URL`, or
-    /// through `default_migrations_url` (the main database's migrations
-    /// URL) when that is not set either.
-    pub fn from_env_urls_with_default(
-        default_database_url: &SecretString,
-        default_migrations_url: &SecretString,
-    ) -> Result<Self, FromEnvError> {
-        let maybe_url: Option<SecretString> = envfury::maybe("WAYMARK_OBSERVABILITY_DATABASE_URL")
-            .map_err(FromEnvError::DatabaseUrl)?;
-
-        // A store in the main database is migrated with the main
-        // database's migrations credentials.
-        let migrations_url_default = match &maybe_url {
-            Some(url) => url.clone(),
-            None => default_migrations_url.clone(),
-        };
-
-        let url = maybe_url.unwrap_or_else(|| default_database_url.clone());
+    /// Create config from environment variables. The unified
+    /// `WAYMARK_DATABASE_URL` is used when
+    /// `WAYMARK_OBSERVABILITY_DATABASE_URL` is not set, and the store's URL
+    /// in turn when `WAYMARK_OBSERVABILITY_READ_DATABASE_URL` is not set.
+    /// The migrations go through the first that is set of
+    /// `WAYMARK_OBSERVABILITY_MIGRATIONS_DATABASE_URL`,
+    /// `WAYMARK_OBSERVABILITY_DATABASE_URL` and the unified
+    /// `WAYMARK_MIGRATIONS_DATABASE_URL` and `WAYMARK_DATABASE_URL`.
+    pub fn from_env() -> Result<Self, FromEnvError> {
+        let url = crate::url_from_env().map_err(FromEnvError::DatabaseUrl)?;
         let read_url =
             crate::read_url_from_env_with_default(&url).map_err(FromEnvError::ReadDatabaseUrl)?;
-        let migrations_url = crate::migrations_url_from_env_with_default(&migrations_url_default)
-            .map_err(FromEnvError::MigrationsDatabaseUrl)?;
+        let migrations_url =
+            crate::migrations_url_from_env().map_err(FromEnvError::MigrationsDatabaseUrl)?;
+
+        Self::from_urls_and_env(url, read_url, migrations_url)
+    }
+
+    /// Create config from environment variables, for a caller that was
+    /// given the unified URLs: `unified_database_url` and
+    /// `unified_migrations_database_url` stand in for
+    /// `WAYMARK_DATABASE_URL` and `WAYMARK_MIGRATIONS_DATABASE_URL`, which
+    /// are not read. The store's own variables are read as
+    /// [`ReadWriteMigrate::from_env`] reads them.
+    pub fn from_env_with_unified_urls(
+        unified_database_url: &SecretString,
+        unified_migrations_database_url: &SecretString,
+    ) -> Result<Self, FromEnvError> {
+        let url =
+            database_url::from_env_or_unified(crate::DATABASE_URL_VARIABLE, unified_database_url)
+                .map_err(FromEnvError::DatabaseUrl)?;
+        let read_url =
+            crate::read_url_from_env_with_default(&url).map_err(FromEnvError::ReadDatabaseUrl)?;
+        let migrations_url = database_url::migrations_from_env_or_unified(
+            crate::MIGRATIONS_DATABASE_URL_VARIABLE,
+            crate::DATABASE_URL_VARIABLE,
+            unified_migrations_database_url,
+        )
+        .map_err(FromEnvError::MigrationsDatabaseUrl)?;
 
         Self::from_urls_and_env(url, read_url, migrations_url)
     }
