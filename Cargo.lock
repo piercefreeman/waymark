@@ -4890,6 +4890,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-migrations-source-checksums-core"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "waymark-node-sequence"
 version = "0.1.0"
 
