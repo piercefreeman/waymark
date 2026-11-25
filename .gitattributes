@@ -1,0 +1,12 @@
+# Text files are checked out with LF line endings on every platform.
+* text=auto eol=lf
+
+# Written by tools, not by hand: GitHub folds their diffs and leaves them
+# out of the language statistics.
+*.snap linguist-generated
+*_pb2.py linguist-generated
+*_pb2.pyi linguist-generated
+*_pb2_grpc.py linguist-generated
+*_pb2_grpc.pyi linguist-generated
+*.lock linguist-generated
+package-lock.json linguist-generated
