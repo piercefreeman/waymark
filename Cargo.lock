@@ -4899,6 +4899,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-migrations-rust-code-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+ "thiserror",
+ "waymark-migrations-rust-code-core",
+ "waymark-migrations-source-checksums-core",
+ "waymark-migrations-source-checksums-proc-macro-helpers",
+]
+
+[[package]]
 name = "waymark-migrations-source-checksums-core"
 version = "0.1.0"
 dependencies = [
