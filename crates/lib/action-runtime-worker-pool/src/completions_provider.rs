@@ -241,7 +241,7 @@ mod tests {
     fn completion(metadata: Vec<u8>) -> waymark_proto::messages::ActionResult {
         let payload = waymark_vm_value_python_convert_proto::ActionOutcomeConverter::try_convert(
             waymark_action_runtime_core::ActionCallOutcome::Value(
-                waymark_vm_value_python::ReadyValue::None,
+                waymark_vm_value_python::MaterialValue::None,
             ),
         )
         .expect("a None holds no pending promise");
@@ -270,7 +270,7 @@ mod tests {
         let resolved = resolve_execution::<
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
-            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python::MaterialValue,
             waymark_vm_value_python::RaisedException,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >(waymark_worker_core::ActionExecutionReport::Lost(
@@ -301,7 +301,7 @@ mod tests {
         let result = resolve_execution::<
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
-            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python::MaterialValue,
             waymark_vm_value_python::RaisedException,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >(waymark_worker_core::ActionExecutionReport::Completed(
@@ -325,7 +325,7 @@ mod tests {
         let resolved = resolve_execution::<
             core::convert::Infallible,
             WithVmId<InstanceId, ActionCallCorrelation>,
-            waymark_vm_value_python::ReadyValue,
+            waymark_vm_value_python::MaterialValue,
             waymark_vm_value_python::RaisedException,
             waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
         >(waymark_worker_core::ActionExecutionReport::Completed(

@@ -6,11 +6,11 @@ use std::task::{Context, Poll, Waker};
 use nonempty_collections::NEVec;
 use waymark_extcall_reconciler_core::SleepPromiseSettler;
 use waymark_ids::InstanceId;
-use waymark_sleep_compat_python::ReadyValueSleepProvider;
+use waymark_sleep_compat_python::MaterialValueSleepProvider;
 use waymark_sleep_reconciler_backend::SleepKey;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement, PromiseSettlementAck as _};
 use waymark_vm_runtime_promise_core::PromiseStateId;
-use waymark_vm_value_python::ReadyValue;
+use waymark_vm_value_python::MaterialValue;
 
 use super::{Ack, DemandRegistrar, Params, PollSleepSettlementsError, SettlementsHandle};
 use crate::test_support::{MockBackend, key};
@@ -29,10 +29,14 @@ fn poll_once<F: Future>(future: std::pin::Pin<&mut F>) -> Poll<F::Output> {
 
 /// Poll the handle for settlements with the given demanded promise ids.
 async fn poll_settlements(
-    handle: &mut SettlementsHandle<InstanceId, ReadyValueSleepProvider, core::convert::Infallible>,
+    handle: &mut SettlementsHandle<
+        InstanceId,
+        MaterialValueSleepProvider,
+        core::convert::Infallible,
+    >,
     ids: &[usize],
 ) -> Result<
-    NEVec<PromiseSettlement<ReadyValue, core::convert::Infallible, Ack<InstanceId>>>,
+    NEVec<PromiseSettlement<MaterialValue, core::convert::Infallible, Ack<InstanceId>>>,
     PollSleepSettlementsError,
 > {
     let demand = demand(ids);
@@ -73,7 +77,7 @@ async fn delivers_demanded_settlements_with_key_acks() {
 
     let (registrar, params, mut ack_rx) = poller(&backend);
     let mut handle =
-        registrar.subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(vm_id);
+        registrar.subscribe::<MaterialValueSleepProvider, core::convert::Infallible>(vm_id);
 
     let poll_loop = tokio::spawn(super::run(params));
 
@@ -85,7 +89,7 @@ async fn delivers_demanded_settlements_with_key_acks() {
     assert_eq!(settlement.promise_state_id, PromiseStateId::from_raw(3));
     assert!(matches!(
         settlement.resolution,
-        PromiseResolution::Resolved(ReadyValue::None)
+        PromiseResolution::Resolved(MaterialValue::None)
     ));
 
     // The ack originates from the poller: acknowledging pushes the row's
@@ -102,8 +106,9 @@ async fn parks_without_subscribed_demand() {
     let backend = MockBackend::default();
     let (registrar, params, _ack_rx) = poller(&backend);
     // A subscribed VM with no demand is not demand.
-    let _handle = registrar
-        .subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(InstanceId::new_uuid_v4());
+    let _handle = registrar.subscribe::<MaterialValueSleepProvider, core::convert::Infallible>(
+        InstanceId::new_uuid_v4(),
+    );
 
     {
         let mut run = pin!(super::run(params));
@@ -129,7 +134,7 @@ async fn buffered_keys_survive_a_cancelled_wait() {
 
     let (registrar, params, _ack_rx) = poller(&backend);
     let mut handle =
-        registrar.subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(vm_id);
+        registrar.subscribe::<MaterialValueSleepProvider, core::convert::Infallible>(vm_id);
 
     {
         // Register demand, then cancel the wait before delivery.
@@ -170,9 +175,9 @@ async fn stale_handle_drop_leaves_resubscribed_entry_intact() {
     // alive; dropping the stale handle must not unsubscribe the fresh
     // one.
     let stale_handle =
-        registrar.subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(vm_id);
+        registrar.subscribe::<MaterialValueSleepProvider, core::convert::Infallible>(vm_id);
     let mut fresh_handle =
-        registrar.subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(vm_id);
+        registrar.subscribe::<MaterialValueSleepProvider, core::convert::Infallible>(vm_id);
     drop(stale_handle);
 
     let poll_loop = tokio::spawn(super::run(params));
@@ -189,8 +194,9 @@ async fn stale_handle_drop_leaves_resubscribed_entry_intact() {
 async fn ends_once_every_registrar_and_handle_is_gone() {
     let backend = MockBackend::default();
     let (registrar, params, _ack_rx) = poller(&backend);
-    let handle = registrar
-        .subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(InstanceId::new_uuid_v4());
+    let handle = registrar.subscribe::<MaterialValueSleepProvider, core::convert::Infallible>(
+        InstanceId::new_uuid_v4(),
+    );
 
     let mut run = pin!(super::run(params));
     assert!(poll_once(run.as_mut()).is_pending());
@@ -229,7 +235,7 @@ async fn ends_from_the_poll_interval_wait_once_everything_is_gone() {
     // The clone outlives the original.
     let registrar_clone = registrar.clone();
     let mut handle =
-        registrar.subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(vm_id);
+        registrar.subscribe::<MaterialValueSleepProvider, core::convert::Infallible>(vm_id);
     drop(registrar);
 
     // Parked with no demand first, so the registration below is seen as
@@ -268,7 +274,7 @@ async fn waiters_fail_when_the_run_loop_is_cancelled() {
     let backend = MockBackend::default();
     let (registrar, params, _ack_rx) = poller(&backend);
     let mut handle =
-        registrar.subscribe::<ReadyValueSleepProvider, core::convert::Infallible>(vm_id);
+        registrar.subscribe::<MaterialValueSleepProvider, core::convert::Infallible>(vm_id);
 
     // Start the loop, then cancel it — the registry is marked closed.
     {

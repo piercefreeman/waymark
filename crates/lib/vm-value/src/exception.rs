@@ -4,7 +4,7 @@
 //! exception value: a value raises if it is an exception that raises, and
 //! captures a raised exception if the flavor's exception value does.
 
-use crate::ReadyValue;
+use crate::MaterialValue;
 
 /// Why a ready value cannot be raised.
 #[derive(Debug, thiserror::Error)]
@@ -19,7 +19,7 @@ pub enum ValueToRaisedExceptionError<ExceptionValueError> {
 }
 
 impl<Flavor, RaisedException> waymark_vm_runtime_exception::ValueToRaisedException<RaisedException>
-    for ReadyValue<Flavor>
+    for MaterialValue<Flavor>
 where
     Flavor: crate::Flavor,
     Flavor::ExceptionValue: waymark_vm_runtime_exception::ValueToRaisedException<RaisedException>,
@@ -41,7 +41,7 @@ where
 }
 
 impl<Flavor, RaisedException> waymark_vm_runtime_exception::RaisedExceptionToValue<RaisedException>
-    for ReadyValue<Flavor>
+    for MaterialValue<Flavor>
 where
     Flavor: crate::Flavor,
     Flavor::ExceptionValue: waymark_vm_runtime_exception::RaisedExceptionToValue<RaisedException>,

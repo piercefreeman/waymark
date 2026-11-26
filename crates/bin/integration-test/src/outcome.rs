@@ -15,7 +15,7 @@ use crate::ground_truth::PreparedCase;
 #[derive(Clone, Debug)]
 pub enum CaseOutcome {
     /// The workflow ran to completion, producing this value.
-    Completion(waymark_system_vm::ReadyValue),
+    Completion(waymark_system_vm::MaterialValue),
 
     /// The workflow raised.
     Exception(waymark_system_vm::RaisedException),
@@ -34,7 +34,7 @@ impl CaseOutcome {
 /// Read the outcome the VM produced.
 pub fn outcome_from_vm(
     outcome: waymark_workflow_completion_core::Outcome<
-        waymark_system_vm::ReadyValue,
+        waymark_system_vm::MaterialValue,
         waymark_system_vm::RaisedException,
     >,
 ) -> CaseOutcome {

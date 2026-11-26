@@ -7,7 +7,7 @@ use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_runtime_test::{
-    StateId, TestEffect, TestException, TestExecutionError, TestInstruction, TestReadyValue,
+    StateId, TestEffect, TestException, TestExecutionError, TestInstruction, TestMaterialValue,
     executable, function, runtime,
 };
 
@@ -21,7 +21,7 @@ mockall::mock! {
     }
 
     impl<Error: 'static> waymark_vm_driver_hooks::promise_settled::HasValue for Hooks<Error> {
-        type Value = TestReadyValue;
+        type Value = TestMaterialValue;
     }
 
     impl<Error: 'static> waymark_vm_driver_hooks::promise_settled::HasRaisedException for Hooks<Error> {
@@ -44,7 +44,7 @@ mockall::mock! {
         fn promise_settled(
             &self,
             promise_state_id: PromiseStateId,
-            resolution: &PromiseResolution<TestReadyValue, TestException>,
+            resolution: &PromiseResolution<TestMaterialValue, TestException>,
         );
     }
 
@@ -59,14 +59,14 @@ mockall::mock! {
 
 type TestEffector = (
     tokio::sync::mpsc::Sender<EmittedEffect<TestEffect>>,
-    tokio::sync::mpsc::Receiver<PromiseSettlement<TestReadyValue, TestException, ()>>,
+    tokio::sync::mpsc::Receiver<PromiseSettlement<TestMaterialValue, TestException, ()>>,
 );
 
 #[allow(clippy::type_complexity)]
 fn effector() -> (
     TestEffector,
     tokio::sync::mpsc::Receiver<EmittedEffect<TestEffect>>,
-    tokio::sync::mpsc::Sender<PromiseSettlement<TestReadyValue, TestException, ()>>,
+    tokio::sync::mpsc::Sender<PromiseSettlement<TestMaterialValue, TestException, ()>>,
 ) {
     let (effects_tx, effects_rx) = tokio::sync::mpsc::channel(1);
     let (settlements_tx, settlements_rx) = tokio::sync::mpsc::channel(1);
@@ -129,7 +129,7 @@ async fn resumes_promises_and_forwards_resolved_effect() {
     settlements_tx
         .send(PromiseSettlement {
             promise_state_id: PromiseStateId::from_raw(0),
-            resolution: PromiseResolution::Resolved(TestReadyValue::Int(41)),
+            resolution: PromiseResolution::Resolved(TestMaterialValue::Int(41)),
             ack: (),
         })
         .await
@@ -138,7 +138,7 @@ async fn resumes_promises_and_forwards_resolved_effect() {
     assert_eq!(
         effects_rx.recv().await,
         Some(EmittedEffect {
-            effect: TestEffect::Value(TestReadyValue::Int(41)),
+            effect: TestEffect::Value(TestMaterialValue::Int(41)),
             number: waymark_vm_runtime_effect::EffectNumber(0),
         })
     );
@@ -214,7 +214,7 @@ async fn fires_the_hooks_in_run_order() {
     settlements_tx
         .send(PromiseSettlement {
             promise_state_id: PromiseStateId::from_raw(0),
-            resolution: PromiseResolution::Resolved(TestReadyValue::Int(41)),
+            resolution: PromiseResolution::Resolved(TestMaterialValue::Int(41)),
             ack: (),
         })
         .await
@@ -278,7 +278,7 @@ async fn fires_vm_stopped_last_when_cancelled() {
 async fn effect_handling_error_when_receiver_dropped() {
     let (effects_tx, effects_rx) = tokio::sync::mpsc::channel::<EmittedEffect<TestEffect>>(1);
     let (_settlements_tx, settlements_rx) =
-        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, TestException, ()>>(1);
+        tokio::sync::mpsc::channel::<PromiseSettlement<TestMaterialValue, TestException, ()>>(1);
     drop(effects_rx);
 
     let result = run(Params {
@@ -301,7 +301,7 @@ async fn effect_handling_error_when_receiver_dropped() {
 async fn getting_settlements_error_when_sender_dropped() {
     let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel::<EmittedEffect<TestEffect>>(1);
     let (settlements_tx, settlements_rx) =
-        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, TestException, ()>>(1);
+        tokio::sync::mpsc::channel::<PromiseSettlement<TestMaterialValue, TestException, ()>>(1);
     drop(settlements_tx);
 
     let result = run(Params {
@@ -327,7 +327,7 @@ async fn getting_settlements_error_when_sender_dropped() {
 async fn returns_step_errors() {
     let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel::<EmittedEffect<TestEffect>>(1);
     let (_settlements_tx, settlements_rx) =
-        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, TestException, ()>>(1);
+        tokio::sync::mpsc::channel::<PromiseSettlement<TestMaterialValue, TestException, ()>>(1);
 
     let result = run(Params {
         runtime: runtime(executable(vec![function(
@@ -354,7 +354,7 @@ async fn returns_step_errors() {
 async fn duplicate_resolutions_are_ignored() {
     let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel::<EmittedEffect<TestEffect>>(1);
     let (settlements_tx, settlements_rx) =
-        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, TestException, ()>>(2);
+        tokio::sync::mpsc::channel::<PromiseSettlement<TestMaterialValue, TestException, ()>>(2);
 
     // At-least-once delivery: the same promise settled twice.  The
     // first resolution wins, the redelivery is dropped, and the VM
@@ -362,7 +362,7 @@ async fn duplicate_resolutions_are_ignored() {
     settlements_tx
         .send(PromiseSettlement {
             promise_state_id: PromiseStateId::from_raw(0),
-            resolution: PromiseResolution::Resolved(TestReadyValue::Int(10)),
+            resolution: PromiseResolution::Resolved(TestMaterialValue::Int(10)),
             ack: (),
         })
         .await
@@ -370,7 +370,7 @@ async fn duplicate_resolutions_are_ignored() {
     settlements_tx
         .send(PromiseSettlement {
             promise_state_id: PromiseStateId::from_raw(0),
-            resolution: PromiseResolution::Resolved(TestReadyValue::Int(11)),
+            resolution: PromiseResolution::Resolved(TestMaterialValue::Int(11)),
             ack: (),
         })
         .await
@@ -390,7 +390,7 @@ async fn duplicate_resolutions_are_ignored() {
             *promise_state_id == PromiseStateId::from_raw(0)
                 && matches!(
                     resolution,
-                    PromiseResolution::Resolved(TestReadyValue::Int(10))
+                    PromiseResolution::Resolved(TestMaterialValue::Int(10))
                 )
         })
         .times(1)
@@ -402,7 +402,7 @@ async fn duplicate_resolutions_are_ignored() {
             *promise_state_id == PromiseStateId::from_raw(0)
                 && matches!(
                     resolution,
-                    PromiseResolution::Resolved(TestReadyValue::Int(11))
+                    PromiseResolution::Resolved(TestMaterialValue::Int(11))
                 )
         })
         .times(1)
@@ -435,14 +435,14 @@ async fn duplicate_resolutions_are_ignored() {
 async fn duplicate_rejection_after_resolution_is_ignored() {
     let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel::<EmittedEffect<TestEffect>>(1);
     let (settlements_tx, settlements_rx) =
-        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, TestException, ()>>(2);
+        tokio::sync::mpsc::channel::<PromiseSettlement<TestMaterialValue, TestException, ()>>(2);
 
     // A redelivered settlement may even change flavor: a rejection
     // arriving for an already-resolved promise is dropped the same way.
     settlements_tx
         .send(PromiseSettlement {
             promise_state_id: PromiseStateId::from_raw(0),
-            resolution: PromiseResolution::Resolved(TestReadyValue::Int(10)),
+            resolution: PromiseResolution::Resolved(TestMaterialValue::Int(10)),
             ack: (),
         })
         .await
@@ -452,7 +452,7 @@ async fn duplicate_rejection_after_resolution_is_ignored() {
             promise_state_id: PromiseStateId::from_raw(0),
             resolution: PromiseResolution::Rejected(TestException {
                 type_id: "late".to_string(),
-                details: TestReadyValue::Int(99),
+                details: TestMaterialValue::Int(99),
             }),
             ack: (),
         })
@@ -486,7 +486,7 @@ async fn duplicate_rejection_after_resolution_is_ignored() {
 async fn unknown_promise_ids_are_ignored() {
     let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel::<EmittedEffect<TestEffect>>(1);
     let (settlements_tx, settlements_rx) =
-        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, TestException, ()>>(2);
+        tokio::sync::mpsc::channel::<PromiseSettlement<TestMaterialValue, TestException, ()>>(2);
 
     // A settlement for a promise this runtime does not know — e.g. a
     // stale redelivery for a state that was garbage collected.  It is
@@ -494,7 +494,7 @@ async fn unknown_promise_ids_are_ignored() {
     settlements_tx
         .send(PromiseSettlement {
             promise_state_id: PromiseStateId::from_raw(9),
-            resolution: PromiseResolution::Resolved(TestReadyValue::Int(41)),
+            resolution: PromiseResolution::Resolved(TestMaterialValue::Int(41)),
             ack: (),
         })
         .await
@@ -502,7 +502,7 @@ async fn unknown_promise_ids_are_ignored() {
     settlements_tx
         .send(PromiseSettlement {
             promise_state_id: PromiseStateId::from_raw(0),
-            resolution: PromiseResolution::Resolved(TestReadyValue::Int(10)),
+            resolution: PromiseResolution::Resolved(TestMaterialValue::Int(10)),
             ack: (),
         })
         .await
@@ -558,7 +558,7 @@ async fn promise_rejection_forwards_exception() {
             promise_state_id: PromiseStateId::from_raw(0),
             resolution: PromiseResolution::Rejected(TestException {
                 type_id: "ValueError".to_owned(),
-                details: TestReadyValue::Int(41),
+                details: TestMaterialValue::Int(41),
             }),
             ack: (),
         })
@@ -570,7 +570,7 @@ async fn promise_rejection_forwards_exception() {
         Some(EmittedEffect {
             effect: TestEffect::UnhandledException(TestException {
                 type_id: "ValueError".to_owned(),
-                details: TestReadyValue::Int(41),
+                details: TestMaterialValue::Int(41),
             }),
             number: waymark_vm_runtime_effect::EffectNumber(0),
         })

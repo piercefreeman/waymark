@@ -16,32 +16,32 @@ use waymark_vm_runtime_exception::{
 use waymark_vm_value::extcallset;
 use waymark_vm_value_python::exception::classes;
 use waymark_vm_value_python::raised_exception::Pattern;
-use waymark_vm_value_python::{Exception, RaisedException, ReadyValue, Value};
+use waymark_vm_value_python::{Exception, MaterialValue, RaisedException, Value};
 
 #[test]
 fn values_follow_truthiness() {
-    assert!(ReadyValue::String("x".to_owned()).should_jump().unwrap());
-    assert!(!ReadyValue::String(String::new()).should_jump().unwrap());
-    assert!(!ReadyValue::None.should_jump().unwrap());
+    assert!(MaterialValue::String("x".to_owned()).should_jump().unwrap());
+    assert!(!MaterialValue::String(String::new()).should_jump().unwrap());
+    assert!(!MaterialValue::None.should_jump().unwrap());
     assert!(
-        ReadyValue::Float(1.5.try_into().unwrap())
+        MaterialValue::Float(1.5.try_into().unwrap())
             .should_jump()
             .unwrap()
     );
     assert!(
-        !ReadyValue::Float(0.0.try_into().unwrap())
+        !MaterialValue::Float(0.0.try_into().unwrap())
             .should_jump()
             .unwrap()
     );
     assert!(
-        ReadyValue::List(vec![Value::Ready(ReadyValue::Int(1))])
+        MaterialValue::List(vec![Value::Ready(MaterialValue::Int(1))])
             .should_jump()
             .unwrap()
     );
     assert!(
-        ReadyValue::Dict(IndexMap::from([(
+        MaterialValue::Dict(IndexMap::from([(
             "key".to_owned(),
-            Value::Ready(ReadyValue::Int(1))
+            Value::Ready(MaterialValue::Int(1))
         )]))
         .should_jump()
         .unwrap()
@@ -51,174 +51,174 @@ fn values_follow_truthiness() {
 #[test]
 fn binary_and_unary_operations_cover_current_vm_value_cases() {
     assert_eq!(
-        ReadyValue::add(&ReadyValue::Int(2), &ReadyValue::Int(3)).unwrap(),
-        ReadyValue::Int(5)
+        MaterialValue::add(&MaterialValue::Int(2), &MaterialValue::Int(3)).unwrap(),
+        MaterialValue::Int(5)
     );
     assert_eq!(
-        ReadyValue::add(
-            &ReadyValue::String("hello ".to_owned()),
-            &ReadyValue::String("world".to_owned())
+        MaterialValue::add(
+            &MaterialValue::String("hello ".to_owned()),
+            &MaterialValue::String("world".to_owned())
         )
         .unwrap(),
-        ReadyValue::String("hello world".to_owned())
+        MaterialValue::String("hello world".to_owned())
     );
     assert_eq!(
-        ReadyValue::add(
-            &ReadyValue::List(vec![Value::Ready(ReadyValue::Int(1))]),
-            &ReadyValue::List(vec![Value::Ready(ReadyValue::Int(2))])
+        MaterialValue::add(
+            &MaterialValue::List(vec![Value::Ready(MaterialValue::Int(1))]),
+            &MaterialValue::List(vec![Value::Ready(MaterialValue::Int(2))])
         )
         .unwrap(),
-        ReadyValue::List(vec![
-            Value::Ready(ReadyValue::Int(1)),
-            Value::Ready(ReadyValue::Int(2))
+        MaterialValue::List(vec![
+            Value::Ready(MaterialValue::Int(1)),
+            Value::Ready(MaterialValue::Int(2))
         ])
     );
     assert_eq!(
-        ReadyValue::add(
-            &ReadyValue::Float(1.25.try_into().unwrap()),
-            &ReadyValue::Float(2.0.try_into().unwrap()),
+        MaterialValue::add(
+            &MaterialValue::Float(1.25.try_into().unwrap()),
+            &MaterialValue::Float(2.0.try_into().unwrap()),
         )
         .unwrap(),
-        ReadyValue::Float(3.25.try_into().unwrap())
+        MaterialValue::Float(3.25.try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::sub(
-            &ReadyValue::Float(3.5.try_into().unwrap()),
-            &ReadyValue::Float(1.25.try_into().unwrap()),
+        MaterialValue::sub(
+            &MaterialValue::Float(3.5.try_into().unwrap()),
+            &MaterialValue::Float(1.25.try_into().unwrap()),
         )
         .unwrap(),
-        ReadyValue::Float(2.25.try_into().unwrap())
+        MaterialValue::Float(2.25.try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::mul(
-            &ReadyValue::Float(3.0.try_into().unwrap()),
-            &ReadyValue::Float(0.5.try_into().unwrap()),
+        MaterialValue::mul(
+            &MaterialValue::Float(3.0.try_into().unwrap()),
+            &MaterialValue::Float(0.5.try_into().unwrap()),
         )
         .unwrap(),
-        ReadyValue::Float(1.5.try_into().unwrap())
+        MaterialValue::Float(1.5.try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::div(
-            &ReadyValue::Float(3.0.try_into().unwrap()),
-            &ReadyValue::Float(2.0.try_into().unwrap()),
+        MaterialValue::div(
+            &MaterialValue::Float(3.0.try_into().unwrap()),
+            &MaterialValue::Float(2.0.try_into().unwrap()),
         )
         .unwrap(),
-        ReadyValue::Float(1.5.try_into().unwrap())
+        MaterialValue::Float(1.5.try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::floor_div(&ReadyValue::Int(-3), &ReadyValue::Int(2)).unwrap(),
-        ReadyValue::Int(-2)
+        MaterialValue::floor_div(&MaterialValue::Int(-3), &MaterialValue::Int(2)).unwrap(),
+        MaterialValue::Int(-2)
     );
     assert_eq!(
-        ReadyValue::floor_div(
-            &ReadyValue::Float((-3.0).try_into().unwrap()),
-            &ReadyValue::Float(2.0.try_into().unwrap()),
+        MaterialValue::floor_div(
+            &MaterialValue::Float((-3.0).try_into().unwrap()),
+            &MaterialValue::Float(2.0.try_into().unwrap()),
         )
         .unwrap(),
-        ReadyValue::Float((-2.0).try_into().unwrap())
+        MaterialValue::Float((-2.0).try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::modulo(&ReadyValue::Int(3), &ReadyValue::Int(-2)).unwrap(),
-        ReadyValue::Int(-1)
+        MaterialValue::modulo(&MaterialValue::Int(3), &MaterialValue::Int(-2)).unwrap(),
+        MaterialValue::Int(-1)
     );
     assert_eq!(
-        ReadyValue::modulo(
-            &ReadyValue::Float(3.5.try_into().unwrap()),
-            &ReadyValue::Float(2.0.try_into().unwrap()),
+        MaterialValue::modulo(
+            &MaterialValue::Float(3.5.try_into().unwrap()),
+            &MaterialValue::Float(2.0.try_into().unwrap()),
         )
         .unwrap(),
-        ReadyValue::Float(1.5.try_into().unwrap())
+        MaterialValue::Float(1.5.try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::modulo(
-            &ReadyValue::Float(3.5.try_into().unwrap()),
-            &ReadyValue::Float((-2.0).try_into().unwrap()),
+        MaterialValue::modulo(
+            &MaterialValue::Float(3.5.try_into().unwrap()),
+            &MaterialValue::Float((-2.0).try_into().unwrap()),
         )
         .unwrap(),
-        ReadyValue::Float((-0.5).try_into().unwrap())
+        MaterialValue::Float((-0.5).try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::contains(
-            &ReadyValue::String("ell".to_owned()),
-            &ReadyValue::String("hello".to_owned())
+        MaterialValue::contains(
+            &MaterialValue::String("ell".to_owned()),
+            &MaterialValue::String("hello".to_owned())
         )
         .unwrap(),
-        ReadyValue::Bool(true)
+        MaterialValue::Bool(true)
     );
     assert_eq!(
-        ReadyValue::contains(
-            &ReadyValue::Int(2),
-            &ReadyValue::List(vec![
-                Value::Ready(ReadyValue::Int(1)),
-                Value::Ready(ReadyValue::Int(2))
+        MaterialValue::contains(
+            &MaterialValue::Int(2),
+            &MaterialValue::List(vec![
+                Value::Ready(MaterialValue::Int(1)),
+                Value::Ready(MaterialValue::Int(2))
             ])
         )
         .unwrap(),
-        ReadyValue::Bool(true)
+        MaterialValue::Bool(true)
     );
     assert_eq!(
-        ReadyValue::contains(
-            &ReadyValue::String("key".to_owned()),
-            &ReadyValue::Dict(IndexMap::from([(
+        MaterialValue::contains(
+            &MaterialValue::String("key".to_owned()),
+            &MaterialValue::Dict(IndexMap::from([(
                 "key".to_owned(),
-                Value::Ready(ReadyValue::String("x".to_owned())),
+                Value::Ready(MaterialValue::String("x".to_owned())),
             )]))
         )
         .unwrap(),
-        ReadyValue::Bool(true)
+        MaterialValue::Bool(true)
     );
     assert_eq!(
-        ReadyValue::lt(
-            &ReadyValue::Float(1.5.try_into().unwrap()),
-            &ReadyValue::Float(2.0.try_into().unwrap()),
+        MaterialValue::lt(
+            &MaterialValue::Float(1.5.try_into().unwrap()),
+            &MaterialValue::Float(2.0.try_into().unwrap()),
         )
         .unwrap(),
-        ReadyValue::Bool(true)
+        MaterialValue::Bool(true)
     );
     assert_eq!(
-        ReadyValue::neg(&ReadyValue::Int(7)).unwrap(),
-        ReadyValue::Int(-7)
+        MaterialValue::neg(&MaterialValue::Int(7)).unwrap(),
+        MaterialValue::Int(-7)
     );
     assert_eq!(
-        ReadyValue::neg(&ReadyValue::Float(2.5.try_into().unwrap())).unwrap(),
-        ReadyValue::Float((-2.5).try_into().unwrap())
+        MaterialValue::neg(&MaterialValue::Float(2.5.try_into().unwrap())).unwrap(),
+        MaterialValue::Float((-2.5).try_into().unwrap())
     );
     assert_eq!(
-        ReadyValue::not(&ReadyValue::None).unwrap(),
-        ReadyValue::Bool(true)
+        MaterialValue::not(&MaterialValue::None).unwrap(),
+        MaterialValue::Bool(true)
     );
 }
 
 #[test]
 fn mixed_numeric_operations_do_not_silently_promote_ints_to_floats() {
     assert!(matches!(
-        ReadyValue::add(
-            &ReadyValue::Float(1.25.try_into().unwrap()),
-            &ReadyValue::Int(2)
+        MaterialValue::add(
+            &MaterialValue::Float(1.25.try_into().unwrap()),
+            &MaterialValue::Int(2)
         ),
         Err(BinaryOperationError::UnsupportedOperation {
             operation: BinaryOpKind::Add,
         })
     ));
     assert!(matches!(
-        ReadyValue::mul(
-            &ReadyValue::Int(3),
-            &ReadyValue::Float(0.5.try_into().unwrap())
+        MaterialValue::mul(
+            &MaterialValue::Int(3),
+            &MaterialValue::Float(0.5.try_into().unwrap())
         ),
         Err(BinaryOperationError::UnsupportedOperation {
             operation: BinaryOpKind::Mul,
         })
     ));
     assert!(matches!(
-        ReadyValue::div(&ReadyValue::Int(3), &ReadyValue::Int(2)),
+        MaterialValue::div(&MaterialValue::Int(3), &MaterialValue::Int(2)),
         Err(BinaryOperationError::ResultOutOfBounds {
             operation: BinaryOpKind::Div,
         })
     ));
     assert!(matches!(
-        ReadyValue::floor_div(
-            &ReadyValue::Float((-3.0).try_into().unwrap()),
-            &ReadyValue::Int(2)
+        MaterialValue::floor_div(
+            &MaterialValue::Float((-3.0).try_into().unwrap()),
+            &MaterialValue::Int(2)
         ),
         Err(BinaryOperationError::UnsupportedOperation {
             operation: BinaryOpKind::FloorDiv,
@@ -226,119 +226,123 @@ fn mixed_numeric_operations_do_not_silently_promote_ints_to_floats() {
     ));
     assert_eq!(
         waymark_vm_interpreter_pureset::value::BinaryOps::eq(
-            &ReadyValue::Int(1),
-            &ReadyValue::Float(1.0.try_into().unwrap()),
+            &MaterialValue::Int(1),
+            &MaterialValue::Float(1.0.try_into().unwrap()),
         )
         .unwrap(),
-        ReadyValue::Bool(false)
+        MaterialValue::Bool(false)
     );
     assert!(matches!(
-        ReadyValue::lt(
-            &ReadyValue::Float(1.5.try_into().unwrap()),
-            &ReadyValue::Int(2)
+        MaterialValue::lt(
+            &MaterialValue::Float(1.5.try_into().unwrap()),
+            &MaterialValue::Int(2)
         ),
         Err(BinaryOperationError::UnsupportedOperation {
             operation: BinaryOpKind::Lt,
         })
     ));
     assert_eq!(
-        ReadyValue::contains(
-            &ReadyValue::Float(1.0.try_into().unwrap()),
-            &ReadyValue::Dict(IndexMap::from([(
+        MaterialValue::contains(
+            &MaterialValue::Float(1.0.try_into().unwrap()),
+            &MaterialValue::Dict(IndexMap::from([(
                 "value".to_owned(),
-                Value::Ready(ReadyValue::String("x".to_owned())),
+                Value::Ready(MaterialValue::String("x".to_owned())),
             )]))
         )
         .unwrap(),
-        ReadyValue::Bool(false)
+        MaterialValue::Bool(false)
     );
 }
 
 #[test]
 fn index_and_dot_operations_follow_runtime_semantics() {
     assert_eq!(
-        ReadyValue::index(
-            &ReadyValue::List(vec![
-                Value::Ready(ReadyValue::Int(1)),
-                Value::Ready(ReadyValue::Int(2))
+        MaterialValue::index(
+            &MaterialValue::List(vec![
+                Value::Ready(MaterialValue::Int(1)),
+                Value::Ready(MaterialValue::Int(2))
             ]),
-            &ReadyValue::Int(-1)
+            &MaterialValue::Int(-1)
         )
         .unwrap(),
-        Value::Ready(ReadyValue::Int(2))
+        Value::Ready(MaterialValue::Int(2))
     );
     assert_eq!(
-        ReadyValue::index(&ReadyValue::String("hello".to_owned()), &ReadyValue::Int(1)).unwrap(),
-        Value::Ready(ReadyValue::String("e".to_owned()))
+        MaterialValue::index(
+            &MaterialValue::String("hello".to_owned()),
+            &MaterialValue::Int(1)
+        )
+        .unwrap(),
+        Value::Ready(MaterialValue::String("e".to_owned()))
     );
     assert_eq!(
-        ReadyValue::index(
-            &ReadyValue::Dict(IndexMap::from([(
+        MaterialValue::index(
+            &MaterialValue::Dict(IndexMap::from([(
                 "field".to_owned(),
-                Value::Ready(ReadyValue::Int(7))
+                Value::Ready(MaterialValue::Int(7))
             )])),
-            &ReadyValue::String("field".to_owned())
+            &MaterialValue::String("field".to_owned())
         )
         .unwrap(),
-        Value::Ready(ReadyValue::Int(7))
+        Value::Ready(MaterialValue::Int(7))
     );
     assert_eq!(
-        ReadyValue::dot(
-            &ReadyValue::Dict(IndexMap::from([(
+        MaterialValue::dot(
+            &MaterialValue::Dict(IndexMap::from([(
                 "field".to_owned(),
-                Value::Ready(ReadyValue::Int(7))
+                Value::Ready(MaterialValue::Int(7))
             )])),
             "field"
         )
         .unwrap(),
-        Value::Ready(ReadyValue::Int(7))
+        Value::Ready(MaterialValue::Int(7))
     );
 }
 
 #[test]
 fn index_and_dot_operations_surface_expected_errors() {
     assert!(matches!(
-        ReadyValue::index(
-            &ReadyValue::List(vec![Value::Ready(ReadyValue::Int(1))]),
-            &ReadyValue::Int(1)
+        MaterialValue::index(
+            &MaterialValue::List(vec![Value::Ready(MaterialValue::Int(1))]),
+            &MaterialValue::Int(1)
         ),
         Err(IndexOperationError::IndexOutOfBounds)
     ));
     assert!(matches!(
-        ReadyValue::index(
-            &ReadyValue::Dict(IndexMap::from([(
+        MaterialValue::index(
+            &MaterialValue::Dict(IndexMap::from([(
                 "field".to_owned(),
-                Value::Ready(ReadyValue::Int(7))
+                Value::Ready(MaterialValue::Int(7))
             )])),
-            &ReadyValue::String("missing".to_owned())
+            &MaterialValue::String("missing".to_owned())
         ),
         Err(IndexOperationError::MissingKey)
     ));
     assert!(matches!(
-        ReadyValue::dot(
-            &ReadyValue::Dict(IndexMap::from([(
+        MaterialValue::dot(
+            &MaterialValue::Dict(IndexMap::from([(
                 "field".to_owned(),
-                Value::Ready(ReadyValue::Int(7))
+                Value::Ready(MaterialValue::Int(7))
             )])),
             "missing"
         ),
         Err(DotOperationError::MissingAttribute)
     ));
     assert!(matches!(
-        ReadyValue::dot(&ReadyValue::List(Vec::new()), "field"),
+        MaterialValue::dot(&MaterialValue::List(Vec::new()), "field"),
         Err(DotOperationError::UnsupportedOperation)
     ));
 }
 
 #[test]
 fn dict_values_compare_equal_independent_of_insertion_order() {
-    let left = ReadyValue::Dict(IndexMap::from([
-        ("first".to_owned(), Value::Ready(ReadyValue::Int(1))),
-        ("second".to_owned(), Value::Ready(ReadyValue::Int(2))),
+    let left = MaterialValue::Dict(IndexMap::from([
+        ("first".to_owned(), Value::Ready(MaterialValue::Int(1))),
+        ("second".to_owned(), Value::Ready(MaterialValue::Int(2))),
     ]));
-    let right = ReadyValue::Dict(IndexMap::from([
-        ("second".to_owned(), Value::Ready(ReadyValue::Int(2))),
-        ("first".to_owned(), Value::Ready(ReadyValue::Int(1))),
+    let right = MaterialValue::Dict(IndexMap::from([
+        ("second".to_owned(), Value::Ready(MaterialValue::Int(2))),
+        ("first".to_owned(), Value::Ready(MaterialValue::Int(1))),
     ]));
 
     assert_eq!(left, right);
@@ -347,74 +351,87 @@ fn dict_values_compare_equal_independent_of_insertion_order() {
 #[test]
 fn logical_ops_lists_and_sleep_duration_use_runtime_semantics() {
     assert_eq!(
-        ReadyValue::and(&ReadyValue::Int(1), &ReadyValue::String("x".to_owned())).unwrap(),
-        ReadyValue::String("x".to_owned())
-    );
-    assert_eq!(
-        ReadyValue::or(
-            &ReadyValue::None,
-            &ReadyValue::String("fallback".to_owned())
+        MaterialValue::and(
+            &MaterialValue::Int(1),
+            &MaterialValue::String("x".to_owned())
         )
         .unwrap(),
-        ReadyValue::String("fallback".to_owned())
+        MaterialValue::String("x".to_owned())
     );
     assert_eq!(
-        ReadyValue::make_list([
-            Value::Ready(ReadyValue::Int(2)),
-            Value::Ready(ReadyValue::Bool(false))
+        MaterialValue::or(
+            &MaterialValue::None,
+            &MaterialValue::String("fallback".to_owned())
+        )
+        .unwrap(),
+        MaterialValue::String("fallback".to_owned())
+    );
+    assert_eq!(
+        MaterialValue::make_list([
+            Value::Ready(MaterialValue::Int(2)),
+            Value::Ready(MaterialValue::Bool(false))
         ])
         .unwrap(),
-        ReadyValue::List(vec![
-            Value::Ready(ReadyValue::Int(2)),
-            Value::Ready(ReadyValue::Bool(false))
+        MaterialValue::List(vec![
+            Value::Ready(MaterialValue::Int(2)),
+            Value::Ready(MaterialValue::Bool(false))
         ])
     );
     assert_eq!(
-        ReadyValue::make_dict([
-            ("name".to_owned(), Value::Ready(ReadyValue::Int(2))),
-            ("na\"me".to_owned(), Value::Ready(ReadyValue::Bool(false))),
+        MaterialValue::make_dict([
+            ("name".to_owned(), Value::Ready(MaterialValue::Int(2))),
+            (
+                "na\"me".to_owned(),
+                Value::Ready(MaterialValue::Bool(false))
+            ),
         ])
         .unwrap(),
-        ReadyValue::Dict(IndexMap::from([
-            ("name".to_owned(), Value::Ready(ReadyValue::Int(2))),
-            ("na\"me".to_owned(), Value::Ready(ReadyValue::Bool(false))),
+        MaterialValue::Dict(IndexMap::from([
+            ("name".to_owned(), Value::Ready(MaterialValue::Int(2))),
+            (
+                "na\"me".to_owned(),
+                Value::Ready(MaterialValue::Bool(false))
+            ),
         ]))
     );
     assert!(matches!(
-        ReadyValue::Int(3).as_dict_key(),
+        MaterialValue::Int(3).as_dict_key(),
         Err(AsDictKeyError::UnsupportedKeyType)
     ));
     assert!(matches!(
-        ReadyValue::List(vec![Value::Ready(ReadyValue::String("nested".to_owned()))]).as_dict_key(),
+        MaterialValue::List(vec![Value::Ready(MaterialValue::String(
+            "nested".to_owned()
+        ))])
+        .as_dict_key(),
         Err(AsDictKeyError::UnsupportedKeyType)
     ));
     assert_eq!(
-        ReadyValue::Int(5).to_sleep_duration().unwrap().get(),
+        MaterialValue::Int(5).to_sleep_duration().unwrap().get(),
         std::time::Duration::from_secs(5)
     );
     assert_eq!(
-        ReadyValue::Float(0.5.try_into().unwrap())
+        MaterialValue::Float(0.5.try_into().unwrap())
             .to_sleep_duration()
             .unwrap()
             .get(),
         std::time::Duration::from_millis(500)
     );
     assert!(matches!(
-        ReadyValue::Int(0).to_sleep_duration().unwrap_err(),
+        MaterialValue::Int(0).to_sleep_duration().unwrap_err(),
         extcallset::SleepDurationError::Zero(_)
     ));
     assert!(matches!(
-        ReadyValue::Int(-1).to_sleep_duration().unwrap_err(),
+        MaterialValue::Int(-1).to_sleep_duration().unwrap_err(),
         extcallset::SleepDurationError::Negative
     ));
     assert!(matches!(
-        ReadyValue::Float(0.0.try_into().unwrap())
+        MaterialValue::Float(0.0.try_into().unwrap())
             .to_sleep_duration()
             .unwrap_err(),
         extcallset::SleepDurationError::Zero(_)
     ));
     assert!(matches!(
-        ReadyValue::Float((-0.25).try_into().unwrap())
+        MaterialValue::Float((-0.25).try_into().unwrap())
             .to_sleep_duration()
             .unwrap_err(),
         extcallset::SleepDurationError::FloatConversion(_)
@@ -422,7 +439,7 @@ fn logical_ops_lists_and_sleep_duration_use_runtime_semantics() {
     let value: Result<NonNaNFinite, _> = f64::NAN.try_into();
     assert!(value.is_err());
     assert_eq!(
-        ReadyValue::Bool(true).to_sleep_duration().unwrap_err(),
+        MaterialValue::Bool(true).to_sleep_duration().unwrap_err(),
         extcallset::SleepDurationError::UnsupportedValue
     );
 }
@@ -430,34 +447,40 @@ fn logical_ops_lists_and_sleep_duration_use_runtime_semantics() {
 #[test]
 fn length_operations_follow_runtime_semantics() {
     assert_eq!(
-        ReadyValue::List(vec![
-            Value::Ready(ReadyValue::Int(1)),
-            Value::Ready(ReadyValue::Int(2))
+        MaterialValue::List(vec![
+            Value::Ready(MaterialValue::Int(1)),
+            Value::Ready(MaterialValue::Int(2))
         ])
         .length()
         .unwrap(),
         2
     );
-    assert_eq!(ReadyValue::String("hello".to_owned()).length().unwrap(), 5);
     assert_eq!(
-        ReadyValue::Dict(IndexMap::from([(
+        MaterialValue::String("hello".to_owned()).length().unwrap(),
+        5
+    );
+    assert_eq!(
+        MaterialValue::Dict(IndexMap::from([(
             "key".to_owned(),
-            Value::Ready(ReadyValue::Int(1))
+            Value::Ready(MaterialValue::Int(1))
         )]))
         .length()
         .unwrap(),
         1
     );
-    assert_eq!(ReadyValue::from_length(3).unwrap(), ReadyValue::Int(3));
+    assert_eq!(
+        MaterialValue::from_length(3).unwrap(),
+        MaterialValue::Int(3)
+    );
     assert!(matches!(
-        ReadyValue::Bool(false).length(),
+        MaterialValue::Bool(false).length(),
         Err(LengthError::UnsupportedValue)
     ));
 
     let too_large = usize::try_from(i64::MAX as u128 + 1).ok();
     if let Some(too_large) = too_large {
         assert!(matches!(
-            ReadyValue::from_length(too_large),
+            MaterialValue::from_length(too_large),
             Err(FromLengthError::ResultOutOfBounds)
         ));
     }
@@ -472,7 +495,7 @@ fn operation_errors_raise_the_class_they_map_to() {
     assert_eq!(exception.mro_type_ids, ["Exception", "BaseException"]);
     assert_eq!(
         exception.details,
-        Value::Ready(ReadyValue::String(
+        Value::Ready(MaterialValue::String(
             "+ is not supported for these operands".to_owned()
         ))
     );
@@ -522,7 +545,7 @@ fn runtime_exception_classes_match_their_python_proxies() {
 
 #[test]
 fn exceptions_match_handlers_by_class_hierarchy() {
-    let key_error = classes::KEY_ERROR.exception(Value::Ready(ReadyValue::None));
+    let key_error = classes::KEY_ERROR.exception(Value::Ready(MaterialValue::None));
 
     let class = |name: &str| Pattern::Classes(vec![name.to_owned()]);
     assert!(key_error.matches(&class("KeyError")));
@@ -543,21 +566,21 @@ fn exceptions_match_handlers_by_class_hierarchy() {
 
     // The action exceptions sit directly under `BaseException`: a bare
     // `except Exception` does not catch them.
-    let timeout = classes::ACTION_TIMEOUT.exception(Value::Ready(ReadyValue::None));
+    let timeout = classes::ACTION_TIMEOUT.exception(Value::Ready(MaterialValue::None));
     assert!(!timeout.matches(&class("Exception")));
     assert!(timeout.matches(&class("BaseException")));
-    let lost = classes::ACTION_EXECUTION_LOST.exception(Value::Ready(ReadyValue::None));
+    let lost = classes::ACTION_EXECUTION_LOST.exception(Value::Ready(MaterialValue::None));
     assert!(!lost.matches(&class("Exception")));
     assert!(lost.matches(&class("BaseException")));
     let not_started =
-        classes::ACTION_EXECUTION_NOT_STARTED.exception(Value::Ready(ReadyValue::None));
+        classes::ACTION_EXECUTION_NOT_STARTED.exception(Value::Ready(MaterialValue::None));
     assert!(not_started.matches(&class("Exception")));
 
     // A class whose bases are not known matches by its own name alone.
     let bare = Exception {
         type_id: "RetryCounterError".to_owned(),
         mro_type_ids: Vec::new(),
-        details: Value::Ready(ReadyValue::None),
+        details: Value::Ready(MaterialValue::None),
     };
     assert!(bare.matches(&class("RetryCounterError")));
     assert!(!bare.matches(&class("Exception")));
@@ -567,45 +590,45 @@ fn exceptions_match_handlers_by_class_hierarchy() {
 #[test]
 fn float_operations_follow_non_nan_finite_semantics() {
     assert!(matches!(
-        ReadyValue::div(
-            &ReadyValue::Float(0.0.try_into().unwrap()),
-            &ReadyValue::Float(0.0.try_into().unwrap()),
+        MaterialValue::div(
+            &MaterialValue::Float(0.0.try_into().unwrap()),
+            &MaterialValue::Float(0.0.try_into().unwrap()),
         ),
         Err(BinaryOperationError::ResultOutOfBounds {
             operation: BinaryOpKind::Div,
         })
     ));
     assert!(matches!(
-        ReadyValue::modulo(
-            &ReadyValue::Float(1.0.try_into().unwrap()),
-            &ReadyValue::Float(0.0.try_into().unwrap()),
+        MaterialValue::modulo(
+            &MaterialValue::Float(1.0.try_into().unwrap()),
+            &MaterialValue::Float(0.0.try_into().unwrap()),
         ),
         Err(BinaryOperationError::ResultOutOfBounds {
             operation: BinaryOpKind::Mod,
         })
     ));
     assert!(matches!(
-        ReadyValue::mul(
-            &ReadyValue::Float(f64::MAX.try_into().unwrap()),
-            &ReadyValue::Float(2.0.try_into().unwrap()),
+        MaterialValue::mul(
+            &MaterialValue::Float(f64::MAX.try_into().unwrap()),
+            &MaterialValue::Float(2.0.try_into().unwrap()),
         ),
         Err(BinaryOperationError::ResultOutOfBounds {
             operation: BinaryOpKind::Mul,
         })
     ));
     assert!(matches!(
-        ReadyValue::div(
-            &ReadyValue::Float(1.0.try_into().unwrap()),
-            &ReadyValue::Float(0.0.try_into().unwrap()),
+        MaterialValue::div(
+            &MaterialValue::Float(1.0.try_into().unwrap()),
+            &MaterialValue::Float(0.0.try_into().unwrap()),
         ),
         Err(BinaryOperationError::ResultOutOfBounds {
             operation: BinaryOpKind::Div,
         })
     ));
     assert!(matches!(
-        ReadyValue::floor_div(
-            &ReadyValue::Float((-1.0).try_into().unwrap()),
-            &ReadyValue::Float(0.0.try_into().unwrap()),
+        MaterialValue::floor_div(
+            &MaterialValue::Float((-1.0).try_into().unwrap()),
+            &MaterialValue::Float(0.0.try_into().unwrap()),
         ),
         Err(BinaryOperationError::ResultOutOfBounds {
             operation: BinaryOpKind::FloorDiv,
@@ -622,8 +645,8 @@ fn float_operations_follow_non_nan_finite_semantics() {
 #[test]
 fn exception_values_cross_to_and_from_the_raised_domain() {
     let exception =
-        classes::VALUE_ERROR.exception(Value::Ready(ReadyValue::String("boom".to_owned())));
-    let value = ReadyValue::Exception(Box::new(exception.clone()));
+        classes::VALUE_ERROR.exception(Value::Ready(MaterialValue::String("boom".to_owned())));
+    let value = MaterialValue::Exception(Box::new(exception.clone()));
 
     assert_eq!(value.capture_action_call_argument().unwrap(), value.clone());
     assert!(value.should_jump().unwrap());
@@ -640,7 +663,7 @@ fn exception_values_cross_to_and_from_the_raised_domain() {
         .expect("a ready exception value raises");
     assert_eq!(raised, exception);
     assert_eq!(
-        ReadyValue::from_raised(raised.clone()).expect("a raised exception is captured"),
+        MaterialValue::from_raised(raised.clone()).expect("a raised exception is captured"),
         value
     );
 
@@ -654,10 +677,10 @@ fn exception_values_cross_to_and_from_the_raised_domain() {
         Value::Ready(value)
     );
 
-    let not_an_exception: Result<RaisedException, _> = ReadyValue::Int(1).into_raised();
+    let not_an_exception: Result<RaisedException, _> = MaterialValue::Int(1).into_raised();
     assert!(not_an_exception.is_err());
     let not_an_exception: Result<RaisedException, _> =
-        Value::Ready(ReadyValue::Int(1)).into_raised();
+        Value::Ready(MaterialValue::Int(1)).into_raised();
     assert!(not_an_exception.is_err());
     let pending: Result<RaisedException, _> =
         Value::Pending(waymark_vm_runtime_promise_core::PromiseStateId::from_raw(3)).into_raised();

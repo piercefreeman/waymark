@@ -47,16 +47,16 @@ impl waymark_vm_instructions_extcallset::Spec for TestSpec {
 }
 
 #[derive(Debug, Clone)]
-pub struct TestReadyValue(pub i32);
+pub struct TestMaterialValue(pub i32);
 
-/// Minimal promise-aware value: ready holds a [`TestReadyValue`], pending
+/// Minimal promise-aware value: ready holds a [`TestMaterialValue`], pending
 /// holds a promise state id.
 ///
 /// Hand-rolled on purpose: see the module-level note on why we don't reuse
 /// `PromiseValue` here.
 #[derive(Debug, Clone)]
 pub enum TestValue {
-    Ready(TestReadyValue),
+    Ready(TestMaterialValue),
     Pending(PromiseStateId),
 }
 
@@ -66,7 +66,7 @@ impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for Tes
 
     fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
         match self {
-            Self::Ready(TestReadyValue(value)) => Ok(*value),
+            Self::Ready(TestMaterialValue(value)) => Ok(*value),
             Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
                 promise_state_id: *promise_state_id,
             }),
@@ -91,7 +91,7 @@ impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
 
     fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
         match self {
-            Self::Ready(TestReadyValue(value)) => {
+            Self::Ready(TestMaterialValue(value)) => {
                 let seconds: u64 = (*value).try_into().map_err(|_| Self::Error::Negative)?;
                 NonZeroDuration::from_secs(seconds).ok_or(Self::Error::Zero)
             }
@@ -114,13 +114,13 @@ impl Suspendable for TestValue {
 }
 
 impl Resolvable for TestValue {
-    type ReadyValue = TestReadyValue;
+    type ReadyValue = TestMaterialValue;
 
-    fn from_ready(value: TestReadyValue) -> Self {
+    fn from_ready(value: TestMaterialValue) -> Self {
         Self::Ready(value)
     }
 
-    fn into_ready(self) -> Result<TestReadyValue, (UnresolvedPromiseError, Self)> {
+    fn into_ready(self) -> Result<TestMaterialValue, (UnresolvedPromiseError, Self)> {
         match self {
             Self::Ready(value) => Ok(value),
             Self::Pending(promise_state_id) => Err((
@@ -130,7 +130,7 @@ impl Resolvable for TestValue {
         }
     }
 
-    fn as_ready(&self) -> Result<&TestReadyValue, UnresolvedPromiseError> {
+    fn as_ready(&self) -> Result<&TestMaterialValue, UnresolvedPromiseError> {
         match self {
             Self::Ready(value) => Ok(value),
             Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
@@ -139,7 +139,7 @@ impl Resolvable for TestValue {
         }
     }
 
-    fn as_ready_mut(&mut self) -> Result<&mut TestReadyValue, UnresolvedPromiseError> {
+    fn as_ready_mut(&mut self) -> Result<&mut TestMaterialValue, UnresolvedPromiseError> {
         match self {
             Self::Ready(value) => Ok(value),
             Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
@@ -221,7 +221,7 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
 /// arguments.
 pub fn new_runtime_with_args(
     executable: Executable<RuntimeInstruction>,
-    args: Vec<TestReadyValue>,
+    args: Vec<TestMaterialValue>,
 ) -> TestRuntime {
     Runtime::with_custom_entrypoint(
         RuntimeInterpreter::default(),

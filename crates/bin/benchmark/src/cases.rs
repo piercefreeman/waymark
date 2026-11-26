@@ -19,12 +19,12 @@ pub struct BenchmarkCase {
 
 /// The VM value for an integer input.
 fn int(value: i64) -> waymark_system_vm::Value {
-    waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::Int(value))
+    waymark_system_vm::Value::Ready(waymark_system_vm::MaterialValue::Int(value))
 }
 
 /// The VM value for a list of integer inputs.
 fn int_list(values: impl IntoIterator<Item = i64>) -> waymark_system_vm::Value {
-    waymark_system_vm::Value::Ready(waymark_system_vm::ReadyValue::List(
+    waymark_system_vm::Value::Ready(waymark_system_vm::MaterialValue::List(
         values.into_iter().map(int).collect(),
     ))
 }

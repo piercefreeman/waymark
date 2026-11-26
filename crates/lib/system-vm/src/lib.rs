@@ -6,7 +6,7 @@ use std::sync::Arc;
 pub use waymark_vm_compiler_for_ast_old_bytecode_consts::{
     ConstException, ConstExceptionPattern, ConstValue,
 };
-pub use waymark_vm_value_python::{RaisedException, ReadyValue, Value};
+pub use waymark_vm_value_python::{MaterialValue, RaisedException, Value};
 
 #[cfg(test)]
 static_assertions::assert_impl_all!(Value: waymark_vm_interpreter_fullset::Value);

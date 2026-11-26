@@ -5,7 +5,7 @@ use waymark_vm_interpreter_coreset::Effect;
 use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_test::{StateId, executable, function};
 
-use crate::support::{Instruction, TestReadyValue, new_runtime_with_args};
+use crate::support::{Instruction, TestMaterialValue, new_runtime_with_args};
 
 #[test]
 fn runtime_follows_jump_and_jump_if_before_returning() {
@@ -25,11 +25,11 @@ fn runtime_follows_jump_and_jump_if_before_returning() {
 
     let mut runtime = new_runtime_with_args(
         executable,
-        vec![TestReadyValue::Int(1), TestReadyValue::Int(9)],
+        vec![TestMaterialValue::Int(1), TestMaterialValue::Int(9)],
     );
 
     let emitted_effect = runtime.run().expect("jump program should complete");
 
     let Effect::Complete(value) = emitted_effect.effect;
-    assert_eq!(value, TestReadyValue::Int(9));
+    assert_eq!(value, TestMaterialValue::Int(9));
 }

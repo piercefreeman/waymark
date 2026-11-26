@@ -99,7 +99,7 @@ pub fn setup_runtime(
 pub type EffectorFor<ActionCallRequester, ActionCallCompletionsProvider> = (
     waymark_fullset_effect_handler::EffectHandler<
         waymark_workflow_completion_direct::DirectHandler<
-            waymark_system_vm::ReadyValue,
+            waymark_system_vm::MaterialValue,
             waymark_system_vm::RaisedException,
         >,
         waymark_extcall_reconciler::EffectHandler<
@@ -115,7 +115,7 @@ pub type EffectorFor<ActionCallRequester, ActionCallCompletionsProvider> = (
             >,
         >,
         waymark_transient_sleep_reconciler::Poller<
-            waymark_sleep_compat_python::ReadyValueSleepProvider,
+            waymark_sleep_compat_python::MaterialValueSleepProvider,
             waymark_system_vm::RaisedException,
         >,
     >,
@@ -175,7 +175,7 @@ pub struct Execution<DriverHandle> {
     /// terminal error.
     pub workflow_outcome_rx: tokio::sync::oneshot::Receiver<
         waymark_workflow_completion_core::Outcome<
-            waymark_system_vm::ReadyValue,
+            waymark_system_vm::MaterialValue,
             waymark_system_vm::RaisedException,
         >,
     >,
@@ -213,13 +213,13 @@ where
     Hooks: DriverHooksFor<ActionCallRequester, ActionCallCompletionsProvider>,
     Hooks: Send + Sync + 'static,
     ActionCallRequester: waymark_action_runtime_core::ActionCallRequester<
-            Argument = waymark_system_vm::ReadyValue,
+            Argument = waymark_system_vm::MaterialValue,
             Metadata = waymark_action_runtime_metadata::ActionCallCorrelation,
         >,
     ActionCallRequester: Send + Sync + 'static,
     ActionCallRequester::Error: Send,
     ActionCallCompletionsProvider: waymark_action_runtime_core::ActionCallCompletionsProvider<
-            Value = waymark_system_vm::ReadyValue,
+            Value = waymark_system_vm::MaterialValue,
             RaisedException = waymark_system_vm::RaisedException,
             Metadata = waymark_action_runtime_metadata::ActionCallCorrelation,
         >,
@@ -230,13 +230,13 @@ where
     >: waymark_convert_core::Convert<
             Result<
                 waymark_action_runtime_core::ActionCallOutcome<
-                    waymark_system_vm::ReadyValue,
+                    waymark_system_vm::MaterialValue,
                     waymark_system_vm::RaisedException,
                 >,
                 ActionCallCompletionsProvider::ActionExecutionError,
             >,
             waymark_vm_driver_core::PromiseResolution<
-                waymark_system_vm::ReadyValue,
+                waymark_system_vm::MaterialValue,
                 waymark_system_vm::RaisedException,
             >,
         >,
@@ -254,7 +254,7 @@ where
         >,
     >::new(action_call_completions_provider);
     let (sleep_handler, sleep_poller) = waymark_transient_sleep_reconciler::new::<
-        waymark_sleep_compat_python::ReadyValueSleepProvider,
+        waymark_sleep_compat_python::MaterialValueSleepProvider,
         waymark_system_vm::RaisedException,
     >(skip_sleep);
     let (extcall_handler, extcall_settler) =

@@ -3,7 +3,7 @@
 
 use waymark_convert_core::Convert as _;
 use waymark_proto::python_value as proto_value;
-use waymark_vm_value_python::ReadyValue;
+use waymark_vm_value_python::MaterialValue;
 
 use crate::Converter;
 
@@ -23,7 +23,7 @@ pub struct MissingArgumentValueError {
 /// An entry carrying no value is a [`MissingArgumentValueError`].
 pub(crate) fn named_arguments<'a>(
     entries: impl Iterator<Item = (&'a String, Option<&'a proto_value::Value>)>,
-) -> Result<std::collections::HashMap<String, ReadyValue>, MissingArgumentValueError> {
+) -> Result<std::collections::HashMap<String, MaterialValue>, MissingArgumentValueError> {
     entries
         .map(|(key, value)| {
             let value = value.ok_or_else(|| MissingArgumentValueError { key: key.clone() })?;

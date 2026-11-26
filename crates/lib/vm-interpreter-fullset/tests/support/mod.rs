@@ -32,8 +32,8 @@ pub type TestRuntime = Runtime<Executable<Instruction>, Interpreter, TestValue, 
 
 /// The effect the test runtime emits: the fullset's, over the test types.
 pub type TestEffect = waymark_vm_interpreter_fullset::Effect<
-    waymark_vm_interpreter_coreset::Effect<TestReadyValue>,
-    waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestReadyValue>,
+    waymark_vm_interpreter_coreset::Effect<TestMaterialValue>,
+    waymark_vm_interpreter_extcallset::Effect<TestActionRef, TestMaterialValue>,
     core::convert::Infallible,
     waymark_vm_interpreter_excset::Effect<TestException>,
 >;
@@ -130,7 +130,7 @@ impl From<&TestConstException> for TestException {
     fn from(exception: &TestConstException) -> Self {
         Self {
             type_id: exception.type_id.to_owned(),
-            details: TestValue::Ready(TestReadyValue::from(&exception.details)),
+            details: TestValue::Ready(TestMaterialValue::from(&exception.details)),
         }
     }
 }
@@ -139,7 +139,7 @@ impl TestException {
     fn from_operation_error(type_id: &str, error: impl std::fmt::Display) -> Self {
         Self {
             type_id: type_id.to_owned(),
-            details: TestValue::Ready(TestReadyValue::Text(error.to_string())),
+            details: TestValue::Ready(TestMaterialValue::Text(error.to_string())),
         }
     }
 }
@@ -272,7 +272,7 @@ pub enum TestSleepDurationError {
 // --- Value ---
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TestReadyValue {
+pub enum TestMaterialValue {
     Int(i64),
     Bool(bool),
     Text(String),
@@ -280,27 +280,27 @@ pub enum TestReadyValue {
     Exception(Box<TestException>),
 }
 
-impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
+impl waymark_vm_runtime_value::RootValueAccess for TestMaterialValue {
     type RootValue = TestValue;
 }
 
-fn is_truthy(value: &TestReadyValue) -> bool {
+fn is_truthy(value: &TestMaterialValue) -> bool {
     match value {
-        TestReadyValue::Int(value) => *value != 0,
-        TestReadyValue::Bool(value) => *value,
-        TestReadyValue::Text(value) => !value.is_empty(),
-        TestReadyValue::List(items) => !items.is_empty(),
-        TestReadyValue::Exception(_) => true,
+        TestMaterialValue::Int(value) => *value != 0,
+        TestMaterialValue::Bool(value) => *value,
+        TestMaterialValue::Text(value) => !value.is_empty(),
+        TestMaterialValue::List(items) => !items.is_empty(),
+        TestMaterialValue::Exception(_) => true,
     }
 }
 
-impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestReadyValue {
+impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestMaterialValue {
     fn capture_call_argument(&self) -> Self {
         self.clone()
     }
 }
 
-impl waymark_vm_interpreter_coreset::value::ShouldJump for TestReadyValue {
+impl waymark_vm_interpreter_coreset::value::ShouldJump for TestMaterialValue {
     fn should_jump(
         &self,
     ) -> Result<bool, waymark_vm_interpreter_coreset::value::NotAConditionalError> {
@@ -308,13 +308,13 @@ impl waymark_vm_interpreter_coreset::value::ShouldJump for TestReadyValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestReadyValue {
+impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestMaterialValue {
     fn capture_copy(&self) -> Self {
         self.clone()
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::LoadConst<&TestConstValue> for TestReadyValue {
+impl waymark_vm_interpreter_pureset::value::LoadConst<&TestConstValue> for TestMaterialValue {
     fn load_const(const_value: &TestConstValue) -> Self {
         match const_value {
             TestConstValue::Int(val) => Self::Int(*val),
@@ -322,8 +322,8 @@ impl waymark_vm_interpreter_pureset::value::LoadConst<&TestConstValue> for TestR
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::AsScalar for TestReadyValue {
-    type Scalar = TestReadyValue;
+impl waymark_vm_interpreter_pureset::value::AsScalar for TestMaterialValue {
+    type Scalar = TestMaterialValue;
 
     fn as_scalar(
         &self,
@@ -336,7 +336,7 @@ impl waymark_vm_interpreter_pureset::value::AsScalar for TestReadyValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::BinaryOps for TestReadyValue {
+impl waymark_vm_interpreter_pureset::value::BinaryOps for TestMaterialValue {
     fn add(
         a: &Self,
         b: &Self,
@@ -352,7 +352,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestReadyValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::UnaryOps for TestReadyValue {
+impl waymark_vm_interpreter_pureset::value::UnaryOps for TestMaterialValue {
     fn neg(
         value: &Self,
     ) -> Result<Self, waymark_vm_interpreter_pureset::value::UnaryOperationError> {
@@ -373,7 +373,7 @@ impl waymark_vm_interpreter_pureset::value::UnaryOps for TestReadyValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::MakeList for TestReadyValue {
+impl waymark_vm_interpreter_pureset::value::MakeList for TestMaterialValue {
     fn make_list<I>(items: I) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeListError>
     where
         I: IntoIterator<Item = Self::RootValue>,
@@ -382,7 +382,7 @@ impl waymark_vm_interpreter_pureset::value::MakeList for TestReadyValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::ListAppend for TestReadyValue {
+impl waymark_vm_interpreter_pureset::value::ListAppend for TestMaterialValue {
     fn list_append(
         list: &Self,
         item: Self::RootValue,
@@ -396,13 +396,13 @@ impl waymark_vm_interpreter_pureset::value::ListAppend for TestReadyValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::AsDictKey for TestReadyValue {
+impl waymark_vm_interpreter_pureset::value::AsDictKey for TestMaterialValue {
     fn as_dict_key(&self) -> Result<&str, waymark_vm_interpreter_pureset::value::AsDictKeyError> {
         Err(waymark_vm_interpreter_pureset::value::AsDictKeyError::UnsupportedKeyType)
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::MakeDict for TestReadyValue {
+impl waymark_vm_interpreter_pureset::value::MakeDict for TestMaterialValue {
     fn make_dict<I>(
         entries: I,
     ) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeDictError>
@@ -414,7 +414,7 @@ impl waymark_vm_interpreter_pureset::value::MakeDict for TestReadyValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::Length for TestReadyValue {
+impl waymark_vm_interpreter_pureset::value::Length for TestMaterialValue {
     type Length = usize;
 
     fn length(&self) -> Result<usize, waymark_vm_interpreter_pureset::value::LengthError> {
@@ -436,11 +436,11 @@ impl waymark_vm_interpreter_pureset::value::Length for TestReadyValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::IndexOp for TestReadyValue {}
+impl waymark_vm_interpreter_pureset::value::IndexOp for TestMaterialValue {}
 
-impl waymark_vm_interpreter_pureset::value::DotOp for TestReadyValue {}
+impl waymark_vm_interpreter_pureset::value::DotOp for TestMaterialValue {}
 
-impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestReadyValue {
+impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestMaterialValue {
     type Error = TestSleepDurationError;
 
     fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
@@ -456,17 +456,17 @@ impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestReadyValue 
     }
 }
 
-impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for TestReadyValue {
+impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for TestMaterialValue {
     type Error = core::convert::Infallible;
 
-    type ActionCallArgument = TestReadyValue;
+    type ActionCallArgument = TestMaterialValue;
 
     fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
         Ok(self.clone())
     }
 }
 
-impl From<&TestConstValue> for TestReadyValue {
+impl From<&TestConstValue> for TestMaterialValue {
     fn from(value: &TestConstValue) -> Self {
         match value {
             TestConstValue::Int(value) => Self::Int(*value),
@@ -483,7 +483,7 @@ impl From<&TestConstValue> for TestReadyValue {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TestValue {
-    Ready(TestReadyValue),
+    Ready(TestMaterialValue),
     Pending(PromiseStateId),
 }
 
@@ -497,7 +497,7 @@ pub enum TestValueError<Inner> {
 }
 
 impl TestValue {
-    fn require_ready_ref(&self) -> Result<&TestReadyValue, UnresolvedPromiseError> {
+    fn require_ready_ref(&self) -> Result<&TestMaterialValue, UnresolvedPromiseError> {
         match self {
             Self::Ready(value) => Ok(value),
             Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
@@ -525,7 +525,7 @@ impl waymark_vm_runtime_promise_core::Suspendable for TestValue {
 }
 
 impl waymark_vm_runtime_promise_core::Resolvable for TestValue {
-    type ReadyValue = TestReadyValue;
+    type ReadyValue = TestMaterialValue;
 
     fn from_ready(value: Self::ReadyValue) -> Self {
         Self::Ready(value)
@@ -560,7 +560,7 @@ impl waymark_vm_runtime_exception::ValueToRaisedException<TestException> for Tes
 
     fn into_raised(self) -> Result<TestException, Self::Error> {
         match self {
-            Self::Ready(TestReadyValue::Exception(exception)) => Ok(*exception),
+            Self::Ready(TestMaterialValue::Exception(exception)) => Ok(*exception),
             Self::Ready(_) | Self::Pending(_) => Err(NotAnExceptionError),
         }
     }
@@ -570,7 +570,7 @@ impl waymark_vm_runtime_exception::RaisedExceptionToValue<TestException> for Tes
     type Error = core::convert::Infallible;
 
     fn from_raised(raised: TestException) -> Result<Self, Self::Error> {
-        Ok(Self::Ready(TestReadyValue::Exception(Box::new(raised))))
+        Ok(Self::Ready(TestMaterialValue::Exception(Box::new(raised))))
     }
 }
 
@@ -605,12 +605,12 @@ impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestValue {
 
 impl waymark_vm_interpreter_pureset::value::LoadConst<&TestConstValue> for TestValue {
     fn load_const(const_value: &TestConstValue) -> Self {
-        Self::Ready(TestReadyValue::load_const(const_value))
+        Self::Ready(TestMaterialValue::load_const(const_value))
     }
 }
 
 impl waymark_vm_interpreter_pureset::value::AsScalar for TestValue {
-    type Scalar = TestReadyValue;
+    type Scalar = TestMaterialValue;
 
     fn as_scalar(
         &self,
@@ -639,7 +639,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
                 operation: BinaryOpKind::Add,
             }
         })?;
-        Ok(Self::Ready(TestReadyValue::add(a, b)?))
+        Ok(Self::Ready(TestMaterialValue::add(a, b)?))
     }
 }
 
@@ -652,7 +652,7 @@ impl waymark_vm_interpreter_pureset::value::UnaryOps for TestValue {
                 operation: UnaryOpKind::Neg,
             }
         })?;
-        Ok(Self::Ready(TestReadyValue::neg(value)?))
+        Ok(Self::Ready(TestMaterialValue::neg(value)?))
     }
 
     fn not(
@@ -663,7 +663,7 @@ impl waymark_vm_interpreter_pureset::value::UnaryOps for TestValue {
                 operation: UnaryOpKind::Not,
             }
         })?;
-        Ok(Self::Ready(TestReadyValue::not(value)?))
+        Ok(Self::Ready(TestMaterialValue::not(value)?))
     }
 }
 
@@ -672,7 +672,7 @@ impl waymark_vm_interpreter_pureset::value::MakeList for TestValue {
     where
         I: IntoIterator<Item = Self::RootValue>,
     {
-        Ok(Self::Ready(TestReadyValue::List(
+        Ok(Self::Ready(TestMaterialValue::List(
             items.into_iter().collect(),
         )))
     }
@@ -687,7 +687,7 @@ impl waymark_vm_interpreter_pureset::value::ListAppend for TestValue {
             .require_ready_ref()
             .map_err(|_| waymark_vm_interpreter_pureset::value::ListAppendError::NotListable)?;
         let grown =
-            <TestReadyValue as waymark_vm_interpreter_pureset::value::ListAppend>::list_append(
+            <TestMaterialValue as waymark_vm_interpreter_pureset::value::ListAppend>::list_append(
                 list, item,
             )?;
         Ok(Self::Ready(grown))
@@ -728,7 +728,7 @@ impl waymark_vm_interpreter_pureset::value::Length for TestValue {
     fn from_length(
         length: Self::Length,
     ) -> Result<Self, waymark_vm_interpreter_pureset::value::FromLengthError> {
-        Ok(Self::Ready(TestReadyValue::from_length(length)?))
+        Ok(Self::Ready(TestMaterialValue::from_length(length)?))
     }
 }
 
@@ -747,7 +747,7 @@ impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
 
 impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for TestValue {
     type Error = TestValueError<core::convert::Infallible>;
-    type ActionCallArgument = TestReadyValue;
+    type ActionCallArgument = TestMaterialValue;
 
     fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
         let value = self.require_ready_ref()?;
@@ -770,7 +770,7 @@ pub fn new_runtime(executable: Executable<Instruction>) -> TestRuntime {
 /// arguments.
 pub fn new_runtime_with_args(
     executable: Executable<Instruction>,
-    args: Vec<TestReadyValue>,
+    args: Vec<TestMaterialValue>,
 ) -> TestRuntime {
     Runtime::with_custom_entrypoint(
         Interpreter::default(),

@@ -6,7 +6,7 @@
 //! are identities. Its identity is the class name plus the class's bases,
 //! most-derived first.
 
-use crate::{RaisedException, ReadyValue, Value};
+use crate::{MaterialValue, RaisedException, Value};
 
 /// A Python exception.
 #[derive(Debug, Clone, PartialEq)]
@@ -51,7 +51,7 @@ impl ClassSpec {
 
     /// An instance of this class carrying a message.
     pub fn with_message(self, message: impl ToString) -> Exception {
-        self.exception(Value::Ready(ReadyValue::String(message.to_string())))
+        self.exception(Value::Ready(MaterialValue::String(message.to_string())))
     }
 }
 

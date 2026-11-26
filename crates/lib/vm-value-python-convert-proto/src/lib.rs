@@ -3,7 +3,7 @@
 //!
 //! The proto value tree is this flavor's current encoding of a single
 //! value, so the conversion is direct: nothing stands between a
-//! [`ReadyValue`](waymark_vm_value_python::ReadyValue) and the
+//! [`MaterialValue`](waymark_vm_value_python::MaterialValue) and the
 //! [`Value`](waymark_proto::python_value::Value) carrying it.
 //!
 //! The conversions are grouped by what they convert: the value tree

@@ -25,13 +25,13 @@ use waymark_workflow_completion_core::Outcome;
 /// This is useful for transient / in-memory execution where no durable
 /// persistence is needed and the caller wants to await the result directly
 /// rather than polling a backend.
-pub struct DirectHandler<ReadyValue, RaisedException> {
-    sender: Option<oneshot::Sender<Outcome<ReadyValue, RaisedException>>>,
+pub struct DirectHandler<MaterialValue, RaisedException> {
+    sender: Option<oneshot::Sender<Outcome<MaterialValue, RaisedException>>>,
 }
 
-impl<ReadyValue, RaisedException> DirectHandler<ReadyValue, RaisedException> {
+impl<MaterialValue, RaisedException> DirectHandler<MaterialValue, RaisedException> {
     /// Create a new handler that will send the outcome through `sender`.
-    pub fn new(sender: oneshot::Sender<Outcome<ReadyValue, RaisedException>>) -> Self {
+    pub fn new(sender: oneshot::Sender<Outcome<MaterialValue, RaisedException>>) -> Self {
         Self {
             sender: Some(sender),
         }
@@ -46,13 +46,13 @@ pub enum DirectHandleEffectError {
     AlreadyCompleted,
 }
 
-impl<ReadyValue, RaisedException> waymark_vm_driver_core::EffectHandler
-    for DirectHandler<ReadyValue, RaisedException>
+impl<MaterialValue, RaisedException> waymark_vm_driver_core::EffectHandler
+    for DirectHandler<MaterialValue, RaisedException>
 where
-    ReadyValue: Send,
+    MaterialValue: Send,
     RaisedException: Send + core::fmt::Debug,
 {
-    type Effect = TerminalEffect<ReadyValue, RaisedException>;
+    type Effect = TerminalEffect<MaterialValue, RaisedException>;
     type Error = DirectHandleEffectError;
 
     async fn handle_effect(

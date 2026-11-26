@@ -9,7 +9,7 @@ use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_test::{StateId, executable, function};
 
 use crate::support::{
-    Instruction, TestActionRef, TestConstValue, TestReadyValue, new_runtime_with_args,
+    Instruction, TestActionRef, TestConstValue, TestMaterialValue, new_runtime_with_args,
 };
 
 #[test]
@@ -54,7 +54,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
         ],
     )]);
 
-    let mut runtime = new_runtime_with_args(executable, vec![TestReadyValue::Int(41)]);
+    let mut runtime = new_runtime_with_args(executable, vec![TestMaterialValue::Int(41)]);
 
     let emitted_effect = runtime
         .run()
@@ -67,7 +67,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
             args,
         }) => {
             assert_eq!(action_ref, TestActionRef(7));
-            assert_eq!(args, vec![TestReadyValue::Int(41)]);
+            assert_eq!(args, vec![TestMaterialValue::Int(41)]);
             promise_state_id
         }
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(_)) => {
@@ -83,7 +83,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
     };
 
     runtime
-        .resolve_promise(promise_state_id, TestReadyValue::Int(41))
+        .resolve_promise(promise_state_id, TestMaterialValue::Int(41))
         .expect("action call promise should resolve cleanly");
 
     let emitted_effect = runtime
@@ -92,7 +92,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
 
     match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
-            assert_eq!(value, TestReadyValue::Int(42));
+            assert_eq!(value, TestMaterialValue::Int(42));
         }
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
             panic!("resolved action call should not emit another action call")

@@ -3,11 +3,11 @@ use super::*;
 fn assert_send_sync<T: Send + Sync>() {}
 
 // The handler is meant to be driven from a spawned task and shared, so it
-// must stay `Send + Sync` regardless of the `ReadyValue` type parameter —
+// must stay `Send + Sync` regardless of the `MaterialValue` type parameter —
 // which it never owns. Assert that with a deliberately `!Send + !Sync`
-// `ReadyValue` (`Rc`), the handler remains both.
+// `MaterialValue` (`Rc`), the handler remains both.
 #[test]
-fn handler_is_send_sync_independent_of_ready_value() {
+fn handler_is_send_sync_independent_of_material_value() {
     assert_send_sync::<EffectHandler<(), (), std::rc::Rc<()>, ()>>();
 }
 

@@ -99,7 +99,7 @@ pub fn setup_runtime(
 /// on the response stream.
 pub type ActionCallRequester = waymark_action_runtime_worker_stream::WorkerStreamActionRequester<
     ActionCallCorrelation,
-    waymark_vm_value_python::ReadyValue,
+    waymark_vm_value_python::MaterialValue,
     waymark_vm_value_python_convert_proto::ActionArgumentsConverter,
 >;
 
@@ -108,7 +108,7 @@ pub type ActionCallRequester = waymark_action_runtime_worker_stream::WorkerStrea
 pub type ActionCallCompletionsProvider =
     waymark_action_runtime_worker_stream::WorkerStreamActionCallCompletionsProvider<
         ActionCallCorrelation,
-        waymark_vm_value_python::ReadyValue,
+        waymark_vm_value_python::MaterialValue,
         waymark_vm_value_python::RaisedException,
         waymark_vm_value_python_convert_proto::ActionOutcomeConverter,
     >;
@@ -265,7 +265,7 @@ where
 )]
 fn convert_workflow_outcome_to_stream_response(
     workflow_outcome: waymark_workflow_completion_core::Outcome<
-        waymark_system_vm::ReadyValue,
+        waymark_system_vm::MaterialValue,
         waymark_system_vm::RaisedException,
     >,
 ) -> Result<proto::WorkflowStreamResponse, Status> {

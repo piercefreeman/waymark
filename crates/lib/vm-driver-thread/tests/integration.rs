@@ -7,20 +7,20 @@ use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_runtime_test::{
-    StateId, TestEffect, TestException, TestInstruction, TestReadyValue, executable, function,
+    StateId, TestEffect, TestException, TestInstruction, TestMaterialValue, executable, function,
     runtime,
 };
 
 type TestEffector = (
     tokio::sync::mpsc::Sender<EmittedEffect<TestEffect>>,
-    tokio::sync::mpsc::Receiver<PromiseSettlement<TestReadyValue, TestException, ()>>,
+    tokio::sync::mpsc::Receiver<PromiseSettlement<TestMaterialValue, TestException, ()>>,
 );
 
 #[allow(clippy::type_complexity)]
 fn effector() -> (
     TestEffector,
     tokio::sync::mpsc::Receiver<EmittedEffect<TestEffect>>,
-    tokio::sync::mpsc::Sender<PromiseSettlement<TestReadyValue, TestException, ()>>,
+    tokio::sync::mpsc::Sender<PromiseSettlement<TestMaterialValue, TestException, ()>>,
 ) {
     let (effects_tx, effects_rx) = tokio::sync::mpsc::channel(1);
     let (settlements_tx, settlements_rx) = tokio::sync::mpsc::channel(1);
@@ -91,7 +91,7 @@ async fn resolves_promise_and_forwards_effect() {
     settlements_tx
         .send(PromiseSettlement {
             promise_state_id: PromiseStateId::from_raw(0),
-            resolution: PromiseResolution::Resolved(TestReadyValue::Int(41)),
+            resolution: PromiseResolution::Resolved(TestMaterialValue::Int(41)),
             ack: (),
         })
         .await
@@ -100,7 +100,7 @@ async fn resolves_promise_and_forwards_effect() {
     assert_eq!(
         effects_rx.recv().await,
         Some(EmittedEffect {
-            effect: TestEffect::Value(TestReadyValue::Int(41)),
+            effect: TestEffect::Value(TestMaterialValue::Int(41)),
             number: EffectNumber(0),
         })
     );

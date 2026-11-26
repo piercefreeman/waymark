@@ -35,20 +35,20 @@ pub enum HandleEffectError<CodecError> {
 /// completion outcomes through the shared outcome batcher.
 ///
 /// Values are serialized via the given `Codec` before being submitted.
-pub struct EffectHandler<VmId, Codec, ReadyValue, RaisedException> {
+pub struct EffectHandler<VmId, Codec, MaterialValue, RaisedException> {
     /// The shared recorder durably persisting terminal outcomes in batches.
     recorder: crate::outcome_batcher::OutcomeRecorderHandle<VmId>,
     vm_id: VmId,
     codec: Codec,
-    // The handler never owns a `ReadyValue` or a `RaisedException`; it only
-    // receives one per effect. `fn() -> (ReadyValue, RaisedException)` keeps
+    // The handler never owns a `MaterialValue` or a `RaisedException`; it only
+    // receives one per effect. `fn() -> (MaterialValue, RaisedException)` keeps
     // covariance without borrowing the types' `Send`/`Sync`/dropck, so the
     // handler stays `Send + Sync` regardless.
-    _phantom_data: PhantomData<fn() -> (ReadyValue, RaisedException)>,
+    _phantom_data: PhantomData<fn() -> (MaterialValue, RaisedException)>,
 }
 
-impl<VmId, Codec, ReadyValue, RaisedException>
-    EffectHandler<VmId, Codec, ReadyValue, RaisedException>
+impl<VmId, Codec, MaterialValue, RaisedException>
+    EffectHandler<VmId, Codec, MaterialValue, RaisedException>
 {
     /// Create a new handler.
     pub fn new(
@@ -65,15 +65,15 @@ impl<VmId, Codec, ReadyValue, RaisedException>
     }
 }
 
-impl<VmId, Codec, ReadyValue, RaisedException> waymark_vm_driver_core::EffectHandler
-    for EffectHandler<VmId, Codec, ReadyValue, RaisedException>
+impl<VmId, Codec, MaterialValue, RaisedException> waymark_vm_driver_core::EffectHandler
+    for EffectHandler<VmId, Codec, MaterialValue, RaisedException>
 where
     VmId: Clone + Send + Sync,
     Codec: waymark_vm_codec_core::SerializerProvider + Send,
-    ReadyValue: serde::Serialize + Send,
+    MaterialValue: serde::Serialize + Send,
     RaisedException: serde::Serialize + core::fmt::Debug + Send,
 {
-    type Effect = TerminalEffect<ReadyValue, RaisedException>;
+    type Effect = TerminalEffect<MaterialValue, RaisedException>;
     type Error = HandleEffectError<Codec::Error>;
 
     async fn handle_effect(

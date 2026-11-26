@@ -12,23 +12,23 @@ pub mod extcallset;
 pub mod pureset;
 mod pythonic;
 
-/// The value flavor: the per-language configuration of [`ReadyValue`].
+/// The value flavor: the per-language configuration of [`MaterialValue`].
 ///
-/// The flavor configures the ready value only — the root value shape is
+/// The flavor configures the material value only — the root value shape is
 /// structural, not flavor-chosen: containers always hold
 /// [`Value<Flavor>`].
 pub trait Flavor {
     /// The language-specific extension values hosted by
-    /// [`ReadyValue::Extension`].
+    /// [`MaterialValue::Extension`].
     ///
-    /// Deliberately unbounded: every [`ReadyValue`] capability
+    /// Deliberately unbounded: every [`MaterialValue`] capability
     /// (`Debug`, `Clone`, `PartialEq`, serde) is conditional on this
     /// type providing the matching trait — an explicit requirement at
     /// the sites that need it, never a demand on the flavor.
     type Extension;
 
     /// The language's exception as a value, hosted by
-    /// [`ReadyValue::Exception`]: what a handler captures into a register
+    /// [`MaterialValue::Exception`]: what a handler captures into a register
     /// and what a `raise` takes from one.
     ///
     /// Entirely the language's shape; the VM never looks inside. A
@@ -48,7 +48,7 @@ pub trait Flavor {
         deserialize = "Flavor::Extension: serde::Deserialize<'de>, Flavor::ExceptionValue: serde::Deserialize<'de>",
     ))
 )]
-pub enum ReadyValue<Flavor: self::Flavor> {
+pub enum MaterialValue<Flavor: self::Flavor> {
     /// Integer value.
     Int(i64),
 
@@ -80,7 +80,7 @@ pub enum ReadyValue<Flavor: self::Flavor> {
     Extension(Flavor::Extension),
 }
 
-impl<Flavor: self::Flavor> ReadyValue<Flavor> {
+impl<Flavor: self::Flavor> MaterialValue<Flavor> {
     /// Returns whether the value is truthy using Python-like semantics.
     pub fn is_truthy(&self) -> bool {
         match self {
@@ -99,22 +99,23 @@ impl<Flavor: self::Flavor> ReadyValue<Flavor> {
 
 /// The [`Flavor::Extension`] type for flavors with no extension values.
 ///
-/// Uninhabited: a `ReadyValue::Extension` of such a flavor can never be
+/// Uninhabited: a `MaterialValue::Extension` of such a flavor can never be
 /// constructed.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum NoExtension {}
 
 /// The bound VM promise value type alias.
-pub type PromiseValue<Flavor> = waymark_vm_runtime_promise_value::PromiseValue<ReadyValue<Flavor>>;
+pub type PromiseValue<Flavor> =
+    waymark_vm_runtime_promise_value::PromiseValue<MaterialValue<Flavor>>;
 
 /// The final VM value of a flavor: the promise-aware surface value
-/// wrapping [`ReadyValue`].
+/// wrapping [`MaterialValue`].
 ///
 /// Use this type alias where you need to refer to the surface value type
 /// without knowing the specifics of how the values are internally structured.
 pub type Value<Flavor> = PromiseValue<Flavor>;
 
-impl<Flavor: self::Flavor> waymark_vm_runtime_value::RootValueAccess for ReadyValue<Flavor> {
+impl<Flavor: self::Flavor> waymark_vm_runtime_value::RootValueAccess for MaterialValue<Flavor> {
     type RootValue = Value<Flavor>;
 }

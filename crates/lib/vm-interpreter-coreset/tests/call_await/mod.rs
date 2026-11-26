@@ -5,7 +5,7 @@ use waymark_vm_interpreter_coreset::Effect;
 use waymark_vm_runtime_core::RegisterId;
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
 
-use crate::support::{Instruction, TestReadyValue, new_runtime_with_args};
+use crate::support::{Instruction, TestMaterialValue, new_runtime_with_args};
 
 #[test]
 fn runtime_executes_call_await_and_return_to_completion() {
@@ -31,12 +31,12 @@ fn runtime_executes_call_await_and_return_to_completion() {
         function::<Instruction>(1, vec![vec![CoreSet::Return { src: RegisterId(0) }]]),
     ]);
 
-    let mut runtime = new_runtime_with_args(executable, vec![TestReadyValue::Int(7)]);
+    let mut runtime = new_runtime_with_args(executable, vec![TestMaterialValue::Int(7)]);
 
     let emitted_effect = runtime
         .run()
         .expect("call/await/return program should complete");
 
     let Effect::Complete(value) = emitted_effect.effect;
-    assert_eq!(value, TestReadyValue::Int(7));
+    assert_eq!(value, TestMaterialValue::Int(7));
 }
