@@ -50,17 +50,17 @@ mod tests {
 
     #[test]
     fn require_resolved_ref_and_mut_report_pending_promise_ids() {
-        let promise = PromiseValue::<String>::from_pending(PromiseStateId(3));
+        let promise = PromiseValue::<String>::from_pending(PromiseStateId::from_raw(3));
         let err = promise
             .as_ready()
             .expect_err("pending promise should fail by reference");
-        assert_eq!(err.promise_state_id, PromiseStateId(3));
+        assert_eq!(err.promise_state_id, PromiseStateId::from_raw(3));
 
-        let promise = PromiseValue::<String>::from_pending(PromiseStateId(5));
+        let promise = PromiseValue::<String>::from_pending(PromiseStateId::from_raw(5));
         let err = promise
             .as_ready()
             .expect_err("pending promise should fail by mutable reference");
-        assert_eq!(err.promise_state_id, PromiseStateId(5));
+        assert_eq!(err.promise_state_id, PromiseStateId::from_raw(5));
     }
 
     #[test]

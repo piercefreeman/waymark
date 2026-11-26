@@ -19,7 +19,7 @@ fn correlation(vm_id: u64, promise: usize) -> WithVmId<u64, ActionCallCorrelatio
         vm_id,
         inner: ActionCallCorrelation {
             effect_number: EffectNumber(7),
-            promise_state_id: PromiseStateId(promise),
+            promise_state_id: PromiseStateId::from_raw(promise),
         },
     }
 }
@@ -89,7 +89,10 @@ async fn reports_already_there_come_out_in_one_wait() {
         .collect();
     assert_eq!(
         promises,
-        vec![(42, PromiseStateId(1)), (43, PromiseStateId(2))]
+        vec![
+            (42, PromiseStateId::from_raw(1)),
+            (43, PromiseStateId::from_raw(2))
+        ]
     );
 }
 

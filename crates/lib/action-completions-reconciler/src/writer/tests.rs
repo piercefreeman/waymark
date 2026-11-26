@@ -66,7 +66,7 @@ fn completion(vm_id: InstanceId, promise: usize, effect: usize, value: &str) -> 
             vm_id,
             inner: ActionCallCorrelation {
                 effect_number: EffectNumber(effect),
-                promise_state_id: PromiseStateId(promise),
+                promise_state_id: PromiseStateId::from_raw(promise),
             },
         },
         execution_result: Ok(ActionCallOutcome::Value(ReadyValue::String(
@@ -87,7 +87,7 @@ fn lost_completion(
             vm_id,
             inner: ActionCallCorrelation {
                 effect_number: EffectNumber(effect),
-                promise_state_id: PromiseStateId(promise),
+                promise_state_id: PromiseStateId::from_raw(promise),
             },
         },
         execution_result: Err(waymark_action_runtime_core::ActionCallLossError { stage }),
@@ -124,7 +124,7 @@ async fn records_provider_completions_until_the_provider_fails() {
     let recorded = backend.inner.recorded.lock().unwrap();
     assert_eq!(recorded.len(), 1);
     assert_eq!(recorded[0].vm_id, vm_id);
-    assert_eq!(recorded[0].promise_state_id, PromiseStateId(3));
+    assert_eq!(recorded[0].promise_state_id, PromiseStateId::from_raw(3));
     assert_eq!(recorded[0].effect_number, EffectNumber(7));
 
     // The stored blob round-trips back to how the call ended.

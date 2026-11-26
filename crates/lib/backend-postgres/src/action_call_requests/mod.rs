@@ -64,7 +64,7 @@ fn lock_id_columns<'a>(
     let mut lock_nonces = Vec::new();
     for lock_id in lock_ids {
         vm_ids.push(lock_id.request.vm_id);
-        promise_state_ids.push(i64::try_from(lock_id.request.promise_state_id.0)?);
+        promise_state_ids.push(i64::try_from(lock_id.request.promise_state_id.to_raw())?);
         lock_nonces.push(nonce_column(lock_id.nonce));
     }
     Ok(LockIdColumns {
@@ -92,7 +92,7 @@ fn lock_id_from_row(
     Ok(ActionCallRequestLockId {
         request: ActionCallRequestKey {
             vm_id: row.get("vm_id"),
-            promise_state_id: PromiseStateId(usize::try_from(promise_state_id)?),
+            promise_state_id: PromiseStateId::from_raw(usize::try_from(promise_state_id)?),
         },
         nonce: nonce_from_column(row.get("lock_nonce")),
     })
@@ -105,7 +105,7 @@ fn record_from_row(
     let effect_number: i64 = row.get("effect_number");
     Ok(ActionCallRequestRecord {
         vm_id: row.get("vm_id"),
-        promise_state_id: PromiseStateId(usize::try_from(promise_state_id)?),
+        promise_state_id: PromiseStateId::from_raw(usize::try_from(promise_state_id)?),
         effect_number: EffectNumber(usize::try_from(effect_number)?),
         request: row.get("request"),
     })
@@ -128,8 +128,9 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
         let mut requests = Vec::with_capacity(records.len().get());
         for record in records.iter() {
             vm_ids.push(record.vm_id);
-            promise_state_ids
-                .push(i64::try_from(record.promise_state_id.0).map_err(Self::Error::OutOfRange)?);
+            promise_state_ids.push(
+                i64::try_from(record.promise_state_id.to_raw()).map_err(Self::Error::OutOfRange)?,
+            );
             effect_numbers
                 .push(i64::try_from(record.effect_number.0).map_err(Self::Error::OutOfRange)?);
             requests.push(record.request.clone());
@@ -206,7 +207,7 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
             conflicted_requests.push(requests[index].clone());
             conflicted_keys.push(ActionCallRequestKey {
                 vm_id: *vm_id,
-                promise_state_id: PromiseStateId(
+                promise_state_id: PromiseStateId::from_raw(
                     usize::try_from(promise_state_ids[index]).map_err(Self::Error::OutOfRange)?,
                 ),
             });
@@ -240,7 +241,7 @@ impl waymark_action_effect_reconciler_backend::RecordActionCallRequests for Post
             let promise_state_id: i64 = row.get("promise_state_id");
             divergent_keys.push(ActionCallRequestKey {
                 vm_id: row.get("vm_id"),
-                promise_state_id: PromiseStateId(
+                promise_state_id: PromiseStateId::from_raw(
                     usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
                 ),
             });
@@ -370,7 +371,7 @@ impl waymark_action_effect_reconciler_backend::LockActionCallRequests for Postgr
             let held_by_this_owner: bool = row.get("held_by_this_owner");
             let key = ActionCallRequestKey {
                 vm_id,
-                promise_state_id: PromiseStateId(
+                promise_state_id: PromiseStateId::from_raw(
                     usize::try_from(promise_state_id).map_err(Self::Error::OutOfRange)?,
                 ),
             };
