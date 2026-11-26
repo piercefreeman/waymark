@@ -44,7 +44,7 @@ struct HelperOutput {
 /// Decode a hex string the helper emitted.
 fn decode_hex(hex: &str, what: &str) -> Result<Vec<u8>, color_eyre::eyre::Report> {
     if !hex.len().is_multiple_of(2) {
-        bail!("{what} is not a whole number of hex-encoded bytes")
+        bail!("{what} is not a whole number of hex-encoded bytes");
     }
     (0..hex.len())
         .step_by(2)
@@ -137,7 +137,7 @@ fn helper_python(repo_root: &Path) -> Result<PathBuf, color_eyre::eyre::Report> 
         bail!(
             "python helper interpreter not found at {}; run 'uv sync'",
             python.display()
-        )
+        );
     }
 }
 
@@ -166,7 +166,7 @@ fn run_python_helper(
             case.id,
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
-        )
+        );
     }
 
     let stdout = String::from_utf8(output.stdout)

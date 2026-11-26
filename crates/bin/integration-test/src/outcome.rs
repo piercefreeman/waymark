@@ -68,7 +68,9 @@ pub fn outcome_from_encoded(
                     .wrap_err("decode the expected exception")?;
             Ok(CaseOutcome::Exception(exception))
         }
-        other => bail!("unknown expected outcome status {other:?}"),
+        other => {
+            bail!("unknown expected outcome status {other:?}");
+        }
     }
 }
 

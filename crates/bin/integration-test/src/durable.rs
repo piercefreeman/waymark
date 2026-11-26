@@ -251,7 +251,7 @@ async fn run_case_durable(
     // that a shutdown cuts.
     let workflow_outcome = tokio::select! {
         () = shutdown_token.cancelled() => {
-            bail!("case '{}' cut short by the shutdown", prepared.case.id)
+            bail!("case '{}' cut short by the shutdown", prepared.case.id);
         }
         waited = tokio::time::timeout(
             timeout,

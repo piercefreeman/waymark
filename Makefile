@@ -88,7 +88,8 @@ rust-lint-verify: rust-lint-base-verify
 	cargo deny check
 
 # The rustdoc pass excludes waymark-vm-compiler-for-ast-old: rustdoc's auto-trait
-# synthesis for FunctionEmitter<Spec> crashes the compiler (rustc 1.95 ICE).
+# synthesis for FunctionEmitter<Spec> crashes the compiler (a rustc ICE, still
+# present on 1.100).
 rust-lint-extended: js-deps
 	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-executor --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-vm-cli -- -D warnings
 	RUSTDOCFLAGS="-D warnings --cfg tokio_unstable" cargo doc --workspace --no-deps --all-features --exclude waymark-vm-compiler-for-ast-old
