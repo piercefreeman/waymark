@@ -4,7 +4,7 @@ use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_runtime_test::{
     FunctionId, StateId, TestEffect, TestException, TestExecutionError, TestFrame, TestInstruction,
-    TestInterpreter, TestMaterialValue, TestRuntimeView, executable, function, runtime,
+    TestInterpreter, TestMaterialValue, TestRuntimeView, TestValue, executable, function, runtime,
     runtime_with_entrypoint, try_runtime,
 };
 
@@ -621,5 +621,297 @@ fn effect_counter_survives_snapshot_roundtrip() {
     assert_eq!(
         emitted_effect.effect,
         TestEffect::Value(TestMaterialValue::Int(20))
+    );
+}
+
+/// A loop that suspends on a fresh promise each iteration and is resumed by
+/// settling it: every iteration leaves one settled promise state behind.
+/// Collected before each snapshot, those states no longer accumulate: the
+/// snapshot after many iterations grows only by the width of a few counters.
+#[test]
+fn collected_snapshot_stays_flat_across_loop_iterations() {
+    let loop_executable = || {
+        executable(vec![function(
+            1,
+            vec![vec![TestInstruction::Suspend {
+                dst: RegisterId(0),
+                resume: StateId(0),
+            }]],
+        )])
+    };
+
+    let iterate = |runtime: &mut waymark_vm_runtime::Runtime<_, _, _, _>, iterations: usize| {
+        for iteration in 0..iterations {
+            let promise_state_id = runtime
+                .waiting_promise_state_ids()
+                .next()
+                .expect("the loop waits on one promise");
+            runtime
+                .resolve_promise(
+                    promise_state_id,
+                    TestMaterialValue::Int(i32::try_from(iteration).expect("iteration fits")),
+                )
+                .expect("the waiting promise resolves");
+            assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
+        }
+    };
+
+    let snapshot_size = |runtime: &waymark_vm_runtime::Runtime<_, _, _, _>| {
+        let mut buf = Vec::new();
+        runtime
+            .snapshot(&mut rmp_serde::Serializer::new(&mut buf))
+            .expect("the runtime snapshots");
+        buf.len()
+    };
+
+    let mut collected = waymark_vm_runtime::Runtime::with_conventional_entrypoint(
+        TestInterpreter,
+        loop_executable(),
+    )
+    .expect("entrypoint should exist");
+    assert!(matches!(collected.run(), Err(RunError::NoReadyFrame)));
+
+    iterate(&mut collected, 2);
+    collected.collect();
+    let size_after_few = snapshot_size(&collected);
+
+    iterate(&mut collected, 50);
+    collected.collect();
+    let size_after_many = snapshot_size(&collected);
+
+    // The integers that keep growing (the next id, the waiting key, the
+    // resolved iteration count) can take a few more bytes each; the
+    // settled states themselves add nothing.
+    assert!(
+        size_after_many <= size_after_few + 8,
+        "{size_after_many} bytes after many iterations, {size_after_few} after a few"
+    );
+
+    // The same loop without collecting keeps every settled state.
+    let mut uncollected = waymark_vm_runtime::Runtime::with_conventional_entrypoint(
+        TestInterpreter,
+        loop_executable(),
+    )
+    .expect("entrypoint should exist");
+    assert!(matches!(uncollected.run(), Err(RunError::NoReadyFrame)));
+
+    iterate(&mut uncollected, 52);
+    assert!(snapshot_size(&uncollected) > size_after_many);
+}
+
+/// The instructions of [`HandleInterpreter`]: each holds, settles or follows
+/// a promise state handle the way an instruction set does.
+#[derive(Debug, Clone, Copy)]
+enum HandleInstruction {
+    /// Prepare a promise and hold its handle in `dst`.
+    Prepare { dst: RegisterId },
+
+    /// Resolve the promise whose handle `promise` holds with a copy of what
+    /// `value` holds.
+    ResolveWith {
+        promise: RegisterId,
+        value: RegisterId,
+    },
+
+    /// Drop what the register holds.
+    Clear(RegisterId),
+
+    /// Park the frame on a fresh promise, resuming at `resume` with the
+    /// promise's value in `dst`.
+    Suspend { dst: RegisterId, resume: StateId },
+
+    /// Look up, through the handle `src` holds, a resolved promise state and
+    /// put its value into `dst`.
+    Follow { src: RegisterId, dst: RegisterId },
+
+    /// Emit the ready value the register holds.
+    EmitRegister(RegisterId),
+}
+
+/// An interpreter for [`HandleInstruction`], over any executable of them.
+struct HandleInterpreter<Executable>(core::marker::PhantomData<Executable>);
+
+impl<Executable> waymark_vm_interpreter::Interpreter for HandleInterpreter<Executable>
+where
+    Executable: 'static,
+{
+    type RuntimeView<'r> = waymark_vm_runtime_core::FullRuntimeView<
+        'r,
+        Executable,
+        FunctionId,
+        StateId,
+        TestValue,
+        TestException,
+    >;
+    type Frame = TestFrame;
+    type Instruction = HandleInstruction;
+    type Error = TestExecutionError;
+    type Effect = TestEffect;
+
+    fn execute<'r>(
+        &self,
+        runtime: Self::RuntimeView<'r>,
+        mut frame: Self::Frame,
+        instruction: &Self::Instruction,
+    ) -> Result<waymark_vm_interpreter::ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error>
+    {
+        use waymark_vm_interpreter::ExecutionOutcome;
+        use waymark_vm_runtime_core::{PromiseState, SettledPromiseState};
+
+        let waymark_vm_runtime_core::FullRuntimeView { state, .. } = runtime;
+
+        match *instruction {
+            HandleInstruction::Prepare { dst } => {
+                let promise_state_handle = state.promise_states.prepare();
+                frame
+                    .regs
+                    .set(dst, TestValue::Pending(promise_state_handle));
+                Ok(ExecutionOutcome::Continue(frame))
+            }
+            HandleInstruction::ResolveWith { promise, value } => {
+                let Some(TestValue::Pending(promise_state_handle)) = frame.regs.get(promise) else {
+                    return Err(TestExecutionError("the register should hold a handle"));
+                };
+                let promise_state_id = promise_state_handle.id();
+                let value = frame
+                    .regs
+                    .get(value)
+                    .cloned()
+                    .ok_or(TestExecutionError("the value register should be set"))?;
+                state
+                    .promise_states
+                    .resolve(promise_state_id, value)
+                    .map_err(|_| TestExecutionError("the promise should resolve"))?;
+                Ok(ExecutionOutcome::Continue(frame))
+            }
+            HandleInstruction::Clear(register) => {
+                frame.regs.take(register);
+                Ok(ExecutionOutcome::Continue(frame))
+            }
+            HandleInstruction::Suspend { dst, resume } => {
+                let promise_state_id = state.promise_states.prepare().id();
+                let promise_state = state
+                    .promise_states
+                    .get_mut(promise_state_id)
+                    .map_err(|_| TestExecutionError("the prepared promise should exist"))?;
+                *promise_state =
+                    PromiseState::Waiting(vec![waymark_vm_runtime_core::PromiseWaiter::Await(
+                        waymark_vm_runtime_core::Continuation::capture(frame, resume, dst),
+                    )]);
+                Ok(ExecutionOutcome::ExitFrame)
+            }
+            HandleInstruction::Follow { src, dst } => {
+                let Some(TestValue::Pending(promise_state_handle)) = frame.regs.get(src) else {
+                    return Err(TestExecutionError("the register should hold a handle"));
+                };
+                let Ok(PromiseState::Settled(SettledPromiseState::Resolved(value))) =
+                    state.promise_states.by_handle(promise_state_handle)
+                else {
+                    return Err(TestExecutionError(
+                        "the referenced promise state should be present and resolved",
+                    ));
+                };
+                let value = value.clone();
+                frame.regs.set(dst, value);
+                Ok(ExecutionOutcome::Continue(frame))
+            }
+            HandleInstruction::EmitRegister(register) => {
+                let Some(TestValue::Ready(value)) = frame.regs.get(register) else {
+                    return Err(TestExecutionError("the register should hold a ready value"));
+                };
+                Ok(ExecutionOutcome::ExitFrameWithEffect(TestEffect::Value(
+                    value.clone(),
+                )))
+            }
+        }
+    }
+}
+
+/// Handles held in a parked frame's registers and inside a settled promise
+/// state's value keep their promise states through a collect, a snapshot, a
+/// restore and another collect: every restored handle shares the count of
+/// its restored table entry, so no referenced state is freed.
+#[test]
+fn restored_handles_keep_their_states_through_collection() {
+    // The entrypoint argument puts `Int(7)` into register 0.
+    let make_executable = || {
+        executable(vec![function(
+            4,
+            vec![
+                vec![
+                    // A: resolved with 7.
+                    HandleInstruction::Prepare { dst: RegisterId(1) },
+                    // B: resolved with A's handle.
+                    HandleInstruction::Prepare { dst: RegisterId(2) },
+                    HandleInstruction::ResolveWith {
+                        promise: RegisterId(1),
+                        value: RegisterId(0),
+                    },
+                    HandleInstruction::ResolveWith {
+                        promise: RegisterId(2),
+                        value: RegisterId(1),
+                    },
+                    // From here on only B's value holds A, and only the
+                    // parked frame holds B.
+                    HandleInstruction::Clear(RegisterId(1)),
+                    HandleInstruction::Suspend {
+                        dst: RegisterId(3),
+                        resume: StateId(1),
+                    },
+                ],
+                vec![
+                    HandleInstruction::Follow {
+                        src: RegisterId(2),
+                        dst: RegisterId(3),
+                    },
+                    HandleInstruction::Follow {
+                        src: RegisterId(3),
+                        dst: RegisterId(3),
+                    },
+                    HandleInstruction::EmitRegister(RegisterId(3)),
+                ],
+            ],
+        )])
+    };
+    let interpreter = || HandleInterpreter(core::marker::PhantomData);
+
+    let mut runtime = waymark_vm_runtime::Runtime::with_custom_entrypoint(
+        interpreter(),
+        make_executable(),
+        CallSpec {
+            func: FunctionId(0),
+            args: vec![TestMaterialValue::Int(7)],
+        },
+    )
+    .expect("entrypoint should exist");
+    assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
+
+    runtime.collect();
+    let mut buf = Vec::new();
+    runtime
+        .snapshot(&mut rmp_serde::Serializer::new(&mut buf))
+        .expect("the parked runtime snapshots");
+    drop(runtime);
+
+    let mut de = rmp_serde::Deserializer::new(&buf[..]);
+    let mut restored =
+        waymark_vm_runtime::Runtime::from_snapshot(interpreter(), make_executable(), &mut de)
+            .expect("the snapshot restores");
+    restored.collect();
+
+    let waiting = restored
+        .waiting_promise_state_ids()
+        .next()
+        .expect("the parked frame waits on one promise");
+    restored
+        .resolve_promise(waiting, TestMaterialValue::Int(0))
+        .expect("the waiting promise resolves");
+
+    let emitted_effect = restored
+        .run()
+        .expect("the resumed frame reaches both states through its handles");
+    assert_eq!(
+        emitted_effect.effect,
+        TestEffect::Value(TestMaterialValue::Int(7))
     );
 }

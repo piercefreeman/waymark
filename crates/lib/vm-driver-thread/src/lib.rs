@@ -80,15 +80,17 @@ where
     Interpreter::Effect: core::fmt::Debug + Send,
     Interpreter::Error: core::fmt::Debug + Send,
     // Value
+    Value: waymark_vm_runtime_promise_core::TracePromiseStateIds,
     Value: Clone + Send + 'static,
     Value: serde::Serialize,
-    Value: waymark_vm_runtime_promise_core::Resolvable,
+    Value: waymark_vm_runtime_core::Promisable,
     Value: core::fmt::Debug,
     Value::ReadyValue: core::fmt::Debug + Send,
     // Raised exception
     RaisedException: waymark_vm_runtime_exception::HasMatchPattern,
     RaisedException: Clone + Send + 'static,
     RaisedException: serde::Serialize,
+    RaisedException: waymark_vm_runtime_promise_core::TracePromiseStateIds,
     RaisedException: core::fmt::Debug,
     waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize + Send,
     // Effector

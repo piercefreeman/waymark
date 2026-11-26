@@ -119,3 +119,36 @@ pub type Value<Flavor> = PromiseValue<Flavor>;
 impl<Flavor: self::Flavor> waymark_vm_runtime_value::RootValueAccess for MaterialValue<Flavor> {
     type RootValue = Value<Flavor>;
 }
+
+impl<Flavor> waymark_vm_runtime_promise_core::TracePromiseStateIds for MaterialValue<Flavor>
+where
+    Flavor: self::Flavor,
+    Flavor::Extension: waymark_vm_runtime_promise_core::TracePromiseStateIds,
+    Flavor::ExceptionValue: waymark_vm_runtime_promise_core::TracePromiseStateIds,
+{
+    fn trace_promise_state_ids(
+        &self,
+        visit: &mut dyn FnMut(waymark_vm_runtime_promise_core::PromiseStateId),
+    ) {
+        match self {
+            Self::Int(_) | Self::Float(_) | Self::Bool(_) | Self::String(_) | Self::None => {}
+            Self::List(items) => items
+                .iter()
+                .for_each(|item| item.trace_promise_state_ids(visit)),
+            Self::Dict(entries) => entries
+                .values()
+                .for_each(|value| value.trace_promise_state_ids(visit)),
+            Self::Exception(exception) => exception.trace_promise_state_ids(visit),
+            Self::Extension(extension) => extension.trace_promise_state_ids(visit),
+        }
+    }
+}
+
+impl waymark_vm_runtime_promise_core::TracePromiseStateIds for NoExtension {
+    fn trace_promise_state_ids(
+        &self,
+        _visit: &mut dyn FnMut(waymark_vm_runtime_promise_core::PromiseStateId),
+    ) {
+        match *self {}
+    }
+}

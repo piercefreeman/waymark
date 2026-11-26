@@ -13,6 +13,7 @@ serde = ["dep:serde", "waymark-vm-value/serde"]
 waymark-observability-vm-value-display = { workspace = true }
 waymark-vm-interpreter-pureset = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
 waymark-vm-value = { workspace = true }
 
 serde = { workspace = true, optional = true, features = ["derive"] }
@@ -33,7 +34,6 @@ waymark-vm-interpreter-pureset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
-waymark-vm-runtime-promise-core = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }
 
 indexmap = { workspace = true }

@@ -21,7 +21,7 @@ use waymark_vm_instructions_fullset::FullSet;
 use waymark_vm_instructions_pureset::{BinaryOpKind, UnaryOpKind};
 use waymark_vm_interpreter_fullset::FullSetInterpreter;
 use waymark_vm_runtime::{CallSpec, Runtime};
-use waymark_vm_runtime_core::RegisterId;
+use waymark_vm_runtime_core::{PromisableExt as _, RegisterId};
 use waymark_vm_runtime_promise_core::{PromiseStateId, UnresolvedPromiseError};
 use waymark_vm_runtime_test::{FunctionId, StateId};
 
@@ -484,73 +484,63 @@ impl From<&TestConstValue> for TestMaterialValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TestValue {
     Ready(TestMaterialValue),
-    Pending(PromiseStateId),
+    Pending(waymark_vm_runtime_core::PromiseStateHandle),
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum TestValueError<Inner> {
     #[error(transparent)]
-    UnresolvedPromise(#[from] UnresolvedPromiseError),
+    UnresolvedPromise(#[from] UnresolvedPromiseError<PromiseStateId>),
 
     #[error(transparent)]
     Ready(Inner),
-}
-
-impl TestValue {
-    fn require_ready_ref(&self) -> Result<&TestMaterialValue, UnresolvedPromiseError> {
-        match self {
-            Self::Ready(value) => Ok(value),
-            Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
-                promise_state_id: *promise_state_id,
-            }),
-        }
-    }
 }
 
 impl waymark_vm_runtime_value::RootValueAccess for TestValue {
     type RootValue = TestValue;
 }
 
-impl waymark_vm_runtime_promise_core::Suspendable for TestValue {
-    fn from_pending(promise_state_id: PromiseStateId) -> Self {
-        Self::Pending(promise_state_id)
-    }
-
-    fn as_pending(&self) -> Option<PromiseStateId> {
-        match self {
-            Self::Pending(promise_state_id) => Some(*promise_state_id),
-            Self::Ready(_) => None,
-        }
-    }
-}
-
-impl waymark_vm_runtime_promise_core::Resolvable for TestValue {
+impl waymark_vm_runtime_core::Promisable for TestValue {
     type ReadyValue = TestMaterialValue;
 
     fn from_ready(value: Self::ReadyValue) -> Self {
         Self::Ready(value)
     }
 
-    fn into_ready(self) -> Result<Self::ReadyValue, (UnresolvedPromiseError, Self)> {
+    fn from_pending(promise_state_handle: waymark_vm_runtime_core::PromiseStateHandle) -> Self {
+        Self::Pending(promise_state_handle)
+    }
+
+    fn promisable_readiness(
+        &self,
+    ) -> waymark_vm_runtime_core::PromisableReadinessRef<'_, Self::ReadyValue> {
         match self {
-            Self::Ready(value) => Ok(value),
-            Self::Pending(promise_state_id) => Err((
-                UnresolvedPromiseError { promise_state_id },
-                Self::Pending(promise_state_id),
-            )),
+            Self::Ready(value) => waymark_vm_runtime_core::PromisableReadinessRef::Ready(value),
+            Self::Pending(promise_state_handle) => {
+                waymark_vm_runtime_core::PromisableReadinessRef::Pending(promise_state_handle)
+            }
         }
     }
 
-    fn as_ready(&self) -> Result<&Self::ReadyValue, UnresolvedPromiseError> {
-        self.require_ready_ref()
+    fn promisable_readiness_mut(
+        &mut self,
+    ) -> waymark_vm_runtime_core::PromisableReadinessMut<'_, Self::ReadyValue> {
+        match self {
+            Self::Ready(value) => waymark_vm_runtime_core::PromisableReadinessMut::Ready(value),
+            Self::Pending(promise_state_handle) => {
+                waymark_vm_runtime_core::PromisableReadinessMut::Pending(promise_state_handle)
+            }
+        }
     }
 
-    fn as_ready_mut(&mut self) -> Result<&mut Self::ReadyValue, UnresolvedPromiseError> {
+    fn into_promisable_readiness(
+        self,
+    ) -> waymark_vm_runtime_core::PromisableReadiness<Self::ReadyValue> {
         match self {
-            Self::Ready(value) => Ok(value),
-            Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
-                promise_state_id: *promise_state_id,
-            }),
+            Self::Ready(value) => waymark_vm_runtime_core::PromisableReadiness::Ready(value),
+            Self::Pending(promise_state_handle) => {
+                waymark_vm_runtime_core::PromisableReadiness::Pending(promise_state_handle)
+            }
         }
     }
 }
@@ -578,7 +568,7 @@ impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestValue {
     fn capture_call_argument(&self) -> Self {
         match self {
             Self::Ready(value) => Self::Ready(value.capture_call_argument()),
-            Self::Pending(promise_state_id) => Self::Pending(*promise_state_id),
+            Self::Pending(promise_state_handle) => Self::Pending(promise_state_handle.clone()),
         }
     }
 }
@@ -598,7 +588,7 @@ impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestValue {
     fn capture_copy(&self) -> Self {
         match self {
             Self::Ready(value) => Self::Ready(value.capture_copy()),
-            Self::Pending(promise_state_id) => Self::Pending(*promise_state_id),
+            Self::Pending(promise_state_handle) => Self::Pending(promise_state_handle.clone()),
         }
     }
 }
@@ -740,7 +730,9 @@ impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
     type Error = TestValueError<TestSleepDurationError>;
 
     fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
-        let value = self.require_ready_ref()?;
+        let value = self
+            .require_ready_ref()
+            .map_err(|error| error.map(|promise_state_handle| promise_state_handle.id()))?;
         value.to_sleep_duration().map_err(TestValueError::Ready)
     }
 }
@@ -750,7 +742,9 @@ impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for Tes
     type ActionCallArgument = TestMaterialValue;
 
     fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
-        let value = self.require_ready_ref()?;
+        let value = self
+            .require_ready_ref()
+            .map_err(|error| error.map(|promise_state_handle| promise_state_handle.id()))?;
         value
             .capture_action_call_argument()
             .map_err(TestValueError::Ready)

@@ -24,6 +24,15 @@ pub struct Exception {
     pub details: Value,
 }
 
+impl waymark_vm_runtime_promise_core::TracePromiseStateIds for Exception {
+    fn trace_promise_state_ids(
+        &self,
+        visit: &mut dyn FnMut(waymark_vm_runtime_promise_core::PromiseStateId),
+    ) {
+        self.details.trace_promise_state_ids(visit);
+    }
+}
+
 /// A Python exception class as the VM mints it: the name and the bases.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClassSpec {

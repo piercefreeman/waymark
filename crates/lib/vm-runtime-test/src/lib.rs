@@ -90,6 +90,17 @@ impl waymark_vm_runtime_value::RootValueAccess for TestMaterialValue {
     type RootValue = TestValue;
 }
 
+impl waymark_vm_runtime_promise_core::TracePromiseStateIds for TestMaterialValue {
+    fn trace_promise_state_ids(
+        &self,
+        _visit: &mut dyn FnMut(waymark_vm_runtime_promise_core::PromiseStateId),
+    ) {
+        match self {
+            Self::Int(_) => {}
+        }
+    }
+}
+
 /// The raised exception of the test runtime: a class name and a ready
 /// value, matched by class name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +116,15 @@ impl waymark_vm_runtime_exception::HasMatchPattern for TestException {
 impl waymark_vm_runtime_exception::Match for TestException {
     fn matches(&self, pattern: &Self::Pattern) -> bool {
         self.type_id == *pattern
+    }
+}
+
+impl waymark_vm_runtime_promise_core::TracePromiseStateIds for TestException {
+    fn trace_promise_state_ids(
+        &self,
+        visit: &mut dyn FnMut(waymark_vm_runtime_promise_core::PromiseStateId),
+    ) {
+        self.details.trace_promise_state_ids(visit);
     }
 }
 
@@ -156,7 +176,7 @@ impl Interpreter for TestInterpreter {
             TestInstruction::Exit => Ok(ExecutionOutcome::ExitFrame),
             TestInstruction::Suspend { dst, resume } => {
                 let FullRuntimeView { state, .. } = runtime;
-                let promise_state_id = state.promise_states.prepare();
+                let promise_state_id = state.promise_states.prepare().id();
                 let promise_state = state
                     .promise_states
                     .get_mut(promise_state_id)

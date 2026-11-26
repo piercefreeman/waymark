@@ -1,5 +1,5 @@
 use waymark_vm_runtime_core::PromiseStateNotFoundError;
-use waymark_vm_runtime_promise_core::UnresolvedPromiseError;
+use waymark_vm_runtime_promise_core::{PromiseStateId, UnresolvedPromiseError};
 
 /// The error for the [`crate::CoreSetInterpreter`].
 #[derive(Debug, thiserror::Error)]
@@ -77,7 +77,7 @@ pub enum FnExitError {
 
     /// Exiting from the top-level frame encountered an unresolved promise.
     #[error("toplevel: {0}")]
-    TopLevel(#[source] UnresolvedPromiseError),
+    TopLevel(#[source] UnresolvedPromiseError<PromiseStateId>),
 }
 
 /// Errors produced while completing a function-call return.

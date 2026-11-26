@@ -4043,6 +4043,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-atomic-owners-counter"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-backend-postgres"
 version = "0.1.0"
 dependencies = [
@@ -6273,8 +6277,10 @@ version = "0.1.0"
 dependencies = [
  "derive-where",
  "index_type",
+ "rmp-serde",
  "serde",
  "thiserror",
+ "waymark-atomic-owners-counter",
  "waymark-id-map",
  "waymark-typed-vec-serde",
  "waymark-vm-exception-handler",
@@ -6308,7 +6314,6 @@ dependencies = [
  "index_type",
  "serde",
  "thiserror",
- "waymark-blanket-impl-macros",
 ]
 
 [[package]]
@@ -6321,6 +6326,7 @@ dependencies = [
  "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime-core",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-value",
@@ -6338,6 +6344,7 @@ dependencies = [
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-promise-value",
  "waymark-vm-runtime-value",
 ]
@@ -6365,6 +6372,7 @@ dependencies = [
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-pureset",
  "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-promise-value",
  "waymark-vm-runtime-value",
 ]
@@ -6418,7 +6426,7 @@ dependencies = [
  "waymark-action-runtime-core",
  "waymark-convert-core",
  "waymark-proto",
- "waymark-vm-runtime-promise-core",
+ "waymark-vm-runtime-core",
  "waymark-vm-value-convert-core",
  "waymark-vm-value-python",
  "waymark-workflow-completion-core",

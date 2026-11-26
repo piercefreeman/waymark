@@ -1,5 +1,7 @@
 //! [`waymark_vm_interpreter_coreset`] trait implementations.
 
+use waymark_vm_runtime_core::PromisableExt as _;
+
 use crate::PromiseValue;
 
 impl<T> waymark_vm_interpreter_coreset::value::ShouldJump for PromiseValue<T>
@@ -23,7 +25,7 @@ where
     fn capture_call_argument(&self) -> Self {
         match self {
             Self::Ready(value) => Self::Ready(T::capture_call_argument(value)),
-            Self::Pending(promise_state_id) => Self::Pending(*promise_state_id),
+            Self::Pending(promise_state_handle) => Self::Pending(promise_state_handle.clone()),
         }
     }
 }

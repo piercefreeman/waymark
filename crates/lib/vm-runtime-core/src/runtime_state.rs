@@ -6,6 +6,9 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use crate::{Frame, PromiseStates, PromiseWaiter, SelectStates, SettlePromiseError};
 
+#[cfg(feature = "serde")]
+mod serde_impl;
+
 /// The state shape of the runtime.
 ///
 /// Public struct, but the runtime itself will shield the access to
@@ -18,26 +21,6 @@ use crate::{Frame, PromiseStates, PromiseWaiter, SelectStates, SettlePromiseErro
     Debug;
     FunctionId, StateId, Value, RaisedException,
     waymark_vm_runtime_exception::MatchPatternOf<RaisedException>,
-)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(bound(
-        serialize = "
-            FunctionId: serde::Serialize,
-            StateId: serde::Serialize,
-            Value: serde::Serialize,
-            RaisedException: serde::Serialize,
-            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Serialize,
-        ",
-        deserialize = "
-            FunctionId: serde::Deserialize<'de>,
-            StateId: serde::Deserialize<'de>,
-            Value: serde::Deserialize<'de>,
-            RaisedException: serde::Deserialize<'de>,
-            waymark_vm_runtime_exception::MatchPatternOf<RaisedException>: serde::Deserialize<'de>,
-        ",
-    ))
 )]
 pub struct RuntimeState<FunctionId, StateId, Value, RaisedException>
 where
@@ -52,11 +35,6 @@ where
     pub ready: VecDeque<Frame<FunctionId, StateId, Value, RaisedException>>,
 
     /// A state of the promises of this runtime.
-    //
-    // TODO: the promise states should be garbage-collected together with
-    // the promise values that refer to them. We can implement this without
-    // a full garbage-collector by holding the promises in a weak-rc-map
-    // or something like that.
     pub promise_states: PromiseStates<FunctionId, StateId, Value, RaisedException>,
 
     /// A state of the selects of this runtime.
@@ -200,7 +178,7 @@ mod tests {
     #[test]
     fn resolve_promise_enqueues_resumed_frames_and_records_resolved_value() {
         let mut promise_states = TestPromiseStates::new();
-        let promise_state_id = promise_states.prepare();
+        let promise_state_id = promise_states.prepare().id();
         let promise_state = promise_states
             .get_mut(promise_state_id)
             .expect("promise state exists");
@@ -253,7 +231,7 @@ mod tests {
     #[test]
     fn resolve_promise_returns_error_when_promise_has_already_settled() {
         let mut promise_states = TestPromiseStates::new();
-        let promise_state_id = promise_states.prepare();
+        let promise_state_id = promise_states.prepare().id();
         let promise_state = promise_states
             .get_mut(promise_state_id)
             .expect("promise state exists");
@@ -295,7 +273,7 @@ mod tests {
     #[test]
     fn reject_promise_resumes_waiters_with_raised_exceptions() {
         let mut promise_states = TestPromiseStates::new();
-        let promise_state_id = promise_states.prepare();
+        let promise_state_id = promise_states.prepare().id();
         let promise_state = promise_states
             .get_mut(promise_state_id)
             .expect("promise state exists");
@@ -328,7 +306,7 @@ mod tests {
     #[test]
     fn resolve_promise_claims_the_select_and_delivers_to_the_arm() {
         let mut promise_states = TestPromiseStates::new();
-        let source = promise_states.prepare();
+        let source = promise_states.prepare().id();
 
         let mut select_states = SelectStates::new();
         let handle = select_states.insert(Continuation::capture_select(frame(0)));
@@ -355,7 +333,7 @@ mod tests {
     #[test]
     fn reject_promise_claims_the_select_and_raises_at_the_arm() {
         let mut promise_states = TestPromiseStates::new();
-        let source = promise_states.prepare();
+        let source = promise_states.prepare().id();
 
         let mut select_states = SelectStates::new();
         let handle = select_states.insert(Continuation::capture_select(frame(0)));
@@ -381,8 +359,8 @@ mod tests {
     #[test]
     fn losing_select_arm_is_inert_and_other_waiters_still_notify() {
         let mut promise_states = TestPromiseStates::new();
-        let winner_source = promise_states.prepare();
-        let loser_source = promise_states.prepare();
+        let winner_source = promise_states.prepare().id();
+        let loser_source = promise_states.prepare().id();
 
         let mut select_states = SelectStates::new();
         let handle = select_states.insert(Continuation::capture_select(frame(0)));
