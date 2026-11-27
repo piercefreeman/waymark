@@ -1,0 +1,33 @@
+# https://editorconfig.org
+root = true
+
+[*]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.rs]
+indent_size = 4
+
+[*.{py,pyi}]
+indent_size = 4
+
+[*.sql]
+indent_size = 4
+
+[Dockerfile]
+indent_size = 4
+
+[{Makefile,*.sh}]
+indent_style = tab
+indent_size = unset
+
+# Written by insta byte for byte: an editor leaves their whitespace as it is.
+[*.snap]
+indent_style = unset
+indent_size = unset
+trim_trailing_whitespace = false
+insert_final_newline = unset
