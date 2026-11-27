@@ -4890,6 +4890,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-migrations-rust-code-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "waymark-migrations-source-checksums-core"
 version = "0.1.0"
 dependencies = [
